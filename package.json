@@ -1,0 +1,38 @@
+{
+  "name": "kataru",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "build": "next build",
+    "build:binary": "npm run build && cargo build --release",
+    "check:rust": "cargo test",
+    "dev": "node scripts/dev.mjs",
+    "dev:server": "cargo run -- --no-open --dev-origin http://127.0.0.1:3000",
+    "dev:ui": "next dev --webpack -H 127.0.0.1",
+    "start": "node scripts/start.mjs",
+    "smoke:binary": "node scripts/smoke-binary.mjs",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.40.0",
+    "lucide-react": "^1.21.0",
+    "next": "^16.2.9",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "react-markdown": "^10.1.0",
+    "tailwind-merge": "^3.6.0",
+    "zustand": "^5.0.14"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^25",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9.39.1",
+    "eslint-config-next": "16.2.9",
+    "tailwindcss": "^4",
+    "typescript": "^6"
+  }
+}

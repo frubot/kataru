@@ -44,6 +44,98 @@ type TitleGenerationRequestMessage = {
     content: string;
     name?: string;
 };
+type ConversationCharacter = {
+    id: string;
+    name: string;
+    systemPrompt: string;
+    protagonistPrompt?: string;
+    model: string;
+    maxTokens?: number;
+    maxHistory?: number;
+    temperature?: number;
+    topP?: number;
+    topK?: number;
+    enableMemory?: boolean;
+    enableSummary?: boolean;
+    thinkModeEnabled?: boolean;
+    expressions?: { name: string }[];
+    costumes?: {
+        name: string;
+        expressions?: { name: string }[];
+    }[];
+};
+type ConversationParticipant = ConversationCharacter & {
+    actorId: string;
+    actorType: SituationParticipant['actorType'];
+    sourceCharacterId?: string;
+    rolePrompt?: string;
+    directorDescription?: string;
+};
+
+function toConversationCharacter(character: Character | null): ConversationCharacter | null {
+    if (!character) return null;
+    return {
+        id: character.id,
+        name: character.name,
+        systemPrompt: character.systemPrompt,
+        protagonistPrompt: character.protagonistPrompt,
+        model: character.model,
+        maxTokens: character.maxTokens,
+        maxHistory: character.maxHistory,
+        temperature: character.temperature,
+        topP: character.topP,
+        topK: character.topK,
+        enableMemory: character.enableMemory,
+        enableSummary: character.enableSummary,
+        thinkModeEnabled: character.thinkModeEnabled,
+        expressions: character.expressions?.map(({ name }) => ({ name })),
+        costumes: character.costumes?.map(({ name, expressions }) => ({
+            name,
+            expressions: expressions?.map(({ name: expressionName }) => ({ name: expressionName })),
+        })),
+    };
+}
+
+function toConversationParticipant(participant: SituationParticipant): ConversationParticipant {
+    return {
+        ...toConversationCharacter(participant)!,
+        actorId: participant.actorId,
+        actorType: participant.actorType,
+        sourceCharacterId: participant.sourceCharacterId,
+        rolePrompt: participant.rolePrompt,
+        directorDescription: participant.directorDescription,
+    };
+}
+
+function toConversationSituation(situation: Situation | null | undefined) {
+    if (!situation) return null;
+    return {
+        id: situation.id,
+        name: situation.name,
+        situationPrompt: situation.situationPrompt,
+        director: {
+            model: situation.director.model,
+            systemPrompt: situation.director.systemPrompt,
+            reasoningEffort: situation.director.reasoningEffort,
+            maxAutoTurns: situation.director.maxAutoTurns,
+            stopPolicy: situation.director.stopPolicy,
+        },
+        memoryMode: situation.memoryMode,
+        maxHistory: situation.maxHistory,
+    };
+}
+
+function toConversationRoom(room: Room) {
+    return {
+        id: room.id,
+        name: room.name,
+        viewMode: room.viewMode,
+        summary: room.summary,
+        maxMentionChain: room.maxMentionChain,
+        costumeSelections: room.costumeSelections,
+        secretMode: room.secretMode,
+    };
+}
 
 const CHAT_MODE_OPTIONS: { value: RoomViewMode; label: string; description: string }[] = [
     { value: 'chat', label: 'ベーシック', description: 'キャラクターと話す' },
@@ -1370,10 +1462,10 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    room: sourceRoom,
-                    character,
-                    situation,
-                    groupCharacters,
+                    room: toConversationRoom(sourceRoom),
+                    character: toConversationCharacter(character),
+                    situation: toConversationSituation(situation),
+                    groupCharacters: groupCharacters?.map(toConversationParticipant),
                     messages: sourceRoom.messages,
                     secretMode: isSecretMode,
                     summaryModel: globalSummaryModel,

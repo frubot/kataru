@@ -34,6 +34,8 @@ use crate::{
 
 // JSONバックアップにはdata URL画像が含まれるため、画面側の256MiB上限に余裕を持たせる。
 const STORAGE_REQUEST_BODY_LIMIT: usize = 512 * 1024 * 1024;
+// 長い会話履歴を許容しつつ、画像data URLの誤送信などによる過剰なメモリ消費は制限する。
+const CONVERSATION_REQUEST_BODY_LIMIT: usize = 64 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -135,7 +137,10 @@ fn api_router() -> Router<AppState> {
         )
         .route("/generate-title", post(ai::generate_title))
         .route("/extract-memories", post(ai::extract_memories))
-        .route("/conversation/turn", post(conversation::turn))
+        .route(
+            "/conversation/turn",
+            post(conversation::turn).layer(DefaultBodyLimit::max(CONVERSATION_REQUEST_BODY_LIMIT)),
+        )
 }
 
 async fn health(State(state): State<AppState>) -> Json<serde_json::Value> {
@@ -256,5 +261,34 @@ mod tests {
 
         server.abort();
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn conversation_route_accepts_body_above_axum_default_limit() {
+        let state = AppState {
+            database: Database::open(Path::new(":memory:")).expect("open in-memory database"),
+            http_client: Client::new(),
+            application_origin: "http://127.0.0.1".to_owned(),
+        };
+        let app = api_router().with_state(state);
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind test server");
+        let address = listener.local_addr().expect("read test server address");
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("serve test app");
+        });
+
+        let response = Client::new()
+            .post(format!("http://{address}/conversation/turn"))
+            .json(&json!({
+                "padding": "x".repeat(3 * 1024 * 1024),
+            }))
+            .send()
+            .await
+            .expect("send oversized conversation request");
+
+        server.abort();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 }

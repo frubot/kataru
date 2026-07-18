@@ -353,12 +353,15 @@ pub(crate) async fn structured_completion(
     if first.status().is_success() {
         return read_upstream_json(first).await;
     }
+    if !provider.is_openrouter() {
+        return Err(upstream_error(first).await);
+    }
 
     let second = structured_attempt(
         provider,
         &request,
         &response_format,
-        provider.is_openrouter(),
+        true,
         false,
         timeout_secs,
     )
@@ -366,20 +369,7 @@ pub(crate) async fn structured_completion(
     if second.status().is_success() {
         return read_upstream_json(second).await;
     }
-    if !provider.is_openrouter() {
-        return Err(upstream_error(second).await);
-    }
-
-    let third = structured_attempt(
-        provider,
-        &request,
-        &response_format,
-        false,
-        false,
-        timeout_secs,
-    )
-    .await?;
-    read_upstream_json(third).await
+    Err(upstream_error(second).await)
 }
 
 fn extract_content_text(content: &Value) -> String {

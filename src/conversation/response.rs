@@ -29,10 +29,9 @@ pub fn parse_assistant_response(
     content: &str,
     expression_names: &[String],
     message_mode: bool,
-    require_structured: bool,
 ) -> AppResult<AssistantEnvelope> {
     let parsed = parse_json_from_text(content);
-    if require_structured && parsed.is_none() {
+    if parsed.is_none() {
         return Err(AppError::Upstream(
             "AI応答が要求されたJSON形式ではありません。".into(),
             axum::http::StatusCode::BAD_GATEWAY,
@@ -307,7 +306,6 @@ mod tests {
             "```json\n{\"response\":{\"messages\":[\"a\",\"b\"],\"emotion\":\"happy\"}}\n```",
             &["neutral".into(), "happy".into()],
             true,
-            true,
         )
         .unwrap();
         assert_eq!(response.messages, ["a", "b"]);
@@ -317,8 +315,16 @@ mod tests {
     #[test]
     fn finds_json_after_short_explanation() {
         let response =
-            parse_assistant_response("Here: {\"message\":\"hello\"} done", &[], false, true)
-                .unwrap();
+            parse_assistant_response("Here: {\"message\":\"hello\"} done", &[], false).unwrap();
         assert_eq!(response.message, "hello");
+    }
+
+    #[test]
+    fn rejects_unstructured_response() {
+        let result = parse_assistant_response("hello", &[], false);
+        assert!(matches!(
+            result,
+            Err(AppError::Upstream(_, axum::http::StatusCode::BAD_GATEWAY))
+        ));
     }
 }

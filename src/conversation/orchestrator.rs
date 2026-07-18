@@ -436,12 +436,7 @@ async fn generate_for_character(
     let started = now_ms();
     let raw = structured_completion(provider, body, schema, 120).await?;
     let content = extract_message_text(&raw);
-    let envelope = parse_assistant_response(
-        &content,
-        &expression_names,
-        message_mode,
-        boolean(character, "thinkModeEnabled"),
-    )?;
+    let envelope = parse_assistant_response(&content, &expression_names, message_mode)?;
     if !secret_mode {
         push_usage(usages, &raw, character, "chat");
         full_json_logs.push(json!({

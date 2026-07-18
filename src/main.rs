@@ -10,7 +10,7 @@ use std::sync::Arc;
 use axum::{
     Json, Router,
     body::Body,
-    extract::{Request, State},
+    extract::{DefaultBodyLimit, Request, State},
     http::{Method, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -31,6 +31,9 @@ use crate::{
     db::{Database, handle_storage_command},
     error::{AppError, AppResult},
 };
+
+// JSONバックアップにはdata URL画像が含まれるため、画面側の256MiB上限に余裕を持たせる。
+const STORAGE_REQUEST_BODY_LIMIT: usize = 512 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -81,21 +84,7 @@ async fn run() -> AppResult<()> {
         allowed_origins: Arc::from(allowed_origins),
     };
 
-    let api = Router::new()
-        .route("/health", get(health))
-        .route("/storage", post(handle_storage_command))
-        .route("/chat", post(ai::chat))
-        .route("/summarize", post(ai::summarize))
-        .route("/embeddings", post(ai::embeddings))
-        .route("/generate-image", post(ai::generate_image))
-        .route("/generate-character", post(ai::generate_character))
-        .route(
-            "/generate-situation-description",
-            post(ai::generate_situation_description),
-        )
-        .route("/generate-title", post(ai::generate_title))
-        .route("/extract-memories", post(ai::extract_memories))
-        .route("/conversation/turn", post(conversation::turn));
+    let api = api_router();
 
     let app = Router::new()
         .nest("/api", api)
@@ -126,6 +115,27 @@ async fn run() -> AppResult<()> {
         .with_graceful_shutdown(shutdown_signal())
         .await?;
     Ok(())
+}
+
+fn api_router() -> Router<AppState> {
+    Router::new()
+        .route("/health", get(health))
+        .route(
+            "/storage",
+            post(handle_storage_command).layer(DefaultBodyLimit::max(STORAGE_REQUEST_BODY_LIMIT)),
+        )
+        .route("/chat", post(ai::chat))
+        .route("/summarize", post(ai::summarize))
+        .route("/embeddings", post(ai::embeddings))
+        .route("/generate-image", post(ai::generate_image))
+        .route("/generate-character", post(ai::generate_character))
+        .route(
+            "/generate-situation-description",
+            post(ai::generate_situation_description),
+        )
+        .route("/generate-title", post(ai::generate_title))
+        .route("/extract-memories", post(ai::extract_memories))
+        .route("/conversation/turn", post(conversation::turn))
 }
 
 async fn health(State(state): State<AppState>) -> Json<serde_json::Value> {
@@ -200,5 +210,51 @@ async fn shutdown_signal() {
     tokio::select! {
         () = ctrl_c => {}
         () = terminate => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use axum::http::StatusCode;
+    use serde_json::json;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn storage_route_accepts_body_above_axum_default_limit() {
+        let state = AppState {
+            database: Database::open(Path::new(":memory:")).expect("open in-memory database"),
+            http_client: Client::new(),
+            application_origin: "http://127.0.0.1".to_owned(),
+        };
+        let app = api_router().with_state(state);
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind test server");
+        let address = listener.local_addr().expect("read test server address");
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("serve test app");
+        });
+
+        let response = Client::new()
+            .post(format!("http://{address}/storage"))
+            .json(&json!({
+                "op": "bulk_write",
+                "characters": [],
+                "situations": [],
+                "rooms": [],
+                "messages": [],
+                "memories": [],
+                "usage_records": [],
+                "padding": "x".repeat(3 * 1024 * 1024),
+            }))
+            .send()
+            .await
+            .expect("send oversized storage request");
+
+        server.abort();
+        assert_eq!(response.status(), StatusCode::OK);
     }
 }

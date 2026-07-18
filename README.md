@@ -130,7 +130,7 @@ npm run build:binary
 npm start
 ```
 
-起動すると既定のブラウザで <http://127.0.0.1:37371> が開きます。バイナリのスモークテストは次のコマンドで実行できます。
+起動してもブラウザは自動では開きません。ブラウザで <http://127.0.0.1:37371> を開いて使用してください。バイナリのスモークテストは次のコマンドで実行できます。
 
 ```bash
 npm run smoke:binary
@@ -143,6 +143,7 @@ npm run smoke:binary
 --port <PORT>         待受ポート（既定: 37371）
 --data-dir <PATH>     データ保存先
 --portable            実行ファイル横の kataru-data/ を使用
+--open                ブラウザを自動で開く
 --no-open             ブラウザを自動で開かない
 --dev-origin <ORIGIN> 開発UI用のloopbackオリジンを許可
 ```

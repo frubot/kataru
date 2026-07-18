@@ -27,7 +27,7 @@ impl Config {
         let mut host = IpAddr::V4(Ipv4Addr::LOCALHOST);
         let mut port = DEFAULT_PORT;
         let mut data_dir = project_dirs.data_local_dir().to_path_buf();
-        let mut open_browser = true;
+        let mut open_browser = false;
         let mut development_origin = None;
 
         let mut args = env::args().skip(1);
@@ -76,6 +76,7 @@ impl Config {
                         })?
                         .join("kataru-data");
                 }
+                "--open" => open_browser = true,
                 "--no-open" => open_browser = false,
                 "--dev-origin" => {
                     let value = args.next().ok_or_else(|| {
@@ -99,7 +100,7 @@ impl Config {
                 }
                 "--help" | "-h" => {
                     println!(
-                        "Kataru\n\n  --port <PORT>          待受ポート（既定: {DEFAULT_PORT}）\n  --data-dir <PATH>      データ保存先\n  --portable             実行ファイル横の kataru-data を使用\n  --no-open              ブラウザを自動で開かない\n  --dev-origin <ORIGIN>  開発UI用のloopbackオリジンを許可"
+                        "Kataru\n\n  --port <PORT>          待受ポート（既定: {DEFAULT_PORT}）\n  --data-dir <PATH>      データ保存先\n  --portable             実行ファイル横の kataru-data を使用\n  --open                ブラウザを自動で開く\n  --no-open              ブラウザを自動で開かない\n  --dev-origin <ORIGIN>  開発UI用のloopbackオリジンを許可"
                     );
                     std::process::exit(0);
                 }

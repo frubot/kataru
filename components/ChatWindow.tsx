@@ -685,6 +685,7 @@ type RustTurnResponse = {
         model?: string;
         status: 'success' | 'error';
         source: string;
+        prompt?: string;
         json: string;
         httpStatus?: number;
         elapsedMs?: number;
@@ -1457,6 +1458,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                             model: log.model,
                             status: log.status,
                             source: log.source,
+                            prompt: log.prompt,
                             json: log.json,
                             httpStatus: log.httpStatus,
                             elapsedMs: log.elapsedMs,
@@ -2641,6 +2643,27 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                                                     <time style={{ flexShrink: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                                                         {new Date(log.createdAt).toLocaleString()}
                                                     </time>
+                                                </div>
+                                                {log.prompt && (
+                                                    <div style={{ marginBottom: '0.75rem' }}>
+                                                        <div style={{ marginBottom: '0.375rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+                                                            送信プロンプト
+                                                        </div>
+                                                        <pre style={{
+                                                            margin: 0,
+                                                            maxHeight: '420px',
+                                                            overflow: 'auto',
+                                                            whiteSpace: 'pre-wrap',
+                                                            wordBreak: 'break-word',
+                                                            fontFamily: 'ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace',
+                                                            fontSize: '0.8125rem',
+                                                            lineHeight: 1.55,
+                                                            color: 'var(--text-secondary)',
+                                                        }}>{log.prompt}</pre>
+                                                    </div>
+                                                )}
+                                                <div style={{ marginBottom: '0.375rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+                                                    応答JSON
                                                 </div>
                                                 <pre style={{
                                                     margin: 0,

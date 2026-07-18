@@ -431,6 +431,8 @@ async fn generate_for_character(
         "top_k": number_u64(character, "topK", DEFAULT_TOP_K),
         "stream": false,
     });
+    let prompt = serde_json::to_string_pretty(&body["messages"])
+        .expect("completion messages must be serializable");
     let started = now_ms();
     let raw = structured_completion(provider, body, schema, 120).await?;
     let content = extract_message_text(&raw);
@@ -450,6 +452,7 @@ async fn generate_for_character(
             "model": string(character, "model"),
             "status": "success",
             "source": "assistant-json",
+            "prompt": prompt,
             "json": content,
             "elapsedMs": now_ms().saturating_sub(started),
         }));
@@ -569,6 +572,8 @@ async fn request_director(
     if provider.is_openrouter() {
         request["reasoning"] = json!({"effort": "none"});
     }
+    let prompt = serde_json::to_string_pretty(&request["messages"])
+        .expect("director messages must be serializable");
     let raw = structured_completion(provider, request, schema, 120).await?;
     let content = extract_message_text(&raw);
     let mut decision = parse_director_decision(&content, &eligible_ids)?;
@@ -599,6 +604,7 @@ async fn request_director(
             "model": model,
             "status": "success",
             "source": "director-json",
+            "prompt": prompt,
             "json": content,
         }));
         if let Some(thinking) = &decision.thinking {

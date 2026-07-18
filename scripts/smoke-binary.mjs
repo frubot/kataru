@@ -203,6 +203,9 @@ try {
   assert.equal(turn.messages[0].content, "Rust response");
   assert.equal(turn.usages[0].totalTokens, 14);
   assert.equal(turn.fullJsonLogs[0].source, "assistant-json");
+  const sentPrompt = JSON.parse(turn.fullJsonLogs[0].prompt);
+  assert.equal(sentPrompt[0].role, "system");
+  assert.equal(sentPrompt.at(-1).content, "Hello");
 
   const database = await stat(join(dataDirectory, "kataru.db"));
   assert.ok(database.size > 0);

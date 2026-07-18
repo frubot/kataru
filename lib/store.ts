@@ -289,6 +289,7 @@ export interface FullJsonDebugLog {
     model?: string;
     status: 'success' | 'error';
     source: string;
+    prompt?: string;
     json: string;
     httpStatus?: number;
     elapsedMs?: number;

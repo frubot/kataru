@@ -1,5 +1,3 @@
-'use client';
-
 import { useState, useEffect, useRef } from 'react';
 import { X, Sparkles, Loader2, Upload } from 'lucide-react';
 import { resizeToMaxEdge, cropSquareToJpeg, cropRectToPng, loadImage } from '@/lib/imageUtils';

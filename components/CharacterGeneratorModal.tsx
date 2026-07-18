@@ -1,5 +1,3 @@
-'use client';
-
 import { useEffect, useRef, useState } from 'react';
 import { Loader2, Sparkles, X } from 'lucide-react';
 import {

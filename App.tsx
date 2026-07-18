@@ -1,5 +1,3 @@
-'use client';
-
 import { useState, useEffect } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { useStore, Character, getThemeClassName, resolveSituationParticipants } from '@/lib/store';
@@ -105,7 +103,6 @@ export default function Home() {
             }
         }, HYDRATE_TIMEOUT_MS);
 
-        // eslint-disable-next-line react-hooks/set-state-in-effect
         setMounted(true);
         setHydrateError(null);
         hydrate()

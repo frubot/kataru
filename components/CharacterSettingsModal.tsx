@@ -1,5 +1,3 @@
-'use client';
-
 import { useState, useEffect, useCallback } from 'react';
 import { X, Brain, ChevronDown, ChevronRight, RotateCcw, User, Smile, Shirt, Info, Sparkles, FileText, LayoutList } from 'lucide-react';
 import {
@@ -315,7 +313,6 @@ export default function CharacterSettingsModal({ isOpen, onClose, character, isN
 
     useEffect(() => {
         if (character) {
-            // eslint-disable-next-line react-hooks/set-state-in-effect
             setName(character.name);
             setSystemPrompt(character.systemPrompt);
             setProtagonistPrompt(character.protagonistPrompt ?? '');
@@ -353,7 +350,6 @@ export default function CharacterSettingsModal({ isOpen, onClose, character, isN
 
     useEffect(() => {
         if (!isOpen) {
-            // eslint-disable-next-line react-hooks/set-state-in-effect
             setCharacterGeneratorOpen(false);
         }
     }, [isOpen]);

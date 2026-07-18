@@ -1,5 +1,3 @@
-'use client';
-
 import { memo, useEffect, useRef } from 'react';
 import { Brain, Pencil, Copy, Check, RefreshCw, Send, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';

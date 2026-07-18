@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ja" class="mode-dark palette-classic">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+    <meta
+      name="description"
+      content="A simple roleplay chat application using OpenRouter or OpenAI-compatible APIs"
+    />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Kataru</title>
+    <script>
+      (function () {
+        try {
+          var key = "kataru-theme";
+          var raw = localStorage.getItem(key) || "";
+          if (!raw) {
+            raw = localStorage.getItem("roleplay-gui-theme") || "";
+            if (raw) localStorage.setItem(key, raw);
+          }
+          var parts = raw.split(":");
+          var mode = parts[0];
+          var palette = parts[1];
+          var validMode = mode === "light" || mode === "dark";
+          var validPalette =
+            palette === "classic" ||
+            palette === "sakura" ||
+            palette === "sage" ||
+            palette === "sky" ||
+            palette === "amber" ||
+            palette === "mono";
+          document.documentElement.className =
+            "mode-" + (validMode ? mode : "dark") +
+            " palette-" + (validPalette ? palette : "classic");
+        } catch (_) {
+          document.documentElement.className = "mode-dark palette-classic";
+        }
+      })();
+    </script>
+  </head>
+  <body class="antialiased">
+    <div id="root"></div>
+    <script type="module" src="/main.tsx"></script>
+  </body>
+</html>

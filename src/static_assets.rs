@@ -37,7 +37,7 @@ fn embedded_response(path: &str) -> Option<Response> {
     );
     let cache_control = if path == "index.html" {
         "no-cache"
-    } else if path.starts_with("_next/static/") {
+    } else if path.starts_with("assets/") {
         "public, max-age=31536000, immutable"
     } else {
         "public, max-age=3600"

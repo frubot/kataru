@@ -1,5 +1,3 @@
-'use client';
-
 export default function AppSkeleton() {
     return (
         <main

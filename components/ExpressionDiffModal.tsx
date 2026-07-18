@@ -1,5 +1,3 @@
-'use client';
-
 import { useState, useEffect, useRef } from 'react';
 import { X, Loader2, Trash2, RefreshCw, Smile, Sparkles, Upload } from 'lucide-react';
 import type { Costume, Expression } from '@/lib/store';

@@ -1,5 +1,3 @@
-'use client';
-
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { ChevronDown, ChevronRight, ChevronUp, MessagesSquare, Plus, RotateCcw, Sparkles, Trash2, User, Users, X } from 'lucide-react';
 import {

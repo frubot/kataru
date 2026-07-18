@@ -1,5 +1,3 @@
-'use client';
-
 import { useEffect, useState, type ReactNode } from 'react';
 import { Plus, MessageSquare, Settings, Trash2, ChevronDown, ChevronRight, User, Users, Copy, EllipsisVertical, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { useStore, Character, Situation, resolveSituationParticipants } from '@/lib/store';

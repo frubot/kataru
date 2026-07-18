@@ -1,5 +1,3 @@
-'use client';
-
 import { useState, useMemo, useEffect } from 'react';
 import { BarChart3, Calendar, ChevronDown, Users } from 'lucide-react';
 import { useStore } from '@/lib/store';

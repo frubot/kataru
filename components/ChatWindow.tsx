@@ -1,5 +1,3 @@
-'use client';
-
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
 import { Send, Sparkles, MessageSquare, MessagesSquare, Menu, Brain, Bug, Square, SquarePen, Gamepad2, Copy, Check, RefreshCw, ChevronsDown, Shirt, AlertTriangle, X, ChevronDown, HatGlasses, Undo2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';

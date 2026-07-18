@@ -1,5 +1,3 @@
-'use client';
-
 import { useState, useEffect, useRef } from 'react';
 import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Brain, Braces, Search, Image, Check, ChevronDown, type LucideIcon } from 'lucide-react';
 import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, DEFAULT_SUMMARY_MODEL, DEFAULT_CHAT_MODEL, DEFAULT_DIRECTOR_MODEL, DEFAULT_AUTO_GENERATION_MODEL, DEFAULT_TITLE_GENERATION_MODEL, DEFAULT_IMAGE_MODEL, DEFAULT_MEMORY_EXTRACTION_MODEL, DEFAULT_MEMORY_EMBEDDING_MODEL, type AiProvider } from '@/lib/store';

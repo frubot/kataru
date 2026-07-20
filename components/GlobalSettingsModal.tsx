@@ -102,91 +102,153 @@ function VnSpeedSlider({ value, onChange }: VnSpeedSliderProps) {
     const index = VN_SPEED_INDEX[value];
     const percent = (index / (VN_SPEED_OPTIONS.length - 1)) * 100;
     const currentOption = VN_SPEED_OPTIONS[index];
+    const [isMenuOpen, setMenuOpen] = useState(false);
+    const speedMenuRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (!isMenuOpen) return;
+
+        const handlePointerDown = (event: PointerEvent) => {
+            const target = event.target;
+            if (target instanceof Node && !speedMenuRef.current?.contains(target)) {
+                setMenuOpen(false);
+            }
+        };
+
+        document.addEventListener('pointerdown', handlePointerDown);
+        return () => document.removeEventListener('pointerdown', handlePointerDown);
+    }, [isMenuOpen]);
 
     return (
-        <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.375rem', gap: '0.75rem' }}>
+        <div style={{ position: 'relative' }} ref={speedMenuRef}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
                 <label style={{ fontSize: '0.8125rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
                     文字送り速度
                 </label>
-                <span style={{
-                    fontSize: '0.8125rem',
-                    fontWeight: 600,
-                    color: 'var(--accent-primary)',
-                    minWidth: '7rem',
-                    textAlign: 'right',
-                }}>
-                    {currentOption.label}
-                </span>
+                <button
+                    type="button"
+                    aria-haspopup="dialog"
+                    aria-expanded={isMenuOpen}
+                    onClick={() => setMenuOpen((open) => !open)}
+                    style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '0.5rem',
+                        minWidth: '7rem',
+                        minHeight: '2.25rem',
+                        padding: '0.5rem 0.625rem',
+                        borderRadius: '0.5rem',
+                        color: 'var(--text-primary)',
+                        cursor: 'pointer',
+                        fontSize: '0.8125rem',
+                        fontWeight: 600,
+                        transition: 'background 0.15s ease, border-color 0.15s ease',
+                    }}
+                >
+                    <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'left' }}>
+                        {currentOption.label}
+                    </span>
+                    <ChevronDown
+                        size={15}
+                        aria-hidden="true"
+                        style={{
+                            flexShrink: 0,
+                            color: 'var(--text-muted)',
+                            transform: isMenuOpen ? 'rotate(180deg)' : undefined,
+                            transition: 'transform 0.15s ease',
+                        }}
+                    />
+                </button>
             </div>
 
-            <div style={{ position: 'relative', height: '24px', display: 'flex', alignItems: 'center' }}>
-                <div style={{
-                    position: 'absolute',
-                    width: '100%',
-                    height: '4px',
-                    borderRadius: '2px',
-                    background: 'var(--bg-tertiary)',
-                    overflow: 'hidden',
-                }}>
-                    <div style={{
-                        width: `${percent}%`,
-                        height: '100%',
-                        background: 'var(--accent-primary)',
-                        borderRadius: '2px',
-                        transition: 'width 0.15s ease',
-                    }} />
-                </div>
-                <input
-                    type="range"
+            {isMenuOpen && (
+                <div
+                    role="dialog"
                     aria-label="文字送り速度"
-                    min={0}
-                    max={VN_SPEED_OPTIONS.length - 1}
-                    step={1}
-                    value={index}
-                    onChange={(e) => {
-                        const option = VN_SPEED_OPTIONS[Number(e.target.value)] ?? VN_SPEED_OPTIONS[1];
-                        onChange(option.id);
-                    }}
                     style={{
                         position: 'absolute',
-                        width: '100%',
-                        height: '24px',
-                        opacity: 0,
-                        cursor: 'pointer',
-                        margin: 0,
-                        padding: 0,
-                        zIndex: 2,
+                        right: 0,
+                        top: 'calc(100% + 0.5rem)',
+                        width: 'min(100%, 20rem)',
+                        minWidth: '16rem',
+                        padding: '0.75rem 1rem',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: '0.5rem',
+                        background: 'var(--bg-primary)',
+                        boxShadow: '0 12px 28px rgba(0, 0, 0, 0.24)',
+                        zIndex: 20,
                     }}
-                />
-                <div style={{
-                    position: 'absolute',
-                    left: `calc(${percent}% - 8px)`,
-                    width: '16px',
-                    height: '16px',
-                    borderRadius: '50%',
-                    background: 'var(--accent-primary)',
-                    boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
-                    transition: 'left 0.15s ease',
-                    pointerEvents: 'none',
-                    zIndex: 1,
-                }} />
-            </div>
+                >
+                    <div style={{ position: 'relative', height: '24px', display: 'flex', alignItems: 'center' }}>
+                        <div style={{
+                            position: 'absolute',
+                            width: '100%',
+                            height: '4px',
+                            borderRadius: '2px',
+                            background: 'var(--bg-tertiary)',
+                            overflow: 'hidden',
+                        }}>
+                            <div style={{
+                                width: `${percent}%`,
+                                height: '100%',
+                                background: 'var(--accent-primary)',
+                                borderRadius: '2px',
+                                transition: 'width 0.15s ease',
+                            }} />
+                        </div>
+                        <input
+                            type="range"
+                            aria-label="文字送り速度"
+                            min={0}
+                            max={VN_SPEED_OPTIONS.length - 1}
+                            step={1}
+                            value={index}
+                            onChange={(e) => {
+                                const option = VN_SPEED_OPTIONS[Number(e.target.value)] ?? VN_SPEED_OPTIONS[1];
+                                onChange(option.id);
+                            }}
+                            style={{
+                                position: 'absolute',
+                                width: '100%',
+                                height: '24px',
+                                opacity: 0,
+                                cursor: 'pointer',
+                                margin: 0,
+                                padding: 0,
+                                zIndex: 2,
+                            }}
+                        />
+                        <div style={{
+                            position: 'absolute',
+                            left: `calc(${percent}% - 8px)`,
+                            width: '16px',
+                            height: '16px',
+                            borderRadius: '50%',
+                            background: 'var(--accent-primary)',
+                            boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
+                            transition: 'left 0.15s ease',
+                            pointerEvents: 'none',
+                            zIndex: 1,
+                        }} />
+                    </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.25rem' }}>
-                {VN_SPEED_OPTIONS.map((option) => (
-                    <span
-                        key={option.id}
-                        style={{
-                            fontSize: '0.7rem',
-                            color: value === option.id ? 'var(--accent-primary)' : 'var(--text-muted)',
-                            fontWeight: value === option.id ? 600 : 400,
-                        }}
-                    >
-                        {option.label}
-                    </span>
-                ))}
-            </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.25rem' }}>
+                        {VN_SPEED_OPTIONS.map((option) => (
+                            <span
+                                key={option.id}
+                                style={{
+                                    fontSize: '0.7rem',
+                                    color: value === option.id ? 'var(--accent-primary)' : 'var(--text-muted)',
+                                    fontWeight: value === option.id ? 600 : 400,
+                                }}
+                            >
+                                {option.label}
+                            </span>
+                        ))}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
@@ -524,7 +586,7 @@ export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsM
                         </div>
 
                         {/* Appearance Section */}
-                        <div style={{ marginBottom: '1.5rem' }}>
+                        <div style={{ marginBottom: 0 }}>
                             <div style={{
                                 padding: '1rem',
                                 borderRadius: '0.5rem',

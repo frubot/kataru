@@ -845,7 +845,8 @@ body {
   transition: padding 0.25s ease;
 }
 
-.sidebar-desktop-controls {
+.sidebar-desktop-controls,
+.sidebar-mobile-controls {
   width: 100%;
   align-items: center;
   justify-content: flex-end;

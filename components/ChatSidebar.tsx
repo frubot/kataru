@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Plus, MessageSquare, Settings, Trash2, ChevronDown, ChevronRight, User, Users, Copy, EllipsisVertical, PanelLeftClose, PanelLeftOpen, Search, SquarePen } from 'lucide-react';
+import { Plus, MessageSquare, Settings, Trash2, ChevronDown, ChevronRight, User, Users, Copy, EllipsisVertical, PanelLeftClose, PanelLeftOpen, Search, SquarePen, X } from 'lucide-react';
 import { useStore, Character, Situation, resolveSituationParticipants } from '@/lib/store';
 import StoredImage from './StoredImage';
 import SituationSettingsModal from './SituationSettingsModal';
@@ -364,6 +364,30 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
                             aria-expanded={isDesktopOpen}
                         >
                             <DesktopSidebarIcon size={18} />
+                        </button>
+                    </div>
+                    <div className="sidebar-mobile-controls mobile-only">
+                        <button
+                            type="button"
+                            className="btn btn-ghost sidebar-icon-button sidebar-search-button"
+                            onClick={() => {
+                                setContextMenu(null);
+                                setSearchOpen(true);
+                            }}
+                            title="検索"
+                            aria-label="検索"
+                            aria-haspopup="dialog"
+                        >
+                            <Search size={18} />
+                        </button>
+                        <button
+                            type="button"
+                            className="btn btn-ghost sidebar-icon-button sidebar-close-button"
+                            onClick={onClose}
+                            title="サイドバーを閉じる"
+                            aria-label="サイドバーを閉じる"
+                        >
+                            <X size={18} />
                         </button>
                     </div>
                     {selectedConversationName && (

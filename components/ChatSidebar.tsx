@@ -1,8 +1,9 @@
-import { useEffect, useState, type ReactNode } from 'react';
-import { Plus, MessageSquare, Settings, Trash2, ChevronDown, ChevronRight, User, Users, Copy, EllipsisVertical, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Plus, MessageSquare, Settings, Trash2, ChevronDown, ChevronRight, User, Users, Copy, EllipsisVertical, PanelLeftClose, PanelLeftOpen, Search } from 'lucide-react';
 import { useStore, Character, Situation, resolveSituationParticipants } from '@/lib/store';
 import StoredImage from './StoredImage';
 import SituationSettingsModal from './SituationSettingsModal';
+import SidebarSearchDialog, { type SidebarSearchResult } from './SidebarSearchDialog';
 
 type SidebarContextMenu =
     | { type: 'character'; characterId: string; x: number; y: number }
@@ -97,6 +98,9 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
     const [groupExpanded, setGroupExpanded] = useState(true);
     const [charactersExpanded, setCharactersExpanded] = useState(true);
     const [contextMenu, setContextMenu] = useState<SidebarContextMenu | null>(null);
+    const [searchOpen, setSearchOpen] = useState(false);
+    const [revealedItem, setRevealedItem] = useState<{ type: 'character' | 'situation'; id: string } | null>(null);
+    const sidebarItemRefs = useRef(new Map<string, HTMLDivElement>());
 
     useEffect(() => {
         if (!contextMenu) return;
@@ -118,6 +122,18 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
             window.removeEventListener('keydown', handleKeyDown);
         };
     }, [contextMenu]);
+
+    useEffect(() => {
+        if (!revealedItem || !isDesktopOpen) return;
+
+        const frame = requestAnimationFrame(() => {
+            const item = sidebarItemRefs.current.get(`${revealedItem.type}:${revealedItem.id}`);
+            item?.scrollIntoView({ block: 'nearest' });
+            setRevealedItem(null);
+        });
+
+        return () => cancelAnimationFrame(frame);
+    }, [charactersExpanded, collapsedGroups, groupExpanded, isDesktopOpen, revealedItem]);
 
     const openContextMenu = (event: React.MouseEvent, menu: SidebarContextMenuTarget) => {
         event.preventDefault();
@@ -260,6 +276,30 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
         setEditingSituation(null);
     };
 
+    const handleSearchSelect = (result: SidebarSearchResult) => {
+        setSearchOpen(false);
+
+        if (result.type === 'room') {
+            handleRoomSelect(result.item.id);
+            return;
+        }
+
+        if (result.type === 'character') {
+            setCharactersExpanded(true);
+            setExpandedCharacters((current) => new Set(current).add(result.item.id));
+        } else {
+            setGroupExpanded(true);
+            setCollapsedGroups((current) => {
+                const next = new Set(current);
+                next.delete(result.item.id);
+                return next;
+            });
+        }
+
+        setRevealedItem({ type: result.type, id: result.item.id });
+        if (!isDesktopOpen) onToggleDesktop();
+    };
+
     const visibleRooms = rooms.filter((room) => !room.isDraft && room.secretMode !== true);
 
     const sortedGroups = [...groups].sort((a, b) => {
@@ -296,7 +336,20 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
                     <div className="sidebar-desktop-controls desktop-only">
                         <button
                             type="button"
-                            className="btn btn-ghost sidebar-icon-button"
+                            className="btn btn-ghost sidebar-icon-button sidebar-search-button"
+                            onClick={() => {
+                                setContextMenu(null);
+                                setSearchOpen(true);
+                            }}
+                            title="検索"
+                            aria-label="検索"
+                            aria-haspopup="dialog"
+                        >
+                            <Search size={18} />
+                        </button>
+                        <button
+                            type="button"
+                            className="btn btn-ghost sidebar-icon-button sidebar-toggle-button"
                             onClick={onToggleDesktop}
                             title={desktopSidebarTitle}
                             aria-label={desktopSidebarTitle}
@@ -348,6 +401,11 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
                                     <div key={group.id} className="character-group">
                                         <div
                                             className="character-header"
+                                            ref={(element) => {
+                                                const key = `situation:${group.id}`;
+                                                if (element) sidebarItemRefs.current.set(key, element);
+                                                else sidebarItemRefs.current.delete(key);
+                                            }}
                                             onClick={() => toggleGroupExpand(group.id)}
                                             onContextMenu={(e) => openContextMenu(e, { type: 'situation', groupId: group.id })}
                                         >
@@ -462,6 +520,11 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
                                 <div key={character.id} className="character-group">
                                     <div
                                         className="character-header"
+                                        ref={(element) => {
+                                            const key = `character:${character.id}`;
+                                            if (element) sidebarItemRefs.current.set(key, element);
+                                            else sidebarItemRefs.current.delete(key);
+                                        }}
                                         onClick={() => toggleCharacterExpand(character.id)}
                                         onContextMenu={(e) => openContextMenu(e, { type: 'character', characterId: character.id })}
                                     >
@@ -680,6 +743,15 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
                 room={editingSituationRoom}
                 onCreated={onClose}
             />
+            {searchOpen && (
+                <SidebarSearchDialog
+                    characters={sortedCharacters}
+                    situations={sortedGroups}
+                    rooms={[...visibleRooms].sort((a, b) => b.updatedAt - a.updatedAt)}
+                    onClose={() => setSearchOpen(false)}
+                    onSelect={handleSearchSelect}
+                />
+            )}
         </>
     );
 }

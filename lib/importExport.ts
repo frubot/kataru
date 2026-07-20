@@ -57,7 +57,7 @@ function isValidSituation(situation: Situation, characterIds: Set<string>): bool
 
 export async function createFullBackup(): Promise<string> {
     const [characters, groups, rooms, messagesAll, memories, usageRecords] = await Promise.all([
-        db.getAllCharacters(),
+        db.getAllCharactersWithImages(),
         db.getAllGroups(),
         db.getAllRooms(),
         db.getAllMessages(),

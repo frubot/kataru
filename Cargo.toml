@@ -7,6 +7,7 @@ description = "Standalone local-first roleplay chat application"
 
 [dependencies]
 axum = { version = "0.8", features = ["json", "macros"] }
+base64 = "0.22"
 directories = "6"
 futures-util = "0.3"
 mime_guess = "2"
@@ -15,6 +16,7 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 rust-embed = "8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal"] }
 tower-http = { version = "0.6", features = ["compression-br", "compression-gzip", "trace"] }

@@ -5,6 +5,7 @@ use axum::{
     http::{HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
 };
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde_json::{Map, Value, json};
 
 use crate::{
@@ -540,7 +541,32 @@ pub async fn generate_image(
     let provider = provider_for(&state, &input)?;
     let prompt = required_string(&input, "prompt", "prompt と model は必須です。")?;
     let model = required_string(&input, "model", "prompt と model は必須です。")?;
-    let base_image = optional_trimmed_string(&input, "baseImage");
+    let inline_base_image = optional_trimmed_string(&input, "baseImage");
+    let base_image_asset_id = optional_trimmed_string(&input, "baseImageAssetId");
+    if inline_base_image.is_some() && base_image_asset_id.is_some() {
+        return Err(AppError::BadRequest(
+            "baseImage と baseImageAssetId は同時に指定できません。".to_owned(),
+        ));
+    }
+    let base_image = if let Some(asset_id) = base_image_asset_id {
+        if asset_id.len() != 64 || !asset_id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(AppError::BadRequest(
+                "baseImageAssetId が不正です。".to_owned(),
+            ));
+        }
+        let asset = state
+            .database
+            .get_image_asset(asset_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound("元画像が見つかりません。".to_owned()))?;
+        Some(format!(
+            "data:{};base64,{}",
+            asset.mime_type,
+            BASE64.encode(asset.data)
+        ))
+    } else {
+        inline_base_image
+    };
     let aspect_ratio = input.get("aspectRatio").and_then(Value::as_str);
 
     if !provider.is_openrouter() {

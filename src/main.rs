@@ -10,8 +10,8 @@ use std::sync::Arc;
 use axum::{
     Json, Router,
     body::Body,
-    extract::{DefaultBodyLimit, Request, State},
-    http::{Method, StatusCode, header},
+    extract::{DefaultBodyLimit, Path, Request, State},
+    http::{HeaderValue, Method, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -131,6 +131,7 @@ async fn run() -> AppResult<()> {
 fn api_router() -> Router<AppState> {
     Router::new()
         .route("/health", get(health))
+        .route("/assets/{asset_id}", get(image_asset))
         .route(
             "/storage",
             post(handle_storage_command).layer(DefaultBodyLimit::max(STORAGE_REQUEST_BODY_LIMIT)),
@@ -150,6 +151,38 @@ fn api_router() -> Router<AppState> {
             "/conversation/turn",
             post(conversation::turn).layer(DefaultBodyLimit::max(CONVERSATION_REQUEST_BODY_LIMIT)),
         )
+}
+
+async fn image_asset(
+    Path(asset_id): Path<String>,
+    State(state): State<AppState>,
+) -> AppResult<Response> {
+    if asset_id.len() != 64 || !asset_id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(AppError::NotFound("保存画像が見つかりません。".to_owned()));
+    }
+    let asset = state
+        .database
+        .get_image_asset(asset_id.clone())
+        .await?
+        .ok_or_else(|| AppError::NotFound("保存画像が見つかりません。".to_owned()))?;
+    let content_type = HeaderValue::from_str(&asset.mime_type)
+        .map_err(|_| AppError::Internal("保存画像のMIME typeが不正です。".to_owned()))?;
+    let etag = HeaderValue::from_str(&format!("\"{asset_id}\""))
+        .map_err(|_| AppError::Internal("保存画像のETagを生成できません。".to_owned()))?;
+    let mut response = Response::new(Body::from(asset.data));
+    response
+        .headers_mut()
+        .insert(header::CONTENT_TYPE, content_type);
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, max-age=31536000, immutable"),
+    );
+    response.headers_mut().insert(header::ETAG, etag);
+    response.headers_mut().insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    Ok(response)
 }
 
 async fn health(State(state): State<AppState>) -> Json<serde_json::Value> {

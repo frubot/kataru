@@ -6,13 +6,19 @@ use std::{
     time::Duration,
 };
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 use crate::error::{AppError, AppResult};
 
-pub use storage::handle_storage_command;
+pub use storage::{handle_storage_command, migrate_character_images};
 
 const INITIAL_MIGRATION: &str = include_str!("../../migrations/0001_initial.sql");
+const IMAGE_ASSET_MIGRATION: &str = include_str!("../../migrations/0002_image_assets.sql");
+
+pub struct ImageAsset {
+    pub mime_type: String,
+    pub data: Vec<u8>,
+}
 
 #[derive(Clone)]
 pub struct Database {
@@ -28,6 +34,8 @@ impl Database {
         connection.pragma_update(None, "journal_mode", "WAL")?;
         let transaction = connection.transaction()?;
         transaction.execute_batch(INITIAL_MIGRATION)?;
+        transaction.execute_batch(IMAGE_ASSET_MIGRATION)?;
+        migrate_character_images(&transaction)?;
         transaction.commit()?;
         Ok(Self {
             inner: Arc::new(Mutex::new(connection)),
@@ -53,5 +61,24 @@ impl Database {
         })
         .await
         .map_err(|error| AppError::Internal(format!("SQLiteタスクが失敗しました: {error}")))?
+    }
+
+    pub async fn get_image_asset(&self, asset_id: String) -> AppResult<Option<ImageAsset>> {
+        self.call(move |connection| {
+            connection
+                .query_row(
+                    "SELECT mime_type, data FROM image_assets WHERE id = ?1",
+                    rusqlite::params![asset_id],
+                    |row| {
+                        Ok(ImageAsset {
+                            mime_type: row.get(0)?,
+                            data: row.get(1)?,
+                        })
+                    },
+                )
+                .optional()
+                .map_err(AppError::from)
+        })
+        .await
     }
 }

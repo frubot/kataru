@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { X, Loader2, Trash2, RefreshCw, Shirt, Sparkles, Upload } from 'lucide-react';
 import type { Costume } from '@/lib/store';
 import { useStore } from '@/lib/store';
+import { buildBaseImageRequest } from '@/lib/imageSource';
 import { cropRectToPng, loadImage, resizeToMaxEdge } from '@/lib/imageUtils';
 import { CropArea, createInitialCrop, type CropBox } from './ImageCropArea';
 import StoredImage from './StoredImage';
@@ -127,7 +128,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                 body: JSON.stringify({
                     prompt,
                     model: model.trim(),
-                    baseImage,
+                    ...buildBaseImageRequest(baseImage),
                     aspectRatio: COSTUME_ASPECT_RATIO,
                     aiProviderConfig: getAiProviderConfig(),
                 }),

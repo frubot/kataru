@@ -60,6 +60,10 @@ export async function getAllCharacters(): Promise<Character[]> {
     return storage<Character[]>({ op: 'get_all_characters' });
 }
 
+export async function getAllCharactersWithImages(): Promise<Character[]> {
+    return storage<Character[]>({ op: 'get_all_characters_with_images' });
+}
+
 export async function putCharacter(value: Character): Promise<void> {
     await storage<null>({ op: 'put_character', value });
 }

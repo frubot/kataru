@@ -19,6 +19,11 @@ const SETTINGS_TABS = [
     { id: 'statistics', label: '統計' },
 ] as const satisfies readonly { id: SettingsTab; label: string }[];
 
+const THEME_MODE_OPTIONS = [
+    { id: 'light', label: 'ライト', Icon: Sun },
+    { id: 'dark', label: 'ダーク', Icon: Moon },
+] as const satisfies readonly { id: ThemeMode; label: string; Icon: LucideIcon }[];
+
 const PALETTE_OPTIONS = [
     {
         id: 'classic',
@@ -282,8 +287,10 @@ export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsM
     const [historyError, setHistoryError] = useState<string | null>(null);
     const [isClearingHistory, setIsClearingHistory] = useState(false);
     const [activeTab, setActiveTab] = useState<SettingsTab>('general');
+    const [isThemeModeMenuOpen, setThemeModeMenuOpen] = useState(false);
     const [isPaletteMenuOpen, setPaletteMenuOpen] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const themeModeMenuRef = useRef<HTMLDivElement>(null);
     const paletteMenuRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -293,8 +300,25 @@ export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsM
     }, [onClose]);
 
     useEffect(() => {
-        if (!isOpen) setPaletteMenuOpen(false);
+        if (!isOpen) {
+            setThemeModeMenuOpen(false);
+            setPaletteMenuOpen(false);
+        }
     }, [isOpen]);
+
+    useEffect(() => {
+        if (!isThemeModeMenuOpen) return;
+
+        const handlePointerDown = (event: PointerEvent) => {
+            const target = event.target;
+            if (target instanceof Node && !themeModeMenuRef.current?.contains(target)) {
+                setThemeModeMenuOpen(false);
+            }
+        };
+
+        document.addEventListener('pointerdown', handlePointerDown);
+        return () => document.removeEventListener('pointerdown', handlePointerDown);
+    }, [isThemeModeMenuOpen]);
 
     useEffect(() => {
         if (!isPaletteMenuOpen) return;
@@ -589,58 +613,106 @@ export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsM
                                 flexDirection: 'column',
                                 gap: '1rem',
                             }}>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
-                                    <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
-                                        外観
-                                    </span>
-                                    <button
-                                        type="button"
-                                        role="switch"
-                                        aria-checked={themeMode === 'dark'}
-                                        aria-label={`外観: ${themeMode === 'dark' ? 'ダーク' : 'ライト'}`}
-                                        title={themeMode === 'dark' ? 'ダーク' : 'ライト'}
-                                        onClick={() => setThemeMode(themeMode === 'light' ? 'dark' : 'light')}
-                                        style={{
-                                            position: 'relative',
-                                            width: '80px',
-                                            height: '32px',
-                                            borderRadius: '16px',
-                                            border: '1px solid var(--border-color)',
-                                            background: 'var(--bg-tertiary)',
-                                            color: 'var(--text-muted)',
-                                            cursor: 'pointer',
-                                            padding: '1px',
-                                            display: 'grid',
-                                            gridTemplateColumns: '1fr 1fr',
-                                            alignItems: 'center',
-                                            justifyItems: 'center',
-                                            flexShrink: 0,
-                                            transition: 'border-color 0.15s ease, background 0.15s ease',
-                                        }}
-                                    >
-                                        <span
-                                            aria-hidden="true"
+                                <div style={{ position: 'relative' }} ref={themeModeMenuRef}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+                                        <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
+                                            外観
+                                        </span>
+                                        <button
+                                            type="button"
+                                            className="settings-select-trigger"
+                                            aria-haspopup="menu"
+                                            aria-expanded={isThemeModeMenuOpen}
+                                            onClick={() => {
+                                                setThemeModeMenuOpen((open) => !open);
+                                                setPaletteMenuOpen(false);
+                                            }}
+                                            style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                gap: '0.5rem',
+                                                minWidth: '7rem',
+                                                minHeight: '2.25rem',
+                                                padding: '0.5rem 0.625rem',
+                                                borderRadius: '0.5rem',
+                                                color: 'var(--text-primary)',
+                                                cursor: 'pointer',
+                                                fontSize: '0.8125rem',
+                                                fontWeight: 600,
+                                                transition: 'background 0.15s ease, border-color 0.15s ease',
+                                            }}
+                                        >
+                                            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'left' }}>
+                                                {themeMode === 'dark' ? 'ダーク' : 'ライト'}
+                                            </span>
+                                            <ChevronDown
+                                                size={15}
+                                                aria-hidden="true"
+                                                style={{
+                                                    flexShrink: 0,
+                                                    color: 'var(--text-muted)',
+                                                    transform: isThemeModeMenuOpen ? 'rotate(180deg)' : undefined,
+                                                    transition: 'transform 0.15s ease',
+                                                }}
+                                            />
+                                        </button>
+                                    </div>
+                                    {isThemeModeMenuOpen && (
+                                        <div
+                                            role="menu"
+                                            aria-label="外観"
                                             style={{
                                                 position: 'absolute',
-                                                top: '50%',
-                                                left: themeMode === 'dark' ? '75%' : '25%',
-                                                width: '34px',
-                                                height: '28px',
-                                                borderRadius: '999px',
-                                                background: 'var(--bg-secondary)',
-                                                boxShadow: '0 1px 4px rgba(0, 0, 0, 0.18)',
-                                                transform: 'translate(-50%, -50%)',
-                                                transition: 'left 0.18s ease',
-                                                zIndex: 0,
+                                                right: 0,
+                                                top: 'calc(100% + 0.5rem)',
+                                                width: 'min(100%, 16rem)',
+                                                minWidth: '12rem',
+                                                padding: '0.375rem',
+                                                border: '1px solid var(--border-color)',
+                                                borderRadius: '0.5rem',
+                                                background: 'var(--bg-primary)',
+                                                boxShadow: '0 12px 28px rgba(0, 0, 0, 0.24)',
+                                                zIndex: 20,
                                             }}
-                                        />
-                                        <span style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 0, color: themeMode === 'light' ? 'var(--accent-primary)' : 'var(--text-muted)' }}>
-                                            <Sun size={15} aria-hidden="true" />
-                                        </span>
-                                        <span style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 0, color: themeMode === 'dark' ? 'var(--accent-primary)' : 'var(--text-muted)' }}>
-                                            <Moon size={15} aria-hidden="true" />
-                                        </span>
-                                    </button>
+                                        >
+                                            {THEME_MODE_OPTIONS.map(({ id, label, Icon }) => {
+                                                const selected = themeMode === id;
+                                                return (
+                                                    <button
+                                                        key={id}
+                                                        type="button"
+                                                        className="settings-select-option"
+                                                        role="menuitemradio"
+                                                        aria-checked={selected}
+                                                        onClick={() => {
+                                                            setThemeMode(id);
+                                                            setThemeModeMenuOpen(false);
+                                                        }}
+                                                        style={{
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: '0.625rem',
+                                                            width: '100%',
+                                                            minHeight: '2.5rem',
+                                                            padding: '0.5rem 0.625rem',
+                                                            border: 'none',
+                                                            borderRadius: '0.375rem',
+                                                            color: selected ? 'var(--accent-primary)' : 'var(--text-primary)',
+                                                            cursor: 'pointer',
+                                                            textAlign: 'left',
+                                                        }}
+                                                    >
+                                                        <Icon size={15} aria-hidden="true" style={{ flexShrink: 0 }} />
+                                                        <span style={{ flex: 1, minWidth: 0, fontSize: '0.875rem', fontWeight: selected ? 600 : 500 }}>
+                                                            {label}
+                                                        </span>
+                                                        {selected && <Check size={15} aria-hidden="true" style={{ flexShrink: 0 }} />}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div style={{ position: 'relative' }} ref={paletteMenuRef}>
@@ -653,7 +725,10 @@ export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsM
                                             className="settings-select-trigger"
                                             aria-haspopup="menu"
                                             aria-expanded={isPaletteMenuOpen}
-                                            onClick={() => setPaletteMenuOpen((open) => !open)}
+                                            onClick={() => {
+                                                setPaletteMenuOpen((open) => !open);
+                                                setThemeModeMenuOpen(false);
+                                            }}
                                             style={{
                                                 display: 'inline-flex',
                                                 alignItems: 'center',

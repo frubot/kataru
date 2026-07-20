@@ -152,7 +152,7 @@ function VnSpeedSlider({ value, onChange }: VnSpeedSliderProps) {
                         transition: 'background 0.15s ease, border-color 0.15s ease',
                     }}
                 >
-                    <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'left' }}>
+                    <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'right' }}>
                         {currentOption.label}
                     </span>
                     <ChevronDown
@@ -643,7 +643,7 @@ export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsM
                                                 transition: 'background 0.15s ease, border-color 0.15s ease',
                                             }}
                                         >
-                                            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'left' }}>
+                                            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'right' }}>
                                                 {themeMode === 'dark' ? 'ダーク' : 'ライト'}
                                             </span>
                                             <ChevronDown
@@ -704,7 +704,7 @@ export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsM
                                                         }}
                                                     >
                                                         <Icon size={15} aria-hidden="true" style={{ flexShrink: 0 }} />
-                                                        <span style={{ flex: 1, minWidth: 0, fontSize: '0.875rem', fontWeight: selected ? 600 : 500 }}>
+                                                        <span style={{ flex: 1, minWidth: 0, fontSize: '0.875rem', fontWeight: selected ? 600 : 500, textAlign: 'left' }}>
                                                             {label}
                                                         </span>
                                                         {selected && <Check size={15} aria-hidden="true" style={{ flexShrink: 0 }} />}
@@ -745,7 +745,7 @@ export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsM
                                                 transition: 'background 0.15s ease, border-color 0.15s ease',
                                             }}
                                         >
-                                            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'left' }}>
+                                            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'right' }}>
                                                 {selectedPalette.label}
                                             </span>
                                             <ChevronDown
@@ -807,7 +807,7 @@ export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsM
                                                         }}
                                                     >
                                                         {renderPaletteDots(colors)}
-                                                        <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.875rem', fontWeight: selected ? 600 : 500 }}>
+                                                        <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.875rem', fontWeight: selected ? 600 : 500, textAlign: 'left' }}>
                                                             {label}
                                                         </span>
                                                         {selected && <Check size={15} aria-hidden="true" style={{ flexShrink: 0 }} />}

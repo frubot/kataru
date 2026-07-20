@@ -3,6 +3,7 @@ import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Brain, Braces, S
 import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, DEFAULT_SUMMARY_MODEL, DEFAULT_CHAT_MODEL, DEFAULT_DIRECTOR_MODEL, DEFAULT_AUTO_GENERATION_MODEL, DEFAULT_TITLE_GENERATION_MODEL, DEFAULT_IMAGE_MODEL, DEFAULT_MEMORY_EXTRACTION_MODEL, DEFAULT_MEMORY_EMBEDDING_MODEL, type AiProvider } from '@/lib/store';
 import { createFullBackup, downloadJson, parseFullBackup, reassignIds, ParsedBackup } from '@/lib/importExport';
 import StatisticsPanel from '@/components/StatisticsPanel';
+import packageJson from '../package.json';
 
 interface GlobalSettingsModalProps {
     isOpen: boolean;
@@ -501,6 +502,27 @@ export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsM
 
                         {activeTab === 'general' && (
                             <>
+                        {/* Application Section */}
+                        <div style={{ marginBottom: '1.5rem' }}>
+                            <h3 style={{ fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.75rem', color: 'var(--text-secondary)' }}>
+                                アプリケーション
+                            </h3>
+                            <div style={{
+                                padding: '1rem',
+                                borderRadius: '0.5rem',
+                                background: 'var(--bg-secondary)',
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+                                    <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
+                                        バージョン
+                                    </span>
+                                    <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                                        v{packageJson.version}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
                         {/* Appearance Section */}
                         <div style={{ marginBottom: '1.5rem' }}>
                             <div style={{

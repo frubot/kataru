@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Plus, MessageSquare, Settings, Trash2, ChevronDown, ChevronRight, User, Users, Copy, EllipsisVertical, PanelLeftClose, PanelLeftOpen, Search } from 'lucide-react';
+import { Plus, MessageSquare, Settings, Trash2, ChevronDown, ChevronRight, User, Users, Copy, EllipsisVertical, PanelLeftClose, PanelLeftOpen, Search, SquarePen } from 'lucide-react';
 import { useStore, Character, Situation, resolveSituationParticipants } from '@/lib/store';
 import StoredImage from './StoredImage';
 import SituationSettingsModal from './SituationSettingsModal';
@@ -311,6 +311,14 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
     const sortedCharacters = [...characters].sort((a, b) => b.updatedAt - a.updatedAt);
     const DesktopSidebarIcon = isDesktopOpen ? PanelLeftClose : PanelLeftOpen;
     const desktopSidebarTitle = isDesktopOpen ? 'サイドバーを折りたたむ' : 'サイドバーを開く';
+    const selectedRoom = rooms.find((room) => room.id === currentRoomId) ?? null;
+    const selectedSituation = selectedRoom?.groupId
+        ? groups.find((group) => group.id === selectedRoom.groupId) ?? null
+        : null;
+    const selectedCharacter = selectedRoom && !selectedRoom.groupId
+        ? characters.find((character) => character.id === selectedRoom.characterId) ?? null
+        : null;
+    const selectedConversationName = selectedSituation?.name ?? selectedCharacter?.name;
     const editingSituationRoom = editingSituation
         ? rooms.find((room) => room.id === currentRoomId && room.groupId === editingSituation.id) ?? null
         : null;
@@ -358,6 +366,24 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
                             <DesktopSidebarIcon size={18} />
                         </button>
                     </div>
+                    {selectedConversationName && (
+                        <button
+                            type="button"
+                            className="btn btn-secondary sidebar-new-chat-action"
+                            onClick={() => {
+                                if (selectedSituation) {
+                                    createSituationRoom(selectedSituation.id);
+                                } else if (selectedCharacter) {
+                                    createCharacterRoom(selectedCharacter.id);
+                                }
+                            }}
+                            title={`${selectedConversationName}で新しいチャット`}
+                            aria-label={`${selectedConversationName}で新しいチャット`}
+                        >
+                            <SquarePen size={18} className="sidebar-action-icon" />
+                            <span className="sidebar-label">新しいチャット</span>
+                        </button>
+                    )}
                     <button
                         className="btn btn-primary sidebar-main-action"
                         onClick={() => onOpenCharacterSettings(null, true)}

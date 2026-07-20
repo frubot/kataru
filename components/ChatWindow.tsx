@@ -2166,7 +2166,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     {!isGroupRoom && character && !isRoomEmpty && (
                         <button
                             type="button"
-                            className="btn btn-ghost"
+                            className="btn btn-ghost mobile-only"
                             onClick={() => createRoom(character.id, undefined, { viewMode: currentRoomViewMode })}
                             disabled={isLoading || isSummarizing}
                             title={`${currentRoomViewModeLabel}モードで新しいチャットを開始`}
@@ -2177,7 +2177,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     {isGroupRoom && room.groupId && !isRoomEmpty && (
                         <button
                             type="button"
-                            className="btn btn-ghost"
+                            className="btn btn-ghost mobile-only"
                             onClick={() => createRoomForSituation(room.groupId!, undefined, { viewMode: currentRoomViewMode })}
                             disabled={isLoading || isSummarizing}
                             title={`${groupName ?? 'シチュエーション'}の新しいチャットを開始`}

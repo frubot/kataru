@@ -566,14 +566,10 @@ export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsM
                             <>
                         {/* Application Section */}
                         <div style={{ marginBottom: '1.5rem' }}>
-                            <h3 style={{ fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.75rem', color: 'var(--text-secondary)' }}>
+                            <h3 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '0.75rem' }}>
                                 アプリケーション
                             </h3>
-                            <div style={{
-                                padding: '1rem',
-                                borderRadius: '0.5rem',
-                                background: 'var(--bg-secondary)',
-                            }}>
+                            <div>
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
                                     <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
                                         バージョン
@@ -588,9 +584,6 @@ export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsM
                         {/* Appearance Section */}
                         <div style={{ marginBottom: '1.5rem' }}>
                             <div style={{
-                                padding: '1rem',
-                                borderRadius: '0.5rem',
-                                background: 'var(--bg-secondary)',
                                 display: 'flex',
                                 flexDirection: 'column',
                                 gap: '1rem',
@@ -759,13 +752,10 @@ export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsM
                             <>
                         {/* API Provider Section */}
                         <div style={{ marginBottom: '1.5rem' }}>
-                            <h3 style={{ fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.75rem', color: 'var(--text-secondary)' }}>
+                            <h3 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '0.75rem' }}>
                                 API 接続先
                             </h3>
                             <div style={{
-                                padding: '1rem',
-                                borderRadius: '0.5rem',
-                                background: 'var(--bg-secondary)',
                                 display: 'flex',
                                 flexDirection: 'column',
                                 gap: '1rem',
@@ -837,13 +827,10 @@ export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsM
 
                         {/* Conversation Section */}
                         <div style={{ marginBottom: '1.5rem' }}>
-                            <h3 style={{ fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.75rem', color: 'var(--text-secondary)' }}>
+                            <h3 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '0.75rem' }}>
                                 既定のモデル
                             </h3>
                             <div style={{
-                                padding: '1rem',
-                                borderRadius: '0.5rem',
-                                background: 'var(--bg-secondary)',
                                 display: 'flex',
                                 flexDirection: 'column',
                                 gap: '1rem',
@@ -1009,14 +996,10 @@ export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsM
                         {activeTab === 'debug' && (
                         /* Debug Section */
                         <div style={{ marginBottom: '1.5rem' }}>
-                            <h3 style={{ fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.75rem', color: 'var(--text-secondary)' }}>
+                            <h3 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '0.75rem' }}>
                                 デバッグ
                             </h3>
-                            <div style={{
-                                padding: '1rem',
-                                borderRadius: '0.5rem',
-                                background: 'var(--bg-secondary)',
-                            }}>
+                            <div>
                                 {renderDebugToggle({
                                     Icon: Brain,
                                     label: '考えを表示',
@@ -1051,14 +1034,10 @@ export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsM
                             <>
                         {/* Title Generation Section */}
                         <div style={{ marginBottom: '1.5rem' }}>
-                            <h3 style={{ fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.75rem', color: 'var(--text-secondary)' }}>
+                            <h3 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '0.75rem' }}>
                                 機能
                             </h3>
-                            <div style={{
-                                padding: '1rem',
-                                borderRadius: '0.5rem',
-                                background: 'var(--bg-secondary)',
-                            }}>
+                            <div>
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
                                     <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
                                         タイトルの自動生成
@@ -1098,7 +1077,7 @@ export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsM
 
                         {/* Backup Section */}
                         <div style={{ marginBottom: '1.5rem' }}>
-                            <h3 style={{ fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.75rem', color: 'var(--text-secondary)' }}>
+                            <h3 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '0.75rem' }}>
                                 データ管理
                             </h3>
                             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>

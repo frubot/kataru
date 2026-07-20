@@ -544,6 +544,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
     );
     const actorCount = selectedCharacterIds.size + validTemporaryActors.length;
     const parsedMaxTurns = Math.max(1, Math.min(10, Math.round(Number(maxAutoTurns) || 3)));
+    const effectiveMaxTurns = actorCount <= 1 ? 1 : parsedMaxTurns;
     const parsedMaxHistory = maxHistory ? Math.max(1, Math.min(100, Math.round(Number(maxHistory)))) : undefined;
     const participantNames = useMemo(() => [
         ...characters
@@ -738,7 +739,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
             enabled: true,
             model: directorModel.trim() || defaultDirectorModel,
             reasoningEffort: directorReasoningMedium ? 'medium' : 'none',
-            maxAutoTurns: parsedMaxTurns,
+            maxAutoTurns: effectiveMaxTurns,
             stopPolicy: situation?.director?.stopPolicy === 'after-one' ? 'after-one' : 'max-turns',
         };
         const actors = buildActors();
@@ -762,7 +763,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                 maxHistory: parsedMaxHistory,
             });
             if (room?.id) {
-                updateRoomSettings(room.id, { maxMentionChain: parsedMaxTurns });
+                updateRoomSettings(room.id, { maxMentionChain: effectiveMaxTurns });
             }
         } else if (actorCount > 0) {
             createSituationRoom({
@@ -778,7 +779,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
         }
 
         onClose();
-    }, [actorCount, buildActors, createSituationRoom, defaultDirectorModel, directorModel, directorReasoningMedium, memoryReadOnly, name, onClose, onCreated, parsedMaxHistory, parsedMaxTurns, priorMessages, room, situation, situationPrompt, updateRoomSettings, updateSituation]);
+    }, [actorCount, buildActors, createSituationRoom, defaultDirectorModel, directorModel, directorReasoningMedium, effectiveMaxTurns, memoryReadOnly, name, onClose, onCreated, parsedMaxHistory, priorMessages, room, situation, situationPrompt, updateRoomSettings, updateSituation]);
 
     useEffect(() => {
         const childModalOpen = descriptionGeneratorOpen || temporaryActorGeneratorOpen;
@@ -1243,7 +1244,9 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                         }}
                     >
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                            <MaxAutoTurnsSlider value={parsedMaxTurns} onChange={setMaxAutoTurns} />
+                            {actorCount > 1 && (
+                                <MaxAutoTurnsSlider value={parsedMaxTurns} onChange={setMaxAutoTurns} />
+                            )}
                             <MaxHistorySlider value={maxHistory} onChange={setMaxHistory} />
                         </div>
                     </section>

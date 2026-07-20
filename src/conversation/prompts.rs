@@ -23,14 +23,13 @@ message フィールドには次の指示に準拠した文章を入力する必
   ロールプレイにおいて、キャラクターの発言だけでなく状況の描写は必要です。
   あなたは、キャラクターとは別に"ナレーション"も演じます。
   ナレーションにおける制約:
+   - ナレーションは淡白で感情をこめない文体で記述してください。
    - 感情や動作、行動に由来するものはナレーションとして説明してください。
    - 簡潔にMarkdownのイタリック体(*説明文*のように囲う)で説明します。
    - 第三者視点で記述してください。
    - キャラクターを指す場合は下の名前を表記し、主人公を指す場合は"あなた"と表記してください
    - ナレーションによる主人公側の描写は不要です。
    - キャラクターの独白など読み取れないものは記述しないでください。
-   - 淡々と事実だけを書いてください。
-
   つまり以下の通りです。
   ナレーション: イタリック体でメッセージを囲う
   キャラクター: 装飾なし
@@ -110,15 +109,17 @@ pub fn character_system_prompt(
     }
 
     if let Some(situation) = situation {
-        let names = participants
-            .iter()
-            .filter_map(|actor| actor.get("name").and_then(Value::as_str))
-            .collect::<Vec<_>>()
-            .join(", ");
-        prompt.push_str(&format!(
-            "\n\nこのロールプレイには複数人が参加しています。あなたは「{}」としてのみ発言します。参加者: 主人公, {names}\n発言順は指揮役が決めます。他キャラクターの台詞を代弁しないでください。",
-            string(character, "name")
-        ));
+        if participants.len() > 1 {
+            let names = participants
+                .iter()
+                .filter_map(|actor| actor.get("name").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join(", ");
+            prompt.push_str(&format!(
+                "\n\nこのロールプレイには複数人が参加しています。あなたは「{}」としてのみ発言します。参加者: 主人公, {names}\n発言順は指揮役が決めます。他キャラクターの台詞を代弁しないでください。",
+                string(character, "name")
+            ));
+        }
         let situation_prompt = string(situation, "situationPrompt");
         if !situation_prompt.is_empty() {
             prompt.push_str(&format!("\n\n## シチュエーション\n{situation_prompt}"));
@@ -375,4 +376,57 @@ pub fn boolean(value: &Value, key: &str) -> bool {
 
 fn truncate(value: &str, max_chars: usize) -> String {
     value.chars().take(max_chars).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn single_participant_prompt_omits_multi_participant_instructions() {
+        let character = json!({
+            "name": "葵",
+            "systemPrompt": "葵として振る舞う",
+            "rolePrompt": "幼なじみ"
+        });
+        let situation = json!({
+            "situationPrompt": "放課後の教室"
+        });
+        let participants = vec![json!({"name": "葵"})];
+
+        let prompt = character_system_prompt(
+            &character,
+            false,
+            &[],
+            None,
+            &[],
+            Some(&situation),
+            &participants,
+        );
+
+        assert!(!prompt.contains("複数人が参加しています"));
+        assert!(!prompt.contains("発言順は指揮役が決めます"));
+        assert!(prompt.contains("## シチュエーション\n放課後の教室"));
+        assert!(prompt.contains("# あなたについて\n幼なじみ"));
+    }
+
+    #[test]
+    fn multi_participant_prompt_keeps_multi_participant_instructions() {
+        let character = json!({"name": "葵"});
+        let situation = json!({});
+        let participants = vec![json!({"name": "葵"}), json!({"name": "凛"})];
+
+        let prompt = character_system_prompt(
+            &character,
+            false,
+            &[],
+            None,
+            &[],
+            Some(&situation),
+            &participants,
+        );
+
+        assert!(prompt.contains("複数人が参加しています"));
+        assert!(prompt.contains("参加者: 主人公, 葵, 凛"));
+    }
 }

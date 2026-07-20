@@ -40,6 +40,22 @@ const MEMORY_MIN_IMPORTANCE: f64 = 0.4;
 const MEMORY_MIN_CONFIDENCE: f64 = 0.7;
 const MEMORY_MAX_CANDIDATES: usize = 5;
 
+fn situation_max_turns(room: &Value, situation: &Value, participant_count: usize) -> usize {
+    if participant_count <= 1 {
+        return 1;
+    }
+
+    room.get("maxMentionChain")
+        .and_then(Value::as_u64)
+        .or_else(|| {
+            situation
+                .pointer("/director/maxAutoTurns")
+                .and_then(Value::as_u64)
+        })
+        .unwrap_or(3)
+        .clamp(1, 10) as usize
+}
+
 pub async fn turn(
     State(state): State<AppState>,
     Json(payload): Json<Value>,
@@ -163,16 +179,7 @@ pub async fn turn(
     let mut extraction_context: Option<ExtractionContext> = None;
 
     if let Some(situation) = situation {
-        let max_turns = room
-            .get("maxMentionChain")
-            .and_then(Value::as_u64)
-            .or_else(|| {
-                situation
-                    .pointer("/director/maxAutoTurns")
-                    .and_then(Value::as_u64)
-            })
-            .unwrap_or(3)
-            .clamp(1, 10) as usize;
+        let max_turns = situation_max_turns(&room, situation, participants.len());
         let stop_after_one = situation
             .pointer("/director/stopPolicy")
             .and_then(Value::as_str)
@@ -1299,5 +1306,24 @@ mod tests {
     #[test]
     fn similar_memory_text_scores_high() {
         assert!(memory_similarity("主人公はコーヒーが好き", "主人公はコーヒーが好き。") > 0.9);
+    }
+
+    #[test]
+    fn single_participant_situation_is_limited_to_one_turn() {
+        let room = json!({"maxMentionChain": 8});
+        let situation = json!({"director": {"maxAutoTurns": 6}});
+
+        assert_eq!(situation_max_turns(&room, &situation, 1), 1);
+    }
+
+    #[test]
+    fn multi_participant_situation_uses_configured_turn_limit() {
+        let situation = json!({"director": {"maxAutoTurns": 6}});
+
+        assert_eq!(situation_max_turns(&json!({}), &situation, 2), 6);
+        assert_eq!(
+            situation_max_turns(&json!({"maxMentionChain": 4}), &situation, 2),
+            4
+        );
     }
 }

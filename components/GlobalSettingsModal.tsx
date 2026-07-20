@@ -999,7 +999,7 @@ export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsM
                         {/* Title Generation Section */}
                         <div style={{ marginBottom: '1.5rem' }}>
                             <h3 style={{ fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.75rem', color: 'var(--text-secondary)' }}>
-                                チャット
+                                機能
                             </h3>
                             <div style={{
                                 padding: '1rem',
@@ -1008,7 +1008,7 @@ export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsM
                             }}>
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
                                     <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
-                                        タイトルを生成
+                                        タイトルの自動生成
                                     </span>
                                     <button
                                         type="button"
@@ -1046,7 +1046,7 @@ export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsM
                         {/* Backup Section */}
                         <div style={{ marginBottom: '1.5rem' }}>
                             <h3 style={{ fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.75rem', color: 'var(--text-secondary)' }}>
-                                バックアップ
+                                データ管理
                             </h3>
                             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                                 <button className="btn btn-secondary" onClick={handleExport}>
@@ -1131,9 +1131,6 @@ export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsM
 
                         {/* Data Management Section */}
                         <div>
-                            <h3 style={{ fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.75rem', color: 'var(--text-secondary)' }}>
-                                データ管理
-                            </h3>
                             {historyError && (
                                 <div style={{
                                     marginBottom: '0.75rem',

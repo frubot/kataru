@@ -127,6 +127,7 @@ function VnSpeedSlider({ value, onChange }: VnSpeedSliderProps) {
                 </label>
                 <button
                     type="button"
+                    className="settings-select-trigger"
                     aria-haspopup="dialog"
                     aria-expanded={isMenuOpen}
                     onClick={() => setMenuOpen((open) => !open)}
@@ -649,6 +650,7 @@ export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsM
                                         </span>
                                         <button
                                             type="button"
+                                            className="settings-select-trigger"
                                             aria-haspopup="menu"
                                             aria-expanded={isPaletteMenuOpen}
                                             onClick={() => setPaletteMenuOpen((open) => !open)}
@@ -708,6 +710,7 @@ export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsM
                                                     <button
                                                         key={id}
                                                         type="button"
+                                                        className="settings-select-option"
                                                         role="menuitemradio"
                                                         aria-checked={selected}
                                                         onClick={() => {
@@ -723,7 +726,6 @@ export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsM
                                                             padding: '0.5rem 0.625rem',
                                                             border: 'none',
                                                             borderRadius: '0.375rem',
-                                                            background: selected ? 'var(--bg-tertiary)' : 'transparent',
                                                             color: selected ? 'var(--accent-primary)' : 'var(--text-primary)',
                                                             cursor: 'pointer',
                                                             textAlign: 'left',

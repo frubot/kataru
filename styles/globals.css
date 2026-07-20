@@ -624,6 +624,27 @@ body {
   overscroll-behavior: contain;
 }
 
+.settings-select-trigger {
+  background: transparent;
+}
+
+.settings-select-trigger:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.settings-select-option {
+  background: transparent;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.settings-select-option[aria-checked='true'] {
+  background: var(--bg-tertiary);
+}
+
+.settings-select-option:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
 .statistics-panel {
   width: 100%;
 }

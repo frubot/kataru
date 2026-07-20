@@ -586,7 +586,7 @@ export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsM
                         </div>
 
                         {/* Appearance Section */}
-                        <div style={{ marginBottom: 0 }}>
+                        <div style={{ marginBottom: '1.5rem' }}>
                             <div style={{
                                 padding: '1rem',
                                 borderRadius: '0.5rem',
@@ -747,16 +747,7 @@ export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsM
                                         </div>
                                     )}
                                 </div>
-                            </div>
-                        </div>
 
-                        {/* Typewriter Section */}
-                        <div style={{ marginBottom: '1.5rem' }}>
-                            <div style={{
-                                padding: '1rem',
-                                borderRadius: '0.5rem',
-                                background: 'var(--bg-secondary)',
-                            }}>
                                 <VnSpeedSlider value={vnTypingSpeed} onChange={setVnTypingSpeed} />
                             </div>
                         </div>

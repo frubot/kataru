@@ -384,6 +384,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn assistant_schema_keeps_thinking_before_message() {
+        let schema = assistant_schema(&[], false, true);
+        let property_names = schema
+            .pointer("/json_schema/schema/properties")
+            .and_then(Value::as_object)
+            .expect("assistant schema properties must be an object")
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+
+        assert_eq!(property_names, ["thinking", "message"]);
+    }
+
+    #[test]
     fn single_participant_prompt_omits_multi_participant_instructions() {
         let character = json!({
             "name": "葵",

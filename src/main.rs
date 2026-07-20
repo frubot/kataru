@@ -20,7 +20,10 @@ use reqwest::Client;
 use serde_json::json;
 use tokio::net::TcpListener;
 use tower_http::{
-    compression::CompressionLayer,
+    compression::{
+        CompressionLayer,
+        predicate::{DefaultPredicate, NotForContentType, Predicate},
+    },
     trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer},
 };
 use tracing::Level;
@@ -36,6 +39,12 @@ use crate::{
 const STORAGE_REQUEST_BODY_LIMIT: usize = 512 * 1024 * 1024;
 // 長い会話履歴を許容しつつ、画像data URLの誤送信などによる過剰なメモリ消費は制限する。
 const CONVERSATION_REQUEST_BODY_LIMIT: usize = 64 * 1024 * 1024;
+
+fn response_compression_predicate() -> impl Predicate {
+    // Kataruはloopback専用のため、巨大な画像data URLを含むJSONは圧縮コストの方が高い。
+    // JS/CSSなどの静的アセットは従来どおり圧縮する。
+    DefaultPredicate::new().and(NotForContentType::const_new("application/json"))
+}
 
 #[derive(Clone)]
 pub struct AppState {
@@ -93,7 +102,7 @@ async fn run() -> AppResult<()> {
         .fallback(static_assets::serve)
         .with_state(state.clone())
         .layer(middleware::from_fn_with_state(security, security_guard))
-        .layer(CompressionLayer::new())
+        .layer(CompressionLayer::new().compress_when(response_compression_predicate()))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::new().include_headers(false))
@@ -222,10 +231,25 @@ async fn shutdown_signal() {
 mod tests {
     use std::path::Path;
 
-    use axum::http::StatusCode;
+    use axum::http::{StatusCode, header};
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn compression_skips_json_but_keeps_static_assets() {
+        let json_response = Response::builder()
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(vec![0_u8; 64]))
+            .expect("build JSON response");
+        assert!(!response_compression_predicate().should_compress(&json_response));
+
+        let javascript_response = Response::builder()
+            .header(header::CONTENT_TYPE, "application/javascript")
+            .body(Body::from(vec![0_u8; 64]))
+            .expect("build JavaScript response");
+        assert!(response_compression_predicate().should_compress(&javascript_response));
+    }
 
     #[tokio::test]
     async fn storage_route_accepts_body_above_axum_default_limit() {

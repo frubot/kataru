@@ -442,7 +442,7 @@ body {
   align-items: center;
   justify-content: center;
   z-index: 50;
-  animation: fadeIn 0.2s ease-out;
+  animation: fadeIn 0.1s ease-out;
 }
 
 .modal-content {
@@ -453,7 +453,7 @@ body {
   max-width: 500px;
   max-height: 85vh;
   overflow-y: auto;
-  animation: slideUp 0.3s ease-out;
+  animation: slideUp 0.15s ease-out;
 }
 
 .modal-header {
@@ -1032,7 +1032,7 @@ body {
   border-radius: 0.75rem;
   background: var(--bg-secondary);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
-  animation: slideUp 0.2s ease-out;
+  animation: slideUp 0.1s ease-out;
 }
 
 .sidebar-search-close {

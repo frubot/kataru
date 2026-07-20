@@ -141,7 +141,7 @@ function VnSpeedSlider({ value, onChange }: VnSpeedSliderProps) {
                         alignItems: 'center',
                         justifyContent: 'center',
                         gap: '0.5rem',
-                        minWidth: '7rem',
+                        width: 'fit-content',
                         minHeight: '2.25rem',
                         padding: '0.5rem 0.625rem',
                         borderRadius: '0.5rem',
@@ -152,7 +152,7 @@ function VnSpeedSlider({ value, onChange }: VnSpeedSliderProps) {
                         transition: 'background 0.15s ease, border-color 0.15s ease',
                     }}
                 >
-                    <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'right' }}>
+                    <span style={{ whiteSpace: 'nowrap' }}>
                         {currentOption.label}
                     </span>
                     <ChevronDown
@@ -632,7 +632,7 @@ export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsM
                                                 alignItems: 'center',
                                                 justifyContent: 'center',
                                                 gap: '0.5rem',
-                                                minWidth: '7rem',
+                                                width: 'fit-content',
                                                 minHeight: '2.25rem',
                                                 padding: '0.5rem 0.625rem',
                                                 borderRadius: '0.5rem',
@@ -643,7 +643,7 @@ export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsM
                                                 transition: 'background 0.15s ease, border-color 0.15s ease',
                                             }}
                                         >
-                                            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'right' }}>
+                                            <span style={{ whiteSpace: 'nowrap' }}>
                                                 {themeMode === 'dark' ? 'ダーク' : 'ライト'}
                                             </span>
                                             <ChevronDown
@@ -734,7 +734,7 @@ export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsM
                                                 alignItems: 'center',
                                                 justifyContent: 'center',
                                                 gap: '0.5rem',
-                                                minWidth: '7rem',
+                                                width: 'fit-content',
                                                 minHeight: '2.25rem',
                                                 padding: '0.5rem 0.625rem',
                                                 borderRadius: '0.5rem',
@@ -745,7 +745,7 @@ export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsM
                                                 transition: 'background 0.15s ease, border-color 0.15s ease',
                                             }}
                                         >
-                                            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'right' }}>
+                                            <span style={{ whiteSpace: 'nowrap' }}>
                                                 {selectedPalette.label}
                                             </span>
                                             <ChevronDown

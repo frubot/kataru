@@ -1858,8 +1858,7 @@ export const useStore = create<AppState>()((set, get) => ({
             }),
         }));
         if (shouldPersistRoom(updatedRoom)) {
-            fire(db.putMessage(roomId, message));
-            fire(db.putRoom(toStoredRoom(updatedRoom)));
+            fire(db.putRoomAndMessage(toStoredRoom(updatedRoom), message));
             fire(db.setMeta('currentRoomId', roomId));
         }
         return message.id;

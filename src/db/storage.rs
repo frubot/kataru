@@ -57,6 +57,10 @@ pub enum StorageCommand {
         #[serde(alias = "value")]
         room: Value,
     },
+    PutRoomAndMessage {
+        room: Value,
+        message: Value,
+    },
     DeleteRoom {
         #[serde(alias = "id")]
         room_id: String,
@@ -300,6 +304,18 @@ fn execute_command(connection: &mut Connection, command: StorageCommand) -> AppR
         }
         StorageCommand::PutRoom { room } => {
             upsert_room(connection, room)?;
+            Ok(Value::Null)
+        }
+        StorageCommand::PutRoomAndMessage { room, message } => {
+            let room_id = required_string(&room, "id")?;
+            let transaction = connection.transaction()?;
+            if !upsert_room(&transaction, room)? {
+                return Err(AppError::BadRequest(
+                    "一時ルームにはメッセージを保存できません。".to_owned(),
+                ));
+            }
+            upsert_message(&transaction, &room_id, message)?;
+            transaction.commit()?;
             Ok(Value::Null)
         }
         StorageCommand::DeleteRoom { room_id } => {
@@ -1540,12 +1556,95 @@ mod tests {
     fn open_test_database() -> Connection {
         let connection = Connection::open_in_memory().expect("open in-memory database");
         connection
+            .pragma_update(None, "foreign_keys", true)
+            .expect("enable foreign keys");
+        connection
             .execute_batch(include_str!("../../migrations/0001_initial.sql"))
             .expect("apply initial migration");
         connection
             .execute_batch(include_str!("../../migrations/0002_image_assets.sql"))
             .expect("apply image asset migration");
         connection
+    }
+
+    fn test_room(id: &str) -> Value {
+        json!({
+            "id": id,
+            "characterId": "character-1",
+            "name": "Test room",
+            "createdAt": 1,
+            "updatedAt": 1
+        })
+    }
+
+    #[test]
+    fn put_room_and_message_stores_first_message_with_foreign_keys_enabled() {
+        let mut connection = open_test_database();
+
+        execute_command(
+            &mut connection,
+            StorageCommand::PutRoomAndMessage {
+                room: test_room("room-1"),
+                message: json!({
+                    "id": "message-1",
+                    "role": "user",
+                    "content": "hello",
+                    "timestamp": 1
+                }),
+            },
+        )
+        .expect("store room and first message");
+
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM rooms WHERE id = 'room-1'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .expect("count rooms"),
+            1
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM messages
+                     WHERE id = 'message-1' AND room_id = 'room-1'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .expect("count messages"),
+            1
+        );
+    }
+
+    #[test]
+    fn put_room_and_message_rolls_back_room_when_message_is_invalid() {
+        let mut connection = open_test_database();
+
+        let result = execute_command(
+            &mut connection,
+            StorageCommand::PutRoomAndMessage {
+                room: test_room("room-1"),
+                message: json!({
+                    "id": "message-1",
+                    "role": "user",
+                    "content": "missing timestamp"
+                }),
+            },
+        );
+
+        assert!(result.is_err());
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM rooms WHERE id = 'room-1'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .expect("count rolled-back rooms"),
+            0
+        );
     }
 
     #[test]

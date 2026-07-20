@@ -92,6 +92,10 @@ export async function putRoom(value: StoredRoom): Promise<void> {
     await storage<null>({ op: 'put_room', value });
 }
 
+export async function putRoomAndMessage(room: StoredRoom, message: Message): Promise<void> {
+    await storage<null>({ op: 'put_room_and_message', room, message });
+}
+
 export async function deleteRoom(id: string): Promise<void> {
     await storage<null>({ op: 'delete_room', id });
 }

@@ -296,10 +296,6 @@ body {
   }
 }
 
-.animate-fade-in {
-  animation: fadeIn 0.3s ease-out;
-}
-
 .animate-slide-up {
   animation: slideUp 0.3s ease-out;
 }

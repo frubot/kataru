@@ -585,7 +585,7 @@ export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsM
                         role="tabpanel"
                         aria-labelledby={`settings-tab-${activeTab}`}
                     >
-                        <div key={activeTab} className="animate-fade-in">
+                        <div>
 
                         {activeTab === 'general' && (
                             <>

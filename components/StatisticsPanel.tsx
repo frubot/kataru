@@ -119,7 +119,7 @@ export default function StatisticsPanel() {
     const formatCost = (n: number) => `$${n.toFixed(6)}`;
 
     return (
-        <div className="statistics-panel animate-fade-in">
+        <div className="statistics-panel">
                         {/* Filters */}
                         <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
                             <div style={{ flex: 1, minWidth: '140px' }}>

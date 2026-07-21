@@ -25,6 +25,7 @@ interface ChatWindowProps {
     groupCharacters?: SituationParticipant[] | null;
     onOpenSidebar: () => void;
     onOpenMemoryList: (character?: Character | null) => void;
+    onCreateCharacter: () => void;
 }
 
 const DEFAULT_COSTUME_NAME = 'default';
@@ -866,7 +867,7 @@ function isCoveredByCharacterSetting(content: string, systemPrompt: string): boo
     return memoryDedupSimilarity(content, normalizedPrompt) >= 0.28;
 }
 
-export default function ChatWindow({ room, character, situation, groupName, groupCharacters, onOpenSidebar, onOpenMemoryList }: ChatWindowProps) {
+export default function ChatWindow({ room, character, situation, groupName, groupCharacters, onOpenSidebar, onOpenMemoryList, onCreateCharacter }: ChatWindowProps) {
     const {
         addMessage,
         addMemory,
@@ -2100,8 +2101,14 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 <div className="empty-state">
                     <Sparkles size={64} className="empty-state-icon" />
                     <h2 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '0.5rem' }}>
-                        ロールプレイの準備はよろしいですか？
+                        Kataruで会話をはじめましょう
                     </h2>
+                    <p className="empty-state-description" style={{ marginBottom: '1rem' }}>
+                        まずは、話す相手を作ります。
+                    </p>
+                    <button type="button" className="btn btn-primary" onClick={onCreateCharacter}>
+                        話す相手を作る
+                    </button>
                 </div>
             </div>
         );
@@ -2410,7 +2417,13 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                                     </p>
                                 </>
                             ) : (
-                                <MessageSquare size={48} style={{ marginBottom: '0.5rem', opacity: 0.5 }} />
+                                <>
+                                    <MessageSquare size={48} style={{ marginBottom: '0.5rem', opacity: 0.5 }} />
+                                    <h2 className="empty-state-title">まずは一言、話しかけてみましょう</h2>
+                                    <p className="empty-state-description">
+                                        例：「こんにちは。今日は何をしていたの？」
+                                    </p>
+                                </>
                             )}
                         </div>
                     ) : (

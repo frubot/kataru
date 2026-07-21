@@ -43,6 +43,8 @@ export {
     type AiProviderConfig,
 } from './aiProvider';
 
+export const CURRENT_ONBOARDING_VERSION = 1;
+
 export interface Expression {
     name: string;
     promptDetail?: string;
@@ -310,6 +312,7 @@ type CharacterExtras = Partial<Omit<Character, 'id' | 'name' | 'systemPrompt' | 
 
 interface AppState {
     hydrated: boolean;
+    onboardingVersion: number;
     themeMode: ThemeMode;
     themePalette: ThemePalette;
     vnTypingSpeed: VnTypingSpeed;
@@ -338,6 +341,7 @@ interface AppState {
 
     // Hydration
     hydrate: () => Promise<void>;
+    completeOnboarding: () => void;
 
     // Theme
     setThemeMode: (mode: ThemeMode) => void;
@@ -995,6 +999,7 @@ function getAiProviderConfigFromState(state: Pick<AppState,
 
 export const useStore = create<AppState>()((set, get) => ({
     hydrated: false,
+    onboardingVersion: 0,
     themeMode: DEFAULT_THEME_SELECTION.mode,
     themePalette: DEFAULT_THEME_SELECTION.palette,
     vnTypingSpeed: DEFAULT_VN_TYPING_SPEED,
@@ -1024,7 +1029,7 @@ export const useStore = create<AppState>()((set, get) => ({
     hydrate: async () => {
         if (get().hydrated) return;
         await db.migrateLegacyDatabase();
-        const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, currentRoomId, vnTypingSpeed, thinkDebugEnabled, fullJsonDebugEnabled, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedGenerateTitleOnFirstReply, storedAiProvider, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey] = await Promise.all([
+        const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, currentRoomId, vnTypingSpeed, thinkDebugEnabled, fullJsonDebugEnabled, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedGenerateTitleOnFirstReply, storedAiProvider, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion] = await Promise.all([
             db.getAllCharacters(),
             db.getAllGroups(),
             db.getAllRooms(),
@@ -1050,6 +1055,7 @@ export const useStore = create<AppState>()((set, get) => ({
             db.getMeta<boolean>('openAiCompatibleImageGenerationEnabled'),
             // Legacy client-side key; removed for security. Detect presence so we can delete it.
             db.getMeta<string>('openAiCompatibleApiKey'),
+            db.getMeta<number>('onboardingVersion'),
         ]);
         // Drop any previously stored client-side API key from IndexedDB.
         if (legacyOpenAiCompatibleApiKey !== undefined) {
@@ -1126,6 +1132,13 @@ export const useStore = create<AppState>()((set, get) => ({
         const resolvedOpenAiCompatibleImageGenerationEnabled = typeof storedOpenAiCompatibleImageGenerationEnabled === 'boolean'
             ? storedOpenAiCompatibleImageGenerationEnabled
             : DEFAULT_OPENAI_COMPATIBLE_IMAGE_GENERATION_ENABLED;
+        const hasExistingContent = loadedCharacters.length > 0 || storedGroups.length > 0 || storedRooms.length > 0;
+        const normalizedOnboardingVersion = typeof storedOnboardingVersion === 'number' && Number.isFinite(storedOnboardingVersion)
+            ? Math.max(0, Math.floor(storedOnboardingVersion))
+            : 0;
+        const resolvedOnboardingVersion = hasExistingContent
+            ? Math.max(normalizedOnboardingVersion, CURRENT_ONBOARDING_VERSION)
+            : normalizedOnboardingVersion;
         if (storedDefaultChatModel !== resolvedDefaultChatModel) fire(db.setMeta('defaultChatModel', resolvedDefaultChatModel));
         if (storedDefaultDirectorModel !== resolvedDefaultDirectorModel) fire(db.setMeta('defaultDirectorModel', resolvedDefaultDirectorModel));
         if (storedDefaultAutoGenerationModel !== resolvedDefaultAutoGenerationModel) fire(db.setMeta('defaultAutoGenerationModel', resolvedDefaultAutoGenerationModel));
@@ -1138,8 +1151,10 @@ export const useStore = create<AppState>()((set, get) => ({
         if (storedOpenAiCompatibleBaseUrl !== resolvedOpenAiCompatibleBaseUrl) fire(db.setMeta('openAiCompatibleBaseUrl', resolvedOpenAiCompatibleBaseUrl));
         if (storedOpenAiCompatibleEmbeddingsEnabled !== resolvedOpenAiCompatibleEmbeddingsEnabled) fire(db.setMeta('openAiCompatibleEmbeddingsEnabled', resolvedOpenAiCompatibleEmbeddingsEnabled));
         if (storedOpenAiCompatibleImageGenerationEnabled !== resolvedOpenAiCompatibleImageGenerationEnabled) fire(db.setMeta('openAiCompatibleImageGenerationEnabled', resolvedOpenAiCompatibleImageGenerationEnabled));
+        if (storedOnboardingVersion !== resolvedOnboardingVersion) fire(db.setMeta('onboardingVersion', resolvedOnboardingVersion));
         set({
             hydrated: true,
+            onboardingVersion: resolvedOnboardingVersion,
             characters,
             groups,
             rooms,
@@ -1166,6 +1181,11 @@ export const useStore = create<AppState>()((set, get) => ({
             fullJsonDebugLogs: [],
             currentRoomId: resolvedCurrentRoomId,
         });
+    },
+
+    completeOnboarding: () => {
+        set({ onboardingVersion: CURRENT_ONBOARDING_VERSION });
+        fire(db.setMeta('onboardingVersion', CURRENT_ONBOARDING_VERSION));
     },
 
     setThemeMode: (themeMode) => {

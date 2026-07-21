@@ -146,6 +146,20 @@ impl Provider {
         request
     }
 
+    pub fn get(&self, path: &str, timeout: Duration) -> RequestBuilder {
+        let mut request = self
+            .client
+            .get(self.endpoint(path))
+            .bearer_auth(&self.api_key)
+            .timeout(timeout);
+        if self.is_openrouter() {
+            request = request
+                .header("HTTP-Referer", &self.application_origin)
+                .header("X-Title", "Kataru");
+        }
+        request
+    }
+
     pub fn post_json(&self, path: &str, body: &Value, timeout_secs: u64) -> RequestBuilder {
         self.post(path, Duration::from_secs(timeout_secs))
             .json(body)

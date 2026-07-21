@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
-import { useStore, Character, getThemeClassName, resolveSituationParticipants } from '@/lib/store';
+import { CURRENT_ONBOARDING_VERSION, useStore, Character, getThemeClassName, resolveSituationParticipants } from '@/lib/store';
 import ChatSidebar from '@/components/ChatSidebar';
 import ChatWindow from '@/components/ChatWindow';
 import GlobalSettingsModal from '@/components/GlobalSettingsModal';
@@ -8,6 +8,7 @@ import CharacterSettingsModal from '@/components/CharacterSettingsModal';
 import MemoryListModal from '@/components/MemoryListModal';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import AppSkeleton from '@/components/AppSkeleton';
+import FirstRunGuide from '@/components/FirstRunGuide';
 
 const HYDRATE_TIMEOUT_MS = 15_000;
 
@@ -78,13 +79,26 @@ function HydrationErrorScreen({ message, onRetry }: { message: string; onRetry: 
 }
 
 export default function Home() {
-    const { themeMode, themePalette, groups, rooms, characters, currentRoomId, hydrated, hydrate, defaultChatModel } = useStore();
+    const {
+        themeMode,
+        themePalette,
+        groups,
+        rooms,
+        characters,
+        currentRoomId,
+        hydrated,
+        hydrate,
+        defaultChatModel,
+        onboardingVersion,
+        completeOnboarding,
+    } = useStore();
     const [showSettings, setShowSettings] = useState(false);
     const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
     const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true);
     const [mounted, setMounted] = useState(false);
     const [hydrateError, setHydrateError] = useState<string | null>(null);
     const [hydrateAttempt, setHydrateAttempt] = useState(0);
+    const [showOnboardingAgain, setShowOnboardingAgain] = useState(false);
 
     // Character settings modal state
     const [characterModalOpen, setCharacterModalOpen] = useState(false);
@@ -129,6 +143,16 @@ export default function Home() {
         }
     }, [themeMode, themePalette, mounted, hydrated]);
 
+    useEffect(() => {
+        if (
+            hydrated &&
+            onboardingVersion < CURRENT_ONBOARDING_VERSION &&
+            (characters.length > 0 || groups.length > 0 || rooms.length > 0)
+        ) {
+            completeOnboarding();
+        }
+    }, [characters.length, completeOnboarding, groups.length, hydrated, onboardingVersion, rooms.length]);
+
     const currentRoom = rooms.find((r) => r.id === currentRoomId) || null;
     const currentSituation = currentRoom?.groupId
         ? groups.find((g) => g.id === currentRoom.groupId) || null
@@ -140,6 +164,17 @@ export default function Home() {
     const situationParticipants = isSituation && currentSituation
         ? resolveSituationParticipants(currentSituation, characters, defaultChatModel)
         : null;
+    const shouldShowFirstRunGuide = showOnboardingAgain || (
+        onboardingVersion < CURRENT_ONBOARDING_VERSION &&
+        characters.length === 0 &&
+        groups.length === 0 &&
+        rooms.length === 0
+    );
+
+    const closeOnboarding = () => {
+        completeOnboarding();
+        setShowOnboardingAgain(false);
+    };
 
     const handleOpenCharacterSettings = (character: Character | null, isNew: boolean) => {
         setEditingCharacter(character);
@@ -187,20 +222,33 @@ export default function Home() {
                 />
             </ErrorBoundary>
             <ErrorBoundary fallbackMessage="チャット画面でエラーが発生しました">
-                <ChatWindow
-                    room={currentRoom}
-                    character={currentCharacter}
-                    situation={currentSituation}
-                    groupName={currentSituation?.name ?? (isSituation ? currentRoom?.name : undefined)}
-                    groupCharacters={situationParticipants}
-                    onOpenSidebar={() => setMobileSidebarOpen(true)}
-                    onOpenMemoryList={handleOpenMemoryList}
-                />
+                {shouldShowFirstRunGuide ? (
+                    <FirstRunGuide
+                        onOpenSidebar={() => setMobileSidebarOpen(true)}
+                        onComplete={closeOnboarding}
+                        onSkip={closeOnboarding}
+                    />
+                ) : (
+                    <ChatWindow
+                        room={currentRoom}
+                        character={currentCharacter}
+                        situation={currentSituation}
+                        groupName={currentSituation?.name ?? (isSituation ? currentRoom?.name : undefined)}
+                        groupCharacters={situationParticipants}
+                        onOpenSidebar={() => setMobileSidebarOpen(true)}
+                        onOpenMemoryList={handleOpenMemoryList}
+                        onCreateCharacter={() => handleOpenCharacterSettings(null, true)}
+                    />
+                )}
             </ErrorBoundary>
             <ErrorBoundary>
                 <GlobalSettingsModal
                     isOpen={showSettings}
                     onClose={() => setShowSettings(false)}
+                    onShowOnboarding={() => {
+                        setShowSettings(false);
+                        setShowOnboardingAgain(true);
+                    }}
                 />
             </ErrorBoundary>
             <ErrorBoundary>

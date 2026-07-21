@@ -137,6 +137,7 @@ fn api_router() -> Router<AppState> {
             post(handle_storage_command).layer(DefaultBodyLimit::max(STORAGE_REQUEST_BODY_LIMIT)),
         )
         .route("/chat", post(ai::chat))
+        .route("/ai/status", post(ai::connection_status))
         .route("/summarize", post(ai::summarize))
         .route("/embeddings", post(ai::embeddings))
         .route("/generate-image", post(ai::generate_image))

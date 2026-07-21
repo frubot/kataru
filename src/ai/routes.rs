@@ -7,6 +7,7 @@ use axum::{
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde_json::{Map, Value, json};
+use std::time::Duration;
 
 use crate::{
     AppState,
@@ -22,6 +23,40 @@ const DEFAULT_MEMORY_EMBEDDING_MODEL: &str = "qwen/qwen3-embedding-8b";
 
 fn provider_for(state: &AppState, body: &Value) -> AppResult<Provider> {
     Provider::from_state(state, body.get("aiProviderConfig"))
+}
+
+pub async fn connection_status(
+    State(state): State<AppState>,
+    Json(input): Json<Value>,
+) -> Json<Value> {
+    let provider = match provider_for(&state, &input) {
+        Ok(provider) => provider,
+        Err(_) => {
+            return Json(json!({
+                "ready": false,
+                "code": "missing_configuration",
+                "message": "会話に使うAIの設定が見つかりません。"
+            }));
+        }
+    };
+
+    match provider.get("models", Duration::from_secs(8)).send().await {
+        Ok(response) if response.status().is_success() => Json(json!({
+            "ready": true,
+            "code": "ready",
+            "message": "準備できています。"
+        })),
+        Ok(_) => Json(json!({
+            "ready": false,
+            "code": "connection_rejected",
+            "message": "AIに接続できませんでした。設定を確認してください。"
+        })),
+        Err(_) => Json(json!({
+            "ready": false,
+            "code": "unreachable",
+            "message": "AIに接続できませんでした。起動状態と設定を確認してください。"
+        })),
+    }
 }
 
 fn required_string(body: &Value, field: &str, message: &str) -> AppResult<String> {

@@ -8,6 +8,7 @@ import packageJson from '../package.json';
 interface GlobalSettingsModalProps {
     isOpen: boolean;
     onClose: () => void;
+    onShowOnboarding: () => void;
 }
 
 type SettingsTab = 'general' | 'models' | 'debug' | 'statistics';
@@ -259,7 +260,7 @@ function VnSpeedSlider({ value, onChange }: VnSpeedSliderProps) {
     );
 }
 
-export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsModalProps) {
+export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding }: GlobalSettingsModalProps) {
     const {
         themeMode, themePalette, vnTypingSpeed,
         summaryModel, setSummaryModel,
@@ -603,6 +604,14 @@ export default function GlobalSettingsModal({ isOpen, onClose }: GlobalSettingsM
                                         v{packageJson.version}
                                     </span>
                                 </div>
+                                <button
+                                    type="button"
+                                    className="btn btn-secondary"
+                                    onClick={onShowOnboarding}
+                                    style={{ marginTop: '0.875rem' }}
+                                >
+                                    はじめ方をもう一度見る
+                                </button>
                             </div>
                         </div>
 

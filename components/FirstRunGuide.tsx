@@ -159,15 +159,33 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
 
             <div className="onboarding-scroll">
                 <div className="onboarding-card">
-                    <div className="onboarding-progress" aria-label={step === 'connection' ? '1 / 2' : '2 / 2'}>
-                        <span className="onboarding-progress-bar active" />
-                        <span className={`onboarding-progress-bar ${step === 'character' ? 'active' : ''}`} />
+                    <div className={`onboarding-navigation ${step === 'character' ? 'has-back' : ''}`}>
+                        {step === 'character' && (
+                            <button
+                                type="button"
+                                className="btn btn-ghost onboarding-back"
+                                onClick={() => setStep('connection')}
+                                aria-label="前へ戻る"
+                                title="前へ戻る"
+                            >
+                                <ArrowLeft size={19} />
+                            </button>
+                        )}
+                        <div
+                            className={`onboarding-progress ${step === 'character' ? 'has-completed-step' : ''}`}
+                            role="progressbar"
+                            aria-label={step === 'connection' ? '1 / 2' : '2 / 2'}
+                            aria-valuemin={0}
+                            aria-valuemax={2}
+                            aria-valuenow={step === 'connection' ? 0 : 1}
+                        >
+                            <span className="onboarding-progress-fill" />
+                        </div>
                     </div>
 
                     {step === 'connection' ? (
                         <>
                             <div className="onboarding-heading">
-                                <div className="onboarding-icon"><Sparkles size={24} /></div>
                                 <div>
                                     <p className="onboarding-step-label">1 / 2 · 会話の準備</p>
                                     <h1>Kataruへようこそ</h1>
@@ -245,15 +263,6 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                     ) : (
                         <>
                             <div className="onboarding-heading">
-                                <button
-                                    type="button"
-                                    className="btn btn-ghost onboarding-back"
-                                    onClick={() => setStep('connection')}
-                                    aria-label="前へ戻る"
-                                    title="前へ戻る"
-                                >
-                                    <ArrowLeft size={19} />
-                                </button>
                                 <div>
                                     <p className="onboarding-step-label">2 / 2 · 話す相手を作る</p>
                                     <h1>誰と話しますか？</h1>

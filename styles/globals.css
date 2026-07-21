@@ -1689,15 +1689,16 @@ body {
   background: var(--bg-secondary);
 }
 
+.onboarding-card.is-connection-step {
+  height: auto;
+}
+
 .onboarding-navigation {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-bottom: 1rem;
-}
-
-.onboarding-navigation.has-back {
   margin-left: -1.375rem;
+  margin-bottom: 1rem;
 }
 
 .onboarding-progress {
@@ -1734,7 +1735,8 @@ body {
   line-height: 1.3;
 }
 
-.onboarding-back {
+.onboarding-back,
+.onboarding-back-placeholder {
   flex: 0 0 auto;
   width: 2rem;
   height: 1.5rem;
@@ -2243,7 +2245,7 @@ body {
     border-radius: 0.875rem;
   }
 
-  .onboarding-navigation.has-back {
+  .onboarding-navigation {
     margin-left: -0.625rem;
   }
 

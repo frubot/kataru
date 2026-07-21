@@ -158,9 +158,9 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
             </div>
 
             <div className="onboarding-scroll">
-                <div className="onboarding-card">
-                    <div className={`onboarding-navigation ${step === 'character' ? 'has-back' : ''}`}>
-                        {step === 'character' && (
+                <div className={`onboarding-card ${step === 'connection' ? 'is-connection-step' : ''}`}>
+                    <div className="onboarding-navigation">
+                        {step === 'character' ? (
                             <button
                                 type="button"
                                 className="btn btn-ghost onboarding-back"
@@ -170,6 +170,8 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                             >
                                 <ArrowLeft size={19} />
                             </button>
+                        ) : (
+                            <span className="onboarding-back-placeholder" aria-hidden="true" />
                         )}
                         <div
                             className={`onboarding-progress ${step === 'character' ? 'has-completed-step' : ''}`}

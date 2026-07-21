@@ -610,7 +610,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     onClick={onShowOnboarding}
                                     style={{ marginTop: '0.875rem' }}
                                 >
-                                    はじめ方をもう一度見る
+                                    初期設定をもう一度見る
                                 </button>
                             </div>
                         </div>

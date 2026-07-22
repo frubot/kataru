@@ -4,8 +4,12 @@ mod conversation;
 mod db;
 mod error;
 mod static_assets;
+mod update;
 
-use std::{cmp::Ordering, sync::Arc, time::Duration};
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
 use axum::{
     Json, Router,
@@ -17,9 +21,8 @@ use axum::{
     routing::{get, post},
 };
 use reqwest::Client;
-use serde::Deserialize;
 use serde_json::json;
-use tokio::net::TcpListener;
+use tokio::{net::TcpListener, sync::Notify};
 use tower_http::{
     compression::{
         CompressionLayer,
@@ -40,13 +43,6 @@ use crate::{
 const STORAGE_REQUEST_BODY_LIMIT: usize = 512 * 1024 * 1024;
 // 長い会話履歴を許容しつつ、画像data URLの誤送信などによる過剰なメモリ消費は制限する。
 const CONVERSATION_REQUEST_BODY_LIMIT: usize = 64 * 1024 * 1024;
-const LATEST_RELEASE_API_URL: &str = "https://api.github.com/repos/frubot/kataru/releases/latest";
-const RELEASE_PAGE_BASE_URL: &str = "https://github.com/frubot/kataru/releases/tag/";
-
-#[derive(Deserialize)]
-struct GitHubRelease {
-    tag_name: String,
-}
 
 fn response_compression_predicate() -> impl Predicate {
     // Kataruはloopback専用のため、巨大な画像data URLを含むJSONは圧縮コストの方が高い。
@@ -59,6 +55,8 @@ pub struct AppState {
     pub database: Database,
     pub http_client: Client,
     pub application_origin: String,
+    update_shutdown: Arc<Notify>,
+    pending_update_marker: Arc<Mutex<Option<PathBuf>>>,
 }
 
 #[derive(Clone)]
@@ -76,6 +74,10 @@ async fn main() {
 }
 
 async fn run() -> AppResult<()> {
+    if update::run_special_command_if_requested().await? {
+        return Ok(());
+    }
+
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env()
@@ -88,10 +90,13 @@ async fn run() -> AppResult<()> {
     let http_client = Client::builder()
         .user_agent(format!("Kataru/{}", env!("CARGO_PKG_VERSION")))
         .build()?;
+    let update_shutdown = Arc::new(Notify::new());
     let state = AppState {
         database,
         http_client,
         application_origin: config.origin(),
+        update_shutdown: update_shutdown.clone(),
+        pending_update_marker: Arc::new(Mutex::new(None)),
     };
 
     let mut allowed_origins = vec![config.origin()];
@@ -131,8 +136,16 @@ async fn run() -> AppResult<()> {
     }
 
     axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
+        .with_graceful_shutdown(shutdown_signal(update_shutdown))
         .await?;
+    if let Some(marker) = state
+        .pending_update_marker
+        .lock()
+        .map_err(|_| AppError::Internal("更新状態のロックに失敗しました。".to_owned()))?
+        .take()
+    {
+        update::mark_update_ready(&marker)?;
+    }
     Ok(())
 }
 
@@ -140,6 +153,7 @@ fn api_router() -> Router<AppState> {
     Router::new()
         .route("/health", get(health))
         .route("/update-status", get(update_status))
+        .route("/update", post(install_update))
         .route("/assets/{asset_id}", get(image_asset))
         .route(
             "/storage",
@@ -203,64 +217,26 @@ async fn health(State(state): State<AppState>) -> Json<serde_json::Value> {
     }))
 }
 
-async fn update_status(State(state): State<AppState>) -> AppResult<Json<serde_json::Value>> {
-    let response = state
-        .http_client
-        .get(LATEST_RELEASE_API_URL)
-        .header(reqwest::header::ACCEPT, "application/vnd.github+json")
-        .header("X-GitHub-Api-Version", "2022-11-28")
-        .timeout(Duration::from_secs(10))
-        .send()
-        .await?;
+async fn update_status(State(state): State<AppState>) -> AppResult<Json<update::UpdateStatus>> {
+    Ok(Json(update::check_for_update(&state.http_client).await?))
+}
 
-    if !response.status().is_success() {
-        return Err(AppError::Upstream(
-            "最新バージョンを確認できませんでした。時間をおいてもう一度お試しください。".to_owned(),
-            StatusCode::BAD_GATEWAY,
-        ));
+async fn install_update(State(state): State<AppState>) -> AppResult<Json<update::UpdateResult>> {
+    let prepared = update::install_latest(
+        &state.http_client,
+        Some(update::server_restart_args()),
+        true,
+    )
+    .await?;
+    if let Some(marker) = prepared.ready_marker {
+        *state
+            .pending_update_marker
+            .lock()
+            .map_err(|_| AppError::Internal("更新状態のロックに失敗しました。".to_owned()))? =
+            Some(marker);
+        state.update_shutdown.notify_one();
     }
-
-    let release = response.json::<GitHubRelease>().await?;
-    let latest_version = parse_release_version(&release.tag_name)
-        .ok_or_else(|| AppError::Internal("最新リリースのバージョン形式が不正です。".to_owned()))?;
-    let current_version = parse_release_version(env!("CARGO_PKG_VERSION"))
-        .ok_or_else(|| AppError::Internal("実行中のバージョン形式が不正です。".to_owned()))?;
-    let update_available = compare_versions(&latest_version, &current_version).is_gt();
-    let latest_version_text = latest_version
-        .iter()
-        .map(u64::to_string)
-        .collect::<Vec<_>>()
-        .join(".");
-
-    Ok(Json(json!({
-        "currentVersion": env!("CARGO_PKG_VERSION"),
-        "latestVersion": latest_version_text,
-        "updateAvailable": update_available,
-        "releaseUrl": format!("{RELEASE_PAGE_BASE_URL}{}", release.tag_name),
-    })))
-}
-
-fn parse_release_version(value: &str) -> Option<Vec<u64>> {
-    let value = value.strip_prefix('v').unwrap_or(value);
-    let parts = value
-        .split('.')
-        .map(str::parse::<u64>)
-        .collect::<Result<Vec<_>, _>>()
-        .ok()?;
-    (parts.len() >= 2).then_some(parts)
-}
-
-fn compare_versions(left: &[u64], right: &[u64]) -> Ordering {
-    let length = left.len().max(right.len());
-    (0..length)
-        .map(|index| {
-            left.get(index)
-                .copied()
-                .unwrap_or_default()
-                .cmp(&right.get(index).copied().unwrap_or_default())
-        })
-        .find(|ordering| !ordering.is_eq())
-        .unwrap_or(Ordering::Equal)
+    Ok(Json(prepared.result))
 }
 
 async fn security_guard(
@@ -304,7 +280,7 @@ async fn security_guard(
     next.run(request).await
 }
 
-async fn shutdown_signal() {
+async fn shutdown_signal(update_shutdown: Arc<Notify>) {
     let ctrl_c = async {
         if let Err(error) = tokio::signal::ctrl_c().await {
             tracing::error!(%error, "failed to install Ctrl+C handler");
@@ -327,6 +303,7 @@ async fn shutdown_signal() {
     tokio::select! {
         () = ctrl_c => {}
         () = terminate => {}
+        () = update_shutdown.notified() => {}
     }
 }
 
@@ -354,22 +331,14 @@ mod tests {
         assert!(response_compression_predicate().should_compress(&javascript_response));
     }
 
-    #[test]
-    fn release_versions_are_parsed_and_compared() {
-        assert_eq!(parse_release_version("v0.1.10"), Some(vec![0, 1, 10]));
-        assert_eq!(parse_release_version("0.1.9"), Some(vec![0, 1, 9]));
-        assert_eq!(parse_release_version("release-1.0"), None);
-        assert_eq!(compare_versions(&[0, 1, 10], &[0, 1, 9]), Ordering::Greater);
-        assert_eq!(compare_versions(&[1, 0], &[1, 0, 0]), Ordering::Equal);
-        assert_eq!(compare_versions(&[0, 9, 9], &[1, 0, 0]), Ordering::Less);
-    }
-
     #[tokio::test]
     async fn storage_route_accepts_body_above_axum_default_limit() {
         let state = AppState {
             database: Database::open(Path::new(":memory:")).expect("open in-memory database"),
             http_client: Client::new(),
             application_origin: "http://127.0.0.1".to_owned(),
+            update_shutdown: Arc::new(Notify::new()),
+            pending_update_marker: Arc::new(Mutex::new(None)),
         };
         let app = api_router().with_state(state);
         let listener = TcpListener::bind("127.0.0.1:0")
@@ -406,6 +375,8 @@ mod tests {
             database: Database::open(Path::new(":memory:")).expect("open in-memory database"),
             http_client: Client::new(),
             application_origin: "http://127.0.0.1".to_owned(),
+            update_shutdown: Arc::new(Notify::new()),
+            pending_update_marker: Arc::new(Mutex::new(None)),
         };
         let app = api_router().with_state(state);
         let listener = TcpListener::bind("127.0.0.1:0")

@@ -16,6 +16,7 @@ interface UpdateStatus {
     latestVersion: string;
     updateAvailable: boolean;
     releaseUrl: string;
+    installing: boolean;
 }
 
 function isUpdateStatus(value: unknown): value is UpdateStatus {
@@ -24,7 +25,25 @@ function isUpdateStatus(value: unknown): value is UpdateStatus {
     return typeof status.currentVersion === 'string'
         && typeof status.latestVersion === 'string'
         && typeof status.updateAvailable === 'boolean'
-        && typeof status.releaseUrl === 'string';
+        && typeof status.releaseUrl === 'string'
+        && typeof status.installing === 'boolean';
+}
+
+async function waitForUpdatedServer(version: string): Promise<void> {
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 500));
+        try {
+            const response = await fetch('/api/health', { cache: 'no-store' });
+            if (!response.ok) continue;
+            const body: unknown = await response.json();
+            if (body && typeof body === 'object' && 'version' in body && body.version === version) {
+                return;
+            }
+        } catch {
+            // 更新中はサーバーが一時的に停止します。
+        }
+    }
+    throw new Error('更新後のKataruを起動できませんでした。手動でKataruを起動してください。');
 }
 
 type SettingsTab = 'general' | 'models' | 'debug' | 'statistics';
@@ -361,7 +380,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         setUpdateError(null);
         setIsCheckingUpdate(true);
         try {
-            const response = await fetch('/api/update-status');
+            const response = await fetch('/api/update', { method: 'POST' });
             const body: unknown = await response.json();
             if (!response.ok) {
                 const message = body && typeof body === 'object' && 'error' in body
@@ -374,6 +393,10 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                 throw new Error('アップデート確認の応答形式が不正です。');
             }
             setUpdateStatus(body);
+            if (body.installing) {
+                await waitForUpdatedServer(body.latestVersion);
+                window.location.reload();
+            }
         } catch (error) {
             setUpdateStatus(null);
             setUpdateError(error instanceof Error ? error.message : 'アップデートを確認できませんでした。');
@@ -657,7 +680,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         disabled={isCheckingUpdate}
                                     >
                                         <RefreshCw size={16} className={isCheckingUpdate ? 'animate-spin' : undefined} />
-                                        {isCheckingUpdate ? '確認中...' : 'アップデートを確認'}
+                                        {isCheckingUpdate ? '確認・更新中...' : 'アップデートを確認'}
                                     </button>
                                     <button
                                         type="button"
@@ -692,14 +715,16 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         }}
                                     >
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.8125rem' }}>
-                                            {updateStatus.updateAvailable ? <Download size={15} /> : <Check size={15} />}
+                                            {updateStatus.installing ? <RefreshCw size={15} className="animate-spin" /> : updateStatus.updateAvailable ? <Download size={15} /> : <Check size={15} />}
                                             <span>
-                                                {updateStatus.updateAvailable
+                                                {updateStatus.installing
+                                                    ? `v${updateStatus.latestVersion}をインストールしています。Kataruを再起動中です…`
+                                                    : updateStatus.updateAvailable
                                                     ? `新しいバージョン v${updateStatus.latestVersion} が利用できます。`
                                                     : `v${updateStatus.currentVersion} は最新バージョンです。`}
                                             </span>
                                         </div>
-                                        {updateStatus.updateAvailable && (
+                                        {updateStatus.updateAvailable && !updateStatus.installing && (
                                             <a
                                                 className="btn btn-primary"
                                                 href={updateStatus.releaseUrl}

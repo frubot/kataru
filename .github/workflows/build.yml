@@ -79,15 +79,18 @@ jobs:
           - os: windows-latest
             artifact: kataru-windows-x64
             archive: kataru-windows-x64.zip
+            updater_binary: kataru-windows-x64.exe
 
           - os: ubuntu-latest
             artifact: kataru-linux-x64
             archive: kataru-linux-x64.tar.gz
+            updater_binary: kataru-linux-x64
 
           # 現在の macos-latest はArm64です
           - os: macos-latest
             artifact: kataru-macos-arm64
             archive: kataru-macos-arm64.tar.gz
+            updater_binary: kataru-macos-arm64
 
     runs-on: ${{ matrix.os }}
 
@@ -136,6 +139,9 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          Copy-Item `
+            -LiteralPath target/release/kataru.exe `
+            -Destination "${{ matrix.updater_binary }}"
           Compress-Archive `
             -LiteralPath target/release/kataru.exe `
             -DestinationPath "${{ matrix.archive }}"
@@ -144,13 +150,16 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
+          cp target/release/kataru "${{ matrix.updater_binary }}"
           tar -czf "${{ matrix.archive }}" -C target/release kataru
 
       - name: Upload binary
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
-          path: ${{ matrix.archive }}
+          path: |
+            ${{ matrix.archive }}
+            ${{ matrix.updater_binary }}
           if-no-files-found: error
           retention-days: 14
 

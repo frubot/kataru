@@ -139,6 +139,7 @@ npm run smoke:binary
 ### 起動オプション
 
 ```text
+update                最新版を確認し、利用可能なら自動インストール
 --host <IP>           待受IP。loopbackアドレスのみ指定可能
 --port <PORT>         待受ポート（既定: 37371）
 --data-dir <PATH>     データ保存先
@@ -153,6 +154,18 @@ npm run smoke:binary
 ```bash
 npm start -- --portable --no-open
 ```
+
+### アップデート
+
+アプリの「設定」→「一般」→「アップデートを確認」を押すと、GitHub Releasesの最新安定版を確認します。新しいバージョンがある場合は、SHA-256を検証して自動インストールし、Kataruを再起動します。
+
+コマンドラインから確認・更新する場合:
+
+```powershell
+.\kataru.exe update
+```
+
+自動更新には、実行ファイルが置かれているフォルダーへの書き込み権限が必要です。
 
 ## データとバックアップ
 

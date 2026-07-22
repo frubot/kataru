@@ -263,7 +263,7 @@ function resolveSelectedCostumeName(room: Room | null | undefined, character: Ch
 
 function buildProtagonistSection(character: Pick<Character, 'protagonistPrompt'>): string {
     const protagonistPrompt = character.protagonistPrompt?.trim();
-    return protagonistPrompt ? `## 主人公の概要\n${protagonistPrompt}` : '';
+    return protagonistPrompt ? `# 主人公の概要\n${protagonistPrompt}` : '';
 }
 
 function buildCharacterSettingPrompt(character: Pick<Character, 'systemPrompt' | 'protagonistPrompt'>): string {
@@ -585,13 +585,13 @@ function isTimeoutOrAbortDetail(detail: string | undefined): boolean {
 
 function getChatErrorMessage(error: unknown): string {
     if (error instanceof ChatNetworkError) {
-        return 'リクエスト送信中に通信が失敗しました。しばらく時間をおいてからもう一度お試しください。';
+        return 'リクエスト送信中に通信が失敗しました。';
     }
 
     if (error instanceof ChatRequestError) {
         const { status, detail } = error;
         if (isTimeoutOrAbortStatus(status) || isTimeoutOrAbortDetail(detail)) {
-            return '生成が時間切れ、または通信が中断されました。通信状態を確認してからもう一度お試しください。';
+            return '生成が時間切れ、または通信が中断されました。';
         }
         if (status === 401 || status === 403) {
             return 'API認証でエラーが発生しました。接続先のAPI設定を確認してください。';
@@ -603,7 +603,7 @@ function getChatErrorMessage(error: unknown): string {
             return 'サーバー側または接続先API側でエラーが発生しました。少し時間を置いてからもう一度お試しください。';
         }
         if (status >= 400) {
-            return 'リクエスト内容でエラーが発生しました。モデル設定や入力内容を確認してください。';
+            return 'リクエスト内容でエラーが発生しました。';
         }
     }
 
@@ -718,9 +718,9 @@ function getChatErrorDebugInfo(error: unknown): Record<string, unknown> {
 function getFullJsonDebugSourceLabel(source: string): string {
     switch (source) {
         case 'assistant-json':
-            return 'AI応答JSON';
+            return '出力されたJSON';
         case 'chat-response-json':
-            return 'API応答JSON';
+            return '出力されたJSON';
         case 'chat-http-error':
             return 'HTTPエラー';
         case 'chat-response-parse-error':
@@ -728,9 +728,9 @@ function getFullJsonDebugSourceLabel(source: string): string {
         case 'chat-error':
             return '生成エラー';
         case 'director-json':
-            return '指揮役JSON';
+            return 'キャラクタールーターによる出力';
         case 'director-error':
-            return '指揮役エラー';
+            return 'キャラクタールーターのエラー';
         default:
             return source;
     }
@@ -2750,7 +2750,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                                                 {log.prompt && (
                                                     <div style={{ marginBottom: '0.75rem' }}>
                                                         <div style={{ marginBottom: '0.375rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>
-                                                            送信プロンプト
+                                                            プロンプト
                                                         </div>
                                                         <pre style={{
                                                             margin: 0,
@@ -2766,7 +2766,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                                                     </div>
                                                 )}
                                                 <div style={{ marginBottom: '0.375rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>
-                                                    応答JSON
+                                                    出力
                                                 </div>
                                                 <pre style={{
                                                     margin: 0,
@@ -2787,7 +2787,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                         </div>
                         <div className="modal-footer">
                             <button className="btn btn-secondary" onClick={handleClearActiveDebugLogs} disabled={activeDebugLogCount === 0}>
-                                表示中のログを消去
+                                ログを消去
                             </button>
                             <button className="btn btn-primary" onClick={() => setDebugLogOpen(false)}>
                                 閉じる

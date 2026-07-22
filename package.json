@@ -7,7 +7,7 @@
     "build": "vite build",
     "build:binary": "npm run build && cargo build --release",
     "check:rust": "cargo test",
-    "dev": "node scripts/dev.mjs",
+    "dev": "node --env-file=.env.local scripts/dev.mjs",
     "dev:server": "cargo run -- --no-open --dev-origin http://127.0.0.1:3000",
     "dev:ui": "vite",
     "start": "node scripts/start.mjs",

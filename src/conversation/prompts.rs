@@ -421,10 +421,10 @@ mod tests {
 
         assert!(!prompt.contains("複数人が参加しています"));
         assert!(!prompt.contains("発言順は指揮役が決めます"));
-        assert!(prompt.starts_with("## 指示"));
+        assert!(prompt.starts_with("# 指示"));
         assert!(prompt.contains("## シチュエーション\n放課後の教室"));
         assert!(prompt.contains("# あなたについて\n幼なじみ"));
-        assert!(prompt.ends_with("## 葵の設定\n葵として振る舞う"));
+        assert!(prompt.ends_with("# キャラクター、葵の設定\n葵として振る舞う"));
     }
 
     #[test]
@@ -446,13 +446,13 @@ mod tests {
         );
 
         let setting_heading = prompt
-            .find("## 葵の設定")
+            .find("# キャラクター、葵の設定")
             .expect("character setting heading");
-        assert_eq!(prompt.find("## 指示"), Some(0));
+        assert_eq!(prompt.find("# 指示"), Some(0));
         assert!(prompt[..setting_heading].contains("# これまでの会話の要約"));
         assert!(prompt[..setting_heading].contains("## 関連するメモリ"));
         assert!(
-            prompt.ends_with("## 葵の設定\n葵として振る舞う\n\n## 主人公の概要\n主人公は幼なじみ")
+            prompt.ends_with("# キャラクター、葵の設定\n葵として振る舞う\n\n## 主人公の概要\n主人公は幼なじみ")
         );
     }
 

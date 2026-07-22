@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Brain, Braces, Search, Image, Check, ChevronDown, type LucideIcon } from 'lucide-react';
+import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Brain, Braces, Search, Image, Check, ChevronDown, RefreshCw, ExternalLink, type LucideIcon } from 'lucide-react';
 import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, DEFAULT_SUMMARY_MODEL, DEFAULT_CHAT_MODEL, DEFAULT_DIRECTOR_MODEL, DEFAULT_AUTO_GENERATION_MODEL, DEFAULT_TITLE_GENERATION_MODEL, DEFAULT_IMAGE_MODEL, DEFAULT_MEMORY_EXTRACTION_MODEL, DEFAULT_MEMORY_EMBEDDING_MODEL, type AiProvider } from '@/lib/store';
 import { createFullBackup, downloadJson, parseFullBackup, reassignIds, ParsedBackup } from '@/lib/importExport';
 import StatisticsPanel from '@/components/StatisticsPanel';
@@ -9,6 +9,22 @@ interface GlobalSettingsModalProps {
     isOpen: boolean;
     onClose: () => void;
     onShowOnboarding: () => void;
+}
+
+interface UpdateStatus {
+    currentVersion: string;
+    latestVersion: string;
+    updateAvailable: boolean;
+    releaseUrl: string;
+}
+
+function isUpdateStatus(value: unknown): value is UpdateStatus {
+    if (!value || typeof value !== 'object') return false;
+    const status = value as Record<string, unknown>;
+    return typeof status.currentVersion === 'string'
+        && typeof status.latestVersion === 'string'
+        && typeof status.updateAvailable === 'boolean'
+        && typeof status.releaseUrl === 'string';
 }
 
 type SettingsTab = 'general' | 'models' | 'debug' | 'statistics';
@@ -287,6 +303,9 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
     const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
     const [historyError, setHistoryError] = useState<string | null>(null);
     const [isClearingHistory, setIsClearingHistory] = useState(false);
+    const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
+    const [updateError, setUpdateError] = useState<string | null>(null);
+    const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
     const [activeTab, setActiveTab] = useState<SettingsTab>('general');
     const [isThemeModeMenuOpen, setThemeModeMenuOpen] = useState(false);
     const [isPaletteMenuOpen, setPaletteMenuOpen] = useState(false);
@@ -336,6 +355,32 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
     }, [isPaletteMenuOpen]);
 
     if (!isOpen) return null;
+
+    const handleCheckForUpdates = async () => {
+        if (isCheckingUpdate) return;
+        setUpdateError(null);
+        setIsCheckingUpdate(true);
+        try {
+            const response = await fetch('/api/update-status');
+            const body: unknown = await response.json();
+            if (!response.ok) {
+                const message = body && typeof body === 'object' && 'error' in body
+                    && typeof body.error === 'string'
+                    ? body.error
+                    : 'アップデートを確認できませんでした。';
+                throw new Error(message);
+            }
+            if (!isUpdateStatus(body)) {
+                throw new Error('アップデート確認の応答形式が不正です。');
+            }
+            setUpdateStatus(body);
+        } catch (error) {
+            setUpdateStatus(null);
+            setUpdateError(error instanceof Error ? error.message : 'アップデートを確認できませんでした。');
+        } finally {
+            setIsCheckingUpdate(false);
+        }
+    };
 
     const handleClearHistory = async () => {
         if (isClearingHistory) return;
@@ -604,14 +649,70 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         v{packageJson.version}
                                     </span>
                                 </div>
-                                <button
-                                    type="button"
-                                    className="btn btn-secondary"
-                                    onClick={onShowOnboarding}
-                                    style={{ marginTop: '0.875rem' }}
-                                >
-                                    初期設定をもう一度見る
-                                </button>
+                                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.875rem' }}>
+                                    <button
+                                        type="button"
+                                        className="btn btn-secondary"
+                                        onClick={handleCheckForUpdates}
+                                        disabled={isCheckingUpdate}
+                                    >
+                                        <RefreshCw size={16} className={isCheckingUpdate ? 'animate-spin' : undefined} />
+                                        {isCheckingUpdate ? '確認中...' : 'アップデートを確認'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="btn btn-secondary"
+                                        onClick={onShowOnboarding}
+                                    >
+                                        初期設定をもう一度見る
+                                    </button>
+                                </div>
+                                {updateError && (
+                                    <div style={{
+                                        marginTop: '0.75rem',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '0.375rem',
+                                        fontSize: '0.75rem',
+                                        color: 'var(--error)',
+                                    }}>
+                                        <AlertTriangle size={14} />
+                                        {updateError}
+                                    </div>
+                                )}
+                                {updateStatus && (
+                                    <div
+                                        className="card"
+                                        style={{
+                                            marginTop: '0.75rem',
+                                            padding: '0.75rem',
+                                            background: updateStatus.updateAvailable
+                                                ? 'rgba(59, 130, 246, 0.1)'
+                                                : 'rgba(34, 197, 94, 0.1)',
+                                        }}
+                                    >
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.8125rem' }}>
+                                            {updateStatus.updateAvailable ? <Download size={15} /> : <Check size={15} />}
+                                            <span>
+                                                {updateStatus.updateAvailable
+                                                    ? `新しいバージョン v${updateStatus.latestVersion} が利用できます。`
+                                                    : `v${updateStatus.currentVersion} は最新バージョンです。`}
+                                            </span>
+                                        </div>
+                                        {updateStatus.updateAvailable && (
+                                            <a
+                                                className="btn btn-primary"
+                                                href={updateStatus.releaseUrl}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                style={{ marginTop: '0.75rem', width: 'fit-content' }}
+                                            >
+                                                <ExternalLink size={16} />
+                                                リリースページを開く
+                                            </a>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                         </div>
 

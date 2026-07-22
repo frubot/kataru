@@ -69,6 +69,15 @@ pub async fn run_special_command_if_requested() -> AppResult<bool> {
     };
 
     match command {
+        "version" | "--version" | "-V" => {
+            if args.len() != 1 {
+                return Err(AppError::BadRequest(
+                    "version コマンドに引数は指定できません。".to_owned(),
+                ));
+            }
+            println!("Kataru {}", env!("CARGO_PKG_VERSION"));
+            Ok(true)
+        }
         "update" => {
             if args.len() != 1 {
                 return Err(AppError::BadRequest(

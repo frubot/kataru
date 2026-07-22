@@ -139,6 +139,7 @@ npm run smoke:binary
 ### 起動オプション
 
 ```text
+version, --version, -V 現在のバージョンを表示
 update                最新版を確認し、利用可能なら自動インストール
 --host <IP>           待受IP。loopbackアドレスのみ指定可能
 --port <PORT>         待受ポート（既定: 37371）

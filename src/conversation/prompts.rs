@@ -172,7 +172,7 @@ pub fn assistant_schema(
     } else {
         properties.insert(
             "message".into(),
-            json!({"type": "string", "description": "あなたの返答"}),
+            json!({"type": "string", "description": "キャラクター・ナレーション含む返答"}),
         );
         required.push("message");
     }

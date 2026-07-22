@@ -16,7 +16,7 @@ const ROLEPLAY_REPLY_INSTRUCTION: &str = r#"
 message フィールドには次のポリシーに準拠した文章を入力する必要があります。
 
 ### "ナレーション"に関して
-  あなたは、キャラクターとは別に"ナレーション"も演じます。
+  あなたは、キャラクターの他に"ナレーション"も演じます。
   ナレーションにおける制約:
    - 感情や動作、行動に由来するものはナレーションとして説明してください。
    - Markdownのイタリック体(*説明文*のように囲う)で説明します。
@@ -24,7 +24,7 @@ message フィールドには次のポリシーに準拠した文章を入力す
    - 第三者視点で記述してください。
    - ナレーションによる主人公側の描写は不要です。
    - キャラクターの独白など読み取れないものは記述しないでください。ナレーションでは敬語は使いません。
-  つまり、それぞれmessageフィールド内に次のように記述します。
+  つまり、それぞれmessageフィールド内では次のような表記です。
   キャラクターの場合: 装飾なし。
   ナレーションの場合: イタリック体でメッセージを囲う。
 
@@ -78,7 +78,7 @@ pub fn character_system_prompt(
     situation: Option<&Value>,
     participants: &[Value],
 ) -> String {
-    let mut prompt = character_setting(character);
+    let mut prompt = String::from("# 指示");
     prompt.push_str(REPLY_INSTRUCTION_BASE);
     prompt.push_str(if use_message_mode {
         MESSAGE_REPLY_INSTRUCTION
@@ -131,6 +131,13 @@ pub fn character_system_prompt(
         for (index, memory) in relevant_memories.iter().enumerate() {
             prompt.push_str(&format!("{}. {memory}\n", index + 1));
         }
+    }
+    let setting = character_setting(character);
+    if !setting.is_empty() {
+        prompt.push_str(&format!(
+            "\n\n# キャラクター、{}の設定\n{setting}",
+            string(character, "name")
+        ));
     }
     prompt
 }
@@ -414,8 +421,39 @@ mod tests {
 
         assert!(!prompt.contains("複数人が参加しています"));
         assert!(!prompt.contains("発言順は指揮役が決めます"));
+        assert!(prompt.starts_with("## 指示"));
         assert!(prompt.contains("## シチュエーション\n放課後の教室"));
         assert!(prompt.contains("# あなたについて\n幼なじみ"));
+        assert!(prompt.ends_with("## 葵の設定\n葵として振る舞う"));
+    }
+
+    #[test]
+    fn character_setting_is_separated_and_added_last() {
+        let character = json!({
+            "name": "葵",
+            "systemPrompt": "葵として振る舞う",
+            "protagonistPrompt": "主人公は幼なじみ"
+        });
+
+        let prompt = character_system_prompt(
+            &character,
+            false,
+            &[],
+            Some("これまでの要約"),
+            &["重要なメモリ".into()],
+            None,
+            &[],
+        );
+
+        let setting_heading = prompt
+            .find("## 葵の設定")
+            .expect("character setting heading");
+        assert_eq!(prompt.find("## 指示"), Some(0));
+        assert!(prompt[..setting_heading].contains("# これまでの会話の要約"));
+        assert!(prompt[..setting_heading].contains("## 関連するメモリ"));
+        assert!(
+            prompt.ends_with("## 葵の設定\n葵として振る舞う\n\n## 主人公の概要\n主人公は幼なじみ")
+        );
     }
 
     #[test]

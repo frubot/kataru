@@ -1,11 +1,11 @@
 {
   "name": "kataru",
-  "version": "0.1.15",
   "private": true,
   "license": "MIT",
   "scripts": {
     "build": "vite build",
     "build:binary": "npm run build && cargo build --release",
+    "check:release-version": "node scripts/check-release-version.mjs",
     "check:rust": "cargo test",
     "dev": "node --env-file=.env.local scripts/dev.mjs",
     "dev:server": "cargo run -- --no-open --dev-origin http://127.0.0.1:3000",

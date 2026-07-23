@@ -34,6 +34,10 @@ jobs:
       - name: Set up npm
         run: npm install --global npm@11.18.0
 
+      - name: Validate release version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: npm run check:release-version -- "${{ github.ref_name }}"
+
       - name: Install npm dependencies
         run: npm ci
 

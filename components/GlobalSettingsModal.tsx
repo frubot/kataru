@@ -3,7 +3,6 @@ import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Brain, Braces, S
 import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, DEFAULT_SUMMARY_MODEL, DEFAULT_CHAT_MODEL, DEFAULT_DIRECTOR_MODEL, DEFAULT_AUTO_GENERATION_MODEL, DEFAULT_TITLE_GENERATION_MODEL, DEFAULT_IMAGE_MODEL, DEFAULT_MEMORY_EXTRACTION_MODEL, DEFAULT_MEMORY_EMBEDDING_MODEL, type AiProvider } from '@/lib/store';
 import { createFullBackup, downloadJson, parseFullBackup, reassignIds, ParsedBackup } from '@/lib/importExport';
 import StatisticsPanel from '@/components/StatisticsPanel';
-import packageJson from '../package.json';
 
 interface GlobalSettingsModalProps {
     isOpen: boolean;
@@ -17,6 +16,19 @@ interface UpdateStatus {
     updateAvailable: boolean;
     releaseUrl: string;
     installing: boolean;
+}
+
+interface HealthStatus {
+    version: string;
+}
+
+function isHealthStatus(value: unknown): value is HealthStatus {
+    return Boolean(
+        value
+        && typeof value === 'object'
+        && 'version' in value
+        && typeof value.version === 'string',
+    );
 }
 
 function isUpdateStatus(value: unknown): value is UpdateStatus {
@@ -322,6 +334,8 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
     const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
     const [historyError, setHistoryError] = useState<string | null>(null);
     const [isClearingHistory, setIsClearingHistory] = useState(false);
+    const [applicationVersion, setApplicationVersion] = useState<string | null>(null);
+    const [versionError, setVersionError] = useState<string | null>(null);
     const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
     const [updateError, setUpdateError] = useState<string | null>(null);
     const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
@@ -343,6 +357,35 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
             setThemeModeMenuOpen(false);
             setPaletteMenuOpen(false);
         }
+    }, [isOpen]);
+
+    useEffect(() => {
+        if (!isOpen) return;
+
+        const controller = new AbortController();
+        const loadApplicationVersion = async () => {
+            setVersionError(null);
+            try {
+                const response = await fetch('/api/health', {
+                    cache: 'no-store',
+                    signal: controller.signal,
+                });
+                const body: unknown = await response.json();
+                if (!response.ok || !isHealthStatus(body)) {
+                    throw new Error('バージョン情報の応答形式が不正です。');
+                }
+                setApplicationVersion(body.version);
+            } catch (error) {
+                if (controller.signal.aborted) return;
+                setApplicationVersion(null);
+                setVersionError(error instanceof Error
+                    ? error.message
+                    : 'バージョン情報を取得できませんでした。');
+            }
+        };
+
+        void loadApplicationVersion();
+        return () => controller.abort();
     }, [isOpen]);
 
     useEffect(() => {
@@ -669,7 +712,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         バージョン
                                     </span>
                                     <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                                        v{packageJson.version}
+                                        {applicationVersion ? `v${applicationVersion}` : versionError ?? '取得中…'}
                                     </span>
                                 </div>
                                 <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.875rem' }}>

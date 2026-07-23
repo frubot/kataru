@@ -168,6 +168,16 @@ npm start -- --portable --no-open
 
 自動更新には、実行ファイルが置かれているフォルダーへの書き込み権限が必要です。
 
+### リリースバージョン
+
+アプリのバージョンは`Cargo.toml`の`package.version`を正とします。設定画面、`version`コマンド、更新確認APIはいずれもこの値を使用します。バージョンを変更した後は`cargo test`を実行し、更新された`Cargo.lock`もコミットしてください。
+
+リリースタグは`v<package.version>`の形式で作成します。タグ付きビルドではCIがタグと`Cargo.toml`の一致を検証します。ローカルでも次のコマンドで確認できます。
+
+```bash
+npm run check:release-version -- vX.Y.Z
+```
+
 ## データとバックアップ
 
 通常はOSのユーザーデータディレクトリ内に`kataru.db`を作成します。保存先を明示したい場合は`--data-dir`、実行ファイルと一緒に持ち運びたい場合は`--portable`を使用してください。

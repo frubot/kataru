@@ -69,10 +69,10 @@ pub fn character_setting(character: &Value) -> String {
         sections.push(system);
     }
     if !protagonist.is_empty() {
-        sections.push(format!("## 主人公の概要\n{protagonist}"));
+        sections.push(format!("# 主人公の概要\n{protagonist}"));
     }
     if !constraints.is_empty() {
-        sections.push(format!("## 追加の制約\n{constraints}"));
+        sections.push(format!("# 追加の制約\n{constraints}"));
     }
     sections.join("\n\n")
 }
@@ -461,7 +461,7 @@ mod tests {
         assert!(prompt[..setting_heading].contains("# これまでの会話の要約"));
         assert!(prompt[..setting_heading].contains("## 関連するメモリ"));
         assert!(
-            prompt.ends_with("# キャラクター、葵の設定\n葵として振る舞う\n\n## 主人公の概要\n主人公は幼なじみ\n\n## 追加の制約\n返答は三文以内にする")
+            prompt.ends_with("# キャラクター、葵の設定\n葵として振る舞う\n\n# 主人公の概要\n主人公は幼なじみ\n\n# 追加の制約\n返答は三文以内にする")
         );
     }
 
@@ -473,7 +473,7 @@ mod tests {
 
         assert_eq!(
             character_setting(&character),
-            "## 追加の制約\n一人称は私にする"
+            "# 追加の制約\n一人称は私にする"
         );
     }
 

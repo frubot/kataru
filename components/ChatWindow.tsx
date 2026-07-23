@@ -48,6 +48,7 @@ type ConversationCharacter = {
     name: string;
     systemPrompt: string;
     protagonistPrompt?: string;
+    userConstraints?: string;
     model: string;
     maxTokens?: number;
     maxHistory?: number;
@@ -78,6 +79,7 @@ function toConversationCharacter(character: Character | null): ConversationChara
         name: character.name,
         systemPrompt: character.systemPrompt,
         protagonistPrompt: character.protagonistPrompt,
+        userConstraints: character.userConstraints,
         model: character.model,
         maxTokens: character.maxTokens,
         maxHistory: character.maxHistory,
@@ -266,8 +268,13 @@ function buildProtagonistSection(character: Pick<Character, 'protagonistPrompt'>
     return protagonistPrompt ? `# 主人公の概要\n${protagonistPrompt}` : '';
 }
 
-function buildCharacterSettingPrompt(character: Pick<Character, 'systemPrompt' | 'protagonistPrompt'>): string {
-    return [character.systemPrompt, buildProtagonistSection(character)]
+function buildUserConstraintsSection(character: Pick<Character, 'userConstraints'>): string {
+    const userConstraints = character.userConstraints?.trim();
+    return userConstraints ? `# 追加の制約\n${userConstraints}` : '';
+}
+
+function buildCharacterSettingPrompt(character: Pick<Character, 'systemPrompt' | 'protagonistPrompt' | 'userConstraints'>): string {
+    return [character.systemPrompt, buildProtagonistSection(character), buildUserConstraintsSection(character)]
         .filter((part) => part.trim())
         .join('\n\n');
 }

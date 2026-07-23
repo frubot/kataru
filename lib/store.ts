@@ -63,6 +63,7 @@ export interface Character {
     name: string;
     systemPrompt: string;
     protagonistPrompt?: string;
+    userConstraints?: string;
     model: string;
     icon?: string;
     maxTokens?: number;
@@ -368,7 +369,7 @@ interface AppState {
 
     // Characters
     createCharacter: (name: string, systemPrompt?: string, model?: string, extras?: CharacterExtras) => string;
-    updateCharacter: (id: string, updates: Partial<Pick<Character, 'name' | 'systemPrompt' | 'protagonistPrompt' | 'model' | 'icon' | 'maxTokens' | 'maxHistory' | 'temperature' | 'topP' | 'topK' | 'enableMemory' | 'enableSummary' | 'thinkModeEnabled' | 'expressions' | 'costumes'>>) => void;
+    updateCharacter: (id: string, updates: Partial<Pick<Character, 'name' | 'systemPrompt' | 'protagonistPrompt' | 'userConstraints' | 'model' | 'icon' | 'maxTokens' | 'maxHistory' | 'temperature' | 'topP' | 'topK' | 'enableMemory' | 'enableSummary' | 'thinkModeEnabled' | 'expressions' | 'costumes'>>) => void;
     deleteCharacter: (id: string) => void;
     duplicateCharacter: (id: string) => string;
     getCharacter: (id: string) => Character | undefined;

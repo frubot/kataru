@@ -6,8 +6,9 @@ pub const DIRECTOR_TRANSCRIPT_USER_HISTORY: usize = 2;
 const REPLY_INSTRUCTION_BASE: &str = r#"
 ロールプレイを始めましょう。あなたは設定に則ったキャラクターと、ナレーションを演じてください。
 あなたの出力フォーマットは提示されたJSONスキーマに**準拠する必要**があります。
-- 鍵括弧、改行は**使用禁止**です。
-- 設定に示した情報は必ずしも返答に含る必要はありません。
+- 鍵括弧は**使用しないでください**。
+- 改行は不要です。
+- 設定に示した情報は必ずしも返答に含める必要はありません。
 "#;
 
 const ROLEPLAY_REPLY_INSTRUCTION: &str = r#"
@@ -61,12 +62,18 @@ const THINK_INSTRUCTION: &str = r#"
 pub fn character_setting(character: &Value) -> String {
     let system = string(character, "systemPrompt");
     let protagonist = string(character, "protagonistPrompt");
-    match (system.is_empty(), protagonist.is_empty()) {
-        (false, false) => format!("{system}\n\n## 主人公の概要\n{protagonist}"),
-        (false, true) => system,
-        (true, false) => format!("## 主人公の概要\n{protagonist}"),
-        (true, true) => String::new(),
+    let constraints = string(character, "userConstraints");
+    let mut sections = Vec::new();
+    if !system.is_empty() {
+        sections.push(system);
     }
+    if !protagonist.is_empty() {
+        sections.push(format!("## 主人公の概要\n{protagonist}"));
+    }
+    if !constraints.is_empty() {
+        sections.push(format!("# 追加の制約\n{constraints}"));
+    }
+    sections.join("\n\n")
 }
 
 pub fn character_system_prompt(
@@ -432,7 +439,8 @@ mod tests {
         let character = json!({
             "name": "葵",
             "systemPrompt": "葵として振る舞う",
-            "protagonistPrompt": "主人公は幼なじみ"
+            "protagonistPrompt": "主人公は幼なじみ",
+            "userConstraints": "返答は三文以内にする"
         });
 
         let prompt = character_system_prompt(
@@ -452,7 +460,19 @@ mod tests {
         assert!(prompt[..setting_heading].contains("# これまでの会話の要約"));
         assert!(prompt[..setting_heading].contains("## 関連するメモリ"));
         assert!(
-            prompt.ends_with("# キャラクター、葵の設定\n葵として振る舞う\n\n## 主人公の概要\n主人公は幼なじみ")
+            prompt.ends_with("# キャラクター、葵の設定\n葵として振る舞う\n\n## 主人公の概要\n主人公は幼なじみ\n\n## 追加の制約\n返答は三文以内にする")
+        );
+    }
+
+    #[test]
+    fn character_setting_can_contain_only_user_constraints() {
+        let character = json!({
+            "userConstraints": "一人称は私にする"
+        });
+
+        assert_eq!(
+            character_setting(&character),
+            "# 追加の制約\n一人称は私にする"
         );
     }
 

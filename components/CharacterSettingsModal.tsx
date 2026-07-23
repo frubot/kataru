@@ -22,6 +22,7 @@ const NEUTRAL_NAME = 'neutral';
 const DEFAULT_COSTUME_NAME = 'default';
 const CHARACTER_PROMPT_SECTION_TITLE = 'キャラクターについて';
 const PROTAGONIST_PROMPT_SECTION_TITLE = '主人公について';
+const USER_CONSTRAINTS_SECTION_TITLE = '追加の制約';
 
 interface CharacterSettingsModalProps {
     isOpen: boolean;
@@ -279,6 +280,7 @@ export default function CharacterSettingsModal({ isOpen, onClose, character, isN
     const [name, setName] = useState('');
     const [systemPrompt, setSystemPrompt] = useState('');
     const [protagonistPrompt, setProtagonistPrompt] = useState('');
+    const [userConstraints, setUserConstraints] = useState('');
     const [model, setModel] = useState(defaultChatModel);
     const [useBlockEditor, setUseBlockEditor] = useState(true);
 
@@ -316,6 +318,7 @@ export default function CharacterSettingsModal({ isOpen, onClose, character, isN
             setName(character.name);
             setSystemPrompt(character.systemPrompt);
             setProtagonistPrompt(character.protagonistPrompt ?? '');
+            setUserConstraints(character.userConstraints ?? '');
             setModel(character.model.trim() || defaultChatModel);
             setEnableMemory(character.enableMemory ?? true);
             setEnableSummary(character.enableSummary ?? true);
@@ -332,6 +335,7 @@ export default function CharacterSettingsModal({ isOpen, onClose, character, isN
             setName('');
             setSystemPrompt('');
             setProtagonistPrompt('');
+            setUserConstraints('');
             setModel(defaultChatModel);
             setEnableMemory(true);
             setEnableSummary(true);
@@ -368,6 +372,7 @@ export default function CharacterSettingsModal({ isOpen, onClose, character, isN
             name: trimmedName || character?.name || 'キャラクター',
             systemPrompt,
             protagonistPrompt: protagonistPrompt.trim() ? protagonistPrompt : undefined,
+            userConstraints: userConstraints.trim() ? userConstraints : undefined,
             model: resolvedModel,
             enableMemory,
             enableSummary,
@@ -388,7 +393,7 @@ export default function CharacterSettingsModal({ isOpen, onClose, character, isN
             updateCharacter(character.id, updates);
         }
         onClose();
-    }, [character, costumes, createCharacter, defaultChatModel, enableMemory, enableSummary, expressions, icon, isNew, maxHistory, maxTokens, model, name, onClose, protagonistPrompt, systemPrompt, temperature, thinkModeEnabled, topK, topP, updateCharacter]);
+    }, [character, costumes, createCharacter, defaultChatModel, enableMemory, enableSummary, expressions, icon, isNew, maxHistory, maxTokens, model, name, onClose, protagonistPrompt, systemPrompt, temperature, thinkModeEnabled, topK, topP, updateCharacter, userConstraints]);
 
     useEffect(() => {
         const childModalOpen = imageGenOpen || characterGeneratorOpen || expressionsOpen || costumesOpen;
@@ -656,6 +661,17 @@ export default function CharacterSettingsModal({ isOpen, onClose, character, isN
                                         maxHeight={null}
                                     />
                                 </div>
+                                <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.875rem' }}>
+                                    <div style={fixedPromptLabelStyle}>{USER_CONSTRAINTS_SECTION_TITLE}</div>
+                                    <PromptBlockEditor
+                                        markdown={userConstraints}
+                                        onChange={setUserConstraints}
+                                        placeholder="キャラクターに守らせたい制約を記述してください..."
+                                        frame={false}
+                                        minHeight="96px"
+                                        maxHeight={null}
+                                    />
+                                </div>
                             </div>
                         ) : (
                             <textarea
@@ -669,16 +685,28 @@ export default function CharacterSettingsModal({ isOpen, onClose, character, isN
                     </div>
 
                     {!useBlockEditor && (
-                        <div style={sectionStyle}>
-                            <label style={labelStyle}>主人公について</label>
-                            <textarea
-                                className="input textarea"
-                                value={protagonistPrompt}
-                                onChange={(e) => setProtagonistPrompt(e.target.value)}
-                                placeholder="主人公に関する詳細を記述してください..."
-                                style={{ minHeight: '120px' }}
-                            />
-                        </div>
+                        <>
+                            <div style={sectionStyle}>
+                                <label style={labelStyle}>主人公について</label>
+                                <textarea
+                                    className="input textarea"
+                                    value={protagonistPrompt}
+                                    onChange={(e) => setProtagonistPrompt(e.target.value)}
+                                    placeholder="主人公に関する詳細を記述してください..."
+                                    style={{ minHeight: '120px' }}
+                                />
+                            </div>
+                            <div style={sectionStyle}>
+                                <label style={labelStyle}>追加の制約</label>
+                                <textarea
+                                    className="input textarea"
+                                    value={userConstraints}
+                                    onChange={(e) => setUserConstraints(e.target.value)}
+                                    placeholder="キャラクターに守らせたい制約を記述してください..."
+                                    style={{ minHeight: '120px' }}
+                                />
+                            </div>
+                        </>
                     )}
 
                     {/* 考える */}

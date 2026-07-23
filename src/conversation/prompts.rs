@@ -72,7 +72,7 @@ pub fn character_setting(character: &Value) -> String {
         sections.push(format!("## 主人公の概要\n{protagonist}"));
     }
     if !constraints.is_empty() {
-        sections.push(format!("# 追加の制約\n{constraints}"));
+        sections.push(format!("## 追加の制約\n{constraints}"));
     }
     sections.join("\n\n")
 }
@@ -473,7 +473,7 @@ mod tests {
 
         assert_eq!(
             character_setting(&character),
-            "# 追加の制約\n一人称は私にする"
+            "## 追加の制約\n一人称は私にする"
         );
     }
 

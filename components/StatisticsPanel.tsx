@@ -390,7 +390,6 @@ export default function StatisticsPanel() {
                                         <h3 id="statistics-breakdown-heading">キャラクター別内訳</h3>
                                         <p>選択した期間の利用状況</p>
                                     </div>
-                                    <span>{characterStats.length}キャラクター</span>
                                 </div>
                                 <div className="statistics-table-wrapper">
                                     <table className="statistics-table">

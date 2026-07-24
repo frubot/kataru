@@ -55,6 +55,7 @@ pub struct AppState {
     pub database: Database,
     pub http_client: Client,
     pub application_origin: String,
+    pub conversation_jobs: conversation::jobs::ConversationJobs,
     update_shutdown: Arc<Notify>,
     pending_update_marker: Arc<Mutex<Option<PathBuf>>>,
 }
@@ -95,6 +96,7 @@ async fn run() -> AppResult<()> {
         database,
         http_client,
         application_origin: config.origin(),
+        conversation_jobs: conversation::jobs::ConversationJobs::default(),
         update_shutdown: update_shutdown.clone(),
         pending_update_marker: Arc::new(Mutex::new(None)),
     };
@@ -174,6 +176,16 @@ fn api_router() -> Router<AppState> {
         .route(
             "/conversation/turn",
             post(conversation::turn).layer(DefaultBodyLimit::max(CONVERSATION_REQUEST_BODY_LIMIT)),
+        )
+        .route(
+            "/conversation/jobs",
+            get(conversation::jobs::list)
+                .post(conversation::jobs::start)
+                .layer(DefaultBodyLimit::max(CONVERSATION_REQUEST_BODY_LIMIT)),
+        )
+        .route(
+            "/conversation/jobs/{job_id}",
+            get(conversation::jobs::get).delete(conversation::jobs::cancel),
         )
 }
 
@@ -337,6 +349,7 @@ mod tests {
             database: Database::open(Path::new(":memory:")).expect("open in-memory database"),
             http_client: Client::new(),
             application_origin: "http://127.0.0.1".to_owned(),
+            conversation_jobs: conversation::jobs::ConversationJobs::default(),
             update_shutdown: Arc::new(Notify::new()),
             pending_update_marker: Arc::new(Mutex::new(None)),
         };
@@ -375,6 +388,7 @@ mod tests {
             database: Database::open(Path::new(":memory:")).expect("open in-memory database"),
             http_client: Client::new(),
             application_origin: "http://127.0.0.1".to_owned(),
+            conversation_jobs: conversation::jobs::ConversationJobs::default(),
             update_shutdown: Arc::new(Notify::new()),
             pending_update_marker: Arc::new(Mutex::new(None)),
         };

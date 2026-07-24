@@ -212,6 +212,146 @@ pub async fn handle_storage_command(
     Ok(Json(json!({ "result": result })))
 }
 
+pub async fn persist_conversation_submission(
+    database: &Database,
+    payload: &Value,
+    secret_mode: bool,
+) -> AppResult<()> {
+    if secret_mode {
+        return Ok(());
+    }
+    let room = payload
+        .get("room")
+        .filter(|value| value.is_object())
+        .cloned()
+        .ok_or_else(|| AppError::BadRequest("room が必要です。".to_owned()))?;
+    let room_id = required_string(&room, "id")?;
+    let user_message = payload
+        .get("messages")
+        .and_then(Value::as_array)
+        .and_then(|messages| {
+            messages
+                .iter()
+                .rev()
+                .find(|message| optional_string(message, &["role"]).as_deref() == Some("user"))
+        })
+        .cloned()
+        .ok_or_else(|| AppError::BadRequest("ユーザーメッセージが必要です。".to_owned()))?;
+
+    database
+        .call(move |connection| {
+            let transaction = connection.transaction()?;
+            if !upsert_room(&transaction, room)? {
+                return Err(AppError::BadRequest(
+                    "永続化できないルームではバックグラウンド保存を利用できません。".to_owned(),
+                ));
+            }
+            upsert_message(&transaction, &room_id, user_message)?;
+            transaction.commit()?;
+            Ok(())
+        })
+        .await
+}
+
+pub async fn persist_conversation_result(
+    database: &Database,
+    room_id: &str,
+    result: &Value,
+    secret_mode: bool,
+) -> AppResult<()> {
+    if secret_mode {
+        return Ok(());
+    }
+    let room_id = room_id.to_owned();
+    let messages = result
+        .get("messages")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let usages = result
+        .get("usages")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let summary = result
+        .get("summary")
+        .filter(|value| value.is_object())
+        .cloned();
+
+    database
+        .call(move |connection| {
+            let transaction = connection.transaction()?;
+            let room_json = transaction
+                .query_row(
+                    "SELECT data_json FROM rooms WHERE id = ?1",
+                    params![room_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?
+                .ok_or_else(|| {
+                    AppError::NotFound("生成結果の保存先ルームが見つかりません。".to_owned())
+                })?;
+            let mut room: Value = serde_json::from_str(&room_json)?;
+            let now = now_millis();
+
+            if let Some(summary) = &summary {
+                let text = optional_string(summary, &["text"]);
+                let checkpoint = optional_string(summary, &["checkpointUserMessageId"]);
+                if let Some(object) = room.as_object_mut() {
+                    if let Some(text) = text {
+                        object.insert("summary".to_owned(), Value::String(text));
+                    }
+                    if let Some(checkpoint) = checkpoint {
+                        object.insert(
+                            "summaryCheckpointUserMessageId".to_owned(),
+                            Value::String(checkpoint),
+                        );
+                    }
+                }
+
+                let keep_count = summary
+                    .get("keepCount")
+                    .and_then(Value::as_u64)
+                    .and_then(|value| usize::try_from(value).ok())
+                    .unwrap_or(0);
+                if keep_count > 0 {
+                    let existing = get_messages_by_room(&transaction, &room_id)?;
+                    let cut_index = existing.len().saturating_sub(keep_count);
+                    for mut message in existing.into_iter().take(cut_index) {
+                        if let Some(object) = message.as_object_mut() {
+                            object.insert("archived".to_owned(), Value::Bool(true));
+                        }
+                        upsert_message(&transaction, &room_id, message)?;
+                    }
+                }
+            }
+
+            if let Some(last_message) = messages.last() {
+                let content = optional_string(last_message, &["content"]).unwrap_or_default();
+                let timestamp = required_i64(last_message, "timestamp")?;
+                if let Some(object) = room.as_object_mut() {
+                    object.insert(
+                        "lastMessagePreview".to_owned(),
+                        Value::String(conversation_preview(&content)),
+                    );
+                    object.insert("lastMessageAt".to_owned(), Value::from(timestamp));
+                    object.insert("updatedAt".to_owned(), Value::from(now));
+                }
+            }
+            upsert_room(&transaction, room)?;
+
+            for message in messages {
+                upsert_message(&transaction, &room_id, message)?;
+            }
+            for usage in usages {
+                upsert_usage_record(&transaction, usage)?;
+            }
+            transaction.commit()?;
+            Ok(())
+        })
+        .await
+}
+
 fn execute_command(connection: &mut Connection, command: StorageCommand) -> AppResult<Value> {
     match command {
         StorageCommand::GetMeta { key } => {
@@ -1549,6 +1689,11 @@ fn now_millis() -> i64 {
         .unwrap_or(0)
 }
 
+fn conversation_preview(content: &str) -> String {
+    let normalized = content.split_whitespace().collect::<Vec<_>>().join(" ");
+    normalized.chars().take(50).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1575,6 +1720,75 @@ mod tests {
             "createdAt": 1,
             "updatedAt": 1
         })
+    }
+
+    #[tokio::test]
+    async fn background_conversation_persists_submission_and_result() {
+        let database = Database::open(std::path::Path::new(":memory:"))
+            .expect("open background conversation database");
+        let payload = json!({
+            "room": test_room("room-background"),
+            "messages": [{
+                "id": "message-user",
+                "role": "user",
+                "content": "hello",
+                "timestamp": 10
+            }]
+        });
+        persist_conversation_submission(&database, &payload, false)
+            .await
+            .expect("persist submitted message");
+
+        let result = json!({
+            "messages": [{
+                "id": "message-assistant",
+                "role": "assistant",
+                "content": "saved in the background",
+                "characterId": "character-1",
+                "timestamp": 20
+            }],
+            "usages": [{
+                "id": "usage-background",
+                "characterId": "character-1",
+                "timestamp": 20,
+                "promptTokens": 2,
+                "completionTokens": 3,
+                "totalTokens": 5,
+                "cost": 0.01
+            }],
+            "summary": {
+                "text": "summary",
+                "checkpointUserMessageId": "message-user",
+                "keepCount": 1
+            }
+        });
+        persist_conversation_result(&database, "room-background", &result, false)
+            .await
+            .expect("persist generated result");
+
+        database
+            .call(|connection| {
+                let messages = get_messages_by_room(connection, "room-background")?;
+                assert_eq!(messages.len(), 2);
+                assert_eq!(messages[1]["id"], "message-assistant");
+                let room = query_optional_json(
+                    connection,
+                    "SELECT data_json FROM rooms WHERE id = ?1",
+                    params!["room-background"],
+                )?
+                .expect("stored room");
+                assert_eq!(room["summary"], "summary");
+                assert_eq!(room["lastMessagePreview"], "saved in the background");
+                let usage_count = connection.query_row(
+                    "SELECT COUNT(*) FROM usage_records WHERE id = 'usage-background'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                assert_eq!(usage_count, 1);
+                Ok(())
+            })
+            .await
+            .expect("verify background result");
     }
 
     #[test]

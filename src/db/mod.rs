@@ -10,7 +10,10 @@ use rusqlite::{Connection, OptionalExtension};
 
 use crate::error::{AppError, AppResult};
 
-pub use storage::{handle_storage_command, migrate_character_images};
+pub use storage::{
+    handle_storage_command, migrate_character_images, persist_conversation_result,
+    persist_conversation_submission,
+};
 
 const INITIAL_MIGRATION: &str = include_str!("../../migrations/0001_initial.sql");
 const IMAGE_ASSET_MIGRATION: &str = include_str!("../../migrations/0002_image_assets.sql");

@@ -407,6 +407,7 @@ interface AppState {
     attachMemoriesToMessage: (roomId: string, messageId: string, memories: string[]) => void;
     updateLastAssistantMessage: (roomId: string, content: string, meta?: Pick<Message, 'expression' | 'memories' | 'toCharacterIds'>) => void;
     flushLastAssistantMessage: (roomId: string) => void;
+    refreshConversationRoom: (roomId: string) => Promise<void>;
     clearRoomMessages: (roomId: string) => void;
     clearAllHistory: () => Promise<void>;
     updateRoomSummary: (roomId: string, summary: string, summaryCheckpointUserMessageId?: string) => void;
@@ -2080,6 +2081,27 @@ export const useStore = create<AppState>()((set, get) => ({
             fire(db.putMessage(roomId, lastMessage));
             fire(db.putRoom(toStoredRoom(updatedRoom)));
         }
+    },
+
+    refreshConversationRoom: async (roomId) => {
+        const [storedRooms, messages, usageRecords] = await Promise.all([
+            db.getAllRooms(),
+            db.getMessagesByRoom(roomId),
+            db.getAllUsageRecords(),
+        ]);
+        const storedRoom = storedRooms.find((room) => room.id === roomId);
+        if (!storedRoom) return;
+        set((state) => ({
+            rooms: state.rooms.map((room) => {
+                if (room.id !== roomId) return room;
+                return {
+                    ...room,
+                    ...storedRoom,
+                    messages: state.currentRoomId === roomId ? messages : room.messages,
+                };
+            }),
+            usageRecords,
+        }));
     },
 
     removeMemories: (characterId, memoriesToRemove) => {

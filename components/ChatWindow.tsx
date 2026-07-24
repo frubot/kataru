@@ -14,6 +14,7 @@ import type { MemoryKind, MemoryRecord, MemoryScope, SituationPriorMessage } fro
 import type { VnTypingSpeed } from '@/lib/store';
 import { getMessageMemories } from '@/lib/chatAssistantResponse';
 import { formatAssistantMarkdown } from '@/lib/markdownUtils';
+import { generateId } from '@/lib/id';
 import MessageBubble from './MessageBubble';
 import StoredImage from './StoredImage';
 
@@ -31,6 +32,7 @@ interface ChatWindowProps {
 const DEFAULT_COSTUME_NAME = 'default';
 const NEUTRAL_EXPRESSION_NAME = 'neutral';
 const MESSAGE_MODE_BUBBLE_DELAY_MS = 420;
+const CONVERSATION_JOB_POLL_INTERVAL_MS = 750;
 
 type RoomViewMode = NonNullable<Room['viewMode']>;
 type EditingMessageDraft = {
@@ -128,12 +130,19 @@ function toConversationSituation(situation: Situation | null | undefined) {
 function toConversationRoom(room: Room) {
     return {
         id: room.id,
+        characterId: room.characterId,
+        groupId: room.groupId,
         name: room.name,
         viewMode: room.viewMode,
         summary: room.summary,
+        summaryCheckpointUserMessageId: room.summaryCheckpointUserMessageId,
         maxMentionChain: room.maxMentionChain,
         costumeSelections: room.costumeSelections,
         secretMode: room.secretMode,
+        lastMessagePreview: room.lastMessagePreview,
+        lastMessageAt: room.lastMessageAt,
+        createdAt: room.createdAt,
+        updatedAt: room.updatedAt,
     };
 }
 
@@ -751,18 +760,20 @@ type ChatNotice = {
 };
 
 type ChatGenerationResult = {
-    status: 'success' | 'aborted' | 'error';
+    status: 'success' | 'aborted' | 'detached' | 'error';
     message?: string;
     toCharacterIds?: string[];
 };
 
 type RustTurnResponse = {
     messages?: Array<{
+        id: string;
         role: 'assistant';
         content: string;
         characterId: string;
         expression?: string;
         toCharacterIds?: string[];
+        timestamp: number;
     }>;
     usages?: Array<{
         characterId: string;
@@ -800,9 +811,37 @@ type RustTurnResponse = {
 type ChatGenerationSession = {
     id: number;
     roomId: string;
+    jobId: string;
     cancelled: boolean;
+    detached: boolean;
     controller: AbortController | null;
 };
+
+type ConversationJobStatus = {
+    jobId: string;
+    roomId: string;
+    status: 'running' | 'completed' | 'failed' | 'cancelled';
+    result?: RustTurnResponse;
+    error?: string;
+};
+
+function waitForConversationJobPoll(signal: AbortSignal): Promise<void> {
+    return new Promise((resolve, reject) => {
+        if (signal.aborted) {
+            reject(new DOMException('Generation stopped', 'AbortError'));
+            return;
+        }
+        const handleAbort = () => {
+            clearTimeout(timeout);
+            reject(new DOMException('Generation stopped', 'AbortError'));
+        };
+        const timeout = setTimeout(() => {
+            signal.removeEventListener('abort', handleAbort);
+            resolve();
+        }, CONVERSATION_JOB_POLL_INTERVAL_MS);
+        signal.addEventListener('abort', handleAbort, { once: true });
+    });
+}
 
 type DebugLogTab = 'thinking' | 'json';
 
@@ -881,7 +920,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         restoreMessagesAt,
         attachMemoriesToMessage,
         getCurrentRoom,
-        addUsageRecord,
+        refreshConversationRoom,
         updateRoomSummary,
         compressRoomHistory,
         updateRoomSettings,
@@ -920,7 +959,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const isSecretMode = room?.secretMode === true;
     const showHeaderMemoryButton = !isSecretMode && !isGroupRoom && character != null && character.enableMemory !== false;
     const [input, setInput] = useState('');
-    const [isLoading, setIsLoading] = useState(false);
+    const [activeGenerationRoomIds, setActiveGenerationRoomIds] = useState<Set<string>>(() => new Set());
     const [isSummarizing, setIsSummarizing] = useState(false);
     const [isMobile, setIsMobile] = useState(false);
     const [hoveredMessageId, setHoveredMessageId] = useState<string | null>(null);
@@ -944,9 +983,9 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const chatModeMenuRef = useRef<HTMLDivElement>(null);
     const vnCostumeMenuRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
-    const abortControllerRef = useRef<AbortController | null>(null);
-    const generationSessionRef = useRef<ChatGenerationSession | null>(null);
+    const generationSessionsRef = useRef<Map<string, ChatGenerationSession>>(new Map());
     const generationSessionSeqRef = useRef(0);
+    const resumedJobsRef = useRef<Set<string>>(new Set());
     const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const vnBounceStartRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const vnBounceStopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -956,6 +995,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const vnTypingSpeedRef = useRef(vnTypingSpeed);
     const messagePointerDragRef = useRef(false);
     const currentRoomId = room?.id;
+    const isLoading = currentRoomId ? activeGenerationRoomIds.has(currentRoomId) : false;
     const isEditingMessage = editingMessage?.roomId === currentRoomId;
     const isInlineVnEditing = isVisualNovelMode && isEditingMessage;
     const debugPanelEnabled = thinkDebugEnabled || fullJsonDebugEnabled;
@@ -1035,8 +1075,20 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         }
     }, [getAiProviderConfig, getCurrentRoom, groupCharacters, titleGenerationModel, updateRoomName]);
 
-    const startGenerationSession = useCallback((roomId: string): ChatGenerationSession => {
-        const previousSession = generationSessionRef.current;
+    const setGenerationRoomActive = useCallback((roomId: string, active: boolean) => {
+        setActiveGenerationRoomIds((current) => {
+            const next = new Set(current);
+            if (active) {
+                next.add(roomId);
+            } else {
+                next.delete(roomId);
+            }
+            return next;
+        });
+    }, []);
+
+    const startGenerationSession = useCallback((roomId: string, jobId = generateId()): ChatGenerationSession => {
+        const previousSession = generationSessionsRef.current.get(roomId);
         if (previousSession) {
             previousSession.cancelled = true;
             previousSession.controller?.abort();
@@ -1045,17 +1097,19 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         const session: ChatGenerationSession = {
             id: generationSessionSeqRef.current + 1,
             roomId,
+            jobId,
             cancelled: false,
+            detached: false,
             controller: null,
         };
         generationSessionSeqRef.current = session.id;
-        generationSessionRef.current = session;
-        abortControllerRef.current = null;
+        generationSessionsRef.current.set(roomId, session);
+        setGenerationRoomActive(roomId, true);
         return session;
-    }, []);
+    }, [setGenerationRoomActive]);
 
     const isGenerationSessionActive = useCallback((session: ChatGenerationSession): boolean => {
-        return generationSessionRef.current === session && !session.cancelled;
+        return generationSessionsRef.current.get(session.roomId) === session && !session.cancelled;
     }, []);
 
     const attachGenerationController = useCallback((session: ChatGenerationSession, controller: AbortController): boolean => {
@@ -1064,7 +1118,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             return false;
         }
         session.controller = controller;
-        abortControllerRef.current = controller;
         return true;
     }, [isGenerationSessionActive]);
 
@@ -1072,33 +1125,139 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         if (session.controller === controller) {
             session.controller = null;
         }
-        if (abortControllerRef.current === controller) {
-            abortControllerRef.current = null;
-        }
     }, []);
 
-    const cancelGenerationSession = useCallback(() => {
-        const session = generationSessionRef.current;
-        if (session) {
-            session.cancelled = true;
-            session.controller?.abort();
-            session.controller = null;
-        }
-        if (abortControllerRef.current) {
-            abortControllerRef.current.abort();
-            abortControllerRef.current = null;
-        }
-    }, []);
+    const cancelGenerationSession = useCallback((roomId: string) => {
+        const session = generationSessionsRef.current.get(roomId);
+        if (!session) return;
+        void (async () => {
+            try {
+                const response = await fetch(
+                    `/api/conversation/jobs/${encodeURIComponent(session.jobId)}`,
+                    {
+                        method: 'DELETE',
+                        credentials: 'same-origin',
+                        keepalive: true,
+                    },
+                );
+                if (!response.ok) {
+                    await throwChatRequestError(response, 0);
+                }
+                const job = await response.json() as ConversationJobStatus;
+                if (job.status === 'completed') return;
+                session.cancelled = true;
+                session.controller?.abort();
+                session.controller = null;
+                if (generationSessionsRef.current.get(roomId) === session) {
+                    generationSessionsRef.current.delete(roomId);
+                    setGenerationRoomActive(roomId, false);
+                }
+            } catch (error) {
+                console.warn('Conversation job cancellation failed:', error);
+                showChatNotice('生成を停止できませんでした。もう一度お試しください。');
+            }
+        })();
+    }, [setGenerationRoomActive, showChatNotice]);
 
     const finishGenerationSession = useCallback((session: ChatGenerationSession) => {
-        if (generationSessionRef.current === session) {
-            generationSessionRef.current = null;
-        }
-        if (session.controller && abortControllerRef.current === session.controller) {
-            abortControllerRef.current = null;
+        if (generationSessionsRef.current.get(session.roomId) === session) {
+            generationSessionsRef.current.delete(session.roomId);
+            setGenerationRoomActive(session.roomId, false);
         }
         session.controller = null;
-    }, []);
+    }, [setGenerationRoomActive]);
+
+    const pollConversationJob = useCallback(async (
+        session: ChatGenerationSession,
+        controller: AbortController,
+    ): Promise<ConversationJobStatus> => {
+        while (isGenerationSessionActive(session) && !controller.signal.aborted) {
+            await waitForConversationJobPoll(controller.signal);
+            const response = await fetch(
+                `/api/conversation/jobs/${encodeURIComponent(session.jobId)}`,
+                {
+                    credentials: 'same-origin',
+                    signal: controller.signal,
+                },
+            );
+            if (!response.ok) {
+                await throwChatRequestError(response, 0);
+            }
+            const job = await response.json() as ConversationJobStatus;
+            if (job.status !== 'running') return job;
+        }
+        throw new DOMException('Generation stopped', 'AbortError');
+    }, [isGenerationSessionActive]);
+
+    const resumeConversationJob = useCallback(async (job: ConversationJobStatus) => {
+        if (resumedJobsRef.current.has(job.jobId) || generationSessionsRef.current.has(job.roomId)) {
+            return;
+        }
+        resumedJobsRef.current.add(job.jobId);
+        if (job.status === 'completed') {
+            await refreshConversationRoom(job.roomId);
+            return;
+        }
+        if (job.status !== 'running') return;
+
+        const session = startGenerationSession(job.roomId, job.jobId);
+        const controller = new AbortController();
+        if (!attachGenerationController(session, controller)) return;
+        try {
+            const completed = await pollConversationJob(session, controller);
+            if (completed.status === 'completed') {
+                await refreshConversationRoom(job.roomId);
+            } else if (completed.status === 'failed' && getCurrentRoom()?.id === job.roomId) {
+                showChatNotice(completed.error || 'バックグラウンド生成に失敗しました。');
+            }
+        } catch (error) {
+            if (!(error instanceof Error && error.name === 'AbortError')) {
+                console.error('Conversation job recovery failed:', getChatErrorDebugInfo(error));
+                if (getCurrentRoom()?.id === job.roomId) {
+                    showChatNotice(getChatErrorMessage(error));
+                }
+            }
+        } finally {
+            clearGenerationController(session, controller);
+            finishGenerationSession(session);
+        }
+    }, [
+        attachGenerationController,
+        clearGenerationController,
+        finishGenerationSession,
+        getCurrentRoom,
+        pollConversationJob,
+        refreshConversationRoom,
+        showChatNotice,
+        startGenerationSession,
+    ]);
+
+    useEffect(() => {
+        let disposed = false;
+        void fetch('/api/conversation/jobs', { credentials: 'same-origin' })
+            .then(async (response) => {
+                if (!response.ok) {
+                    await throwChatRequestError(response, 0);
+                }
+                return response.json() as Promise<{ jobs?: ConversationJobStatus[] }>;
+            })
+            .then((data) => {
+                if (disposed) return;
+                for (const job of data.jobs ?? []) {
+                    void resumeConversationJob(job).catch((error) => {
+                        console.warn('Conversation job synchronization failed:', error);
+                    });
+                }
+            })
+            .catch((error) => {
+                if (!disposed) {
+                    console.warn('Conversation job discovery failed:', error);
+                }
+            });
+        return () => {
+            disposed = true;
+        };
+    }, [resumeConversationJob]);
 
     useEffect(() => {
         vnTypingSpeedRef.current = vnTypingSpeed;
@@ -1107,6 +1266,19 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     useEffect(() => {
         return () => clearChatNoticeTimer();
     }, [clearChatNoticeTimer]);
+
+    useEffect(() => {
+        const generationSessions = generationSessionsRef.current;
+        return () => {
+            for (const session of generationSessions.values()) {
+                session.detached = true;
+                session.cancelled = true;
+                session.controller?.abort();
+                session.controller = null;
+            }
+            generationSessions.clear();
+        };
+    }, []);
 
     useEffect(() => {
         dismissChatNotice();
@@ -1275,15 +1447,13 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         };
     }, []);
 
-    // Room switch cleanup: abort any in-flight generation.
+    // Room switches only stop room-local presentation. Server-side generation continues.
     useEffect(() => {
         return () => {
             stopTypewriter(false);
-            cancelGenerationSession();
-            setIsLoading(false);
             setIsSummarizing(false);
         };
-    }, [room?.id, stopTypewriter, cancelGenerationSession]);
+    }, [room?.id, stopTypewriter]);
 
     useEffect(() => {
         if (!isVisualNovelMode) {
@@ -1445,8 +1615,9 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             return;
         }
 
-        cancelGenerationSession();
-        setIsLoading(false);
+        if (room) {
+            cancelGenerationSession(room.id);
+        }
         setIsSummarizing(false);
     };
 
@@ -1462,11 +1633,12 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         }
 
         try {
-            const response = await fetch('/api/conversation/turn', {
+            const response = await fetch('/api/conversation/jobs', {
                 method: 'POST',
                 credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
+                    jobId: session.jobId,
                     room: toConversationRoom(sourceRoom),
                     character: toConversationCharacter(character),
                     situation: toConversationSituation(situation),
@@ -1487,8 +1659,22 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 await throwChatRequestError(response, 0);
             }
 
-            const data = await response.json() as RustTurnResponse;
-            if (data.summary?.text) {
+            const accepted = await response.json() as ConversationJobStatus;
+            session.jobId = accepted.jobId;
+            const job = accepted.status === 'running'
+                ? await pollConversationJob(session, controller)
+                : accepted;
+            if (job.status === 'cancelled') {
+                return { status: 'aborted' };
+            }
+            if (job.status === 'failed') {
+                throw new Error(job.error || 'バックグラウンド生成に失敗しました。');
+            }
+            if (job.status !== 'completed' || !job.result) {
+                throw new Error('バックグラウンド生成の結果を取得できませんでした。');
+            }
+            const data = job.result;
+            if (isSecretMode && data.summary?.text) {
                 updateRoomSummary(
                     sourceRoom.id,
                     data.summary.text,
@@ -1499,39 +1685,37 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 }
             }
 
-            const assistantMessageIds: string[] = [];
             const assistantMessages = Array.isArray(data.messages) ? data.messages : [];
-            for (let index = 0; index < assistantMessages.length; index++) {
-                const message = assistantMessages[index];
-                if (!message?.content?.trim()) continue;
-                if (isMessageMode && index > 0) {
-                    await waitForMessageModeBubbleDelay();
+            let assistantMessageIds = assistantMessages
+                .filter((message) => message?.content?.trim() && message.id)
+                .map((message) => message.id);
+            if (isSecretMode) {
+                assistantMessageIds = [];
+                for (let index = 0; index < assistantMessages.length; index++) {
+                    const message = assistantMessages[index];
+                    if (!message?.content?.trim()) continue;
+                    if (isMessageMode && index > 0) {
+                        await waitForMessageModeBubbleDelay();
+                    }
+                    if (!isGenerationSessionActive(session) || controller.signal.aborted) {
+                        throw new DOMException('Generation stopped', 'AbortError');
+                    }
+                    assistantMessageIds.push(addMessage(
+                        sourceRoom.id,
+                        'assistant',
+                        message.content,
+                        message.characterId,
+                        {
+                            expression: message.expression,
+                            toCharacterIds: message.toCharacterIds ?? [],
+                        },
+                    ));
                 }
-                if (!isGenerationSessionActive(session) || controller.signal.aborted) {
-                    throw new DOMException('Generation stopped', 'AbortError');
-                }
-                assistantMessageIds.push(addMessage(
-                    sourceRoom.id,
-                    'assistant',
-                    message.content,
-                    message.characterId,
-                    {
-                        expression: message.expression,
-                        toCharacterIds: message.toCharacterIds ?? [],
-                    },
-                ));
+            } else {
+                await refreshConversationRoom(sourceRoom.id);
             }
 
             if (!isSecretMode) {
-                for (const usage of data.usages ?? []) {
-                    addUsageRecord(
-                        usage.characterId,
-                        usage.promptTokens,
-                        usage.completionTokens,
-                        usage.totalTokens,
-                        usage.cost,
-                    );
-                }
                 if (thinkDebugEnabled) {
                     for (const log of data.thinkLogs ?? []) {
                         if (!log.thinking?.trim()) continue;
@@ -1617,6 +1801,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             if (
                 !isMessageMode &&
                 vnTypingSpeed !== 'streaming' &&
+                getCurrentRoom()?.id === sourceRoom.id &&
                 assistantMessageIds[0] &&
                 assistantMessages[0]?.content
             ) {
@@ -1629,10 +1814,12 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             };
         } catch (error) {
             if (error instanceof Error && error.name === 'AbortError') {
-                return { status: 'aborted' };
+                return { status: session.detached ? 'detached' : 'aborted' };
             }
             console.error('Rust conversation turn failed:', getChatErrorDebugInfo(error));
-            showChatNotice(getChatErrorMessage(error));
+            if (getCurrentRoom()?.id === sourceRoom.id) {
+                showChatNotice(getChatErrorMessage(error));
+            }
             return { status: 'error' };
         } finally {
             clearGenerationController(session, controller);
@@ -1679,7 +1866,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         } else {
             setInput('');
         }
-        setIsLoading(true);
         const session = startGenerationSession(room.id);
 
         const userMessageId = addMessage(room.id, 'user', userMessage);
@@ -1687,7 +1873,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         const roomAfterUserMessage = getCurrentRoom();
         if (!roomAfterUserMessage) {
             finishGenerationSession(session);
-            setIsLoading(false);
             return;
         }
 
@@ -1722,11 +1907,10 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             if (!editDraft) {
                 setTimeout(() => textareaRef.current?.focus(), 50);
             }
-        } else if (shouldGenerateTitleAfterFirstReply) {
+        } else if (generationResult.status === 'success' && shouldGenerateTitleAfterFirstReply) {
             void generateInitialRoomTitle(room.id, originalRoomName);
         }
         finishGenerationSession(session);
-        setIsLoading(false);
         setIsSummarizing(false);
     };
 
@@ -1740,14 +1924,13 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             const cutFrom = room.messages.length - lastUserIndex;
             const messagesToDelete = room.messages.slice(cutFrom);
             const removedMemoryRecords = await deleteMessagesFrom(room.id, cutFrom);
-            setIsLoading(true);
             const session = startGenerationSession(room.id);
             try {
                 const latestRoom = getCurrentRoom();
                 const result = latestRoom
                     ? await generateRustTurn(session, latestRoom)
                     : { status: 'aborted' as const };
-                if (result.status !== 'success') {
+                if (result.status === 'error' || result.status === 'aborted') {
                     const latestRoom = getCurrentRoom();
                     if (latestRoom?.id === room.id && latestRoom.messages.length > cutFrom) {
                         await deleteMessagesFrom(room.id, cutFrom);
@@ -1756,7 +1939,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 }
             } finally {
                 finishGenerationSession(session);
-                setIsLoading(false);
                 setIsSummarizing(false);
             }
         } else {
@@ -1768,15 +1950,13 @@ export default function ChatWindow({ room, character, situation, groupName, grou
 
             const removedMemoryRecords = await deleteMessagesFrom(room.id, cutFrom);
 
-            setIsLoading(true);
-
             const session = startGenerationSession(room.id);
             try {
                 const latestRoom = getCurrentRoom();
                 const result = latestRoom
                     ? await generateRustTurn(session, latestRoom)
                     : { status: 'aborted' as const };
-                if (result.status !== 'success') {
+                if (result.status === 'error' || result.status === 'aborted') {
                     const latestRoom = getCurrentRoom();
                     if (latestRoom?.id === room.id && latestRoom.messages.length > cutFrom) {
                         await deleteMessagesFrom(room.id, cutFrom);
@@ -1785,7 +1965,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 }
             } finally {
                 finishGenerationSession(session);
-                setIsLoading(false);
                 setIsSummarizing(false);
             }
         }

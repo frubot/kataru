@@ -60,6 +60,10 @@ pub async fn turn(
     State(state): State<AppState>,
     Json(payload): Json<Value>,
 ) -> AppResult<Json<Value>> {
+    Ok(Json(run_turn(state, payload).await?))
+}
+
+pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value> {
     let room = object_field(&payload, "room")?.clone();
     let mut history = array_field_or(&payload, "messages", &room, "messages");
     history.retain(|message| !boolean(message, "archived"));
@@ -371,7 +375,7 @@ pub async fn turn(
         full_json_logs.clear();
         used_memory_ids.clear();
     }
-    Ok(Json(json!({
+    Ok(json!({
         "messages": generated,
         "usages": usages,
         "thinkLogs": think_logs,
@@ -379,7 +383,7 @@ pub async fn turn(
         "summary": summary_result,
         "memoryCandidates": memory_candidates,
         "usedMemoryIds": used_memory_ids,
-    })))
+    }))
 }
 
 #[allow(clippy::too_many_arguments)]

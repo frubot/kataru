@@ -173,7 +173,7 @@ function VnSpeedSlider({ value, onChange }: VnSpeedSliderProps) {
     }, [isMenuOpen]);
 
     return (
-        <div style={{ position: 'relative' }} ref={speedMenuRef}>
+        <div className="settings-select-anchor" ref={speedMenuRef}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
                 <label style={{ fontSize: '0.8125rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
                     文字送り速度
@@ -808,7 +808,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                 flexDirection: 'column',
                                 gap: '1rem',
                             }}>
-                                <div style={{ position: 'relative' }} ref={themeModeMenuRef}>
+                                <div className="settings-select-anchor" ref={themeModeMenuRef}>
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
                                         <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
                                             外観
@@ -910,7 +910,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     )}
                                 </div>
 
-                                <div style={{ position: 'relative' }} ref={paletteMenuRef}>
+                                <div className="settings-select-anchor" ref={paletteMenuRef}>
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
                                         <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
                                             色
@@ -1027,10 +1027,14 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                             <h3 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '0.75rem' }}>
                                 接続先
                             </h3>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', position: 'relative' }} ref={aiProviderMenuRef}>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                                <div
+                                    className="settings-select-anchor"
+                                    ref={aiProviderMenuRef}
+                                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}
+                                >
                                     <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
-                                        プロパイダー
+                                        プロバイダー
                                     </span>
                                     <button
                                         type="button"
@@ -1068,59 +1072,59 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                             }}
                                         />
                                     </button>
+                                    {isAiProviderMenuOpen && (
+                                        <div
+                                            role="menu"
+                                            aria-label="接続先"
+                                            style={{
+                                                position: 'absolute',
+                                                right: 0,
+                                                top: 'calc(100% + 0.5rem)',
+                                                width: 'min(100%, 16rem)',
+                                                minWidth: '12rem',
+                                                padding: '0.375rem',
+                                                border: '1px solid var(--border-color)',
+                                                borderRadius: '0.5rem',
+                                                background: 'var(--bg-primary)',
+                                                boxShadow: '0 12px 28px rgba(0, 0, 0, 0.24)',
+                                                zIndex: 20,
+                                            }}
+                                        >
+                                            {AI_PROVIDER_OPTIONS.map((option) => {
+                                                const selected = aiProvider === option.id;
+                                                return (
+                                                    <button
+                                                        key={option.id}
+                                                        type="button"
+                                                        className="settings-select-option"
+                                                        role="menuitemradio"
+                                                        aria-checked={selected}
+                                                        onClick={() => {
+                                                            setAiProvider(option.id);
+                                                            setAiProviderMenuOpen(false);
+                                                        }}
+                                                        style={{
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            width: '100%',
+                                                            minHeight: '2.5rem',
+                                                            padding: '0.5rem 0.625rem',
+                                                            border: 'none',
+                                                            borderRadius: '0.375rem',
+                                                            color: selected ? 'var(--accent-primary)' : 'var(--text-primary)',
+                                                            cursor: 'pointer',
+                                                            textAlign: 'left',
+                                                        }}
+                                                    >
+                                                        <span style={{ flex: 1, minWidth: 0, fontSize: '0.875rem', fontWeight: selected ? 600 : 500, textAlign: 'left' }}>
+                                                            {option.label}
+                                                        </span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
                                 </div>
-                                {isAiProviderMenuOpen && (
-                                    <div
-                                        role="menu"
-                                        aria-label="接続先"
-                                        style={{
-                                            position: 'absolute',
-                                            right: 0,
-                                            top: 'calc(100% + 0.5rem)',
-                                            width: 'min(100%, 16rem)',
-                                            minWidth: '12rem',
-                                            padding: '0.375rem',
-                                            border: '1px solid var(--border-color)',
-                                            borderRadius: '0.5rem',
-                                            background: 'var(--bg-primary)',
-                                            boxShadow: '0 12px 28px rgba(0, 0, 0, 0.24)',
-                                            zIndex: 20,
-                                        }}
-                                    >
-                                        {AI_PROVIDER_OPTIONS.map((option) => {
-                                            const selected = aiProvider === option.id;
-                                            return (
-                                                <button
-                                                    key={option.id}
-                                                    type="button"
-                                                    className="settings-select-option"
-                                                    role="menuitemradio"
-                                                    aria-checked={selected}
-                                                    onClick={() => {
-                                                        setAiProvider(option.id);
-                                                        setAiProviderMenuOpen(false);
-                                                    }}
-                                                    style={{
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        width: '100%',
-                                                        minHeight: '2.5rem',
-                                                        padding: '0.5rem 0.625rem',
-                                                        border: 'none',
-                                                        borderRadius: '0.375rem',
-                                                        color: selected ? 'var(--accent-primary)' : 'var(--text-primary)',
-                                                        cursor: 'pointer',
-                                                        textAlign: 'left',
-                                                    }}
-                                                >
-                                                    <span style={{ flex: 1, minWidth: 0, fontSize: '0.875rem', fontWeight: selected ? 600 : 500, textAlign: 'left' }}>
-                                                        {option.label}
-                                                    </span>
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
-                                )}
 
                                 {aiProvider === 'openai-compatible' && (
                                     <>

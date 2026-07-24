@@ -620,6 +620,10 @@ body {
   overscroll-behavior: contain;
 }
 
+.settings-select-anchor {
+  position: relative;
+}
+
 .settings-select-trigger {
   background: transparent;
 }

@@ -2131,7 +2131,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                             <Menu size={20} />
                         </button>
                     )}
-                    <MessageSquare size={20} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} className="desktop-only" />
                     <div style={{ flex: '1 1 auto', minWidth: 0, overflow: 'hidden' }}>
                         <h2 style={{ fontSize: '1rem', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{displayedRoomName}</h2>
                         <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>

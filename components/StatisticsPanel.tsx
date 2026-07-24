@@ -350,7 +350,7 @@ export default function StatisticsPanel() {
                                 合計
                             </h3>
                             {viewMode === 'tokens' ? (
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '1rem' }}>
                                     <div>
                                         <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>入力</div>
                                         <div style={{ fontSize: '1.125rem', fontWeight: 600 }}>{formatTokens(totals.promptTokens)}</div>
@@ -363,15 +363,23 @@ export default function StatisticsPanel() {
                                         <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>合計</div>
                                         <div style={{ fontSize: '1.125rem', fontWeight: 600 }}>{formatTokens(totals.totalTokens)}</div>
                                     </div>
+                                    <div>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>リクエスト</div>
+                                        <div style={{ fontSize: '1.125rem', fontWeight: 600 }}>{formatTokens(totals.recordCount)}回</div>
+                                    </div>
                                 </div>
                             ) : (
-                                <div style={{ fontSize: '1.5rem', fontWeight: 700 }}>
-                                    {formatCost(totals.cost)}
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '1rem' }}>
+                                    <div>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>料金</div>
+                                        <div style={{ fontSize: '1.5rem', fontWeight: 700 }}>{formatCost(totals.cost)}</div>
+                                    </div>
+                                    <div>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>リクエスト</div>
+                                        <div style={{ fontSize: '1.5rem', fontWeight: 700 }}>{formatTokens(totals.recordCount)}回</div>
+                                    </div>
                                 </div>
                             )}
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
-                                {totals.recordCount}回のリクエスト
-                            </div>
                         </div>
 
                         {/* Character Breakdown */}

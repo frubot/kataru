@@ -99,8 +99,12 @@ export default function StatisticsPanel() {
             }
         }
 
-        return Array.from(statsMap.values()).sort((a, b) => b.totalTokens - a.totalTokens);
-    }, [filteredRecords, characters]);
+        return Array.from(statsMap.values()).sort((a, b) => (
+            viewMode === 'tokens'
+                ? b.totalTokens - a.totalTokens
+                : b.cost - a.cost
+        ));
+    }, [filteredRecords, characters, viewMode]);
 
     const totals = useMemo(() => {
         return characterStats.reduce(
@@ -212,46 +216,99 @@ export default function StatisticsPanel() {
                         </div>
 
                         {/* Character Breakdown */}
-                        {selectedCharacter === 'all' && characterStats.length > 0 && (
-                            <div>
-                                <h3 style={{ fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.75rem', color: 'var(--text-secondary)' }}>
-                                    キャラクター別内訳
-                                </h3>
-                                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                    {characterStats.map((stat, index) => (
-                                        <div
-                                            key={stat.characterId}
-                                            style={{
-                                                padding: '0.75rem 0',
-                                                display: 'flex',
-                                                justifyContent: 'space-between',
-                                                alignItems: 'center',
-                                                borderBottom: index < characterStats.length - 1
-                                                    ? '1px solid var(--border-color)'
-                                                    : 'none',
-                                            }}
-                                        >
-                                            <div>
-                                                <div style={{ fontWeight: 500 }}>{stat.characterName}</div>
-                                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                                    {stat.recordCount}回
-                                                </div>
-                                            </div>
-                                            <div style={{ textAlign: 'right' }}>
-                                                {viewMode === 'tokens' ? (
-                                                    <div style={{ fontWeight: 600 }}>
-                                                        {formatTokens(stat.totalTokens)} トークン
-                                                    </div>
-                                                ) : (
-                                                    <div style={{ fontWeight: 600 }}>
-                                                        {formatCost(stat.cost)}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    ))}
+                        {characterStats.length > 0 && (
+                            <section className="statistics-breakdown" aria-labelledby="statistics-breakdown-heading">
+                                <div className="statistics-breakdown-heading">
+                                    <div>
+                                        <h3 id="statistics-breakdown-heading">キャラクター別内訳</h3>
+                                        <p>選択した期間の利用状況</p>
+                                    </div>
+                                    <span>{characterStats.length}キャラクター</span>
                                 </div>
-                            </div>
+                                <div className="statistics-table-wrapper">
+                                    <table className="statistics-table">
+                                        <caption>キャラクター別のリクエスト数、トークン数、料金</caption>
+                                        <thead>
+                                            <tr>
+                                                <th scope="col">キャラクター</th>
+                                                <th scope="col" className="statistics-table-number">リクエスト</th>
+                                                <th scope="col" className="statistics-table-number">入力</th>
+                                                <th scope="col" className="statistics-table-number">出力</th>
+                                                <th
+                                                    scope="col"
+                                                    className={`statistics-table-number${viewMode === 'tokens' ? ' is-active' : ''}`}
+                                                >
+                                                    合計トークン
+                                                </th>
+                                                <th
+                                                    scope="col"
+                                                    className={`statistics-table-number${viewMode === 'cost' ? ' is-active' : ''}`}
+                                                >
+                                                    料金
+                                                </th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {characterStats.map((stat, index) => {
+                                                const selectedTotal = viewMode === 'tokens' ? totals.totalTokens : totals.cost;
+                                                const selectedValue = viewMode === 'tokens' ? stat.totalTokens : stat.cost;
+                                                const share = selectedTotal > 0 ? (selectedValue / selectedTotal) * 100 : 0;
+
+                                                return (
+                                                    <tr key={stat.characterId}>
+                                                        <th scope="row">
+                                                            <div className="statistics-character">
+                                                                <span className="statistics-character-rank" aria-hidden="true">
+                                                                    {index + 1}
+                                                                </span>
+                                                                <div className="statistics-character-details">
+                                                                    <span className="statistics-character-name">{stat.characterName}</span>
+                                                                    <div className="statistics-share">
+                                                                        <span
+                                                                            className="statistics-share-fill"
+                                                                            style={{ width: `${share}%` }}
+                                                                        />
+                                                                    </div>
+                                                                    <span className="statistics-share-label">全体の {share.toFixed(1)}%</span>
+                                                                </div>
+                                                            </div>
+                                                        </th>
+                                                        <td className="statistics-table-number">
+                                                            {formatTokens(stat.recordCount)}回
+                                                        </td>
+                                                        <td className="statistics-table-number">
+                                                            {formatTokens(stat.promptTokens)}
+                                                        </td>
+                                                        <td className="statistics-table-number">
+                                                            {formatTokens(stat.completionTokens)}
+                                                        </td>
+                                                        <td className={`statistics-table-number${viewMode === 'tokens' ? ' is-active' : ''}`}>
+                                                            {formatTokens(stat.totalTokens)}
+                                                        </td>
+                                                        <td className={`statistics-table-number${viewMode === 'cost' ? ' is-active' : ''}`}>
+                                                            {formatCost(stat.cost)}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                        <tfoot>
+                                            <tr>
+                                                <th scope="row">合計</th>
+                                                <td className="statistics-table-number">{formatTokens(totals.recordCount)}回</td>
+                                                <td className="statistics-table-number">{formatTokens(totals.promptTokens)}</td>
+                                                <td className="statistics-table-number">{formatTokens(totals.completionTokens)}</td>
+                                                <td className={`statistics-table-number${viewMode === 'tokens' ? ' is-active' : ''}`}>
+                                                    {formatTokens(totals.totalTokens)}
+                                                </td>
+                                                <td className={`statistics-table-number${viewMode === 'cost' ? ' is-active' : ''}`}>
+                                                    {formatCost(totals.cost)}
+                                                </td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            </section>
                         )}
 
                         {characterStats.length === 0 && (

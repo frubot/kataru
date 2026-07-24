@@ -1,9 +1,20 @@
 import { useState, useMemo, useEffect } from 'react';
 import { BarChart3, Calendar, ChevronDown, Users } from 'lucide-react';
-import { useStore } from '@/lib/store';
+import { useStore, type UsageRecord } from '@/lib/store';
 
 type ViewMode = 'tokens' | 'cost';
 type PeriodFilter = 'all' | 'thisMonth' | 'lastMonth' | 'last3Months' | 'lastYear';
+type ChartGranularity = 'day' | 'week' | 'month';
+
+interface ChartPoint {
+    start: number;
+    end: number;
+    label: string;
+    description: string;
+    value: number;
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const periodOptions: { value: PeriodFilter; label: string }[] = [
     { value: 'all', label: '全期間' },
@@ -25,7 +36,7 @@ function getDateRange(period: PeriodFilter): { start: number; end: number } {
         case 'lastMonth': {
             const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
             const start = lastMonth.getTime();
-            const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0).getTime();
+            const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime() - 1;
             return { start, end: endOfLastMonth };
         }
         case 'last3Months': {
@@ -39,6 +50,81 @@ function getDateRange(period: PeriodFilter): { start: number; end: number } {
         default:
             return { start: 0, end };
     }
+}
+
+function getChartGranularity(period: PeriodFilter, start: number, end: number): ChartGranularity {
+    if (period === 'thisMonth' || period === 'lastMonth') {
+        return 'day';
+    }
+
+    if (period === 'last3Months') {
+        return 'week';
+    }
+
+    if (period === 'lastYear') {
+        return 'month';
+    }
+
+    const spanInDays = Math.max(1, Math.ceil((end - start) / DAY_MS));
+    if (spanInDays <= 31) return 'day';
+    if (spanInDays <= 120) return 'week';
+    return 'month';
+}
+
+function buildChartData(
+    records: UsageRecord[],
+    period: PeriodFilter,
+    viewMode: ViewMode,
+): ChartPoint[] {
+    if (records.length === 0) return [];
+
+    const selectedRange = getDateRange(period);
+    const rangeStart = period === 'all'
+        ? Math.min(...records.map((record) => record.timestamp))
+        : selectedRange.start;
+    const rangeEnd = selectedRange.end;
+    const granularity = getChartGranularity(period, rangeStart, rangeEnd);
+    const firstDate = new Date(rangeStart);
+    let cursor = granularity === 'month'
+        ? new Date(firstDate.getFullYear(), firstDate.getMonth(), 1)
+        : new Date(firstDate.getFullYear(), firstDate.getMonth(), firstDate.getDate());
+    const spansMultipleYears = cursor.getFullYear() !== new Date(rangeEnd).getFullYear();
+    const points: ChartPoint[] = [];
+
+    while (cursor.getTime() <= rangeEnd) {
+        const start = cursor.getTime();
+        const next = new Date(cursor);
+
+        if (granularity === 'day') {
+            next.setDate(next.getDate() + 1);
+        } else if (granularity === 'week') {
+            next.setDate(next.getDate() + 7);
+        } else {
+            next.setMonth(next.getMonth() + 1);
+        }
+
+        const end = next.getTime();
+        const month = cursor.getMonth() + 1;
+        const date = cursor.getDate();
+        const year = cursor.getFullYear();
+        const label = granularity === 'month'
+            ? spansMultipleYears ? `${String(year).slice(-2)}/${month}` : `${month}月`
+            : `${month}/${date}`;
+        const description = granularity === 'month'
+            ? `${year}年${month}月`
+            : granularity === 'week'
+                ? `${year}年${month}月${date}日からの1週間`
+                : `${year}年${month}月${date}日`;
+        const value = records.reduce((sum, record) => {
+            if (record.timestamp < start || record.timestamp >= end) return sum;
+            return sum + (viewMode === 'tokens' ? record.totalTokens : record.cost);
+        }, 0);
+
+        points.push({ start, end, label, description, value });
+        cursor = next;
+    }
+
+    return points;
 }
 
 interface CharacterStats {
@@ -121,6 +207,23 @@ export default function StatisticsPanel() {
 
     const formatTokens = (n: number) => n.toLocaleString();
     const formatCost = (n: number) => `$${n.toFixed(6)}`;
+    const chartData = useMemo(
+        () => buildChartData(filteredRecords, period, viewMode),
+        [filteredRecords, period, viewMode],
+    );
+    const chartMaximum = Math.max(...chartData.map((point) => point.value), 0);
+    const chartPeak = chartData.reduce<ChartPoint | null>(
+        (peak, point) => peak === null || point.value > peak.value ? point : peak,
+        null,
+    );
+    const chartLabelIndexes = Array.from(new Set([
+        0,
+        Math.floor((chartData.length - 1) / 2),
+        chartData.length - 1,
+    ])).filter((index) => index >= 0);
+    const formatChartValue = (value: number) => (
+        viewMode === 'tokens' ? `${formatTokens(value)} トークン` : formatCost(value)
+    );
 
     return (
         <div className="statistics-panel">
@@ -184,6 +287,62 @@ export default function StatisticsPanel() {
                                 </div>
                             </div>
                         </div>
+
+                        {/* Usage Trend */}
+                        {chartData.length > 0 && (
+                            <section className="statistics-chart-card" aria-labelledby="statistics-chart-heading">
+                                <div className="statistics-chart-heading">
+                                    <div>
+                                        <h3 id="statistics-chart-heading">利用推移</h3>
+                                        <p>{viewMode === 'tokens' ? '合計トークン' : '料金'}の推移</p>
+                                    </div>
+                                    {chartPeak && (
+                                        <div className="statistics-chart-peak">
+                                            <span>ピーク</span>
+                                            <strong>{formatChartValue(chartPeak.value)}</strong>
+                                        </div>
+                                    )}
+                                </div>
+                                <div
+                                    className="statistics-chart"
+                                    role="img"
+                                    aria-label={`${viewMode === 'tokens' ? 'トークン' : '料金'}の利用推移。ピークは${chartPeak ? `${chartPeak.description}の${formatChartValue(chartPeak.value)}` : 'ありません'}`}
+                                >
+                                    <div className="statistics-chart-grid" aria-hidden="true">
+                                        <span />
+                                        <span />
+                                        <span />
+                                    </div>
+                                    <div className="statistics-chart-bars" aria-hidden="true">
+                                        {chartData.map((point) => {
+                                            const height = chartMaximum > 0 ? (point.value / chartMaximum) * 100 : 0;
+
+                                            return (
+                                                <div
+                                                    className="statistics-chart-bar-column"
+                                                    key={point.start}
+                                                    title={`${point.description}: ${formatChartValue(point.value)}`}
+                                                >
+                                                    <span
+                                                        className="statistics-chart-bar"
+                                                        style={{ height: point.value > 0 ? `${Math.max(height, 2)}%` : 0 }}
+                                                    />
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                                <div
+                                    className="statistics-chart-axis"
+                                    style={{ gridTemplateColumns: `repeat(${chartLabelIndexes.length}, minmax(0, 1fr))` }}
+                                    aria-hidden="true"
+                                >
+                                    {chartLabelIndexes.map((index) => (
+                                        <span key={chartData[index].start}>{chartData[index].label}</span>
+                                    ))}
+                                </div>
+                            </section>
+                        )}
 
                         {/* Total Summary */}
                         <div className="card" style={{ marginBottom: '1rem', background: 'rgba(var(--accent-primary-rgb), 0.1)' }}>

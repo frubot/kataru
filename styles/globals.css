@@ -649,6 +649,128 @@ body {
   width: 100%;
 }
 
+.statistics-chart-card {
+  margin-bottom: 1rem;
+  padding: 1rem 1rem 0.75rem;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 0.75rem;
+  background: var(--bg-card);
+}
+
+.statistics-chart-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.statistics-chart-heading h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.statistics-chart-heading p {
+  margin: 0.2rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.statistics-chart-peak {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  color: var(--text-muted);
+  font-size: 0.625rem;
+  white-space: nowrap;
+}
+
+.statistics-chart-peak strong {
+  color: var(--accent-primary);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.statistics-chart {
+  position: relative;
+  height: 9rem;
+}
+
+.statistics-chart-grid {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding-bottom: 1px;
+}
+
+.statistics-chart-grid span {
+  width: 100%;
+  border-top: 1px dashed var(--border-color);
+  opacity: 0.7;
+}
+
+.statistics-chart-bars {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: stretch;
+  gap: clamp(2px, 0.75vw, 6px);
+}
+
+.statistics-chart-bar-column {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  min-width: 2px;
+  flex: 1 1 0;
+  cursor: default;
+}
+
+.statistics-chart-bar {
+  width: min(100%, 1.25rem);
+  min-height: 0;
+  border-radius: 0.3rem 0.3rem 0.1rem 0.1rem;
+  background: linear-gradient(
+    180deg,
+    var(--accent-primary) 0%,
+    rgba(var(--accent-primary-rgb), 0.4) 100%
+  );
+  opacity: 0.78;
+  transform-origin: bottom;
+  transition: opacity 0.15s ease, filter 0.15s ease;
+}
+
+.statistics-chart-bar-column:hover .statistics-chart-bar {
+  filter: brightness(1.08);
+  opacity: 1;
+}
+
+.statistics-chart-axis {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+  color: var(--text-muted);
+  font-size: 0.625rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.statistics-chart-axis span {
+  text-align: center;
+}
+
+.statistics-chart-axis span:first-child {
+  text-align: left;
+}
+
+.statistics-chart-axis span:last-child {
+  text-align: right;
+}
+
 .statistics-breakdown {
   min-width: 0;
 }

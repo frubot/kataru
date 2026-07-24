@@ -381,9 +381,9 @@ body {
 .input {
   width: 100%;
   padding: 0.75rem 1rem;
-  background: var(--bg-tertiary);
+  background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 1.3rem;
+  border-radius: 0.5rem;
   color: var(--text-primary);
   font-size: 0.875rem;
   transition: all 0.2s ease;
@@ -653,9 +653,8 @@ body {
   margin-bottom: 1rem;
   padding: 1rem 1rem 0.75rem;
   overflow: hidden;
-  border: 1px solid var(--border-color);
   border-radius: 0.75rem;
-  background: var(--bg-card);
+  background: var(--bg-secondary);
 }
 
 .statistics-chart-heading {

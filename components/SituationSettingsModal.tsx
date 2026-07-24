@@ -1032,8 +1032,9 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                         </div>
                     </section>
 
-                    <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', minHeight: 38 }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', minHeight: 38 }}>
+                        <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: '0.75rem', fontSize: '0.875rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                            メモリの参照
                             <button
                                 type="button"
                                 role="switch"
@@ -1065,7 +1066,6 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                                     boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
                                 }} />
                             </button>
-                            メモリの参照
                         </label>
                     </div>
 

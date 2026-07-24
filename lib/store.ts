@@ -165,7 +165,6 @@ export interface SituationDirector {
     enabled: boolean;
     model: string;
     systemPrompt?: string;
-    reasoningEffort?: 'none' | 'medium';
     maxAutoTurns: number;
     stopPolicy: 'after-one' | 'max-turns';
 }
@@ -718,13 +717,11 @@ function normalizeSituationDirector(director: Situation['director'] | undefined,
         ? Math.max(1, Math.min(10, Math.round(director!.maxAutoTurns)))
         : 3;
     const stopPolicy = director?.stopPolicy === 'after-one' ? 'after-one' : 'max-turns';
-    const reasoningEffort = director?.reasoningEffort === 'medium' ? 'medium' : 'none';
     const model = director?.model?.trim() || fallbackModel;
     return {
         enabled: director?.enabled !== false,
         model,
         ...(director?.systemPrompt?.trim() ? { systemPrompt: director.systemPrompt.trim() } : {}),
-        reasoningEffort,
         maxAutoTurns,
         stopPolicy,
     };

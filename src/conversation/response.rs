@@ -22,7 +22,6 @@ pub struct DirectorDecision {
     pub actor_id: Option<String>,
     pub reason: String,
     pub candidates: Vec<(String, String)>,
-    pub thinking: Option<String>,
 }
 
 pub fn parse_assistant_response(
@@ -146,12 +145,6 @@ pub fn parse_director_decision(
             Some((actor_id, reason))
         })
         .collect::<Vec<_>>();
-    let thinking = record
-        .get("thinking")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned);
     let (actor_id, reason) = candidates
         .first()
         .map(|(id, reason)| (Some(id.clone()), reason.clone()))
@@ -160,7 +153,6 @@ pub fn parse_director_decision(
         actor_id,
         reason,
         candidates,
-        thinking,
     })
 }
 

@@ -101,10 +101,6 @@ function createTemporaryDraft(): TemporaryActorDraft {
     };
 }
 
-function getInitialDirectorModel(situation: Situation | null | undefined, defaultDirectorModel: string): string {
-    return situation?.director?.model?.trim() || defaultDirectorModel;
-}
-
 function getInitialMaxTurns(situation: Situation | null | undefined, room: Room | null | undefined): number {
     return Math.max(1, Math.min(10, room?.maxMentionChain ?? situation?.director?.maxAutoTurns ?? 3));
 }
@@ -467,7 +463,6 @@ function TemporaryActorParamSlider({ paramKey, value, onChange }: TemporaryActor
 function buildInitialState(
     situation: Situation | null | undefined,
     room: Room | null | undefined,
-    defaultDirectorModel: string,
 ) {
     const selectedCharacterIds = new Set<string>();
     const characterActorMeta: Record<string, CharacterActorMeta> = {};
@@ -497,8 +492,6 @@ function buildInitialState(
     return {
         name: situation?.name ?? '',
         situationPrompt: situation?.situationPrompt ?? '',
-        directorModel: getInitialDirectorModel(situation, defaultDirectorModel),
-        directorReasoningMedium: situation?.director?.reasoningEffort === 'medium',
         maxAutoTurns: String(getInitialMaxTurns(situation, room)),
         maxHistory: situation?.maxHistory != null ? String(situation.maxHistory) : '',
         memoryReadOnly: situation?.memoryMode === 'readOnly',
@@ -522,11 +515,9 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
 
     const isEditing = !!situation;
     const sortedCharacters = useMemo(() => [...characters].sort((a, b) => b.updatedAt - a.updatedAt), [characters]);
-    const initial = buildInitialState(situation, room, defaultDirectorModel);
+    const initial = buildInitialState(situation, room);
     const [name, setName] = useState(initial.name);
     const [situationPrompt, setSituationPrompt] = useState(initial.situationPrompt);
-    const [directorModel, setDirectorModel] = useState(initial.directorModel);
-    const [directorReasoningMedium, setDirectorReasoningMedium] = useState(initial.directorReasoningMedium);
     const [maxAutoTurns, setMaxAutoTurns] = useState(initial.maxAutoTurns);
     const [maxHistory, setMaxHistory] = useState(initial.maxHistory);
     const [memoryReadOnly, setMemoryReadOnly] = useState(initial.memoryReadOnly);
@@ -735,10 +726,9 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
 
     const saveAndClose = useCallback(() => {
         const director: SituationDirector = {
-            ...(situation?.director ?? {}),
             enabled: true,
-            model: directorModel.trim() || defaultDirectorModel,
-            reasoningEffort: directorReasoningMedium ? 'medium' : 'none',
+            model: situation?.director?.model?.trim() || defaultDirectorModel,
+            ...(situation?.director?.systemPrompt?.trim() ? { systemPrompt: situation.director.systemPrompt.trim() } : {}),
             maxAutoTurns: effectiveMaxTurns,
             stopPolicy: situation?.director?.stopPolicy === 'after-one' ? 'after-one' : 'max-turns',
         };
@@ -779,7 +769,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
         }
 
         onClose();
-    }, [actorCount, buildActors, createSituationRoom, defaultDirectorModel, directorModel, directorReasoningMedium, effectiveMaxTurns, memoryReadOnly, name, onClose, onCreated, parsedMaxHistory, priorMessages, room, situation, situationPrompt, updateRoomSettings, updateSituation]);
+    }, [actorCount, buildActors, createSituationRoom, defaultDirectorModel, effectiveMaxTurns, memoryReadOnly, name, onClose, onCreated, parsedMaxHistory, priorMessages, room, situation, situationPrompt, updateRoomSettings, updateSituation]);
 
     useEffect(() => {
         const childModalOpen = descriptionGeneratorOpen || temporaryActorGeneratorOpen;
@@ -1042,37 +1032,41 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                         </div>
                     </section>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(13rem, 1fr))', gap: '0.75rem', alignItems: 'end' }}>
-                        <label style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem', minWidth: 0 }}>
-                            <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>このシチュエーションを制御するモデル</span>
-                            <input
-                                type="text"
-                                value={directorModel}
-                                onChange={(e) => setDirectorModel(e.target.value)}
-                                placeholder={defaultDirectorModel}
-                                style={fieldStyle}
-                            />
+                    <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', minHeight: 38 }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                            <button
+                                type="button"
+                                role="switch"
+                                aria-checked={memoryReadOnly}
+                                aria-label="メモリの参照"
+                                onClick={() => setMemoryReadOnly((value) => !value)}
+                                style={{
+                                    position: 'relative',
+                                    width: '44px',
+                                    height: '24px',
+                                    borderRadius: '12px',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    background: memoryReadOnly ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
+                                    transition: 'background 0.2s ease',
+                                    padding: 0,
+                                    flexShrink: 0,
+                                }}
+                            >
+                                <span style={{
+                                    position: 'absolute',
+                                    top: '2px',
+                                    left: memoryReadOnly ? '22px' : '2px',
+                                    width: '20px',
+                                    height: '20px',
+                                    borderRadius: '50%',
+                                    background: '#fff',
+                                    transition: 'left 0.2s ease',
+                                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                                }} />
+                            </button>
+                            メモリの参照
                         </label>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', minHeight: 38, justifyContent: 'end' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
-                                <input
-                                    type="checkbox"
-                                    checked={directorReasoningMedium}
-                                    onChange={(e) => setDirectorReasoningMedium(e.target.checked)}
-                                    style={{ accentColor: 'var(--primary)' }}
-                                />
-                                少し考える
-                            </label>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
-                                <input
-                                    type="checkbox"
-                                    checked={memoryReadOnly}
-                                    onChange={(e) => setMemoryReadOnly(e.target.checked)}
-                                    style={{ accentColor: 'var(--primary)' }}
-                                />
-                                メモリの参照
-                            </label>
-                        </div>
                     </div>
 
                     <section style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>

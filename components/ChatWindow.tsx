@@ -117,7 +117,6 @@ function toConversationSituation(situation: Situation | null | undefined) {
         director: {
             model: situation.director.model,
             systemPrompt: situation.director.systemPrompt,
-            reasoningEffort: situation.director.reasoningEffort,
             maxAutoTurns: situation.director.maxAutoTurns,
             stopPolicy: situation.director.stopPolicy,
         },

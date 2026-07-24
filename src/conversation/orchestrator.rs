@@ -217,7 +217,6 @@ pub async fn turn(
                     actor_id: Some(actor_id(&participants[0])),
                     reason: "Only participant".into(),
                     candidates: vec![(actor_id(&participants[0]), "Only participant".into())],
-                    thinking: None,
                 }
             } else {
                 request_director(
@@ -233,7 +232,6 @@ pub async fn turn(
                     secret_mode,
                     &room,
                     &mut usages,
-                    &mut think_logs,
                     &mut full_json_logs,
                 )
                 .await?
@@ -527,7 +525,6 @@ async fn request_director(
     secret_mode: bool,
     room: &Value,
     usages: &mut Vec<Value>,
-    think_logs: &mut Vec<Value>,
     full_json_logs: &mut Vec<Value>,
 ) -> AppResult<DirectorDecision> {
     let actor_ids = actors.iter().map(actor_id).collect::<Vec<_>>();
@@ -541,15 +538,10 @@ async fn request_director(
             actor_id: None,
             reason: "No eligible actor".into(),
             candidates: Vec::new(),
-            thinking: None,
         });
     }
     let transcript_messages = slice_by_user_history(messages, DIRECTOR_TRANSCRIPT_USER_HISTORY);
     let transcript = director_transcript(&transcript_messages, actors);
-    let use_thinking = situation
-        .pointer("/director/reasoningEffort")
-        .and_then(Value::as_str)
-        == Some("medium");
     let (system, user) = director_prompts(
         situation,
         actors,
@@ -558,16 +550,15 @@ async fn request_director(
         turn_index,
         max_turns,
         banned_actor_id,
-        use_thinking,
     );
-    let schema = director_schema(&eligible_ids, use_thinking);
+    let schema = director_schema(&eligible_ids);
     let mut request = json!({
         "model": model,
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
-        "max_tokens": if use_thinking { 1024 } else { 768 },
+        "max_tokens": 768,
         "temperature": 0.2,
         "stream": false,
     });
@@ -609,15 +600,6 @@ async fn request_director(
             "prompt": prompt,
             "json": content,
         }));
-        if let Some(thinking) = &decision.thinking {
-            think_logs.push(json!({
-                "roomId": string(room, "id"),
-                "roomName": string(room, "name"),
-                "characterId": format!("{}:director", string(situation, "id")),
-                "characterName": "指揮役",
-                "thinking": thinking,
-            }));
-        }
     }
     Ok(decision)
 }

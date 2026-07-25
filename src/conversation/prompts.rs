@@ -4,17 +4,24 @@ pub const SUMMARY_RECENT_USER_TURNS_TO_KEEP: usize = 3;
 pub const DIRECTOR_TRANSCRIPT_USER_HISTORY: usize = 2;
 
 const REPLY_INSTRUCTION_BASE: &str = r#"
-ロールプレイを始めましょう。あなたは設定に則ったキャラクターと、ナレーションを演じてください。
-あなたの出力フォーマットは提示されたJSONスキーマに**準拠する必要**があります。
-- **使用禁止**: 鍵括弧(「」)。
-- 改行(\n)してください。
+あなたとユーザーは今からロールプレイを行います。
+あなたは、設定に則ったキャラクターとナレーションを演じてください。
+出力フォーマットは提示したJSONスキーマに準拠してください。
 - 設定に示した情報は必ずしも返答に含める必要はありません。
+- 改行は可能です。ただし2重エスケープしないでください。
 "#;
 
 const ROLEPLAY_REPLY_INSTRUCTION: &str = r#"
 
 ## JSONスキーマの"message"フィールドについて
-message フィールドには次のポリシーに準拠した文章を入力する必要があります。
+キャラクターの返答とナレーションをこのフィールドに記入します。
+
+### キャラクターの返答に関して
+  あなたは、提示したキャラクターを演じます。
+  キャラクターにおける制約:
+   - 提示した設定に準拠して返答する必要があります。
+   - **鍵括弧（「」）での装飾は禁止です!**
+   - 
 
 ### "ナレーション"に関して
   あなたは、キャラクターの他に"ナレーション"も演じます。
@@ -72,7 +79,7 @@ pub fn character_setting(character: &Value) -> String {
         sections.push(format!("# 主人公の概要\n{protagonist}"));
     }
     if !constraints.is_empty() {
-        sections.push(format!("# 追加の制約\n{constraints}"));
+        sections.push(format!("# 追加の制約\n このセクションの指示を最優先に従ってください。他の設定と矛盾する場合もです。\n\n{constraints}"));
     }
     sections.join("\n\n")
 }
@@ -445,7 +452,7 @@ mod tests {
         assert!(prompt[..setting_heading].contains("# これまでの会話の要約"));
         assert!(prompt[..setting_heading].contains("## 関連するメモリ"));
         assert!(
-            prompt.ends_with("# キャラクター、葵の設定\n葵として振る舞う\n\n# 主人公の概要\n主人公は幼なじみ\n\n# 追加の制約\n返答は三文以内にする")
+            prompt.ends_with("# キャラクター、葵の設定\n葵として振る舞う\n\n# 主人公の概要\n主人公は幼なじみ\n\n# 追加の制約\n このセクションの指示を最優先に従ってください。他の設定と矛盾する場合もです。\n\n返答は三文以内にする")
         );
     }
 
@@ -457,7 +464,7 @@ mod tests {
 
         assert_eq!(
             character_setting(&character),
-            "# 追加の制約\n一人称は私にする"
+            "# 追加の制約\n このセクションの指示を最優先に従ってください。他の設定と矛盾する場合もです。\n\n一人称は私にする"
         );
     }
 

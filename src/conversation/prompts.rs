@@ -3,28 +3,36 @@ use serde_json::{Value, json};
 pub const SUMMARY_RECENT_USER_TURNS_TO_KEEP: usize = 3;
 pub const DIRECTOR_TRANSCRIPT_USER_HISTORY: usize = 2;
 
-const REPLY_INSTRUCTION_BASE: &str = r#"
-あなたとユーザーは今からロールプレイを行います。
-あなたは、設定に則ったキャラクターとナレーションを演じてください。
-出力フォーマットは提示したJSONスキーマに準拠してください。
+fn reply_instruction_base(character_name: &str) -> String {
+    format!(
+        r#"
+あなたはロールプレイを行っています。
+あなたは{character_name}とナレーションを演じてください。
 設定に示した情報は必ずしも返答に含める必要はありません。
-"#;
 
-const ROLEPLAY_REPLY_INSTRUCTION: &str = r#"
+ユーザー=主人公
+あなた={character_name}
+"#
+    )
+}
+
+fn roleplay_reply_instruction(character_name: &str) -> String {
+    format!(
+        r#"
 
 ## JSONスキーマの"message"フィールドについて
-キャラクターの返答とナレーションをこのフィールドに記入します。
+このフィールドには{character_name}とナレーションを記述できます。
 
 ### キャラクターの返答に関して
-  あなたは、提示したキャラクターを演じます。
+  あなたは{character_name}を演じます。
   キャラクターにおける制約:
-   - 提示した設定に準拠して返答する必要があります。
+   - 設定を遵守して返答する必要があります。
    - **鍵括弧（「」）での装飾は禁止です!**。
 
 ### "ナレーション"に関して
-  あなたは、キャラクターの他に"ナレーション"も演じます。
+  キャラクターとしての返答だけでなく、没入感を高めるためにナレーションも表します。
   ナレーションにおける制約:
-   - 感情や動作、行動、状況に関連するものはナレーションとして叙述的に説明してください。(例: *太郎は興奮した様子で話す*そうなんだよ！*目を輝かせて机に手を付き、前かがみになる*)
+   - 感情や動作、行動、状況に関連するものはナレーションとして叙述的に説明してください。
    - *説明文* のように * で囲っで説明します。
    - 主人公を指す場合は"あなた"と表記してください。
    - キャラクターを指す場合は名前("田中太郎"の場合、"太郎"の部分)で表記してください。
@@ -33,11 +41,16 @@ const ROLEPLAY_REPLY_INSTRUCTION: &str = r#"
    - キャラクターの独白など読み取れないものは記述しないでください。
   それぞれmessageフィールド内では次のような表記です。
   キャラクターの表記: 装飾なし。
-  ナレーションの表記: *ここに説明文* のように説明を * で囲う。
+  ナレーションの表記: *ここに説明文* のように説明文を * で囲います。
+
+### 出力例
+  *太郎は興奮した様子で話す*そうなんだよ！*目を輝かせて机に手を付き、前かがみになる*
 
 ## 主人公についての前提知識
-  主人公は単なる発言だけではなく、括弧やイタリック体などを使って行動等を描写することがあります。声に出して発言しているわけではありません。
-"#;
+主人公は単なる発言だけではなく、括弧などを使って主人公自身の行動等を描写することがあります。それは声に出して発言しているわけではありません。
+"#
+    )
+}
 
 const MESSAGE_REPLY_INSTRUCTION: &str = r#"
  あなたはメッセンジャーアプリで、相手ののメッセージに対して返信するところです。
@@ -91,13 +104,14 @@ pub fn character_system_prompt(
     situation: Option<&Value>,
     participants: &[Value],
 ) -> String {
+    let character_name = string(character, "name");
     let mut prompt = String::from("# 指示");
-    prompt.push_str(REPLY_INSTRUCTION_BASE);
-    prompt.push_str(if use_message_mode {
-        MESSAGE_REPLY_INSTRUCTION
+    prompt.push_str(&reply_instruction_base(&character_name));
+    if use_message_mode {
+        prompt.push_str(MESSAGE_REPLY_INSTRUCTION);
     } else {
-        ROLEPLAY_REPLY_INSTRUCTION
-    });
+        prompt.push_str(&roleplay_reply_instruction(&character_name));
+    }
 
     if boolean(character, "thinkModeEnabled") {
         prompt.push_str(THINK_INSTRUCTION);
@@ -124,7 +138,7 @@ pub fn character_system_prompt(
                 .join(", ");
             prompt.push_str(&format!(
                 "\n\nこのロールプレイには複数人が参加しています。あなたは「{}」としてのみ発言します。参加者: 主人公, {names}\n発言順は指揮役が決めます。他キャラクターの台詞を代弁しないでください。",
-                string(character, "name")
+                character_name
             ));
         }
         let situation_prompt = string(situation, "situationPrompt");
@@ -148,8 +162,8 @@ pub fn character_system_prompt(
     let setting = character_setting(character);
     if !setting.is_empty() {
         prompt.push_str(&format!(
-            "\n\n# キャラクター、{}の設定\n{setting}",
-            string(character, "name")
+            "\n\n# {}の設定\n{setting}",
+            character_name
         ));
     }
     prompt
@@ -421,7 +435,7 @@ mod tests {
         assert!(prompt.starts_with("# 指示"));
         assert!(prompt.contains("## シチュエーション\n放課後の教室"));
         assert!(prompt.contains("# あなたについて\n幼なじみ"));
-        assert!(prompt.ends_with("# キャラクター、葵の設定\n葵として振る舞う"));
+        assert!(prompt.ends_with("# 葵の設定\n葵として振る舞う"));
     }
 
     #[test]
@@ -444,13 +458,13 @@ mod tests {
         );
 
         let setting_heading = prompt
-            .find("# キャラクター、葵の設定")
+            .find("# 葵の設定")
             .expect("character setting heading");
         assert_eq!(prompt.find("# 指示"), Some(0));
         assert!(prompt[..setting_heading].contains("# これまでの会話の要約"));
         assert!(prompt[..setting_heading].contains("## 関連するメモリ"));
         assert!(
-            prompt.ends_with("# キャラクター、葵の設定\n葵として振る舞う\n\n# 主人公の概要\n主人公は幼なじみ\n\n# 追加の制約\n このセクションの指示を最優先に従ってください。他の設定と矛盾する場合もです。\n\n返答は三文以内にする")
+            prompt.ends_with("# 葵の設定\n葵として振る舞う\n\n# 主人公の概要\n主人公は幼なじみ\n\n# 追加の制約\n このセクションの指示を最優先に従ってください。他の設定と矛盾する場合もです。\n\n返答は三文以内にする")
         );
     }
 

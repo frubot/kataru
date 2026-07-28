@@ -428,7 +428,7 @@ async fn generate_for_character(
     request_messages.extend(history.iter().map(|message| {
         json!({
             "role": string(message, "role"),
-            "content": string(message, "content"),
+            "content": history_content(message),
         })
     }));
     let body = json!({
@@ -1165,6 +1165,10 @@ fn slice_by_user_history(messages: &[Value], limit: usize) -> Vec<Value> {
     messages[cut..].to_vec()
 }
 
+fn history_content(message: &Value) -> String {
+    string(message, "content").replace(['\r', '\n'], "")
+}
+
 fn number_u64(value: &Value, key: &str, fallback: u64) -> u64 {
     value.get(key).and_then(Value::as_u64).unwrap_or(fallback)
 }
@@ -1287,6 +1291,13 @@ mod tests {
         ];
         assert_eq!(slice_by_user_history(&messages, 1).len(), 2);
         assert_eq!(cut_before_last_user_messages(&messages, 1), 2);
+    }
+
+    #[test]
+    fn history_content_removes_newlines() {
+        let message = json!({"content": "一行目\n二行目\r\n三行目"});
+
+        assert_eq!(history_content(&message), "一行目二行目三行目");
     }
 
     #[test]

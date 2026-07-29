@@ -403,9 +403,6 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
                         <span style={{ fontWeight: 500, fontSize: '0.875rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {group.name}
                         </span>
-                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', flexShrink: 0 }}>
-                            ({groupRooms.length})
-                        </span>
                     </div>
                     <div style={{ display: 'flex', gap: '0.125rem' }}>
                         <button
@@ -517,9 +514,6 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
                         )}
                         <span style={{ fontWeight: 500, fontSize: '0.875rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {character.name}
-                        </span>
-                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', flexShrink: 0 }}>
-                            ({characterRooms.length})
                         </span>
                     </div>
                     <div style={{ display: 'flex', gap: '0.125rem' }}>
@@ -714,9 +708,9 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
 
                 <div className="sidebar-content">
                     {/* シチュエーション一覧 */}
-                    <div>
+                    <div className="sidebar-tree-section">
                         <div
-                            style={{ padding: '0.5rem 0.75rem', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem', userSelect: 'none' }}
+                            className="sidebar-tree-heading sidebar-tree-heading-root"
                             onClick={() => setGroupExpanded((value) => !value)}
                         >
                             {groupExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -729,7 +723,7 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
                                 {favoriteSituations.length > 0 && (
                                     <>
                                         <div
-                                            style={{ padding: '0.5rem 0.75rem 0.5rem 1.5rem', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem', userSelect: 'none' }}
+                                            className="sidebar-tree-heading sidebar-tree-heading-child"
                                             onClick={() => setFavoriteSituationsExpanded((value) => !value)}
                                         >
                                             {favoriteSituationsExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -737,11 +731,15 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
                                             お気に入り
                                             <span style={{ marginLeft: '0.25rem' }}>({favoriteSituations.length})</span>
                                         </div>
-                                        {favoriteSituationsExpanded && renderSituationList(favoriteSituations)}
+                                        {favoriteSituationsExpanded && (
+                                            <div className="sidebar-tree-items">
+                                                {renderSituationList(favoriteSituations)}
+                                            </div>
+                                        )}
                                     </>
                                 )}
                                 <div
-                                    style={{ padding: '0.5rem 0.75rem 0.5rem 1.5rem', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, cursor: regularSituations.length > 0 ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: '0.25rem', userSelect: 'none' }}
+                                    className={`sidebar-tree-heading sidebar-tree-heading-child ${regularSituations.length === 0 ? 'is-empty' : ''}`}
                                     onClick={() => regularSituations.length > 0 && setSituationsExpanded((value) => !value)}
                                 >
                                     {regularSituations.length > 0 ? (situationsExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />) : <span style={{ width: 14 }} />}
@@ -749,15 +747,19 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
                                     すべてのシチュエーション
                                     <span style={{ marginLeft: '0.25rem' }}>({regularSituations.length})</span>
                                 </div>
-                                {situationsExpanded && renderSituationList(regularSituations)}
+                                {situationsExpanded && (
+                                    <div className="sidebar-tree-items">
+                                        {renderSituationList(regularSituations)}
+                                    </div>
+                                )}
                             </>
                         )}
                     </div>
 
                     {/* キャラクター一覧 */}
-                    <div>
+                    <div className="sidebar-tree-section">
                         <div
-                            style={{ padding: '0.5rem 0.75rem', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem', userSelect: 'none' }}
+                            className="sidebar-tree-heading sidebar-tree-heading-root"
                             onClick={() => setCharacterSectionExpanded((value) => !value)}
                         >
                             {characterSectionExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -777,7 +779,7 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
                                     {favoriteCharacters.length > 0 && (
                                         <>
                                             <div
-                                                style={{ padding: '0.5rem 0.75rem 0.5rem 1.5rem', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem', userSelect: 'none' }}
+                                                className="sidebar-tree-heading sidebar-tree-heading-child"
                                                 onClick={() => setFavoritesExpanded((value) => !value)}
                                             >
                                                 {favoritesExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -785,11 +787,15 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
                                                 お気に入り
                                                 <span style={{ marginLeft: '0.25rem' }}>({favoriteCharacters.length})</span>
                                             </div>
-                                            {favoritesExpanded && renderCharacterList(favoriteCharacters)}
+                                            {favoritesExpanded && (
+                                                <div className="sidebar-tree-items">
+                                                    {renderCharacterList(favoriteCharacters)}
+                                                </div>
+                                            )}
                                         </>
                                     )}
                                     <div
-                                        style={{ padding: '0.5rem 0.75rem 0.5rem 1.5rem', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, cursor: regularCharacters.length > 0 ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: '0.25rem', userSelect: 'none' }}
+                                        className={`sidebar-tree-heading sidebar-tree-heading-child ${regularCharacters.length === 0 ? 'is-empty' : ''}`}
                                         onClick={() => regularCharacters.length > 0 && setCharactersExpanded((value) => !value)}
                                     >
                                         {regularCharacters.length > 0 ? (charactersExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />) : <span style={{ width: 14 }} />}
@@ -797,7 +803,11 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
                                         すべてのキャラクター
                                         <span style={{ marginLeft: '0.25rem' }}>({regularCharacters.length})</span>
                                     </div>
-                                    {charactersExpanded && renderCharacterList(regularCharacters)}
+                                    {charactersExpanded && (
+                                        <div className="sidebar-tree-items">
+                                            {renderCharacterList(regularCharacters)}
+                                        </div>
+                                    )}
                                 </>
                             )
                         )}

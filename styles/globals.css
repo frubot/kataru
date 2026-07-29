@@ -1226,6 +1226,58 @@ body {
   transition: opacity 0.16s ease, transform 0.25s ease, visibility 0s linear;
 }
 
+.sidebar-tree-section + .sidebar-tree-section {
+  margin-top: 0.25rem;
+}
+
+.sidebar-tree-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-height: 2rem;
+  border-radius: 0.375rem;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  user-select: none;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.sidebar-tree-heading:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.sidebar-tree-heading-root {
+  padding: 0.375rem 0.375rem;
+}
+
+.sidebar-tree-heading-child {
+  padding: 0.375rem 0.375rem 0.375rem 1.125rem;
+}
+
+.sidebar-tree-heading.is-empty {
+  cursor: default;
+}
+
+.sidebar-tree-heading.is-empty:hover {
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.sidebar-tree-heading svg {
+  flex-shrink: 0;
+}
+
+.sidebar-tree-items .character-header {
+  padding-left: 1.75rem;
+}
+
+.sidebar-tree-items .character-rooms {
+  margin-left: 1.5rem;
+}
+
 .sidebar-footer {
   padding: 1rem;
   transition: padding 0.25s ease;

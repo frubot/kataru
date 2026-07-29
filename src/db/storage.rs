@@ -98,9 +98,7 @@ pub enum StorageCommand {
     ClearMessagesByRoom {
         room_id: String,
     },
-    ClearAllMessagesAndPutRooms {
-        rooms: Vec<Value>,
-    },
+    ClearAllRoomHistory,
 
     GetAllMemories,
     GetMemory {
@@ -205,7 +203,7 @@ pub async fn handle_storage_command(
     State(state): State<crate::AppState>,
     Json(command): Json<StorageCommand>,
 ) -> AppResult<Json<Value>> {
-    let clear_history = matches!(&command, StorageCommand::ClearAllMessagesAndPutRooms { .. });
+    let clear_history = matches!(&command, StorageCommand::ClearAllRoomHistory);
     let _history_persistence_guard = if clear_history {
         Some(state.conversation_jobs.lock_history_persistence().await)
     } else {
@@ -530,13 +528,8 @@ fn execute_command(connection: &mut Connection, command: StorageCommand) -> AppR
             connection.execute("DELETE FROM messages WHERE room_id = ?1", params![room_id])?;
             Ok(Value::Null)
         }
-        StorageCommand::ClearAllMessagesAndPutRooms { rooms } => {
-            let transaction = connection.transaction()?;
-            transaction.execute("DELETE FROM messages", [])?;
-            for room in rooms {
-                upsert_room(&transaction, room)?;
-            }
-            transaction.commit()?;
+        StorageCommand::ClearAllRoomHistory => {
+            clear_all_room_history(connection)?;
             Ok(Value::Null)
         }
 
@@ -1272,10 +1265,53 @@ fn delete_room(connection: &mut Connection, room_id: &str) -> AppResult<()> {
         }
         ids
     };
+    let deleted_room_ids = HashSet::from([room_id.to_owned()]);
 
     transaction.execute("DELETE FROM rooms WHERE id = ?1", params![room_id])?;
+    clean_memories_after_history_deletion(&transaction, &deleted_room_ids, &deleted_message_ids)?;
+    transaction.commit()?;
+    Ok(())
+}
+
+fn clear_all_room_history(connection: &mut Connection) -> AppResult<()> {
+    let transaction = connection.transaction()?;
+    let deleted_room_ids: HashSet<String> = {
+        let mut statement = transaction.prepare("SELECT id FROM rooms")?;
+        let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+        let mut ids = HashSet::new();
+        for row in rows {
+            ids.insert(row?);
+        }
+        ids
+    };
+    let deleted_message_ids: HashSet<String> = {
+        let mut statement = transaction.prepare("SELECT id FROM messages")?;
+        let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+        let mut ids = HashSet::new();
+        for row in rows {
+            ids.insert(row?);
+        }
+        ids
+    };
+
+    transaction.execute("DELETE FROM rooms", [])?;
+    clean_memories_after_history_deletion(&transaction, &deleted_room_ids, &deleted_message_ids)?;
+    transaction.execute(
+        "INSERT INTO meta(key, value_json) VALUES ('currentRoomId', 'null')
+         ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json",
+        [],
+    )?;
+    transaction.commit()?;
+    Ok(())
+}
+
+fn clean_memories_after_history_deletion(
+    transaction: &Transaction<'_>,
+    deleted_room_ids: &HashSet<String>,
+    deleted_message_ids: &HashSet<String>,
+) -> AppResult<()> {
     let memories = query_json_values(
-        &transaction,
+        transaction,
         "SELECT data_json FROM memories ORDER BY id",
         [],
     )?;
@@ -1287,9 +1323,10 @@ fn delete_room(connection: &mut Connection, room_id: &str) -> AppResult<()> {
             .cloned()
             .collect();
         let has_deleted_source = remaining_source_message_ids.len() != source_message_ids.len();
-        let is_room_scoped = optional_string(&memory, &["roomId"]).as_deref() == Some(room_id);
-        let source_room_is_deleted =
-            optional_string(&memory, &["sourceRoomId"]).as_deref() == Some(room_id);
+        let is_room_scoped = optional_string(&memory, &["roomId"])
+            .is_some_and(|room_id| deleted_room_ids.contains(&room_id));
+        let source_room_is_deleted = optional_string(&memory, &["sourceRoomId"])
+            .is_some_and(|room_id| deleted_room_ids.contains(&room_id));
         let has_only_deleted_room_sources =
             source_room_is_deleted && remaining_source_message_ids.is_empty();
         let has_only_deleted_message_sources =
@@ -1299,10 +1336,9 @@ fn delete_room(connection: &mut Connection, room_id: &str) -> AppResult<()> {
         if is_room_scoped || has_only_deleted_room_sources || has_only_deleted_message_sources {
             transaction.execute("DELETE FROM memories WHERE id = ?1", params![memory_id])?;
         } else if source_room_is_deleted || has_deleted_source {
-            let source_room_id =
-                first_message_room_id(&transaction, &remaining_source_message_ids)?;
+            let source_room_id = first_message_room_id(transaction, &remaining_source_message_ids)?;
             update_memory_sources(
-                &transaction,
+                transaction,
                 &mut memory,
                 remaining_source_message_ids,
                 source_room_id,
@@ -1310,7 +1346,6 @@ fn delete_room(connection: &mut Connection, room_id: &str) -> AppResult<()> {
             )?;
         }
     }
-    transaction.commit()?;
     Ok(())
 }
 
@@ -1838,6 +1873,106 @@ mod tests {
                 )
                 .expect("count messages"),
             1
+        );
+    }
+
+    #[test]
+    fn clearing_all_room_history_removes_rooms_messages_and_linked_memories() {
+        let mut connection = open_test_database();
+
+        execute_command(
+            &mut connection,
+            StorageCommand::PutRoomAndMessage {
+                room: test_room("room-1"),
+                message: json!({
+                    "id": "message-1",
+                    "role": "user",
+                    "content": "hello",
+                    "timestamp": 1
+                }),
+            },
+        )
+        .expect("store room history");
+        execute_command(
+            &mut connection,
+            StorageCommand::PutMemory {
+                memory: json!({
+                    "id": "memory-linked",
+                    "characterId": "character-1",
+                    "roomId": "room-1",
+                    "sourceRoomId": "room-1",
+                    "sourceMessageIds": ["message-1"],
+                    "scope": "room",
+                    "kind": "fact",
+                    "content": "linked memory",
+                    "updatedAt": 1
+                }),
+            },
+        )
+        .expect("store linked memory");
+        execute_command(
+            &mut connection,
+            StorageCommand::PutMemory {
+                memory: json!({
+                    "id": "memory-global",
+                    "characterId": "character-1",
+                    "scope": "global",
+                    "kind": "fact",
+                    "content": "independent memory",
+                    "updatedAt": 1
+                }),
+            },
+        )
+        .expect("store independent memory");
+        execute_command(
+            &mut connection,
+            StorageCommand::SetMeta {
+                key: "currentRoomId".to_owned(),
+                value: Value::String("room-1".to_owned()),
+            },
+        )
+        .expect("store current room");
+
+        execute_command(&mut connection, StorageCommand::ClearAllRoomHistory)
+            .expect("clear room history");
+
+        for table in ["rooms", "messages"] {
+            let count = connection
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .expect("count cleared rows");
+            assert_eq!(count, 0, "{table} should be empty");
+        }
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM memories WHERE id = 'memory-linked'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .expect("count linked memories"),
+            0
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM memories WHERE id = 'memory-global'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .expect("count independent memories"),
+            1
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT value_json FROM meta WHERE key = 'currentRoomId'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .expect("read current room"),
+            "null"
         );
     }
 

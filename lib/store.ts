@@ -2164,22 +2164,12 @@ export const useStore = create<AppState>()((set, get) => ({
     },
 
     clearAllHistory: async () => {
-        const now = Date.now();
-        const state = get();
         currentRoomLoadSeq++;
-        const rooms = state.rooms.map((r) => ({
-            ...r,
-            messages: [],
-            summary: undefined,
-            summaryCheckpointUserMessageId: undefined,
-            lastMessagePreview: undefined,
-            lastMessageAt: undefined,
-            updatedAt: now,
-        }));
-        await db.clearAllMessagesAndPutRooms(rooms.filter(shouldPersistRoom).map(toStoredRoom));
+        await db.clearAllRoomHistory();
         currentRoomLoadSeq++;
         set({
-            rooms,
+            rooms: [],
+            currentRoomId: null,
         });
     },
 

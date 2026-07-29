@@ -138,8 +138,8 @@ export async function clearMessagesByRoom(roomId: string): Promise<void> {
     await storage<null>({ op: 'clear_messages_by_room', room_id: roomId });
 }
 
-export async function clearAllMessagesAndPutRooms(rooms: StoredRoom[]): Promise<void> {
-    await storage<null>({ op: 'clear_all_messages_and_put_rooms', rooms });
+export async function clearAllRoomHistory(): Promise<void> {
+    await storage<null>({ op: 'clear_all_room_history' });
 }
 
 export async function getAllMemories(): Promise<MemoryRecord[]> {

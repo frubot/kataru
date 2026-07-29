@@ -80,11 +80,15 @@ const THINK_INSTRUCTION: &str = r#"
 
 pub fn character_setting(character: &Value) -> String {
     let system = string(character, "systemPrompt");
+    let speech_style = string(character, "speechStyle");
     let protagonist = string(character, "protagonistPrompt");
     let constraints = string(character, "userConstraints");
     let mut sections = Vec::new();
     if !system.is_empty() {
         sections.push(system);
+    }
+    if !speech_style.is_empty() {
+        sections.push(format!("# 口調\nこれは口調の一例です。\n\n{speech_style}"));
     }
     if !protagonist.is_empty() {
         sections.push(format!("# 主人公の概要\n{protagonist}"));
@@ -443,6 +447,7 @@ mod tests {
         let character = json!({
             "name": "葵",
             "systemPrompt": "葵として振る舞う",
+            "speechStyle": "丁寧語で話し、語尾は柔らかくする",
             "protagonistPrompt": "主人公は幼なじみ",
             "userConstraints": "返答は三文以内にする"
         });
@@ -464,8 +469,17 @@ mod tests {
         assert!(prompt[..setting_heading].contains("# これまでの会話の要約"));
         assert!(prompt[..setting_heading].contains("## 関連するメモリ"));
         assert!(
-            prompt.ends_with("# 葵の設定\n葵として振る舞う\n\n# 主人公の概要\n主人公は幼なじみ\n\n# 追加の制約\n このセクションの指示を最優先に従ってください。他の設定と矛盾する場合もです。\n\n返答は三文以内にする")
+            prompt.ends_with("# 葵の設定\n葵として振る舞う\n\n# 口調\nこれは口調の一例です。\n\n丁寧語で話し、語尾は柔らかくする\n\n# 主人公の概要\n主人公は幼なじみ\n\n# 追加の制約\n このセクションの指示を最優先に従ってください。他の設定と矛盾する場合もです。\n\n返答は三文以内にする")
         );
+    }
+
+    #[test]
+    fn character_setting_can_contain_only_speech_style() {
+        let character = json!({
+            "speechStyle": "くだけた話し方をする"
+        });
+
+        assert_eq!(character_setting(&character), "# 口調\nこれは口調の一例です。\n\nくだけた話し方をする");
     }
 
     #[test]

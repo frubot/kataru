@@ -21,6 +21,7 @@ import StoredImage from './StoredImage';
 const NEUTRAL_NAME = 'neutral';
 const DEFAULT_COSTUME_NAME = 'default';
 const CHARACTER_PROMPT_SECTION_TITLE = 'キャラクターについて';
+const SPEECH_STYLE_SECTION_TITLE = '口調';
 const PROTAGONIST_PROMPT_SECTION_TITLE = '主人公について';
 const USER_CONSTRAINTS_SECTION_TITLE = '追加の制約';
 
@@ -279,6 +280,7 @@ export default function CharacterSettingsModal({ isOpen, onClose, character, isN
     const { createCharacter, updateCharacter, defaultChatModel } = useStore();
     const [name, setName] = useState('');
     const [systemPrompt, setSystemPrompt] = useState('');
+    const [speechStyle, setSpeechStyle] = useState('');
     const [protagonistPrompt, setProtagonistPrompt] = useState('');
     const [userConstraints, setUserConstraints] = useState('');
     const [model, setModel] = useState(defaultChatModel);
@@ -317,6 +319,7 @@ export default function CharacterSettingsModal({ isOpen, onClose, character, isN
         if (character) {
             setName(character.name);
             setSystemPrompt(character.systemPrompt);
+            setSpeechStyle(character.speechStyle ?? '');
             setProtagonistPrompt(character.protagonistPrompt ?? '');
             setUserConstraints(character.userConstraints ?? '');
             setModel(character.model.trim() || defaultChatModel);
@@ -334,6 +337,7 @@ export default function CharacterSettingsModal({ isOpen, onClose, character, isN
         } else {
             setName('');
             setSystemPrompt('');
+            setSpeechStyle('');
             setProtagonistPrompt('');
             setUserConstraints('');
             setModel(defaultChatModel);
@@ -371,6 +375,7 @@ export default function CharacterSettingsModal({ isOpen, onClose, character, isN
         const updates = {
             name: trimmedName || character?.name || 'キャラクター',
             systemPrompt,
+            speechStyle: speechStyle.trim() ? speechStyle : undefined,
             protagonistPrompt: protagonistPrompt.trim() ? protagonistPrompt : undefined,
             userConstraints: userConstraints.trim() ? userConstraints : undefined,
             model: resolvedModel,
@@ -393,7 +398,7 @@ export default function CharacterSettingsModal({ isOpen, onClose, character, isN
             updateCharacter(character.id, updates);
         }
         onClose();
-    }, [character, costumes, createCharacter, defaultChatModel, enableMemory, enableSummary, expressions, icon, isNew, maxHistory, maxTokens, model, name, onClose, protagonistPrompt, systemPrompt, temperature, thinkModeEnabled, topK, topP, updateCharacter, userConstraints]);
+    }, [character, costumes, createCharacter, defaultChatModel, enableMemory, enableSummary, expressions, icon, isNew, maxHistory, maxTokens, model, name, onClose, protagonistPrompt, speechStyle, systemPrompt, temperature, thinkModeEnabled, topK, topP, updateCharacter, userConstraints]);
 
     useEffect(() => {
         const childModalOpen = imageGenOpen || characterGeneratorOpen || expressionsOpen || costumesOpen;
@@ -651,6 +656,17 @@ export default function CharacterSettingsModal({ isOpen, onClose, character, isN
                                     />
                                 </div>
                                 <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.875rem' }}>
+                                    <div style={fixedPromptLabelStyle}>{SPEECH_STYLE_SECTION_TITLE}</div>
+                                    <PromptBlockEditor
+                                        markdown={speechStyle}
+                                        onChange={setSpeechStyle}
+                                        placeholder="例: 丁寧語で話す。親しい相手には少しくだけた表現を使う。"
+                                        frame={false}
+                                        minHeight="72px"
+                                        maxHeight={null}
+                                    />
+                                </div>
+                                <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.875rem' }}>
                                     <div style={fixedPromptLabelStyle}>{PROTAGONIST_PROMPT_SECTION_TITLE}</div>
                                     <PromptBlockEditor
                                         markdown={protagonistPrompt}
@@ -686,6 +702,16 @@ export default function CharacterSettingsModal({ isOpen, onClose, character, isN
 
                     {!useBlockEditor && (
                         <>
+                            <div style={sectionStyle}>
+                                <label style={labelStyle}>口調</label>
+                                <textarea
+                                    className="input textarea"
+                                    value={speechStyle}
+                                    onChange={(e) => setSpeechStyle(e.target.value)}
+                                    placeholder="例: 丁寧語で話す。親しい相手には少しくだけた表現を使う。"
+                                    style={{ minHeight: '96px' }}
+                                />
+                            </div>
                             <div style={sectionStyle}>
                                 <label style={labelStyle}>主人公について</label>
                                 <textarea

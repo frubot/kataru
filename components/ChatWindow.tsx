@@ -49,6 +49,7 @@ type ConversationCharacter = {
     id: string;
     name: string;
     systemPrompt: string;
+    speechStyle?: string;
     protagonistPrompt?: string;
     userConstraints?: string;
     model: string;
@@ -80,6 +81,7 @@ function toConversationCharacter(character: Character | null): ConversationChara
         id: character.id,
         name: character.name,
         systemPrompt: character.systemPrompt,
+        speechStyle: character.speechStyle,
         protagonistPrompt: character.protagonistPrompt,
         userConstraints: character.userConstraints,
         model: character.model,
@@ -281,8 +283,13 @@ function buildUserConstraintsSection(character: Pick<Character, 'userConstraints
     return userConstraints ? `# 追加の制約\n${userConstraints}` : '';
 }
 
-function buildCharacterSettingPrompt(character: Pick<Character, 'systemPrompt' | 'protagonistPrompt' | 'userConstraints'>): string {
-    return [character.systemPrompt, buildProtagonistSection(character), buildUserConstraintsSection(character)]
+function buildSpeechStyleSection(character: Pick<Character, 'speechStyle'>): string {
+    const speechStyle = character.speechStyle?.trim();
+    return speechStyle ? `# 口調\n${speechStyle}` : '';
+}
+
+function buildCharacterSettingPrompt(character: Pick<Character, 'systemPrompt' | 'speechStyle' | 'protagonistPrompt' | 'userConstraints'>): string {
+    return [character.systemPrompt, buildSpeechStyleSection(character), buildProtagonistSection(character), buildUserConstraintsSection(character)]
         .filter((part) => part.trim())
         .join('\n\n');
 }

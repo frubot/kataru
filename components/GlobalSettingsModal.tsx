@@ -1517,7 +1517,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         <span style={{ fontWeight: 500 }}>本当に削除しますか？</span>
                                     </div>
                                     <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '0.75rem' }}>
-                                        全てのチャットルーム、メッセージ履歴、ルームに紐づくメモリが削除されます。この操作は元に戻せません。
+                                        全てのシチュエーション、チャットルーム、メッセージ履歴、ルームに紐づくメモリが削除されます。この操作は元に戻せません。
                                     </p>
                                     <div style={{ display: 'flex', gap: '0.5rem' }}>
                                         <button className="btn btn-danger" onClick={handleClearHistory} disabled={isClearingHistory}>

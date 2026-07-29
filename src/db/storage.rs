@@ -98,7 +98,7 @@ pub enum StorageCommand {
     ClearMessagesByRoom {
         room_id: String,
     },
-    ClearAllRoomHistory,
+    ClearAllConversationHistory,
 
     GetAllMemories,
     GetMemory {
@@ -203,7 +203,7 @@ pub async fn handle_storage_command(
     State(state): State<crate::AppState>,
     Json(command): Json<StorageCommand>,
 ) -> AppResult<Json<Value>> {
-    let clear_history = matches!(&command, StorageCommand::ClearAllRoomHistory);
+    let clear_history = matches!(&command, StorageCommand::ClearAllConversationHistory);
     let _history_persistence_guard = if clear_history {
         Some(state.conversation_jobs.lock_history_persistence().await)
     } else {
@@ -528,8 +528,8 @@ fn execute_command(connection: &mut Connection, command: StorageCommand) -> AppR
             connection.execute("DELETE FROM messages WHERE room_id = ?1", params![room_id])?;
             Ok(Value::Null)
         }
-        StorageCommand::ClearAllRoomHistory => {
-            clear_all_room_history(connection)?;
+        StorageCommand::ClearAllConversationHistory => {
+            clear_all_conversation_history(connection)?;
             Ok(Value::Null)
         }
 
@@ -1273,7 +1273,7 @@ fn delete_room(connection: &mut Connection, room_id: &str) -> AppResult<()> {
     Ok(())
 }
 
-fn clear_all_room_history(connection: &mut Connection) -> AppResult<()> {
+fn clear_all_conversation_history(connection: &mut Connection) -> AppResult<()> {
     let transaction = connection.transaction()?;
     let deleted_room_ids: HashSet<String> = {
         let mut statement = transaction.prepare("SELECT id FROM rooms")?;
@@ -1295,6 +1295,7 @@ fn clear_all_room_history(connection: &mut Connection) -> AppResult<()> {
     };
 
     transaction.execute("DELETE FROM rooms", [])?;
+    transaction.execute("DELETE FROM situations", [])?;
     clean_memories_after_history_deletion(&transaction, &deleted_room_ids, &deleted_message_ids)?;
     transaction.execute(
         "INSERT INTO meta(key, value_json) VALUES ('currentRoomId', 'null')
@@ -1877,13 +1878,42 @@ mod tests {
     }
 
     #[test]
-    fn clearing_all_room_history_removes_rooms_messages_and_linked_memories() {
+    fn clearing_all_conversation_history_keeps_characters_and_independent_memories() {
         let mut connection = open_test_database();
 
         execute_command(
             &mut connection,
+            StorageCommand::PutCharacter {
+                character: json!({
+                    "id": "character-1",
+                    "name": "Test character",
+                    "updatedAt": 1
+                }),
+            },
+        )
+        .expect("store character");
+        execute_command(
+            &mut connection,
+            StorageCommand::PutSituation {
+                situation: json!({
+                    "id": "situation-1",
+                    "name": "Test situation",
+                    "updatedAt": 1
+                }),
+            },
+        )
+        .expect("store situation");
+        execute_command(
+            &mut connection,
             StorageCommand::PutRoomAndMessage {
-                room: test_room("room-1"),
+                room: json!({
+                    "id": "room-1",
+                    "characterId": "character-1",
+                    "groupId": "situation-1",
+                    "name": "Test room",
+                    "createdAt": 1,
+                    "updatedAt": 1
+                }),
                 message: json!({
                     "id": "message-1",
                     "role": "user",
@@ -1933,10 +1963,10 @@ mod tests {
         )
         .expect("store current room");
 
-        execute_command(&mut connection, StorageCommand::ClearAllRoomHistory)
-            .expect("clear room history");
+        execute_command(&mut connection, StorageCommand::ClearAllConversationHistory)
+            .expect("clear conversation history");
 
-        for table in ["rooms", "messages"] {
+        for table in ["situations", "rooms", "messages"] {
             let count = connection
                 .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
                     row.get::<_, i64>(0)
@@ -1944,6 +1974,14 @@ mod tests {
                 .expect("count cleared rows");
             assert_eq!(count, 0, "{table} should be empty");
         }
+        assert_eq!(
+            connection
+                .query_row("SELECT COUNT(*) FROM characters", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .expect("count characters"),
+            1
+        );
         assert_eq!(
             connection
                 .query_row(

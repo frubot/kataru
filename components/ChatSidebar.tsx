@@ -9,6 +9,7 @@ type SidebarContextMenu =
     | { type: 'character'; characterId: string; x: number; y: number }
     | { type: 'character-actions'; characterId: string; x: number; y: number }
     | { type: 'situation'; groupId: string; x: number; y: number }
+    | { type: 'situation-actions'; groupId: string; x: number; y: number }
     | { type: 'room'; roomId: string; x: number; y: number };
 
 type SidebarContextMenuTarget =
@@ -22,7 +23,11 @@ const CONTEXT_MENU_VERTICAL_PADDING = 8;
 const CONTEXT_MENU_MARGIN = 8;
 
 function getContextMenuHeight(type: SidebarContextMenu['type']) {
-    const itemCount = type === 'character' ? 4 : type === 'character-actions' ? 2 : type === 'situation' ? 3 : 1;
+    const itemCount = type === 'character' || type === 'situation'
+        ? 4
+        : type === 'character-actions' || type === 'situation-actions'
+            ? 2
+            : 1;
     return itemCount * CONTEXT_MENU_ITEM_HEIGHT + CONTEXT_MENU_VERTICAL_PADDING;
 }
 
@@ -90,7 +95,7 @@ interface ChatSidebarProps {
 }
 
 export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, isOpen, isDesktopOpen, onClose, onToggleDesktop }: ChatSidebarProps) {
-    const { characters, groups, rooms, currentRoomId, createRoom, createRoomForSituation, setCurrentRoom, deleteRoom, deleteSituation, deleteCharacter, duplicateCharacter, defaultChatModel } = useStore();
+    const { characters, groups, rooms, currentRoomId, createRoom, createRoomForSituation, setCurrentRoom, deleteRoom, deleteSituation, duplicateSituation, deleteCharacter, duplicateCharacter, defaultChatModel } = useStore();
     const [expandedCharacters, setExpandedCharacters] = useState<Set<string>>(new Set());
     const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set(groups.map((g) => g.id)));
     const [situationSettingsOpen, setSituationSettingsOpen] = useState(false);
@@ -173,6 +178,25 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
         setContextMenu({
             type: 'character-actions',
             characterId,
+            x: clampContextMenuPosition(rect.right - CONTEXT_MENU_WIDTH, CONTEXT_MENU_WIDTH, window.innerWidth),
+            y: clampContextMenuPosition(rect.bottom + 4, menuHeight, window.innerHeight),
+        });
+    };
+
+    const openSituationActionsMenu = (event: React.MouseEvent<HTMLButtonElement>, groupId: string) => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        if (contextMenu?.type === 'situation-actions' && contextMenu.groupId === groupId) {
+            setContextMenu(null);
+            return;
+        }
+
+        const rect = event.currentTarget.getBoundingClientRect();
+        const menuHeight = getContextMenuHeight('situation-actions');
+        setContextMenu({
+            type: 'situation-actions',
+            groupId,
             x: clampContextMenuPosition(rect.right - CONTEXT_MENU_WIDTH, CONTEXT_MENU_WIDTH, window.innerWidth),
             y: clampContextMenuPosition(rect.bottom + 4, menuHeight, window.innerHeight),
         });
@@ -266,9 +290,8 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
         }
     };
 
-    const handleDeleteGroup = (e: React.MouseEvent, groupId: string, groupName: string) => {
-        e.stopPropagation();
-        deleteSituationWithConfirmation(groupId, groupName);
+    const duplicateSituationById = (groupId: string) => {
+        duplicateSituation(groupId);
     };
 
     const handleCloseSituationSettings = () => {
@@ -325,7 +348,7 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
     const contextMenuCharacter = contextMenu?.type === 'character' || contextMenu?.type === 'character-actions'
         ? characters.find((character) => character.id === contextMenu.characterId) ?? null
         : null;
-    const contextMenuSituation = contextMenu?.type === 'situation'
+    const contextMenuSituation = contextMenu?.type === 'situation' || contextMenu?.type === 'situation-actions'
         ? groups.find((group) => group.id === contextMenu.groupId) ?? null
         : null;
     const contextMenuRoom = contextMenu?.type === 'room'
@@ -490,11 +513,14 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
                                                 </button>
                                                 <button
                                                     className="btn btn-ghost"
-                                                    onClick={(e) => handleDeleteGroup(e, group.id, group.name)}
-                                                    style={{ padding: '0.25rem', color: 'var(--error)' }}
-                                                    title="シチュエーションを削除"
+                                                    onClick={(e) => openSituationActionsMenu(e, group.id)}
+                                                    style={{ padding: '0.25rem' }}
+                                                    title="その他の操作"
+                                                    aria-label={`${group.name}のその他の操作`}
+                                                    aria-haspopup="menu"
+                                                    aria-expanded={contextMenu?.type === 'situation-actions' && contextMenu.groupId === group.id}
                                                 >
-                                                    <Trash2 size={14} />
+                                                    <EllipsisVertical size={16} />
                                                 </button>
                                             </div>
                                         </div>
@@ -756,12 +782,17 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
                             />
                         </>
                     )}
-                    {contextMenuSituation && (
+                    {contextMenuSituation && contextMenu.type === 'situation' && (
                         <>
                             <SidebarContextMenuItem
                                 icon={<Plus size={15} />}
                                 label="新しいチャット"
                                 onClick={() => runContextMenuAction(() => createSituationRoom(contextMenuSituation.id))}
+                            />
+                            <SidebarContextMenuItem
+                                icon={<Copy size={15} />}
+                                label="複製"
+                                onClick={() => runContextMenuAction(() => duplicateSituationById(contextMenuSituation.id))}
                             />
                             <SidebarContextMenuItem
                                 icon={<Trash2 size={15} />}
@@ -773,6 +804,21 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
                                 icon={<Settings size={15} />}
                                 label="設定"
                                 onClick={() => runContextMenuAction(() => openSituationSettings(contextMenuSituation))}
+                            />
+                        </>
+                    )}
+                    {contextMenuSituation && contextMenu.type === 'situation-actions' && (
+                        <>
+                            <SidebarContextMenuItem
+                                icon={<Copy size={15} />}
+                                label="複製"
+                                onClick={() => runContextMenuAction(() => duplicateSituationById(contextMenuSituation.id))}
+                            />
+                            <SidebarContextMenuItem
+                                icon={<Trash2 size={15} />}
+                                label="削除"
+                                danger
+                                onClick={() => runContextMenuAction(() => deleteSituationWithConfirmation(contextMenuSituation.id, contextMenuSituation.name))}
                             />
                         </>
                     )}

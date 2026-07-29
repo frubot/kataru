@@ -394,6 +394,7 @@ interface AppState {
     createRoomForSituation: (situationId: string, name?: string, options?: { viewMode?: Room['viewMode'] }) => string;
     deleteRoom: (id: string) => void;
     deleteSituation: (id: string) => void;
+    duplicateSituation: (id: string) => string;
     setCurrentRoom: (id: string | null) => Promise<void>;
     updateSituation: (id: string, updates: Partial<Pick<Situation, 'name' | 'situationPrompt' | 'priorMessages' | 'actors' | 'director' | 'memoryMode' | 'maxHistory'>>) => void;
     updateRoomName: (id: string, name: string) => void;
@@ -1684,6 +1685,32 @@ export const useStore = create<AppState>()((set, get) => ({
         if (nextCurrent !== state.currentRoomId) {
             fire(db.setMeta('currentRoomId', nextCurrent));
         }
+    },
+
+    duplicateSituation: (id) => {
+        const source = get().groups.find((group) => group.id === id);
+        if (!source) return '';
+
+        const newId = generateId();
+        const now = Date.now();
+        const baseName = source.name.replace(/\s*\(\d+\)$/, '');
+        const existingNames = new Set(get().groups.map((group) => group.name));
+        let n = 1;
+        while (existingNames.has(`${baseName} (${n})`)) n++;
+
+        const next: Situation = {
+            ...source,
+            id: newId,
+            name: `${baseName} (${n})`,
+            actors: source.actors.map((actor) => ({ ...actor })),
+            director: { ...source.director },
+            priorMessages: source.priorMessages?.map((message) => ({ ...message })),
+            createdAt: now,
+            updatedAt: now,
+        };
+        set((state) => ({ groups: [...state.groups, next] }));
+        fire(db.putGroup(next));
+        return newId;
     },
 
     setCurrentRoom: async (id) => {

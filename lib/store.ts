@@ -62,6 +62,7 @@ export interface Character {
     id: string;
     name: string;
     systemPrompt: string;
+    favorite?: boolean;
     speechStyle?: string;
     protagonistPrompt?: string;
     userConstraints?: string;
@@ -186,6 +187,7 @@ export type SituationPriorMessage =
 export interface Situation {
     id: string;
     name: string;
+    favorite?: boolean;
     situationPrompt?: string;
     priorMessages?: SituationPriorMessage[];
     actors: SituationActor[];
@@ -369,7 +371,7 @@ interface AppState {
 
     // Characters
     createCharacter: (name: string, systemPrompt?: string, model?: string, extras?: CharacterExtras) => string;
-    updateCharacter: (id: string, updates: Partial<Pick<Character, 'name' | 'systemPrompt' | 'speechStyle' | 'protagonistPrompt' | 'userConstraints' | 'model' | 'icon' | 'maxTokens' | 'maxHistory' | 'temperature' | 'topP' | 'topK' | 'enableMemory' | 'enableSummary' | 'thinkModeEnabled' | 'expressions' | 'costumes'>>) => void;
+    updateCharacter: (id: string, updates: Partial<Pick<Character, 'name' | 'systemPrompt' | 'favorite' | 'speechStyle' | 'protagonistPrompt' | 'userConstraints' | 'model' | 'icon' | 'maxTokens' | 'maxHistory' | 'temperature' | 'topP' | 'topK' | 'enableMemory' | 'enableSummary' | 'thinkModeEnabled' | 'expressions' | 'costumes'>>) => void;
     deleteCharacter: (id: string) => void;
     duplicateCharacter: (id: string) => string;
     getCharacter: (id: string) => Character | undefined;
@@ -396,7 +398,7 @@ interface AppState {
     deleteSituation: (id: string) => void;
     duplicateSituation: (id: string) => string;
     setCurrentRoom: (id: string | null) => Promise<void>;
-    updateSituation: (id: string, updates: Partial<Pick<Situation, 'name' | 'situationPrompt' | 'priorMessages' | 'actors' | 'director' | 'memoryMode' | 'maxHistory'>>) => void;
+    updateSituation: (id: string, updates: Partial<Pick<Situation, 'name' | 'favorite' | 'situationPrompt' | 'priorMessages' | 'actors' | 'director' | 'memoryMode' | 'maxHistory'>>) => void;
     updateRoomName: (id: string, name: string) => void;
     updateRoomSettings: (id: string, updates: Partial<Pick<Room, 'maxMentionChain' | 'viewMode' | 'costumeSelections'>>) => void;
     setRoomSecretMode: (id: string, enabled: boolean) => void;

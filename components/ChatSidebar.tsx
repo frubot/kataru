@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Plus, MessageSquare, Settings, Trash2, ChevronDown, ChevronRight, User, Users, Copy, EllipsisVertical, PanelLeftClose, PanelLeftOpen, Search, SquarePen, X } from 'lucide-react';
+import { Plus, MessageSquare, Settings, Trash2, ChevronDown, ChevronRight, User, Users, Copy, EllipsisVertical, PanelLeftClose, PanelLeftOpen, Search, SquarePen, Star, X } from 'lucide-react';
 import { useStore, Character, Situation, resolveSituationParticipants } from '@/lib/store';
 import StoredImage from './StoredImage';
 import SituationSettingsModal from './SituationSettingsModal';
@@ -25,9 +25,11 @@ const CONTEXT_MENU_MARGIN = 8;
 function getContextMenuHeight(type: SidebarContextMenu['type']) {
     const itemCount = type === 'character' || type === 'situation'
         ? 4
-        : type === 'character-actions' || type === 'situation-actions'
-            ? 2
-            : 1;
+        : type === 'character-actions'
+            ? 3
+            : type === 'situation-actions'
+                ? 3
+                : 1;
     return itemCount * CONTEXT_MENU_ITEM_HEIGHT + CONTEXT_MENU_VERTICAL_PADDING;
 }
 
@@ -95,12 +97,16 @@ interface ChatSidebarProps {
 }
 
 export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, isOpen, isDesktopOpen, onClose, onToggleDesktop }: ChatSidebarProps) {
-    const { characters, groups, rooms, currentRoomId, createRoom, createRoomForSituation, setCurrentRoom, deleteRoom, deleteSituation, duplicateSituation, deleteCharacter, duplicateCharacter, defaultChatModel } = useStore();
+    const { characters, groups, rooms, currentRoomId, createRoom, createRoomForSituation, setCurrentRoom, deleteRoom, deleteSituation, duplicateSituation, deleteCharacter, duplicateCharacter, updateCharacter, updateSituation, defaultChatModel } = useStore();
     const [expandedCharacters, setExpandedCharacters] = useState<Set<string>>(new Set());
     const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set(groups.map((g) => g.id)));
     const [situationSettingsOpen, setSituationSettingsOpen] = useState(false);
     const [editingSituation, setEditingSituation] = useState<Situation | null>(null);
     const [groupExpanded, setGroupExpanded] = useState(true);
+    const [favoriteSituationsExpanded, setFavoriteSituationsExpanded] = useState(true);
+    const [situationsExpanded, setSituationsExpanded] = useState(true);
+    const [characterSectionExpanded, setCharacterSectionExpanded] = useState(true);
+    const [favoritesExpanded, setFavoritesExpanded] = useState(true);
     const [charactersExpanded, setCharactersExpanded] = useState(true);
     const [contextMenu, setContextMenu] = useState<SidebarContextMenu | null>(null);
     const [searchOpen, setSearchOpen] = useState(false);
@@ -138,7 +144,7 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
         });
 
         return () => cancelAnimationFrame(frame);
-    }, [charactersExpanded, collapsedGroups, groupExpanded, isDesktopOpen, revealedItem]);
+    }, [characterSectionExpanded, charactersExpanded, collapsedGroups, favoriteSituationsExpanded, favoritesExpanded, groupExpanded, isDesktopOpen, revealedItem, situationsExpanded]);
 
     const openContextMenu = (event: React.MouseEvent, menu: SidebarContextMenuTarget) => {
         event.preventDefault();
@@ -308,10 +314,20 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
         }
 
         if (result.type === 'character') {
-            setCharactersExpanded(true);
+            setCharacterSectionExpanded(true);
+            if (result.item.favorite) {
+                setFavoritesExpanded(true);
+            } else {
+                setCharactersExpanded(true);
+            }
             setExpandedCharacters((current) => new Set(current).add(result.item.id));
         } else {
             setGroupExpanded(true);
+            if (result.item.favorite) {
+                setFavoriteSituationsExpanded(true);
+            } else {
+                setSituationsExpanded(true);
+            }
             setCollapsedGroups((current) => {
                 const next = new Set(current);
                 next.delete(result.item.id);
@@ -332,6 +348,10 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
     });
 
     const sortedCharacters = [...characters].sort((a, b) => b.updatedAt - a.updatedAt);
+    const favoriteSituations = sortedGroups.filter((group) => group.favorite === true);
+    const regularSituations = sortedGroups.filter((group) => group.favorite !== true);
+    const favoriteCharacters = sortedCharacters.filter((character) => character.favorite === true);
+    const regularCharacters = sortedCharacters.filter((character) => character.favorite !== true);
     const DesktopSidebarIcon = isDesktopOpen ? PanelLeftClose : PanelLeftOpen;
     const desktopSidebarTitle = isDesktopOpen ? 'サイドバーを折りたたむ' : 'サイドバーを開く';
     const selectedRoom = rooms.find((room) => room.id === currentRoomId) ?? null;
@@ -354,6 +374,248 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
     const contextMenuRoom = contextMenu?.type === 'room'
         ? rooms.find((room) => room.id === contextMenu.roomId) ?? null
         : null;
+
+    const renderSituationList = (situationList: Situation[]) => situationList.map((group) => {
+        const groupRooms = visibleRooms
+            .filter((room) => room.groupId === group.id)
+            .sort((a, b) => b.updatedAt - a.updatedAt);
+        const roomChars = resolveSituationParticipants(group, characters, defaultChatModel);
+        const charNames = roomChars.map((character) => character.name).join(', ');
+        const isExpanded = !collapsedGroups.has(group.id);
+
+        return (
+            <div key={group.id} className="character-group">
+                <div
+                    className="character-header"
+                    ref={(element) => {
+                        const key = `situation:${group.id}`;
+                        if (element) sidebarItemRefs.current.set(key, element);
+                        else sidebarItemRefs.current.delete(key);
+                    }}
+                    onClick={() => toggleGroupExpand(group.id)}
+                    onContextMenu={(event) => openContextMenu(event, { type: 'situation', groupId: group.id })}
+                >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, minWidth: 0 }}>
+                        {isExpanded
+                            ? <ChevronDown size={16} className="sidebar-disclosure-icon" />
+                            : <ChevronRight size={16} className="sidebar-disclosure-icon" />}
+                        <GroupAvatarStack chars={roomChars} />
+                        <span style={{ fontWeight: 500, fontSize: '0.875rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {group.name}
+                        </span>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', flexShrink: 0 }}>
+                            ({groupRooms.length})
+                        </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.125rem' }}>
+                        <button
+                            className="btn btn-ghost"
+                            onClick={(event) => handleCreateRoomForGroup(event, group.id)}
+                            style={{ padding: '0.25rem' }}
+                            title="このシチュエーションで新しいチャット"
+                        >
+                            <Plus size={14} />
+                        </button>
+                        <button
+                            className="btn btn-ghost"
+                            onClick={(event) => handleEditGroup(event, group)}
+                            style={{ padding: '0.25rem' }}
+                            title="シチュエーション設定"
+                        >
+                            <Settings size={14} />
+                        </button>
+                        <button
+                            className="btn btn-ghost"
+                            onClick={(event) => openSituationActionsMenu(event, group.id)}
+                            style={{ padding: '0.25rem' }}
+                            title="その他の操作"
+                            aria-label={`${group.name}のその他の操作`}
+                            aria-haspopup="menu"
+                            aria-expanded={contextMenu?.type === 'situation-actions' && contextMenu.groupId === group.id}
+                        >
+                            <EllipsisVertical size={16} />
+                        </button>
+                    </div>
+                </div>
+
+                {isExpanded && (
+                    <div className="character-rooms">
+                        {groupRooms.length === 0 ? (
+                            <div style={{ padding: '0.5rem 0.75rem 0.5rem 2.5rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                チャットがありません
+                            </div>
+                        ) : (
+                            groupRooms.map((room) => (
+                                <div
+                                    key={room.id}
+                                    className={`room-item ${currentRoomId === room.id ? 'active' : ''}`}
+                                    onClick={() => handleRoomSelect(room.id)}
+                                    onContextMenu={(event) => openContextMenu(event, { type: 'room', roomId: room.id })}
+                                    style={{ paddingLeft: '2rem' }}
+                                >
+                                    <MessageSquare size={16} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ fontWeight: 500, fontSize: '0.8125rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            {room.name}
+                                        </div>
+                                        <div style={{ fontSize: '0.6875rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            {room.lastMessagePreview
+                                                ? room.lastMessagePreview.substring(0, 25) + (room.lastMessagePreview.length > 25 ? '...' : '')
+                                                : charNames || 'メッセージなし'}
+                                        </div>
+                                    </div>
+                                    <button
+                                        className="btn btn-ghost"
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            deleteRoom(room.id);
+                                        }}
+                                        style={{ padding: '0.25rem', opacity: 0.5 }}
+                                        title="チャットを削除"
+                                    >
+                                        <Trash2 size={14} />
+                                    </button>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                )}
+            </div>
+        );
+    });
+
+    const renderCharacterList = (characterList: Character[]) => characterList.map((character) => {
+        const characterRooms = visibleRooms
+            .filter((room) => room.characterId === character.id && !room.groupId)
+            .sort((a, b) => b.updatedAt - a.updatedAt);
+        const isExpanded = expandedCharacters.has(character.id);
+
+        return (
+            <div key={character.id} className="character-group">
+                <div
+                    className="character-header"
+                    ref={(element) => {
+                        const key = `character:${character.id}`;
+                        if (element) sidebarItemRefs.current.set(key, element);
+                        else sidebarItemRefs.current.delete(key);
+                    }}
+                    onClick={() => toggleCharacterExpand(character.id)}
+                    onContextMenu={(event) => openContextMenu(event, { type: 'character', characterId: character.id })}
+                >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, minWidth: 0 }}>
+                        {isExpanded
+                            ? <ChevronDown size={16} className="sidebar-disclosure-icon" />
+                            : <ChevronRight size={16} className="sidebar-disclosure-icon" />}
+                        {character.icon ? (
+                            <StoredImage
+                                src={character.icon}
+                                alt={character.name}
+                                style={{ width: '18px', height: '18px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
+                            />
+                        ) : (
+                            <User size={18} style={{ flexShrink: 0, color: 'var(--primary)' }} />
+                        )}
+                        <span style={{ fontWeight: 500, fontSize: '0.875rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {character.name}
+                        </span>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', flexShrink: 0 }}>
+                            ({characterRooms.length})
+                        </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.125rem' }}>
+                        <button
+                            className="btn btn-ghost"
+                            onClick={(event) => handleCreateRoom(event, character.id)}
+                            style={{ padding: '0.25rem' }}
+                            title="新しいチャット"
+                        >
+                            <Plus size={14} />
+                        </button>
+                        <button
+                            className="btn btn-ghost"
+                            onClick={(event) => {
+                                event.stopPropagation();
+                                openCharacterSettings(character);
+                            }}
+                            style={{ padding: '0.25rem' }}
+                            title="キャラクター設定"
+                        >
+                            <Settings size={14} />
+                        </button>
+                        <button
+                            className="btn btn-ghost"
+                            onClick={(event) => openCharacterActionsMenu(event, character.id)}
+                            style={{ padding: '0.25rem' }}
+                            title="その他の操作"
+                            aria-label={`${character.name}のその他の操作`}
+                            aria-haspopup="menu"
+                            aria-expanded={contextMenu?.type === 'character-actions' && contextMenu.characterId === character.id}
+                        >
+                            <EllipsisVertical size={16} />
+                        </button>
+                    </div>
+                </div>
+
+                {isExpanded && (
+                    <div className="character-rooms">
+                        {characterRooms.length === 0 ? (
+                            <div style={{ padding: '0.5rem 0.75rem 0.5rem 2.5rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                チャットがありません
+                            </div>
+                        ) : (
+                            characterRooms.map((room) => (
+                                <div
+                                    key={room.id}
+                                    className={`room-item ${currentRoomId === room.id ? 'active' : ''}`}
+                                    onClick={() => handleRoomSelect(room.id)}
+                                    onContextMenu={(event) => openContextMenu(event, { type: 'room', roomId: room.id })}
+                                    style={{ paddingLeft: '2rem' }}
+                                >
+                                    <MessageSquare size={16} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div
+                                            style={{
+                                                fontWeight: 500,
+                                                fontSize: '0.8125rem',
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis',
+                                                whiteSpace: 'nowrap',
+                                            }}
+                                        >
+                                            {room.name}
+                                        </div>
+                                        <div
+                                            style={{
+                                                fontSize: '0.6875rem',
+                                                color: 'var(--text-muted)',
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis',
+                                                whiteSpace: 'nowrap',
+                                            }}
+                                        >
+                                            {room.lastMessagePreview
+                                                ? room.lastMessagePreview.substring(0, 25) + (room.lastMessagePreview.length > 25 ? '...' : '')
+                                                : 'メッセージなし'}
+                                        </div>
+                                    </div>
+                                    <button
+                                        className="btn btn-ghost"
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            deleteRoom(room.id);
+                                        }}
+                                        style={{ padding: '0.25rem', opacity: 0.5 }}
+                                    >
+                                        <Trash2 size={14} />
+                                    </button>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                )}
+            </div>
+        );
+    });
 
     return (
         <>
@@ -452,273 +714,94 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
 
                 <div className="sidebar-content">
                     {/* シチュエーション一覧 */}
-                    {sortedGroups.length > 0 && (
-                        <div>
-                            <div
-                                style={{ padding: '0.5rem 0.75rem', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem', userSelect: 'none' }}
-                                onClick={() => setGroupExpanded((v) => !v)}
-                            >
-                                {groupExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                                <Users size={14} />
-                                シチュエーション
-                                <span style={{ marginLeft: '0.25rem' }}>({sortedGroups.length})</span>
-                            </div>
-                            {groupExpanded && sortedGroups.map((group: Situation) => {
-                                const groupRooms = visibleRooms
-                                    .filter((r) => r.groupId === group.id)
-                                    .sort((a, b) => b.updatedAt - a.updatedAt);
-                                const roomChars = resolveSituationParticipants(group, characters, defaultChatModel);
-                                const charNames = roomChars.map((c) => c.name).join(', ');
-                                const isExpanded = !collapsedGroups.has(group.id);
-                                return (
-                                    <div key={group.id} className="character-group">
+                    <div>
+                        <div
+                            style={{ padding: '0.5rem 0.75rem', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem', userSelect: 'none' }}
+                            onClick={() => setGroupExpanded((value) => !value)}
+                        >
+                            {groupExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                            <Users size={14} />
+                            シチュエーション
+                            <span style={{ marginLeft: '0.25rem' }}>({sortedGroups.length})</span>
+                        </div>
+                        {groupExpanded && (
+                            <>
+                                {favoriteSituations.length > 0 && (
+                                    <>
                                         <div
-                                            className="character-header"
-                                            ref={(element) => {
-                                                const key = `situation:${group.id}`;
-                                                if (element) sidebarItemRefs.current.set(key, element);
-                                                else sidebarItemRefs.current.delete(key);
-                                            }}
-                                            onClick={() => toggleGroupExpand(group.id)}
-                                            onContextMenu={(e) => openContextMenu(e, { type: 'situation', groupId: group.id })}
+                                            style={{ padding: '0.5rem 0.75rem 0.5rem 1.5rem', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem', userSelect: 'none' }}
+                                            onClick={() => setFavoriteSituationsExpanded((value) => !value)}
                                         >
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, minWidth: 0 }}>
-                                                {isExpanded
-                                                    ? <ChevronDown size={16} className="sidebar-disclosure-icon" />
-                                                    : <ChevronRight size={16} className="sidebar-disclosure-icon" />}
-                                                <GroupAvatarStack chars={roomChars} />
-                                                <span style={{ fontWeight: 500, fontSize: '0.875rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                    {group.name}
-                                                </span>
-                                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', flexShrink: 0 }}>
-                                                    ({groupRooms.length})
-                                                </span>
-                                            </div>
-                                            <div style={{ display: 'flex', gap: '0.125rem' }}>
-                                                <button
-                                                    className="btn btn-ghost"
-                                                    onClick={(e) => handleCreateRoomForGroup(e, group.id)}
-                                                    style={{ padding: '0.25rem' }}
-                                                    title="このシチュエーションで新しいチャット"
-                                                >
-                                                    <Plus size={14} />
-                                                </button>
-                                                <button
-                                                    className="btn btn-ghost"
-                                                    onClick={(e) => handleEditGroup(e, group)}
-                                                    style={{ padding: '0.25rem' }}
-                                                    title="シチュエーション設定"
-                                                >
-                                                    <Settings size={14} />
-                                                </button>
-                                                <button
-                                                    className="btn btn-ghost"
-                                                    onClick={(e) => openSituationActionsMenu(e, group.id)}
-                                                    style={{ padding: '0.25rem' }}
-                                                    title="その他の操作"
-                                                    aria-label={`${group.name}のその他の操作`}
-                                                    aria-haspopup="menu"
-                                                    aria-expanded={contextMenu?.type === 'situation-actions' && contextMenu.groupId === group.id}
-                                                >
-                                                    <EllipsisVertical size={16} />
-                                                </button>
-                                            </div>
+                                            {favoriteSituationsExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                            <Star size={14} fill="currentColor" />
+                                            お気に入り
+                                            <span style={{ marginLeft: '0.25rem' }}>({favoriteSituations.length})</span>
                                         </div>
-
-                                        {isExpanded && (
-                                            <div className="character-rooms">
-                                                {groupRooms.length === 0 ? (
-                                                    <div style={{ padding: '0.5rem 0.75rem 0.5rem 2.5rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                                        チャットがありません
-                                                    </div>
-                                                ) : (
-                                                    groupRooms.map((room) => (
-                                                        <div
-                                                            key={room.id}
-                                                            className={`room-item ${currentRoomId === room.id ? 'active' : ''}`}
-                                                            onClick={() => handleRoomSelect(room.id)}
-                                                            onContextMenu={(e) => openContextMenu(e, { type: 'room', roomId: room.id })}
-                                                            style={{ paddingLeft: '2rem' }}
-                                                        >
-                                                            <MessageSquare size={16} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
-                                                            <div style={{ flex: 1, minWidth: 0 }}>
-                                                                <div style={{ fontWeight: 500, fontSize: '0.8125rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                                    {room.name}
-                                                                </div>
-                                                                <div style={{ fontSize: '0.6875rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                                    {room.lastMessagePreview
-                                                                        ? room.lastMessagePreview.substring(0, 25) + (room.lastMessagePreview.length > 25 ? '...' : '')
-                                                                        : charNames || 'メッセージなし'}
-                                                                </div>
-                                                            </div>
-                                                            <button
-                                                                className="btn btn-ghost"
-                                                                onClick={(e) => { e.stopPropagation(); deleteRoom(room.id); }}
-                                                                style={{ padding: '0.25rem', opacity: 0.5 }}
-                                                                title="チャットを削除"
-                                                            >
-                                                                <Trash2 size={14} />
-                                                            </button>
-                                                        </div>
-                                                    ))
-                                                )}
-                                            </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
-
-                    <div
-                        style={{ padding: '0.5rem 0.75rem', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, cursor: sortedCharacters.length > 0 ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: '0.25rem', userSelect: 'none' }}
-                        onClick={() => sortedCharacters.length > 0 && setCharactersExpanded((v) => !v)}
-                    >
-                        {sortedCharacters.length > 0 ? (charactersExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />) : <span style={{ width: 14 }} />}
-                        <User size={14} />
-                        キャラクター
-                        <span style={{ marginLeft: '0.25rem' }}>({sortedCharacters.length})</span>
-                    </div>
-                    {sortedCharacters.length === 0 ? (
-                        <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-muted)' }}>
-                            <User size={32} style={{ margin: '0 auto 0.5rem', opacity: 0.5 }} />
-                            <p style={{ fontSize: '0.875rem' }}>キャラクターがいません</p>
-                            <p style={{ fontSize: '0.75rem', marginTop: '0.25rem' }}>「新しいキャラクター」をクリックして作成してください</p>
-                        </div>
-                    ) : charactersExpanded && (
-                        sortedCharacters.map((character) => {
-                            const characterRooms = visibleRooms
-                                .filter((r) => r.characterId === character.id && !r.groupId)
-                                .sort((a, b) => b.updatedAt - a.updatedAt);
-                            const isExpanded = expandedCharacters.has(character.id);
-
-                            return (
-                                <div key={character.id} className="character-group">
-                                    <div
-                                        className="character-header"
-                                        ref={(element) => {
-                                            const key = `character:${character.id}`;
-                                            if (element) sidebarItemRefs.current.set(key, element);
-                                            else sidebarItemRefs.current.delete(key);
-                                        }}
-                                        onClick={() => toggleCharacterExpand(character.id)}
-                                        onContextMenu={(e) => openContextMenu(e, { type: 'character', characterId: character.id })}
-                                    >
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, minWidth: 0 }}>
-                                            {isExpanded
-                                                ? <ChevronDown size={16} className="sidebar-disclosure-icon" />
-                                                : <ChevronRight size={16} className="sidebar-disclosure-icon" />}
-                                            {character.icon ? (
-                                                <StoredImage
-                                                    src={character.icon}
-                                                    alt={character.name}
-                                                    style={{ width: '18px', height: '18px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
-                                                />
-                                            ) : (
-                                                <User size={18} style={{ flexShrink: 0, color: 'var(--primary)' }} />
-                                            )}
-                                            <span style={{ fontWeight: 500, fontSize: '0.875rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                {character.name}
-                                            </span>
-                                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', flexShrink: 0 }}>
-                                                ({characterRooms.length})
-                                            </span>
-                                        </div>
-                                        <div style={{ display: 'flex', gap: '0.125rem' }}>
-                                            <button
-                                                className="btn btn-ghost"
-                                                onClick={(e) => handleCreateRoom(e, character.id)}
-                                                style={{ padding: '0.25rem' }}
-                                                title="新しいチャット"
-                                            >
-                                                <Plus size={14} />
-                                            </button>
-                                            <button
-                                                className="btn btn-ghost"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    openCharacterSettings(character);
-                                                }}
-                                                style={{ padding: '0.25rem' }}
-                                                title="キャラクター設定"
-                                            >
-                                                <Settings size={14} />
-                                            </button>
-                                            <button
-                                                className="btn btn-ghost"
-                                                onClick={(e) => openCharacterActionsMenu(e, character.id)}
-                                                style={{ padding: '0.25rem' }}
-                                                title="その他の操作"
-                                                aria-label={`${character.name}のその他の操作`}
-                                                aria-haspopup="menu"
-                                                aria-expanded={contextMenu?.type === 'character-actions' && contextMenu.characterId === character.id}
-                                            >
-                                                <EllipsisVertical size={16} />
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    {isExpanded && (
-                                        <div className="character-rooms">
-                                            {characterRooms.length === 0 ? (
-                                                <div style={{ padding: '0.5rem 0.75rem 0.5rem 2.5rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                                    チャットがありません
-                                                </div>
-                                            ) : (
-                                                characterRooms.map((room) => (
-                                                    <div
-                                                        key={room.id}
-                                                        className={`room-item ${currentRoomId === room.id ? 'active' : ''}`}
-                                                        onClick={() => handleRoomSelect(room.id)}
-                                                        onContextMenu={(e) => openContextMenu(e, { type: 'room', roomId: room.id })}
-                                                        style={{ paddingLeft: '2rem' }}
-                                                    >
-                                                        <MessageSquare size={16} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
-                                                        <div style={{ flex: 1, minWidth: 0 }}>
-                                                            <div
-                                                                style={{
-                                                                    fontWeight: 500,
-                                                                    fontSize: '0.8125rem',
-                                                                    overflow: 'hidden',
-                                                                    textOverflow: 'ellipsis',
-                                                                    whiteSpace: 'nowrap',
-                                                                }}
-                                                            >
-                                                                {room.name}
-                                                            </div>
-                                                            <div
-                                                                style={{
-                                                                    fontSize: '0.6875rem',
-                                                                    color: 'var(--text-muted)',
-                                                                    overflow: 'hidden',
-                                                                    textOverflow: 'ellipsis',
-                                                                    whiteSpace: 'nowrap',
-                                                                }}
-                                                            >
-                                                                {room.lastMessagePreview
-                                                                    ? room.lastMessagePreview.substring(0, 25) + (room.lastMessagePreview.length > 25 ? '...' : '')
-                                                                    : 'メッセージなし'}
-                                                            </div>
-                                                        </div>
-                                                        <button
-                                                            className="btn btn-ghost"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                deleteRoom(room.id);
-                                                            }}
-                                                            style={{ padding: '0.25rem', opacity: 0.5 }}
-                                                        >
-                                                            <Trash2 size={14} />
-                                                        </button>
-                                                    </div>
-                                                ))
-                                            )}
-                                        </div>
-                                    )}
+                                        {favoriteSituationsExpanded && renderSituationList(favoriteSituations)}
+                                    </>
+                                )}
+                                <div
+                                    style={{ padding: '0.5rem 0.75rem 0.5rem 1.5rem', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, cursor: regularSituations.length > 0 ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: '0.25rem', userSelect: 'none' }}
+                                    onClick={() => regularSituations.length > 0 && setSituationsExpanded((value) => !value)}
+                                >
+                                    {regularSituations.length > 0 ? (situationsExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />) : <span style={{ width: 14 }} />}
+                                    <Users size={14} />
+                                    すべてのシチュエーション
+                                    <span style={{ marginLeft: '0.25rem' }}>({regularSituations.length})</span>
                                 </div>
-                            );
-                        })
-                    )}
+                                {situationsExpanded && renderSituationList(regularSituations)}
+                            </>
+                        )}
+                    </div>
+
+                    {/* キャラクター一覧 */}
+                    <div>
+                        <div
+                            style={{ padding: '0.5rem 0.75rem', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem', userSelect: 'none' }}
+                            onClick={() => setCharacterSectionExpanded((value) => !value)}
+                        >
+                            {characterSectionExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                            <User size={14} />
+                            キャラクター
+                            <span style={{ marginLeft: '0.25rem' }}>({sortedCharacters.length})</span>
+                        </div>
+                        {characterSectionExpanded && (
+                            sortedCharacters.length === 0 ? (
+                                <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                                    <User size={32} style={{ margin: '0 auto 0.5rem', opacity: 0.5 }} />
+                                    <p style={{ fontSize: '0.875rem' }}>キャラクターがいません</p>
+                                    <p style={{ fontSize: '0.75rem', marginTop: '0.25rem' }}>「新しいキャラクター」をクリックして作成してください</p>
+                                </div>
+                            ) : (
+                                <>
+                                    {favoriteCharacters.length > 0 && (
+                                        <>
+                                            <div
+                                                style={{ padding: '0.5rem 0.75rem 0.5rem 1.5rem', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem', userSelect: 'none' }}
+                                                onClick={() => setFavoritesExpanded((value) => !value)}
+                                            >
+                                                {favoritesExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                                <Star size={14} fill="currentColor" />
+                                                お気に入り
+                                                <span style={{ marginLeft: '0.25rem' }}>({favoriteCharacters.length})</span>
+                                            </div>
+                                            {favoritesExpanded && renderCharacterList(favoriteCharacters)}
+                                        </>
+                                    )}
+                                    <div
+                                        style={{ padding: '0.5rem 0.75rem 0.5rem 1.5rem', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500, cursor: regularCharacters.length > 0 ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: '0.25rem', userSelect: 'none' }}
+                                        onClick={() => regularCharacters.length > 0 && setCharactersExpanded((value) => !value)}
+                                    >
+                                        {regularCharacters.length > 0 ? (charactersExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />) : <span style={{ width: 14 }} />}
+                                        <User size={14} />
+                                        すべてのキャラクター
+                                        <span style={{ marginLeft: '0.25rem' }}>({regularCharacters.length})</span>
+                                    </div>
+                                    {charactersExpanded && renderCharacterList(regularCharacters)}
+                                </>
+                            )
+                        )}
+                    </div>
                 </div>
 
 
@@ -770,6 +853,11 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
                     {contextMenuCharacter && contextMenu.type === 'character-actions' && (
                         <>
                             <SidebarContextMenuItem
+                                icon={<Star size={15} fill={contextMenuCharacter.favorite ? 'currentColor' : 'none'} />}
+                                label={contextMenuCharacter.favorite ? 'お気に入りから削除' : 'お気に入りに追加'}
+                                onClick={() => runContextMenuAction(() => updateCharacter(contextMenuCharacter.id, { favorite: !contextMenuCharacter.favorite }))}
+                            />
+                            <SidebarContextMenuItem
                                 icon={<Copy size={15} />}
                                 label="複製"
                                 onClick={() => runContextMenuAction(() => duplicateCharacterById(contextMenuCharacter.id))}
@@ -809,6 +897,11 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
                     )}
                     {contextMenuSituation && contextMenu.type === 'situation-actions' && (
                         <>
+                            <SidebarContextMenuItem
+                                icon={<Star size={15} fill={contextMenuSituation.favorite ? 'currentColor' : 'none'} />}
+                                label={contextMenuSituation.favorite ? 'お気に入りから削除' : 'お気に入りに追加'}
+                                onClick={() => runContextMenuAction(() => updateSituation(contextMenuSituation.id, { favorite: !contextMenuSituation.favorite }))}
+                            />
                             <SidebarContextMenuItem
                                 icon={<Copy size={15} />}
                                 label="複製"

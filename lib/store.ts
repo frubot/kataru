@@ -2114,11 +2114,13 @@ export const useStore = create<AppState>()((set, get) => ({
     },
 
     refreshConversationRoom: async (roomId) => {
+        const loadSeq = currentRoomLoadSeq;
         const [storedRooms, messages, usageRecords] = await Promise.all([
             db.getAllRooms(),
             db.getMessagesByRoom(roomId),
             db.getAllUsageRecords(),
         ]);
+        if (loadSeq !== currentRoomLoadSeq) return;
         const storedRoom = storedRooms.find((room) => room.id === roomId);
         if (!storedRoom) return;
         set((state) => ({
@@ -2174,10 +2176,11 @@ export const useStore = create<AppState>()((set, get) => ({
             lastMessageAt: undefined,
             updatedAt: now,
         }));
+        await db.clearAllMessagesAndPutRooms(rooms.filter(shouldPersistRoom).map(toStoredRoom));
+        currentRoomLoadSeq++;
         set({
             rooms,
         });
-        await db.clearAllMessagesAndPutRooms(rooms.filter(shouldPersistRoom).map(toStoredRoom));
     },
 
     updateRoomSummary: (roomId, summary, summaryCheckpointUserMessageId) => {

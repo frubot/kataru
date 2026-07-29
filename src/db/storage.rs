@@ -205,6 +205,15 @@ pub async fn handle_storage_command(
     State(state): State<crate::AppState>,
     Json(command): Json<StorageCommand>,
 ) -> AppResult<Json<Value>> {
+    let clear_history = matches!(&command, StorageCommand::ClearAllMessagesAndPutRooms { .. });
+    let _history_persistence_guard = if clear_history {
+        Some(state.conversation_jobs.lock_history_persistence().await)
+    } else {
+        None
+    };
+    if clear_history {
+        state.conversation_jobs.cancel_recoverable().await;
+    }
     let database: Database = state.database.clone();
     let result = database
         .call(move |connection| execute_command(connection, command))

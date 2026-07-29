@@ -11,7 +11,7 @@ use axum::{
 };
 use serde_json::{Map, Value, json};
 use tokio::{
-    sync::Mutex,
+    sync::{Mutex, OwnedMutexGuard},
     task::{AbortHandle, JoinHandle},
 };
 
@@ -28,6 +28,7 @@ const COMPLETED_JOB_RETENTION: Duration = Duration::from_secs(10 * 60);
 #[derive(Clone, Default)]
 pub struct ConversationJobs {
     inner: Arc<Mutex<HashMap<String, ConversationJob>>>,
+    history_persistence: Arc<Mutex<()>>,
 }
 
 #[derive(Clone)]
@@ -133,6 +134,18 @@ impl ConversationJobs {
         }
     }
 
+    async fn is_running(&self, job_id: &str) -> bool {
+        self.inner
+            .lock()
+            .await
+            .get(job_id)
+            .is_some_and(|job| job.status == JobStatus::Running)
+    }
+
+    pub(crate) async fn lock_history_persistence(&self) -> OwnedMutexGuard<()> {
+        self.history_persistence.clone().lock_owned().await
+    }
+
     async fn complete(&self, job_id: &str, result: Value) {
         if let Some(job) = self.inner.lock().await.get_mut(job_id)
             && job.status == JobStatus::Running
@@ -195,6 +208,21 @@ impl ConversationJobs {
         }
         job.snapshot(false)
     }
+
+    pub(crate) async fn cancel_recoverable(&self) {
+        let mut jobs = self.inner.lock().await;
+        let now = now_millis();
+        for job in jobs.values_mut() {
+            if !job.recoverable || job.status != JobStatus::Running {
+                continue;
+            }
+            job.status = JobStatus::Cancelled;
+            job.updated_at = now;
+            if let Some(handle) = job.abort_handle.take() {
+                handle.abort();
+            }
+        }
+    }
 }
 
 pub async fn start(
@@ -227,6 +255,19 @@ pub async fn start(
         return Ok((StatusCode::ACCEPTED, Json(snapshot)));
     }
 
+    let history_persistence_guard = if secret_mode {
+        None
+    } else {
+        Some(state.conversation_jobs.lock_history_persistence().await)
+    };
+    if !state.conversation_jobs.is_running(&job_id).await {
+        let current = state
+            .conversation_jobs
+            .get(&job_id)
+            .await
+            .unwrap_or(snapshot);
+        return Ok((StatusCode::ACCEPTED, Json(current)));
+    }
     if let Err(error) =
         persist_conversation_submission(&state.database, &payload, secret_mode).await
     {
@@ -236,6 +277,7 @@ pub async fn start(
             .await;
         return Err(error);
     }
+    drop(history_persistence_guard);
 
     let job_state = state.clone();
     let task_job_id = job_id.clone();
@@ -244,6 +286,14 @@ pub async fn start(
         match run_turn(job_state.clone(), payload).await {
             Ok(mut result) => {
                 normalize_result_ids(&task_job_id, &mut result);
+                let history_persistence_guard = if secret_mode {
+                    None
+                } else {
+                    Some(job_state.conversation_jobs.lock_history_persistence().await)
+                };
+                if !job_state.conversation_jobs.is_running(&task_job_id).await {
+                    return;
+                }
                 if let Err(error) = persist_conversation_result(
                     &job_state.database,
                     &task_room_id,
@@ -258,6 +308,7 @@ pub async fn start(
                         .await;
                     return;
                 }
+                drop(history_persistence_guard);
                 job_state
                     .conversation_jobs
                     .complete(&task_job_id, result)
@@ -406,5 +457,31 @@ mod tests {
             .expect("read cancellation tombstone");
         assert!(!inserted);
         assert_eq!(snapshot["status"], "cancelled");
+    }
+
+    #[tokio::test]
+    async fn cancelling_recoverable_jobs_keeps_secret_jobs_running() {
+        let jobs = ConversationJobs::default();
+        let (recoverable, _) = jobs
+            .insert(
+                "job-recoverable".to_owned(),
+                "room-recoverable".to_owned(),
+                true,
+            )
+            .await
+            .expect("insert recoverable job");
+        let (secret, _) = jobs
+            .insert("job-secret".to_owned(), "room-secret".to_owned(), false)
+            .await
+            .expect("insert secret job");
+        assert_eq!(recoverable["status"], "running");
+        assert_eq!(secret["status"], "running");
+
+        jobs.cancel_recoverable().await;
+
+        let recoverable = jobs.get("job-recoverable").await.expect("recoverable job");
+        let secret = jobs.get("job-secret").await.expect("secret job");
+        assert_eq!(recoverable["status"], "cancelled");
+        assert_eq!(secret["status"], "running");
     }
 }

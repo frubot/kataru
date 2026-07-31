@@ -2168,7 +2168,6 @@ export const useStore = create<AppState>()((set, get) => ({
         await db.clearAllConversationHistory();
         currentRoomLoadSeq++;
         set({
-            groups: [],
             rooms: [],
             currentRoomId: null,
         });

@@ -1295,7 +1295,6 @@ fn clear_all_conversation_history(connection: &mut Connection) -> AppResult<()> 
     };
 
     transaction.execute("DELETE FROM rooms", [])?;
-    transaction.execute("DELETE FROM situations", [])?;
     clean_memories_after_history_deletion(&transaction, &deleted_room_ids, &deleted_message_ids)?;
     transaction.execute(
         "INSERT INTO meta(key, value_json) VALUES ('currentRoomId', 'null')
@@ -1878,7 +1877,7 @@ mod tests {
     }
 
     #[test]
-    fn clearing_all_conversation_history_keeps_characters_and_independent_memories() {
+    fn clearing_all_conversation_history_keeps_settings_and_independent_memories() {
         let mut connection = open_test_database();
 
         execute_command(
@@ -1966,7 +1965,7 @@ mod tests {
         execute_command(&mut connection, StorageCommand::ClearAllConversationHistory)
             .expect("clear conversation history");
 
-        for table in ["situations", "rooms", "messages"] {
+        for table in ["rooms", "messages"] {
             let count = connection
                 .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
                     row.get::<_, i64>(0)
@@ -1980,6 +1979,14 @@ mod tests {
                     row.get::<_, i64>(0)
                 })
                 .expect("count characters"),
+            1
+        );
+        assert_eq!(
+            connection
+                .query_row("SELECT COUNT(*) FROM situations", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .expect("count situations"),
             1
         );
         assert_eq!(

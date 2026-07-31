@@ -1,0 +1,4 @@
+interface:
+  display_name: "Kataru Release"
+  short_description: "Safely bump and publish Kataru GitHub releases"
+  default_prompt: "Use $kataru-release to bump Kataru to the next appropriate version and publish the GitHub release."

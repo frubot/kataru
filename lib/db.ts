@@ -257,6 +257,10 @@ export async function clearAll(): Promise<void> {
     await storage<null>({ op: 'clear_all' });
 }
 
+export async function resetAll(): Promise<void> {
+    await storage<null>({ op: 'reset_all' });
+}
+
 export async function bulkWrite(params: BulkWriteParams): Promise<void> {
     await storage<null>({
         op: 'bulk_write',

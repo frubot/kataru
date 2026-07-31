@@ -414,6 +414,7 @@ interface AppState {
     refreshConversationRoom: (roomId: string) => Promise<void>;
     clearRoomMessages: (roomId: string) => void;
     clearAllHistory: () => Promise<void>;
+    resetApplication: () => Promise<void>;
     updateRoomSummary: (roomId: string, summary: string, summaryCheckpointUserMessageId?: string) => void;
     compressRoomHistory: (roomId: string, keepCount: number) => void;
 
@@ -982,6 +983,14 @@ function resolveThemeSelection(params: {
 const writeThemeCache = (mode: ThemeMode, palette: ThemePalette) => {
     if (typeof window === 'undefined') return;
     try { window.localStorage.setItem(THEME_LS_KEY, `${mode}:${palette}`); } catch { /* ignore */ }
+};
+
+const clearThemeCache = () => {
+    if (typeof window === 'undefined') return;
+    try {
+        window.localStorage.removeItem(THEME_LS_KEY);
+        window.localStorage.removeItem('roleplay-gui-theme');
+    } catch { /* ignore */ }
 };
 
 const DEBUG_LOG_LIMIT = 50;
@@ -2170,6 +2179,41 @@ export const useStore = create<AppState>()((set, get) => ({
         set({
             rooms: [],
             currentRoomId: null,
+        });
+    },
+
+    resetApplication: async () => {
+        currentRoomLoadSeq++;
+        await db.resetAll();
+        currentRoomLoadSeq++;
+        clearThemeCache();
+        set({
+            onboardingVersion: 0,
+            themeMode: DEFAULT_THEME_SELECTION.mode,
+            themePalette: DEFAULT_THEME_SELECTION.palette,
+            vnTypingSpeed: DEFAULT_VN_TYPING_SPEED,
+            summaryModel: DEFAULT_SUMMARY_MODEL,
+            defaultChatModel: DEFAULT_CHAT_MODEL,
+            defaultDirectorModel: DEFAULT_DIRECTOR_MODEL,
+            defaultAutoGenerationModel: DEFAULT_AUTO_GENERATION_MODEL,
+            titleGenerationModel: DEFAULT_TITLE_GENERATION_MODEL,
+            defaultImageModel: DEFAULT_IMAGE_MODEL,
+            memoryExtractionModel: DEFAULT_MEMORY_EXTRACTION_MODEL,
+            memoryEmbeddingModel: DEFAULT_MEMORY_EMBEDDING_MODEL,
+            generateTitleOnFirstReply: false,
+            aiProvider: DEFAULT_AI_PROVIDER,
+            openAiCompatibleBaseUrl: DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
+            openAiCompatibleEmbeddingsEnabled: DEFAULT_OPENAI_COMPATIBLE_EMBEDDINGS_ENABLED,
+            openAiCompatibleImageGenerationEnabled: DEFAULT_OPENAI_COMPATIBLE_IMAGE_GENERATION_ENABLED,
+            thinkDebugEnabled: false,
+            thinkDebugLogs: [],
+            fullJsonDebugEnabled: false,
+            fullJsonDebugLogs: [],
+            characters: [],
+            groups: [],
+            rooms: [],
+            currentRoomId: null,
+            usageRecords: [],
         });
     },
 

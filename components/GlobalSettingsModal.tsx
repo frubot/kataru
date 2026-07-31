@@ -325,15 +325,17 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         thinkDebugEnabled, thinkDebugLogs, fullJsonDebugEnabled, fullJsonDebugLogs,
         setThemeMode, setThemePalette, setVnTypingSpeed,
         setThinkDebugEnabled, setFullJsonDebugEnabled, clearThinkDebugLogs, clearFullJsonDebugLogs,
-        clearAllHistory, mergeBackup, restoreBackup,
+        clearAllHistory, resetApplication, mergeBackup, restoreBackup,
     } = useStore();
     const [showClearConfirm, setShowClearConfirm] = useState(false);
+    const [showResetConfirm, setShowResetConfirm] = useState(false);
     const [importData, setImportData] = useState<ParsedBackup | null>(null);
     const [importError, setImportError] = useState<string | null>(null);
     const [isImporting, setIsImporting] = useState(false);
     const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
-    const [historyError, setHistoryError] = useState<string | null>(null);
+    const [dataError, setDataError] = useState<string | null>(null);
     const [isClearingHistory, setIsClearingHistory] = useState(false);
+    const [isResetting, setIsResetting] = useState(false);
     const [applicationVersion, setApplicationVersion] = useState<string | null>(null);
     const [versionError, setVersionError] = useState<string | null>(null);
     const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
@@ -467,15 +469,30 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
 
     const handleClearHistory = async () => {
         if (isClearingHistory) return;
-        setHistoryError(null);
+        setDataError(null);
         setIsClearingHistory(true);
         try {
             await clearAllHistory();
             setShowClearConfirm(false);
         } catch (err) {
-            setHistoryError(err instanceof Error ? err.message : '会話履歴の削除に失敗しました');
+            setDataError(err instanceof Error ? err.message : '会話履歴の削除に失敗しました');
         } finally {
             setIsClearingHistory(false);
+        }
+    };
+
+    const handleResetApplication = async () => {
+        if (isResetting) return;
+        setDataError(null);
+        setIsResetting(true);
+        try {
+            await resetApplication();
+            setShowResetConfirm(false);
+            onClose();
+        } catch (err) {
+            setDataError(err instanceof Error ? err.message : '初期化に失敗しました');
+        } finally {
+            setIsResetting(false);
         }
     };
 
@@ -1493,7 +1510,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
 
                         {/* Data Management Section */}
                         <div>
-                            {historyError && (
+                            {dataError && (
                                 <div style={{
                                     marginBottom: '0.75rem',
                                     display: 'flex',
@@ -1507,7 +1524,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     border: '1px solid rgba(239, 68, 68, 0.3)',
                                 }}>
                                     <AlertTriangle size={14} />
-                                    {historyError}
+                                    {dataError}
                                 </div>
                             )}
                             {showClearConfirm ? (
@@ -1529,11 +1546,43 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     </div>
                                 </div>
                             ) : (
-                                <button className="btn btn-danger" onClick={() => setShowClearConfirm(true)} disabled={isClearingHistory}>
+                                <button className="btn btn-danger" onClick={() => {
+                                    setShowResetConfirm(false);
+                                    setShowClearConfirm(true);
+                                }} disabled={isClearingHistory || isResetting}>
                                     <Trash2 size={16} />
                                     全ての会話履歴を削除
                                 </button>
                             )}
+                            <div style={{ marginTop: '0.75rem' }}>
+                                {showResetConfirm ? (
+                                    <div className="card" style={{ background: 'rgba(239, 68, 68, 0.1)', borderColor: 'var(--error)' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                                            <AlertTriangle size={20} style={{ color: 'var(--error)' }} />
+                                            <span style={{ fontWeight: 500 }}>本当に初期化しますか？</span>
+                                        </div>
+                                        <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '0.75rem' }}>
+                                            DBに保存されたキャラクター、シチュエーション、会話履歴、メモリ、使用記録、各種設定、画像をすべて削除し、Kataruを初期状態に戻します。この操作は元に戻せません。
+                                        </p>
+                                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                            <button className="btn btn-danger" onClick={handleResetApplication} disabled={isResetting}>
+                                                {isResetting ? '初期化中...' : '初期化する'}
+                                            </button>
+                                            <button className="btn btn-secondary" onClick={() => setShowResetConfirm(false)} disabled={isResetting}>
+                                                キャンセル
+                                            </button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <button className="btn btn-danger" onClick={() => {
+                                        setShowClearConfirm(false);
+                                        setShowResetConfirm(true);
+                                    }} disabled={isClearingHistory || isResetting}>
+                                        <RefreshCw size={16} />
+                                        アプリを初期化
+                                    </button>
+                                )}
+                            </div>
                         </div>
                             </>
                         )}

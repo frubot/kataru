@@ -167,6 +167,7 @@ pub enum StorageCommand {
     },
 
     ClearAll,
+    ResetAll,
     BulkWrite {
         #[serde(default)]
         characters: Vec<Value>,
@@ -203,7 +204,10 @@ pub async fn handle_storage_command(
     State(state): State<crate::AppState>,
     Json(command): Json<StorageCommand>,
 ) -> AppResult<Json<Value>> {
-    let clear_history = matches!(&command, StorageCommand::ClearAllConversationHistory);
+    let clear_history = matches!(
+        &command,
+        StorageCommand::ClearAllConversationHistory | StorageCommand::ResetAll
+    );
     let _history_persistence_guard = if clear_history {
         Some(state.conversation_jobs.lock_history_persistence().await)
     } else {
@@ -646,6 +650,13 @@ fn execute_command(connection: &mut Connection, command: StorageCommand) -> AppR
         StorageCommand::ClearAll => {
             let transaction = connection.transaction()?;
             clear_data_tables(&transaction)?;
+            transaction.commit()?;
+            Ok(Value::Null)
+        }
+        StorageCommand::ResetAll => {
+            let transaction = connection.transaction()?;
+            clear_data_tables(&transaction)?;
+            transaction.execute("DELETE FROM meta", [])?;
             transaction.commit()?;
             Ok(Value::Null)
         }
@@ -2019,6 +2030,54 @@ mod tests {
                 .expect("read current room"),
             "null"
         );
+    }
+
+    #[test]
+    fn resetting_all_clears_every_persisted_table() {
+        let mut connection = open_test_database();
+        connection
+            .execute_batch(
+                "INSERT INTO meta(key, value_json) VALUES ('themeMode', '\"light\"');
+                 INSERT INTO characters(id, updated_at, data_json)
+                    VALUES ('character-1', 1, '{}');
+                 INSERT INTO situations(id, updated_at, data_json)
+                    VALUES ('situation-1', 1, '{}');
+                 INSERT INTO rooms(id, character_id, situation_id, updated_at, data_json)
+                    VALUES ('room-1', 'character-1', 'situation-1', 1, '{}');
+                 INSERT INTO messages(id, room_id, timestamp, data_json)
+                    VALUES ('message-1', 'room-1', 1, '{}');
+                 INSERT INTO memories(id, character_id, room_id, source_room_id, scope, kind, updated_at, data_json)
+                    VALUES ('memory-1', 'character-1', 'room-1', 'room-1', 'character', 'fact', 1, '{}');
+                 INSERT INTO usage_records(id, character_id, timestamp, data_json)
+                    VALUES ('usage-1', 'character-1', 1, '{}');
+                 INSERT INTO image_assets(id, mime_type, data, created_at)
+                    VALUES ('asset-1', 'image/png', X'00', 1);
+                 INSERT INTO character_image_assets(character_id, asset_id)
+                    VALUES ('character-1', 'asset-1');",
+            )
+            .expect("seed persisted data");
+
+        execute_command(&mut connection, StorageCommand::ResetAll)
+            .expect("reset all persisted data");
+
+        for table in [
+            "meta",
+            "characters",
+            "situations",
+            "rooms",
+            "messages",
+            "memories",
+            "usage_records",
+            "image_assets",
+            "character_image_assets",
+        ] {
+            let count = connection
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .expect("count rows after reset");
+            assert_eq!(count, 0, "{table} should be empty");
+        }
     }
 
     #[test]

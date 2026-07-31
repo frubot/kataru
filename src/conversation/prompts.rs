@@ -165,10 +165,7 @@ pub fn character_system_prompt(
     }
     let setting = character_setting(character);
     if !setting.is_empty() {
-        prompt.push_str(&format!(
-            "\n\n# {}の設定\n{setting}",
-            character_name
-        ));
+        prompt.push_str(&format!("\n\n# {}の設定\n{setting}", character_name));
     }
     prompt
 }
@@ -479,7 +476,10 @@ mod tests {
             "speechStyle": "くだけた話し方をする"
         });
 
-        assert_eq!(character_setting(&character), "# 口調\nこれは口調の一例です。\n\nくだけた話し方をする");
+        assert_eq!(
+            character_setting(&character),
+            "# 口調\nこれは口調の一例です。\n\nくだけた話し方をする"
+        );
     }
 
     #[test]

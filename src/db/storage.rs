@@ -274,11 +274,14 @@ pub async fn persist_conversation_result(
         return Ok(());
     }
     let room_id = room_id.to_owned();
-    let messages = result
+    let mut messages = result
         .get("messages")
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
+    for message in &mut messages {
+        sanitize_assistant_message(message);
+    }
     let usages = result
         .get("usages")
         .and_then(Value::as_array)
@@ -1123,7 +1126,8 @@ fn stored_message(room_id: &str, mut message: Value) -> AppResult<Value> {
 }
 
 fn upsert_message(connection: &Connection, room_id: &str, message: Value) -> AppResult<()> {
-    let message = stored_message(room_id, message)?;
+    let mut message = stored_message(room_id, message)?;
+    sanitize_assistant_message(&mut message);
     let id = required_string(&message, "id")?;
     let timestamp = required_i64(&message, "timestamp")?;
     connection.execute(
@@ -1136,6 +1140,18 @@ fn upsert_message(connection: &Connection, room_id: &str, message: Value) -> App
         params![id, room_id, timestamp, serialize(&message)?],
     )?;
     Ok(())
+}
+
+fn sanitize_assistant_message(message: &mut Value) {
+    if optional_string(message, &["role"]).as_deref() == Some("assistant")
+        && let Some(content) = optional_string(message, &["content"])
+        && let Some(object) = message.as_object_mut()
+    {
+        object.insert(
+            "content".to_owned(),
+            Value::String(crate::conversation::sanitize_message_content(&content)),
+        );
+    }
 }
 
 fn upsert_memory(connection: &Connection, memory: Value) -> AppResult<()> {
@@ -1798,7 +1814,7 @@ mod tests {
             "messages": [{
                 "id": "message-assistant",
                 "role": "assistant",
-                "content": "saved in the background",
+                "content": "saved \\nin the background *unfinished",
                 "characterId": "character-1",
                 "timestamp": 20
             }],
@@ -1826,6 +1842,7 @@ mod tests {
                 let messages = get_messages_by_room(connection, "room-background")?;
                 assert_eq!(messages.len(), 2);
                 assert_eq!(messages[1]["id"], "message-assistant");
+                assert_eq!(messages[1]["content"], "saved in the background unfinished");
                 let room = query_optional_json(
                     connection,
                     "SELECT data_json FROM rooms WHERE id = ?1",
@@ -1833,7 +1850,10 @@ mod tests {
                 )?
                 .expect("stored room");
                 assert_eq!(room["summary"], "summary");
-                assert_eq!(room["lastMessagePreview"], "saved in the background");
+                assert_eq!(
+                    room["lastMessagePreview"],
+                    "saved in the background unfinished"
+                );
                 let usage_count = connection.query_row(
                     "SELECT COUNT(*) FROM usage_records WHERE id = 'usage-background'",
                     [],

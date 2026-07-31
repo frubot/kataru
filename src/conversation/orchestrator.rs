@@ -26,7 +26,7 @@ use super::{
     },
     response::{
         AssistantEnvelope, DirectorDecision, parse_assistant_response, parse_director_decision,
-        parse_summary_response,
+        parse_summary_response, sanitize_message_content,
     },
 };
 
@@ -66,6 +66,7 @@ pub async fn turn(
 pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value> {
     let room = object_field(&payload, "room")?.clone();
     let mut history = array_field_or(&payload, "messages", &room, "messages");
+    sanitize_assistant_history(&mut history);
     history.retain(|message| !boolean(message, "archived"));
     if history.is_empty() {
         return Err(AppError::BadRequest(
@@ -1166,7 +1167,22 @@ fn slice_by_user_history(messages: &[Value], limit: usize) -> Vec<Value> {
 }
 
 fn history_content(message: &Value) -> String {
-    string(message, "content").replace(['\r', '\n'], "")
+    sanitize_message_content(&string(message, "content")).replace(['\r', '\n'], "")
+}
+
+fn sanitize_assistant_history(messages: &mut [Value]) {
+    for message in messages {
+        if string(message, "role") != "assistant" {
+            continue;
+        }
+        let content = string(message, "content");
+        if let Some(object) = message.as_object_mut() {
+            object.insert(
+                "content".to_owned(),
+                Value::String(sanitize_message_content(&content)),
+            );
+        }
+    }
 }
 
 fn number_u64(value: &Value, key: &str, fallback: u64) -> u64 {
@@ -1295,9 +1311,22 @@ mod tests {
 
     #[test]
     fn history_content_removes_newlines() {
-        let message = json!({"content": "一行目\n二行目\r\n三行目"});
+        let message = json!({"content": "一行目\n二行目\r\n三行目\\n*未完了"});
 
-        assert_eq!(history_content(&message), "一行目二行目三行目");
+        assert_eq!(history_content(&message), "一行目二行目三行目未完了");
+    }
+
+    #[test]
+    fn sanitizes_only_assistant_history_before_upstream_requests() {
+        let mut messages = vec![
+            json!({"role":"user","content":"user *literal"}),
+            json!({"role":"assistant","content":"assistant\\n*unfinished"}),
+        ];
+
+        sanitize_assistant_history(&mut messages);
+
+        assert_eq!(messages[0]["content"], "user *literal");
+        assert_eq!(messages[1]["content"], "assistantunfinished");
     }
 
     #[test]

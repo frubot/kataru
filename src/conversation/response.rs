@@ -62,7 +62,12 @@ pub fn parse_assistant_response(
     } else {
         vec![content.trim().to_owned()]
     };
-    messages = unique_nonempty(messages);
+    messages = unique_nonempty(
+        messages
+            .into_iter()
+            .map(|message| sanitize_message_content(&message))
+            .collect(),
+    );
     if messages.is_empty() {
         messages.push("...".into());
     }
@@ -167,14 +172,140 @@ pub fn strip_json_code_fence(content: &str) -> &str {
 }
 
 pub fn parse_summary_response(content: &str) -> String {
-    parse_json_from_text(content)
+    let summary = parse_json_from_text(content)
         .and_then(|value| {
             value
                 .get("summary")
                 .and_then(Value::as_str)
                 .map(str::to_owned)
         })
-        .unwrap_or_else(|| content.trim().to_owned())
+        .unwrap_or_else(|| content.trim().to_owned());
+    sanitize_message_content(&summary)
+}
+
+/// Removes formatting fragments that should never become part of conversation history.
+///
+/// Some providers occasionally double-escape line breaks inside an otherwise valid JSON
+/// response (leaving a literal `\n` in the parsed message), or return a truncated Markdown
+/// emphasis marker. Normalize both before the message can be persisted or reused as context.
+pub(crate) fn sanitize_message_content(content: &str) -> String {
+    remove_unmatched_asterisk_runs(&remove_escaped_line_breaks(content))
+        .trim()
+        .to_owned()
+}
+
+fn remove_escaped_line_breaks(content: &str) -> String {
+    let bytes = content.as_bytes();
+    let mut result = String::with_capacity(content.len());
+    let mut copied_until = 0;
+    let mut index = 0;
+
+    while index < bytes.len() {
+        if bytes[index] != b'\\' {
+            index += 1;
+            continue;
+        }
+
+        let escape_start = index;
+        while index < bytes.len() && bytes[index] == b'\\' {
+            index += 1;
+        }
+        let Some(code) = bytes.get(index).copied() else {
+            break;
+        };
+
+        let escaped_end = match code {
+            b'n' => Some(index + 1),
+            b'r' => {
+                let mut end = index + 1;
+                if bytes.get(end) == Some(&b'\\') {
+                    let mut newline_index = end;
+                    while bytes.get(newline_index) == Some(&b'\\') {
+                        newline_index += 1;
+                    }
+                    if bytes.get(newline_index) == Some(&b'n') {
+                        end = newline_index + 1;
+                    }
+                }
+                Some(end)
+            }
+            _ => None,
+        };
+
+        if let Some(escaped_end) = escaped_end {
+            result.push_str(&content[copied_until..escape_start]);
+            copied_until = escaped_end;
+            index = escaped_end;
+        }
+    }
+
+    result.push_str(&content[copied_until..]);
+    result
+}
+
+#[derive(Clone, Copy)]
+struct AsteriskRun {
+    start: usize,
+    end: usize,
+}
+
+fn remove_unmatched_asterisk_runs(content: &str) -> String {
+    let bytes = content.as_bytes();
+    let mut runs = Vec::new();
+    let mut index = 0;
+
+    while index < bytes.len() {
+        if bytes[index] != b'*' {
+            index += 1;
+            continue;
+        }
+
+        let run_start = index;
+        while index < bytes.len() && bytes[index] == b'*' {
+            index += 1;
+        }
+
+        let preceding_backslashes = bytes[..run_start]
+            .iter()
+            .rev()
+            .take_while(|byte| **byte == b'\\')
+            .count();
+        let marker_start = run_start + usize::from(preceding_backslashes % 2 == 1);
+        if marker_start < index {
+            runs.push(AsteriskRun {
+                start: marker_start,
+                end: index,
+            });
+        }
+    }
+
+    let mut pending_by_length = std::collections::HashMap::<usize, usize>::new();
+    let mut keep = vec![false; runs.len()];
+    for (run_index, run) in runs.iter().enumerate() {
+        let length = run.end - run.start;
+        if let Some(open_index) = pending_by_length.remove(&length) {
+            keep[open_index] = true;
+            keep[run_index] = true;
+        } else {
+            pending_by_length.insert(length, run_index);
+        }
+    }
+
+    if keep.iter().all(|value| *value) {
+        return content.to_owned();
+    }
+
+    let mut result = String::with_capacity(content.len());
+    let mut copied_until = 0;
+    for (run_index, run) in runs.iter().enumerate() {
+        result.push_str(&content[copied_until..run.start]);
+        if keep[run_index] {
+            result.push_str(&content[run.start..run.end]);
+        }
+        copied_until = run.end;
+    }
+    result.push_str(&content[copied_until..]);
+    result
 }
 
 fn parse_json_from_text(content: &str) -> Option<Value> {
@@ -318,5 +449,47 @@ mod tests {
             result,
             Err(AppError::Upstream(_, axum::http::StatusCode::BAD_GATEWAY))
         ));
+    }
+
+    #[test]
+    fn sanitizes_escaped_line_breaks_and_unclosed_markdown() {
+        let response =
+            parse_assistant_response(r#"{"message":"hello\\\\nworld *unfinished"}"#, &[], false)
+                .unwrap();
+
+        assert_eq!(response.message, "helloworld unfinished");
+        assert_eq!(response.messages, ["helloworld unfinished"]);
+    }
+
+    #[test]
+    fn keeps_closed_and_escaped_asterisks() {
+        assert_eq!(
+            sanitize_message_content(r"*action* and **strong** and \*literal\*"),
+            r"*action* and **strong** and \*literal\*"
+        );
+        assert_eq!(
+            sanitize_message_content("*unfinished but **strong**"),
+            "unfinished but **strong**"
+        );
+    }
+
+    #[test]
+    fn removes_single_and_double_escaped_line_breaks() {
+        assert_eq!(
+            sanitize_message_content(r"first\nsecond\\nthird\r\nfourth"),
+            "firstsecondthirdfourth"
+        );
+        assert_eq!(
+            sanitize_message_content(r"first\r\quality"),
+            r"first\quality"
+        );
+    }
+
+    #[test]
+    fn sanitizes_summary_before_it_is_saved() {
+        assert_eq!(
+            parse_summary_response(r#"{"summary":"first\\\\nsecond *unfinished"}"#),
+            "firstsecond unfinished"
+        );
     }
 }

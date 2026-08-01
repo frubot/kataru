@@ -60,7 +60,6 @@ type ConversationCharacter = {
     topK?: number;
     enableMemory?: boolean;
     enableSummary?: boolean;
-    thinkModeEnabled?: boolean;
     expressions?: { name: string }[];
     costumes?: {
         name: string;
@@ -92,7 +91,6 @@ function toConversationCharacter(character: Character | null): ConversationChara
         topK: character.topK,
         enableMemory: character.enableMemory,
         enableSummary: character.enableSummary,
-        thinkModeEnabled: character.thinkModeEnabled,
         expressions: character.expressions?.map(({ name }) => ({ name })),
         costumes: character.costumes?.map(({ name, expressions }) => ({
             name,
@@ -789,11 +787,6 @@ type RustTurnResponse = {
         totalTokens: number;
         cost: number;
     }>;
-    thinkLogs?: Array<{
-        characterId: string;
-        characterName: string;
-        thinking: string;
-    }>;
     fullJsonLogs?: Array<{
         characterId: string;
         characterName: string;
@@ -849,8 +842,6 @@ function waitForConversationJobPoll(signal: AbortSignal): Promise<void> {
         signal.addEventListener('abort', handleAbort, { once: true });
     });
 }
-
-type DebugLogTab = 'thinking' | 'json';
 
 const MEMORY_SAVE_MIN_IMPORTANCE = 0.4;
 const MEMORY_SAVE_MIN_CONFIDENCE = 0.75;
@@ -941,10 +932,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         memoryEmbeddingModel,
         generateTitleOnFirstReply,
         titleGenerationModel,
-        thinkDebugEnabled,
-        thinkDebugLogs,
-        addThinkDebugLog,
-        clearThinkDebugLogs,
         fullJsonDebugEnabled,
         fullJsonDebugLogs,
         addFullJsonDebugLog,
@@ -983,7 +970,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const [chatModeMenuOpen, setChatModeMenuOpen] = useState(false);
     const [vnCostumeMenuOpen, setVnCostumeMenuOpen] = useState(false);
     const [debugLogOpen, setDebugLogOpen] = useState(false);
-    const [debugLogTab, setDebugLogTab] = useState<DebugLogTab>('thinking');
     const [chatNotice, setChatNotice] = useState<ChatNotice | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const vnDialogueBodyRef = useRef<HTMLDivElement>(null);
@@ -1005,15 +991,8 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const isLoading = currentRoomId ? activeGenerationRoomIds.has(currentRoomId) : false;
     const isEditingMessage = editingMessage?.roomId === currentRoomId;
     const isInlineVnEditing = isVisualNovelMode && isEditingMessage;
-    const debugPanelEnabled = thinkDebugEnabled || fullJsonDebugEnabled;
-    const activeDebugLogTab: DebugLogTab = fullJsonDebugEnabled && (!thinkDebugEnabled || debugLogTab === 'json')
-        ? 'json'
-        : 'thinking';
-    const visibleDebugLogCount = (thinkDebugEnabled ? thinkDebugLogs.length : 0)
-        + (fullJsonDebugEnabled ? fullJsonDebugLogs.length : 0);
-    const activeDebugLogCount = activeDebugLogTab === 'thinking'
-        ? thinkDebugLogs.length
-        : fullJsonDebugLogs.length;
+    const debugPanelEnabled = fullJsonDebugEnabled;
+    const visibleDebugLogCount = fullJsonDebugLogs.length;
 
     const scrollToBottom = useCallback(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -1471,14 +1450,8 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     useEffect(() => {
         if (!debugPanelEnabled) {
             setDebugLogOpen(false);
-            return;
         }
-        if (debugLogTab === 'thinking' && !thinkDebugEnabled) {
-            setDebugLogTab('json');
-        } else if (debugLogTab === 'json' && !fullJsonDebugEnabled) {
-            setDebugLogTab('thinking');
-        }
-    }, [debugPanelEnabled, debugLogTab, fullJsonDebugEnabled, thinkDebugEnabled]);
+    }, [debugPanelEnabled]);
 
     useEffect(() => {
         if (isMessageMode) {
@@ -1723,18 +1696,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             }
 
             if (!isSecretMode) {
-                if (thinkDebugEnabled) {
-                    for (const log of data.thinkLogs ?? []) {
-                        if (!log.thinking?.trim()) continue;
-                        addThinkDebugLog({
-                            roomId: sourceRoom.id,
-                            roomName: getCurrentRoom()?.name ?? sourceRoom.name,
-                            characterId: log.characterId,
-                            characterName: log.characterName,
-                            thinking: log.thinking,
-                        });
-                    }
-                }
                 if (fullJsonDebugEnabled) {
                     for (const log of data.fullJsonLogs ?? []) {
                         if (!log.json?.trim()) continue;
@@ -2245,11 +2206,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     }, [stopTypewriter]);
 
     const handleClearActiveDebugLogs = () => {
-        if (activeDebugLogTab === 'thinking') {
-            clearThinkDebugLogs();
-        } else {
-            clearFullJsonDebugLogs();
-        }
+        clearFullJsonDebugLogs();
     };
 
     const chatInputValue = isInlineVnEditing ? editingMessage?.content ?? '' : input;
@@ -2831,75 +2788,12 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                             </button>
                         </div>
                         <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                            {thinkDebugEnabled && fullJsonDebugEnabled && (
-                                <div className="tabs">
-                                    <button
-                                        type="button"
-                                        className={`tab ${activeDebugLogTab === 'thinking' ? 'active' : ''}`}
-                                        onClick={() => setDebugLogTab('thinking')}
-                                    >
-                                        考え ({thinkDebugLogs.length})
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className={`tab ${activeDebugLogTab === 'json' ? 'active' : ''}`}
-                                        onClick={() => setDebugLogTab('json')}
-                                    >
-                                        JSON ({fullJsonDebugLogs.length})
-                                    </button>
-                                </div>
-                            )}
-
-                            {activeDebugLogTab === 'thinking' ? (
-                                thinkDebugLogs.length === 0 ? (
-                                    <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
-                                        まだ考えログはありません。
-                                    </p>
-                                ) : (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                                        {thinkDebugLogs.map((log) => (
-                                            <div
-                                                key={log.id}
-                                                style={{
-                                                    padding: '0.875rem',
-                                                    borderRadius: '0.5rem',
-                                                    border: '1px solid var(--border-color)',
-                                                    background: 'var(--bg-secondary)',
-                                                }}
-                                            >
-                                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', marginBottom: '0.5rem' }}>
-                                                    <div style={{ minWidth: 0 }}>
-                                                        <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                            {log.characterName}
-                                                        </div>
-                                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                            {log.roomName}
-                                                        </div>
-                                                    </div>
-                                                    <time style={{ flexShrink: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                                        {new Date(log.createdAt).toLocaleString()}
-                                                    </time>
-                                                </div>
-                                                <pre style={{
-                                                    margin: 0,
-                                                    whiteSpace: 'pre-wrap',
-                                                    wordBreak: 'break-word',
-                                                    fontFamily: 'inherit',
-                                                    fontSize: '0.875rem',
-                                                    lineHeight: 1.6,
-                                                    color: 'var(--text-secondary)',
-                                                }}>{log.thinking}</pre>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )
+                            {fullJsonDebugLogs.length === 0 ? (
+                                <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
+                                    まだJSONログはありません。
+                                </p>
                             ) : (
-                                fullJsonDebugLogs.length === 0 ? (
-                                    <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
-                                        まだJSONログはありません。
-                                    </p>
-                                ) : (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                                         {fullJsonDebugLogs.map((log) => (
                                             <div
                                                 key={log.id}
@@ -2972,12 +2866,11 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                                                 }}>{log.json}</pre>
                                             </div>
                                         ))}
-                                    </div>
-                                )
+                                </div>
                             )}
                         </div>
                         <div className="modal-footer">
-                            <button className="btn btn-secondary" onClick={handleClearActiveDebugLogs} disabled={activeDebugLogCount === 0}>
+                            <button className="btn btn-secondary" onClick={handleClearActiveDebugLogs} disabled={fullJsonDebugLogs.length === 0}>
                                 ログを消去
                             </button>
                             <button className="btn btn-primary" onClick={() => setDebugLogOpen(false)}>

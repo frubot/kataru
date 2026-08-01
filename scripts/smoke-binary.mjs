@@ -187,7 +187,6 @@ try {
       maxHistory: 7,
       enableSummary: false,
       enableMemory: false,
-      thinkModeEnabled: false,
     },
     messages: [{
       id: "smoke-user-message",

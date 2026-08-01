@@ -178,7 +178,6 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
 
     let mut generated = Vec::new();
     let mut usages = Vec::new();
-    let mut think_logs = Vec::new();
     let mut full_json_logs = Vec::new();
     let mut used_memory_ids = Vec::new();
     let mut extraction_context: Option<ExtractionContext> = None;
@@ -294,7 +293,6 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
                 use_message_mode,
                 secret_mode,
                 &mut usages,
-                &mut think_logs,
                 &mut full_json_logs,
                 generated.len(),
             )
@@ -337,7 +335,6 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
             use_message_mode,
             secret_mode,
             &mut usages,
-            &mut think_logs,
             &mut full_json_logs,
             0,
         )
@@ -372,14 +369,12 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
 
     if secret_mode {
         usages.clear();
-        think_logs.clear();
         full_json_logs.clear();
         used_memory_ids.clear();
     }
     Ok(json!({
         "messages": generated,
         "usages": usages,
-        "thinkLogs": think_logs,
         "fullJsonLogs": full_json_logs,
         "summary": summary_result,
         "memoryCandidates": memory_candidates,
@@ -400,16 +395,11 @@ async fn generate_for_character(
     message_mode: bool,
     secret_mode: bool,
     usages: &mut Vec<Value>,
-    think_logs: &mut Vec<Value>,
     full_json_logs: &mut Vec<Value>,
     id_offset: usize,
 ) -> AppResult<Vec<Value>> {
     let expression_names = expression_names(character, room, situation.is_none());
-    let schema = assistant_schema(
-        &expression_names,
-        message_mode,
-        boolean(character, "thinkModeEnabled"),
-    );
+    let schema = assistant_schema(&expression_names, message_mode);
     let system_prompt = character_system_prompt(
         character,
         message_mode,
@@ -461,15 +451,6 @@ async fn generate_for_character(
             "json": content,
             "elapsedMs": now_ms().saturating_sub(started),
         }));
-        if let Some(thinking) = &envelope.thinking {
-            think_logs.push(json!({
-                "roomId": string(room, "id"),
-                "roomName": string(room, "name"),
-                "characterId": actor_id(character),
-                "characterName": string(character, "name"),
-                "thinking": thinking,
-            }));
-        }
     }
     Ok(envelope_to_messages(
         envelope,

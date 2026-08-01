@@ -4,7 +4,6 @@ type AssistantEnvelope = {
     message: string;
     messages: string[];
     to: string[];
-    thinking?: string;
     expression?: string;
 };
 
@@ -43,19 +42,11 @@ export function buildAssistantResponseFormat(
     expressionNames?: string[],
     toNames?: string[],
     useMessageMode = false,
-    useThinkMode = false,
 ): AssistantResponseFormat {
     const hasExpression = !!expressionNames && expressionNames.length > 0;
     const hasTo = !!toNames && toNames.length > 0;
     const properties: Record<string, unknown> = {};
     const required: string[] = [];
-
-    if (useThinkMode) {
-        properties.thinking = {
-            type: 'string',
-        };
-        required.push('thinking');
-    }
 
     if (hasExpression) {
         properties.expression = {
@@ -301,14 +292,12 @@ function parseAssistantJson(content: string): Partial<AssistantEnvelope> | null 
     const messageStrings = parseMessageStrings(messageValue);
     const messages = parseMessageStrings(messagesValue);
     const to = parseToNames(getRecordValue(record, ['to', 'recipients', 'recipient']));
-    const thinkingValue = getRecordValue(record, ['thinking', 'reasoning', 'thought']);
     const expressionValue = getRecordValue(record, ['expression', 'emotion']);
 
     return {
         message: messageStrings[0],
         messages,
         to,
-        thinking: typeof thinkingValue === 'string' ? thinkingValue : undefined,
         expression: typeof expressionValue === 'string' ? expressionValue : undefined,
     };
 }
@@ -351,7 +340,6 @@ export function parseAssistantResponse(
         message: normalizedMessages.join('\n\n'),
         messages: normalizedMessages,
         to: uniqueTrimmedStrings(parsedJson?.to ?? []),
-        ...(parsedJson?.thinking ? { thinking: parsedJson.thinking.trim() } : {}),
         ...(expression ? { expression } : {}),
     };
 }

@@ -292,9 +292,6 @@ export default function CharacterSettingsModal({ isOpen, onClose, character, isN
     // Memory settings
     const [enableMemory, setEnableMemory] = useState(true);
 
-    // Character inner thought settings
-    const [thinkModeEnabled, setThinkModeEnabled] = useState(false);
-
     // Parameter settings
     const [parametersOpen, setParametersOpen] = useState(false);
     const [maxTokens, setMaxTokens] = useState<string>('');
@@ -325,7 +322,6 @@ export default function CharacterSettingsModal({ isOpen, onClose, character, isN
             setModel(character.model.trim() || defaultChatModel);
             setEnableMemory(character.enableMemory ?? true);
             setEnableSummary(character.enableSummary ?? true);
-            setThinkModeEnabled(character.thinkModeEnabled === true);
             setMaxTokens(character.maxTokens != null ? String(character.maxTokens) : '');
             setMaxHistory(character.maxHistory != null ? String(character.maxHistory) : '');
             setTemperature(character.temperature ?? null);
@@ -343,7 +339,6 @@ export default function CharacterSettingsModal({ isOpen, onClose, character, isN
             setModel(defaultChatModel);
             setEnableMemory(true);
             setEnableSummary(true);
-            setThinkModeEnabled(false);
             setMaxTokens('');
             setMaxHistory('');
             setTemperature(null);
@@ -381,7 +376,6 @@ export default function CharacterSettingsModal({ isOpen, onClose, character, isN
             model: resolvedModel,
             enableMemory,
             enableSummary,
-            thinkModeEnabled,
             maxTokens: maxTokens ? Number(maxTokens) : undefined,
             maxHistory: maxHistory ? Math.min(100, Math.max(1, Number(maxHistory))) : undefined,
             temperature: temperature ?? undefined,
@@ -398,7 +392,7 @@ export default function CharacterSettingsModal({ isOpen, onClose, character, isN
             updateCharacter(character.id, updates);
         }
         onClose();
-    }, [character, costumes, createCharacter, defaultChatModel, enableMemory, enableSummary, expressions, icon, isNew, maxHistory, maxTokens, model, name, onClose, protagonistPrompt, speechStyle, systemPrompt, temperature, thinkModeEnabled, topK, topP, updateCharacter, userConstraints]);
+    }, [character, costumes, createCharacter, defaultChatModel, enableMemory, enableSummary, expressions, icon, isNew, maxHistory, maxTokens, model, name, onClose, protagonistPrompt, speechStyle, systemPrompt, temperature, topK, topP, updateCharacter, userConstraints]);
 
     useEffect(() => {
         const childModalOpen = imageGenOpen || characterGeneratorOpen || expressionsOpen || costumesOpen;
@@ -734,46 +728,6 @@ export default function CharacterSettingsModal({ isOpen, onClose, character, isN
                             </div>
                         </>
                     )}
-
-                    {/* 考える */}
-                    <div style={sectionStyle}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
-                            <div>
-                                {renderLabelWithInfo('考える', '返信前に内容を考えます。精度向上が期待できますが、トークン消費が増加します。内容は表示されません', {
-                                    marginBottom: 0,
-                                })}
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => setThinkModeEnabled(!thinkModeEnabled)}
-                                style={{
-                                    position: 'relative',
-                                    width: '44px',
-                                    height: '24px',
-                                    borderRadius: '12px',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    background: thinkModeEnabled ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
-                                    transition: 'background 0.2s ease',
-                                    padding: 0,
-                                    flexShrink: 0,
-                                }}
-                                aria-label="考えるを有効化"
-                            >
-                                <span style={{
-                                    position: 'absolute',
-                                    top: '2px',
-                                    left: thinkModeEnabled ? '22px' : '2px',
-                                    width: '20px',
-                                    height: '20px',
-                                    borderRadius: '50%',
-                                    background: '#fff',
-                                    transition: 'left 0.2s ease',
-                                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-                                }} />
-                            </button>
-                        </div>
-                    </div>
 
                     {/* 会話圧縮トグル */}
                     <div style={sectionStyle}>

@@ -12,8 +12,6 @@ pub struct AssistantEnvelope {
     pub messages: Vec<String>,
     pub to: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub thinking: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub expression: Option<String>,
 }
 
@@ -76,12 +74,6 @@ pub fn parse_assistant_response(
         .map(|value| parse_strings(get(value, &["to", "recipients", "recipient"])))
         .map(unique_nonempty)
         .unwrap_or_default();
-    let thinking = record
-        .and_then(|value| get(value, &["thinking", "reasoning", "thought"]))
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned);
     let requested_expression = record
         .and_then(|value| get(value, &["expression", "emotion"]))
         .and_then(Value::as_str)
@@ -108,7 +100,6 @@ pub fn parse_assistant_response(
         message: messages.join("\n\n"),
         messages,
         to,
-        thinking,
         expression,
     })
 }

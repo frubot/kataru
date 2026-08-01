@@ -75,7 +75,6 @@ export interface Character {
     topK?: number;
     enableMemory?: boolean;
     enableSummary?: boolean;
-    thinkModeEnabled?: boolean;
     expressions?: Expression[];
     costumes?: Costume[];
     createdAt: number;
@@ -158,7 +157,6 @@ export type SituationActor =
         temperature?: number;
         topP?: number;
         topK?: number;
-        thinkModeEnabled?: boolean;
         expressions?: Expression[];
         costumes?: Costume[];
     };
@@ -275,16 +273,6 @@ export interface UsageRecord {
     cost: number;
 }
 
-export interface ThinkDebugLog {
-    id: string;
-    roomId: string;
-    roomName: string;
-    characterId: string;
-    characterName: string;
-    thinking: string;
-    createdAt: number;
-}
-
 export interface FullJsonDebugLog {
     id: string;
     roomId: string;
@@ -332,8 +320,6 @@ interface AppState {
     openAiCompatibleBaseUrl: string;
     openAiCompatibleEmbeddingsEnabled: boolean;
     openAiCompatibleImageGenerationEnabled: boolean;
-    thinkDebugEnabled: boolean;
-    thinkDebugLogs: ThinkDebugLog[];
     fullJsonDebugEnabled: boolean;
     fullJsonDebugLogs: FullJsonDebugLog[];
     characters: Character[];
@@ -366,19 +352,16 @@ interface AppState {
     setOpenAiCompatibleEmbeddingsEnabled: (enabled: boolean) => void;
     setOpenAiCompatibleImageGenerationEnabled: (enabled: boolean) => void;
     getAiProviderConfig: () => AiProviderConfig;
-    setThinkDebugEnabled: (enabled: boolean) => void;
     setFullJsonDebugEnabled: (enabled: boolean) => void;
 
     // Characters
     createCharacter: (name: string, systemPrompt?: string, model?: string, extras?: CharacterExtras) => string;
-    updateCharacter: (id: string, updates: Partial<Pick<Character, 'name' | 'systemPrompt' | 'favorite' | 'speechStyle' | 'protagonistPrompt' | 'userConstraints' | 'model' | 'icon' | 'maxTokens' | 'maxHistory' | 'temperature' | 'topP' | 'topK' | 'enableMemory' | 'enableSummary' | 'thinkModeEnabled' | 'expressions' | 'costumes'>>) => void;
+    updateCharacter: (id: string, updates: Partial<Pick<Character, 'name' | 'systemPrompt' | 'favorite' | 'speechStyle' | 'protagonistPrompt' | 'userConstraints' | 'model' | 'icon' | 'maxTokens' | 'maxHistory' | 'temperature' | 'topP' | 'topK' | 'enableMemory' | 'enableSummary' | 'expressions' | 'costumes'>>) => void;
     deleteCharacter: (id: string) => void;
     duplicateCharacter: (id: string) => string;
     getCharacter: (id: string) => Character | undefined;
 
     // Debug logs (memory-only)
-    addThinkDebugLog: (log: Omit<ThinkDebugLog, 'id' | 'createdAt'>) => void;
-    clearThinkDebugLogs: () => void;
     addFullJsonDebugLog: (log: Omit<FullJsonDebugLog, 'id' | 'createdAt'>) => void;
     clearFullJsonDebugLogs: () => void;
 
@@ -448,7 +431,10 @@ function resolveCharacterModel(model: string | undefined, fallbackModel: string)
 
 function normalizeCharacterModel(character: Character, fallbackModel: string): Character {
     const model = resolveCharacterModel(character.model, fallbackModel);
-    return model === character.model ? character : { ...character, model };
+    const normalized = { ...character } as Character & { thinkModeEnabled?: boolean };
+    const hadLegacyThinkMode = 'thinkModeEnabled' in normalized;
+    delete normalized.thinkModeEnabled;
+    return model === character.model && !hadLegacyThinkMode ? character : { ...normalized, model };
 }
 
 function normalizeCharacters(characters: Character[], fallbackModel: string): Character[] {
@@ -767,7 +753,6 @@ function normalizeSituationActor(rawActor: unknown, validCharacterIds: Set<strin
             ...(typeof rawActor.temperature === 'number' ? { temperature: rawActor.temperature } : {}),
             ...(typeof rawActor.topP === 'number' ? { topP: rawActor.topP } : {}),
             ...(typeof rawActor.topK === 'number' ? { topK: rawActor.topK } : {}),
-            ...(rawActor.thinkModeEnabled === true ? { thinkModeEnabled: true } : {}),
             ...(Array.isArray(rawActor.expressions) ? { expressions: rawActor.expressions as Expression[] } : {}),
             ...(Array.isArray(rawActor.costumes) ? { costumes: rawActor.costumes as Costume[] } : {}),
         };
@@ -886,7 +871,6 @@ export function resolveSituationParticipants(
                 topK: actor.topK,
                 enableMemory: false,
                 enableSummary: false,
-                thinkModeEnabled: actor.thinkModeEnabled,
                 expressions: actor.expressions,
                 costumes: actor.costumes,
                 createdAt: situation.createdAt ?? now,
@@ -1028,8 +1012,6 @@ export const useStore = create<AppState>()((set, get) => ({
     openAiCompatibleBaseUrl: DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
     openAiCompatibleEmbeddingsEnabled: DEFAULT_OPENAI_COMPATIBLE_EMBEDDINGS_ENABLED,
     openAiCompatibleImageGenerationEnabled: DEFAULT_OPENAI_COMPATIBLE_IMAGE_GENERATION_ENABLED,
-    thinkDebugEnabled: false,
-    thinkDebugLogs: [],
     fullJsonDebugEnabled: false,
     fullJsonDebugLogs: [],
     characters: [],
@@ -1041,7 +1023,7 @@ export const useStore = create<AppState>()((set, get) => ({
     hydrate: async () => {
         if (get().hydrated) return;
         await db.migrateLegacyDatabase();
-        const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, currentRoomId, vnTypingSpeed, thinkDebugEnabled, fullJsonDebugEnabled, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedGenerateTitleOnFirstReply, storedAiProvider, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion] = await Promise.all([
+        const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, currentRoomId, vnTypingSpeed, fullJsonDebugEnabled, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedGenerateTitleOnFirstReply, storedAiProvider, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion] = await Promise.all([
             db.getAllCharacters(),
             db.getAllGroups(),
             db.getAllRooms(),
@@ -1050,7 +1032,6 @@ export const useStore = create<AppState>()((set, get) => ({
             db.getMeta<ThemePalette>('themePalette'),
             db.getMeta<string | null>('currentRoomId'),
             db.getMeta<VnTypingSpeed>('vnTypingSpeed'),
-            db.getMeta<boolean>('thinkDebugEnabled'),
             db.getMeta<boolean>('fullJsonDebugEnabled'),
             db.getMeta<string>('summaryModel'),
             db.getMeta<string>('defaultChatModel'),
@@ -1073,6 +1054,7 @@ export const useStore = create<AppState>()((set, get) => ({
         if (legacyOpenAiCompatibleApiKey !== undefined) {
             fire(db.deleteMeta('openAiCompatibleApiKey'));
         }
+        fire(db.deleteMeta('thinkDebugEnabled'));
         const resolvedDefaultChatModel = typeof storedDefaultChatModel === 'string' && storedDefaultChatModel.trim()
             ? storedDefaultChatModel.trim()
             : DEFAULT_CHAT_MODEL;
@@ -1187,8 +1169,6 @@ export const useStore = create<AppState>()((set, get) => ({
             openAiCompatibleBaseUrl: resolvedOpenAiCompatibleBaseUrl,
             openAiCompatibleEmbeddingsEnabled: resolvedOpenAiCompatibleEmbeddingsEnabled,
             openAiCompatibleImageGenerationEnabled: resolvedOpenAiCompatibleImageGenerationEnabled,
-            thinkDebugEnabled: thinkDebugEnabled === true,
-            thinkDebugLogs: [],
             fullJsonDebugEnabled: fullJsonDebugEnabled === true,
             fullJsonDebugLogs: [],
             currentRoomId: resolvedCurrentRoomId,
@@ -1224,10 +1204,6 @@ export const useStore = create<AppState>()((set, get) => ({
     setSummaryModel: (summaryModel) => {
         set({ summaryModel });
         fire(db.setMeta('summaryModel', summaryModel));
-    },
-    setThinkDebugEnabled: (thinkDebugEnabled) => {
-        set({ thinkDebugEnabled });
-        fire(db.setMeta('thinkDebugEnabled', thinkDebugEnabled));
     },
     setFullJsonDebugEnabled: (fullJsonDebugEnabled) => {
         set({ fullJsonDebugEnabled });
@@ -1430,24 +1406,6 @@ export const useStore = create<AppState>()((set, get) => ({
     },
 
     getCharacter: (id) => get().characters.find((c) => c.id === id),
-
-    addThinkDebugLog: (log) => {
-        const thinking = log.thinking.trim();
-        if (!thinking) return;
-        const entry: ThinkDebugLog = {
-            ...log,
-            thinking,
-            id: generateId(),
-            createdAt: Date.now(),
-        };
-        set((state) => ({
-            thinkDebugLogs: [entry, ...state.thinkDebugLogs].slice(0, DEBUG_LOG_LIMIT),
-        }));
-    },
-
-    clearThinkDebugLogs: () => {
-        set({ thinkDebugLogs: [] });
-    },
 
     addFullJsonDebugLog: (log) => {
         const json = log.json.trim();
@@ -2205,8 +2163,6 @@ export const useStore = create<AppState>()((set, get) => ({
             openAiCompatibleBaseUrl: DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
             openAiCompatibleEmbeddingsEnabled: DEFAULT_OPENAI_COMPATIBLE_EMBEDDINGS_ENABLED,
             openAiCompatibleImageGenerationEnabled: DEFAULT_OPENAI_COMPATIBLE_IMAGE_GENERATION_ENABLED,
-            thinkDebugEnabled: false,
-            thinkDebugLogs: [],
             fullJsonDebugEnabled: false,
             fullJsonDebugLogs: [],
             characters: [],

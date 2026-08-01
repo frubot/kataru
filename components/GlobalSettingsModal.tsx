@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Brain, Braces, Search, Image, Check, ChevronDown, RefreshCw, ExternalLink, type LucideIcon } from 'lucide-react';
+import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Braces, Search, Image, Check, ChevronDown, RefreshCw, ExternalLink, type LucideIcon } from 'lucide-react';
 import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, DEFAULT_SUMMARY_MODEL, DEFAULT_CHAT_MODEL, DEFAULT_DIRECTOR_MODEL, DEFAULT_AUTO_GENERATION_MODEL, DEFAULT_TITLE_GENERATION_MODEL, DEFAULT_IMAGE_MODEL, DEFAULT_MEMORY_EXTRACTION_MODEL, DEFAULT_MEMORY_EMBEDDING_MODEL, type AiProvider } from '@/lib/store';
 import { createFullBackup, downloadJson, parseFullBackup, reassignIds, ParsedBackup } from '@/lib/importExport';
 import StatisticsPanel from '@/components/StatisticsPanel';
@@ -322,9 +322,9 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         aiProvider, setAiProvider,
         openAiCompatibleEmbeddingsEnabled, setOpenAiCompatibleEmbeddingsEnabled,
         openAiCompatibleImageGenerationEnabled, setOpenAiCompatibleImageGenerationEnabled,
-        thinkDebugEnabled, thinkDebugLogs, fullJsonDebugEnabled, fullJsonDebugLogs,
+        fullJsonDebugEnabled, fullJsonDebugLogs,
         setThemeMode, setThemePalette, setVnTypingSpeed,
-        setThinkDebugEnabled, setFullJsonDebugEnabled, clearThinkDebugLogs, clearFullJsonDebugLogs,
+        setFullJsonDebugEnabled, clearFullJsonDebugLogs,
         clearAllHistory, resetApplication, mergeBackup, restoreBackup,
     } = useStore();
     const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -611,7 +611,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         document.getElementById(`settings-tab-${nextTab.id}`)?.focus();
     };
 
-    const debugLogCount = thinkDebugLogs.length + fullJsonDebugLogs.length;
+    const debugLogCount = fullJsonDebugLogs.length;
     const selectedPalette = PALETTE_OPTIONS.find(({ id }) => id === themePalette) ?? PALETTE_OPTIONS[0];
     const renderPaletteDots = (colors: { bg: string; surface: string; accent: string }) => (
         <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', flexShrink: 0 }}>
@@ -633,7 +633,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
     );
 
     const handleClearDebugLogs = () => {
-        clearThinkDebugLogs();
         clearFullJsonDebugLogs();
     };
     const renderDebugToggle = ({
@@ -1347,14 +1346,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                 デバッグ
                             </h3>
                             <div>
-                                {renderDebugToggle({
-                                    Icon: Brain,
-                                    label: '考えを表示',
-                                    enabled: thinkDebugEnabled,
-                                    onToggle: () => setThinkDebugEnabled(!thinkDebugEnabled),
-                                    ariaLabel: '考えの表示を有効化',
-                                })}
-                                <div style={{ height: 1, margin: '0.875rem 0' }} />
                                 {renderDebugToggle({
                                     Icon: Braces,
                                     label: '完全なJSONを表示',

@@ -61,23 +61,6 @@ const MESSAGE_REPLY_INSTRUCTION: &str = r#"
  - あなたが写真を送りたい場合、[ここに送りたい写真の短い説明を入れる] を表記することで任意の画像を送信できます。
 "#;
 
-const THINK_INSTRUCTION: &str = r#"
-## JSONスキーマの "thinking" フィールドについて
- "thinking" フィールドは、いかなる場合も**最初に出力**してください。先に他のフィールドを出力することは**できません**。
- 
- このフィールドは返答の前に一度状況を整理して返答の精度を向上させるためのフローに沿って計画を構築する場所です。次の順序に沿って文章を完成させてください。
-  1. 状況理解
-   相手の意図を考え、状況を整理してください。
-   いつ・どこで・誰が・何をしている を明確にしてください。 
-  2. 感情
-  3. 回答の長さ
-   適切な長さを決定してください。
-   短すぎるとテンポが悪くなり、長すぎると過剰に冗長な出力をすることになるかもしれません。
-   推奨される長さは次の通りです。
-   短い ~ 中: 単純な返答や他愛もない会話
-   長い: 説明や少し多めに話す必要がある場合、積極的に話したい場合
-"#;
-
 pub fn character_setting(character: &Value) -> String {
     let system = string(character, "systemPrompt");
     let speech_style = string(character, "speechStyle");
@@ -117,9 +100,6 @@ pub fn character_system_prompt(
         prompt.push_str(&roleplay_reply_instruction(&character_name));
     }
 
-    if boolean(character, "thinkModeEnabled") {
-        prompt.push_str(THINK_INSTRUCTION);
-    }
     if !expression_names.is_empty() {
         let default = expression_names
             .iter()
@@ -170,17 +150,9 @@ pub fn character_system_prompt(
     prompt
 }
 
-pub fn assistant_schema(
-    expression_names: &[String],
-    use_message_mode: bool,
-    use_think_mode: bool,
-) -> Value {
+pub fn assistant_schema(expression_names: &[String], use_message_mode: bool) -> Value {
     let mut properties = serde_json::Map::new();
     let mut required = Vec::new();
-    if use_think_mode {
-        properties.insert("thinking".into(), json!({"type": "string"}));
-        required.push("thinking");
-    }
     if !expression_names.is_empty() {
         properties.insert(
             "expression".into(),
@@ -396,17 +368,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn assistant_schema_keeps_thinking_before_message() {
-        let schema = assistant_schema(&[], false, true);
-        let property_names = schema
+    fn assistant_schema_does_not_request_thinking() {
+        let schema = assistant_schema(&[], false);
+        let properties = schema
             .pointer("/json_schema/schema/properties")
             .and_then(Value::as_object)
-            .expect("assistant schema properties must be an object")
-            .keys()
-            .map(String::as_str)
-            .collect::<Vec<_>>();
+            .expect("assistant schema properties must be an object");
 
-        assert_eq!(property_names, ["thinking", "message"]);
+        assert!(!properties.contains_key("thinking"));
+        assert!(properties.contains_key("message"));
     }
 
     #[test]

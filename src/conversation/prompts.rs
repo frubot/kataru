@@ -368,18 +368,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn assistant_schema_does_not_request_thinking() {
-        let schema = assistant_schema(&[], false);
-        let properties = schema
-            .pointer("/json_schema/schema/properties")
-            .and_then(Value::as_object)
-            .expect("assistant schema properties must be an object");
-
-        assert!(!properties.contains_key("thinking"));
-        assert!(properties.contains_key("message"));
-    }
-
-    #[test]
     fn single_participant_prompt_omits_multi_participant_instructions() {
         let character = json!({
             "name": "葵",

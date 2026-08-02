@@ -15,7 +15,7 @@ use axum::{
     Json, Router,
     body::Body,
     extract::{DefaultBodyLimit, Path, Request, State},
-    http::{HeaderValue, Method, StatusCode, header},
+    http::{HeaderValue, Method, StatusCode, header, uri::Authority},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -45,7 +45,7 @@ const STORAGE_REQUEST_BODY_LIMIT: usize = 512 * 1024 * 1024;
 const CONVERSATION_REQUEST_BODY_LIMIT: usize = 64 * 1024 * 1024;
 
 fn response_compression_predicate() -> impl Predicate {
-    // Kataruはloopback専用のため、巨大な画像data URLを含むJSONは圧縮コストの方が高い。
+    // 巨大な画像data URLを含むJSONは、圧縮コストの方が高い。
     // JS/CSSなどの静的アセットは従来どおり圧縮する。
     DefaultPredicate::new().and(NotForContentType::const_new("application/json"))
 }
@@ -62,7 +62,8 @@ pub struct AppState {
 
 #[derive(Clone)]
 struct SecurityState {
-    authority: Arc<str>,
+    authority: Option<Arc<str>>,
+    port: u16,
     allowed_origins: Arc<[String]>,
 }
 
@@ -106,7 +107,8 @@ async fn run() -> AppResult<()> {
         allowed_origins.push(origin.clone());
     }
     let security = SecurityState {
-        authority: Arc::from(config.socket_addr().to_string()),
+        authority: (!config.is_wildcard_host()).then(|| Arc::from(config.authority())),
+        port: config.port,
         allowed_origins: Arc::from(allowed_origins),
     };
 
@@ -124,7 +126,7 @@ async fn run() -> AppResult<()> {
                 .on_response(DefaultOnResponse::new().level(Level::INFO)),
         );
 
-    let listener = TcpListener::bind(config.socket_addr()).await?;
+    let listener = TcpListener::bind(config.bind_address()).await?;
     let url = config.origin();
     tracing::info!(
         url = %url,
@@ -251,17 +253,36 @@ async fn install_update(State(state): State<AppState>) -> AppResult<Json<update:
     Ok(Json(prepared.result))
 }
 
+fn host_matches(security: &SecurityState, value: &str) -> bool {
+    security.authority.as_ref().map_or_else(
+        || {
+            value
+                .parse::<Authority>()
+                .is_ok_and(|authority| authority.port_u16() == Some(security.port))
+        },
+        |expected| value.eq_ignore_ascii_case(expected),
+    )
+}
+
+fn origin_matches(security: &SecurityState, request_authority: &str, origin: &str) -> bool {
+    security
+        .allowed_origins
+        .iter()
+        .any(|allowed| origin.eq_ignore_ascii_case(allowed))
+        || (security.authority.is_none()
+            && origin.eq_ignore_ascii_case(&format!("http://{request_authority}")))
+}
+
 async fn security_guard(
     State(security): State<SecurityState>,
     request: Request<Body>,
     next: Next,
 ) -> Response {
-    let host_matches = request
+    let request_authority = request
         .headers()
         .get(header::HOST)
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| value.eq_ignore_ascii_case(&security.authority));
-    if !host_matches {
+        .and_then(|value| value.to_str().ok());
+    if !request_authority.is_some_and(|value| host_matches(&security, value)) {
         return (
             StatusCode::MISDIRECTED_REQUEST,
             Json(json!({ "error": "不正なHostヘッダーです。" })),
@@ -278,10 +299,7 @@ async fn security_guard(
             .headers()
             .get(header::ORIGIN)
             .and_then(|value| value.to_str().ok())
-        && !security
-            .allowed_origins
-            .iter()
-            .any(|allowed| origin == allowed)
+        && !request_authority.is_some_and(|authority| origin_matches(&security, authority, origin))
     {
         return (
             StatusCode::FORBIDDEN,
@@ -327,6 +345,41 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    fn security_state(authority: Option<&str>, port: u16) -> SecurityState {
+        SecurityState {
+            authority: authority.map(Arc::from),
+            port,
+            allowed_origins: Arc::from(Vec::<String>::new()),
+        }
+    }
+
+    #[test]
+    fn wildcard_host_accepts_any_authority_on_the_listening_port() {
+        let security = security_state(None, 37371);
+
+        assert!(host_matches(&security, "localhost:37371"));
+        assert!(host_matches(&security, "192.168.1.20:37371"));
+        assert!(host_matches(&security, "[::1]:37371"));
+        assert!(!host_matches(&security, "localhost:3000"));
+        assert!(!host_matches(&security, "invalid host:37371"));
+    }
+
+    #[test]
+    fn wildcard_host_accepts_only_the_request_origin() {
+        let security = security_state(None, 37371);
+
+        assert!(origin_matches(
+            &security,
+            "192.168.1.20:37371",
+            "http://192.168.1.20:37371"
+        ));
+        assert!(!origin_matches(
+            &security,
+            "192.168.1.20:37371",
+            "http://example.com:37371"
+        ));
+    }
 
     #[test]
     fn compression_skips_json_but_keeps_static_assets() {

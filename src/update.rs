@@ -178,10 +178,7 @@ fn current_server_args() -> Vec<OsString> {
 }
 
 pub fn server_restart_args() -> Vec<OsString> {
-    let mut args = current_server_args();
-    // 更新前のタブが再接続するため、再起動時に別のブラウザーを開かないようにします。
-    args.push(OsString::from("--no-open"));
-    args
+    current_server_args()
 }
 
 async fn fetch_latest_release(client: &Client) -> AppResult<GitHubRelease> {

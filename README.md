@@ -146,14 +146,13 @@ update                最新版を確認し、利用可能なら自動インス�
 --data-dir <PATH>     データ保存先
 --portable            実行ファイル横の kataru-data/ を使用
 --open                ブラウザを自動で開く
---no-open             ブラウザを自動で開かない
 --dev-origin <ORIGIN> 開発UI用のloopbackオリジンを許可
 ```
 
 例:
 
 ```bash
-npm start -- --portable --no-open
+npm start -- --portable
 ```
 
 ### アップデート

@@ -89,7 +89,6 @@ let output = "";
 const child = spawn(
   executable,
   [
-    "--no-open",
     "--port",
     String(applicationPort),
     "--data-dir",

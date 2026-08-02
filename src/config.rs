@@ -70,7 +70,6 @@ impl Config {
                         .join("kataru-data");
                 }
                 "--open" => open_browser = true,
-                "--no-open" => open_browser = false,
                 "--dev-origin" => {
                     let value = args.next().ok_or_else(|| {
                         AppError::BadRequest("--dev-origin には値が必要です。".to_owned())
@@ -93,7 +92,7 @@ impl Config {
                 }
                 "--help" | "-h" => {
                     println!(
-                        "Kataru\n\n  version, --version, -V 現在のバージョンを表示\n  update                 最新版を確認して自動更新\n\n  --host <HOST>          待受ホスト（既定: {DEFAULT_HOST}）\n  --port <PORT>          待受ポート（既定: {DEFAULT_PORT}）\n  --data-dir <PATH>      データ保存先\n  --portable             実行ファイル横の kataru-data を使用\n  --open                 ブラウザを自動で開く\n  --no-open              ブラウザを自動で開かない\n  --dev-origin <ORIGIN>  開発UI用のloopbackオリジンを許可"
+                        "Kataru\n\n  version, --version, -V 現在のバージョンを表示\n  update                 最新版を確認して自動更新\n\n  --host <HOST>          待受ホスト（既定: {DEFAULT_HOST}）\n  --port <PORT>          待受ポート（既定: {DEFAULT_PORT}）\n  --data-dir <PATH>      データ保存先\n  --portable             実行ファイル横の kataru-data を使用\n  --open                 ブラウザを自動で開く\n  --dev-origin <ORIGIN>  開発UI用のloopbackオリジンを許可"
                     );
                     std::process::exit(0);
                 }

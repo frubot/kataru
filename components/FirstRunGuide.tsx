@@ -1,10 +1,18 @@
-import { useState } from 'react';
-import { ArrowLeft, CheckCircle2, Cloud, Cpu, Loader2, Menu, Sparkles } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { ArrowLeft, CheckCircle2, Cloud, Cpu, KeyRound, Loader2, Menu, Sparkles } from 'lucide-react';
 import {
     formatGeneratedCharacterPrompt,
     formatGeneratedProtagonistPrompt,
     normalizeGeneratedCharacterProfile,
 } from '@/lib/characterGeneration';
+import {
+    getServerAiConfig,
+    setOpenAiConfig,
+    setOpenRouterApiKey,
+    type AiConfigSource,
+    type ServerAiConfigStatus,
+} from '@/lib/serverAiConfig';
+import { DEFAULT_OPENAI_COMPATIBLE_BASE_URL } from '@/lib/aiProvider';
 import { useStore, type AiProvider } from '@/lib/store';
 
 interface FirstRunGuideProps {
@@ -13,12 +21,23 @@ interface FirstRunGuideProps {
     onSkip: () => void;
 }
 
-type GuideStep = 'connection' | 'character';
+type GuideStep = 'provider' | 'connection' | 'character';
 type ConnectionState = 'idle' | 'checking' | 'error';
 
 interface ConnectionStatusResponse {
     ready?: boolean;
     message?: string;
+}
+
+const CONFIG_SOURCE_LABELS: Record<AiConfigSource, string> = {
+    default: '既定値',
+    stored: '保存済み',
+    environment: '環境変数',
+};
+
+function keyStatusLabel(configured: boolean, source: AiConfigSource | null): string {
+    if (!configured) return '未設定';
+    return source ? `設定済み（${CONFIG_SOURCE_LABELS[source]}）` : '設定済み';
 }
 
 const PROVIDER_OPTIONS: readonly {
@@ -51,30 +70,118 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
         createCharacter,
         createRoom,
     } = useStore();
-    const [step, setStep] = useState<GuideStep>('connection');
+    const [step, setStep] = useState<GuideStep>('provider');
+    const [serverConfig, setServerConfig] = useState<ServerAiConfigStatus | null>(null);
+    const [configLoading, setConfigLoading] = useState(false);
+    const [configLoadAttempt, setConfigLoadAttempt] = useState(0);
+    const [configError, setConfigError] = useState('');
+    const [openRouterApiKey, setOpenRouterApiKeyInput] = useState('');
+    const [openAiBaseUrl, setOpenAiBaseUrl] = useState('');
+    const [openAiApiKey, setOpenAiApiKeyInput] = useState('');
     const [connectionState, setConnectionState] = useState<ConnectionState>('idle');
     const [connectionMessage, setConnectionMessage] = useState('');
-    const [showConnectionHelp, setShowConnectionHelp] = useState(false);
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
     const [relationship, setRelationship] = useState('');
     const [isGenerating, setGenerating] = useState(false);
     const [generationError, setGenerationError] = useState('');
 
+    useEffect(() => {
+        if (step !== 'connection') return;
+
+        let cancelled = false;
+        setConfigLoading(true);
+        setConfigError('');
+        setConnectionState('idle');
+        setConnectionMessage('');
+
+        void getServerAiConfig()
+            .then((status) => {
+                if (cancelled) return;
+                setServerConfig(status);
+                setOpenAiBaseUrl(status.openai.baseUrl);
+                setOpenRouterApiKeyInput('');
+                setOpenAiApiKeyInput('');
+            })
+            .catch((error) => {
+                if (cancelled) return;
+                setServerConfig(null);
+                setConfigError(error instanceof Error ? error.message : 'AI接続設定を読み込めませんでした。');
+            })
+            .finally(() => {
+                if (!cancelled) setConfigLoading(false);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [aiProvider, configLoadAttempt, step]);
+
     const selectProvider = (provider: AiProvider) => {
         setAiProvider(provider);
         setConnectionState('idle');
         setConnectionMessage('');
-        setShowConnectionHelp(false);
     };
 
-    const checkConnection = async () => {
-        if (connectionState === 'checking') return;
+    const saveAndCheckConnection = async () => {
+        if (connectionState === 'checking' || !serverConfig) return;
+
+        const trimmedOpenRouterKey = openRouterApiKey.trim();
+        const trimmedOpenAiKey = openAiApiKey.trim();
+        const trimmedOpenAiBaseUrl = openAiBaseUrl.trim().replace(/\/+$/, '');
+        const openAiBaseChanged = trimmedOpenAiBaseUrl !== serverConfig.openai.baseUrl;
+
+        if (aiProvider === 'openrouter' && !serverConfig.openrouter.configured && !trimmedOpenRouterKey) {
+            setConnectionState('error');
+            setConnectionMessage('OpenRouter APIキーを入力してください。');
+            return;
+        }
+        if (
+            aiProvider === 'openai-compatible'
+            && !trimmedOpenAiBaseUrl
+            && serverConfig.openai.baseUrlEditable
+        ) {
+            setConnectionState('error');
+            setConnectionMessage('Base URLを入力してください。');
+            return;
+        }
+        if (
+            aiProvider === 'openai-compatible'
+            && trimmedOpenAiBaseUrl === DEFAULT_OPENAI_COMPATIBLE_BASE_URL
+            && (!serverConfig.openai.apiKey.configured || openAiBaseChanged)
+            && !trimmedOpenAiKey
+        ) {
+            setConnectionState('error');
+            setConnectionMessage('OpenAI公式APIを使うにはAPIキーを入力してください。');
+            return;
+        }
+
         setConnectionState('checking');
         setConnectionMessage('');
-        setShowConnectionHelp(false);
 
         try {
+            let nextServerConfig = serverConfig;
+            if (aiProvider === 'openrouter' && serverConfig.openrouter.editable && trimmedOpenRouterKey) {
+                nextServerConfig = await setOpenRouterApiKey(trimmedOpenRouterKey);
+            } else if (aiProvider === 'openai-compatible') {
+                const update = {
+                    ...(serverConfig.openai.baseUrlEditable && openAiBaseChanged
+                        ? { baseUrl: trimmedOpenAiBaseUrl }
+                        : {}),
+                    ...(serverConfig.openai.apiKey.editable && trimmedOpenAiKey
+                        ? { apiKey: trimmedOpenAiKey }
+                        : {}),
+                };
+                if (Object.keys(update).length > 0) {
+                    nextServerConfig = await setOpenAiConfig(update);
+                }
+            }
+
+            setServerConfig(nextServerConfig);
+            setOpenAiBaseUrl(nextServerConfig.openai.baseUrl);
+            setOpenRouterApiKeyInput('');
+            setOpenAiApiKeyInput('');
+
             const response = await fetch('/api/ai/status', {
                 method: 'POST',
                 credentials: 'same-origin',
@@ -141,6 +248,19 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
         onComplete();
     };
 
+    const stepNumber = step === 'provider' ? 1 : step === 'connection' ? 2 : 3;
+    const selectedApiKeyStatus = serverConfig
+        ? aiProvider === 'openrouter'
+            ? serverConfig.openrouter
+            : serverConfig.openai.apiKey
+        : null;
+    const openAiBaseChanged = serverConfig != null
+        && openAiBaseUrl.trim().replace(/\/+$/, '') !== serverConfig.openai.baseUrl;
+    const hasConnectionChanges = aiProvider === 'openrouter'
+        ? openRouterApiKey.trim().length > 0
+        : openAiBaseChanged || openAiApiKey.trim().length > 0;
+    const connectionBusy = configLoading || connectionState === 'checking';
+
     return (
         <section className="chat-container onboarding-container" aria-label="はじめ方">
             <div className="chat-header mobile-only onboarding-mobile-header">
@@ -158,13 +278,13 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
             </div>
 
             <div className="onboarding-scroll">
-                <div className={`onboarding-card ${step === 'connection' ? 'is-connection-step' : ''}`}>
+                <div className={`onboarding-card ${step !== 'character' ? 'is-connection-step' : ''}`}>
                     <div className="onboarding-navigation">
-                        {step === 'character' ? (
+                        {step !== 'provider' ? (
                             <button
                                 type="button"
                                 className="btn btn-ghost onboarding-back"
-                                onClick={() => setStep('connection')}
+                                onClick={() => setStep(step === 'character' ? 'connection' : 'provider')}
                                 aria-label="前へ戻る"
                                 title="前へ戻る"
                             >
@@ -174,22 +294,22 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                             <span className="onboarding-back-placeholder" aria-hidden="true" />
                         )}
                         <div
-                            className={`onboarding-progress ${step === 'character' ? 'has-completed-step' : ''}`}
+                            className={`onboarding-progress is-${step}-step`}
                             role="progressbar"
-                            aria-label={step === 'connection' ? '1 / 2' : '2 / 2'}
-                            aria-valuemin={0}
-                            aria-valuemax={2}
-                            aria-valuenow={step === 'connection' ? 0 : 1}
+                            aria-label={`${stepNumber} / 3`}
+                            aria-valuemin={1}
+                            aria-valuemax={3}
+                            aria-valuenow={stepNumber}
                         >
                             <span className="onboarding-progress-fill" />
                         </div>
                     </div>
 
-                    {step === 'connection' ? (
+                    {step === 'provider' ? (
                         <>
                             <div className="onboarding-heading">
                                 <div>
-                                    <p className="onboarding-step-label">1 / 2 · 会話の準備</p>
+                                    <p className="onboarding-step-label">1 / 3 · AIを選ぶ</p>
                                     <h1>Kataruへようこそ</h1>
                                 </div>
                             </div>
@@ -226,19 +346,165 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                 会話データはこのパソコンに保存されます。
                             </p>
 
+                            <div className="onboarding-actions">
+                                <button
+                                    type="button"
+                                    className="btn btn-ghost"
+                                    onClick={onSkip}
+                                >
+                                    初期設定をスキップ
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn btn-primary"
+                                    onClick={() => setStep('connection')}
+                                >
+                                    次へ
+                                </button>
+                            </div>
+                        </>
+                    ) : step === 'connection' ? (
+                        <>
+                            <div className="onboarding-heading">
+                                <div>
+                                    <p className="onboarding-step-label">2 / 3 · 接続設定</p>
+                                    <h1>
+                                        {aiProvider === 'openrouter'
+                                            ? 'OpenRouterを設定'
+                                            : 'APIの接続先を設定'}
+                                    </h1>
+                                </div>
+                            </div>
+                            <p className="onboarding-lead">
+                                {aiProvider === 'openrouter'
+                                    ? 'OpenRouterのAPIキーを保存して、会話できるか確認します。'
+                                    : 'OpenAI公式APIまたは互換APIのBase URLとAPIキーを設定します。'}
+                            </p>
+
+                            {configLoading ? (
+                                <div className="ai-connection-card ai-connection-loading onboarding-connection-card" aria-live="polite">
+                                    <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+                                    AI接続設定を読み込んでいます…
+                                </div>
+                            ) : !serverConfig ? (
+                                <div className="onboarding-status error" role="alert">
+                                    <span>{configError || 'AI接続設定を読み込めませんでした。'}</span>
+                                    <button type="button" onClick={() => setConfigLoadAttempt((attempt) => attempt + 1)}>
+                                        再読み込み
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="ai-connection-card onboarding-connection-card">
+                                    <div className="ai-connection-heading">
+                                        <div>
+                                            <strong>
+                                                {aiProvider === 'openrouter' ? 'OpenRouter' : 'OpenAI / 互換API'} 接続設定
+                                            </strong>
+                                            <span>
+                                                {selectedApiKeyStatus
+                                                    ? keyStatusLabel(
+                                                        selectedApiKeyStatus.configured,
+                                                        selectedApiKeyStatus.source,
+                                                    )
+                                                    : '未設定'}
+                                            </span>
+                                        </div>
+                                        <KeyRound size={18} aria-hidden="true" />
+                                    </div>
+
+                                    {!serverConfig.secretStoreAvailable && !selectedApiKeyStatus?.configured && (
+                                        <p className="ai-connection-message error" role="alert">
+                                            OSの資格情報ストアを利用できません。環境変数でAPIキーを設定してください。
+                                        </p>
+                                    )}
+
+                                    {aiProvider === 'openrouter' ? (
+                                        <>
+                                            <label className="ai-connection-label" htmlFor="onboarding-openrouter-api-key">
+                                                APIキー
+                                            </label>
+                                            <input
+                                                id="onboarding-openrouter-api-key"
+                                                className="input"
+                                                type="password"
+                                                value={openRouterApiKey}
+                                                disabled={!serverConfig.openrouter.editable || connectionBusy}
+                                                autoComplete="new-password"
+                                                spellCheck={false}
+                                                autoFocus={serverConfig.openrouter.editable && !serverConfig.openrouter.configured}
+                                                placeholder={serverConfig.openrouter.configured
+                                                    ? '変更する場合のみ入力'
+                                                    : 'OpenRouter APIキーを入力'}
+                                                onChange={(event) => setOpenRouterApiKeyInput(event.target.value)}
+                                            />
+                                            {!serverConfig.openrouter.editable && (
+                                                <p className="ai-connection-help">
+                                                    環境変数 OPENROUTER_API_KEY が優先されています。
+                                                </p>
+                                            )}
+                                            <p className="ai-connection-help">
+                                                キーはブラウザーに保存せず、OSの資格情報ストアで保護します。保存後も画面には表示しません。
+                                            </p>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <label className="ai-connection-label" htmlFor="onboarding-openai-base-url">
+                                                Base URL
+                                            </label>
+                                            <input
+                                                id="onboarding-openai-base-url"
+                                                className="input"
+                                                type="url"
+                                                value={openAiBaseUrl}
+                                                disabled={!serverConfig.openai.baseUrlEditable || connectionBusy}
+                                                spellCheck={false}
+                                                placeholder={DEFAULT_OPENAI_COMPATIBLE_BASE_URL}
+                                                onChange={(event) => setOpenAiBaseUrl(event.target.value)}
+                                            />
+                                            <p className="ai-connection-help">
+                                                {serverConfig.openai.baseUrlEditable
+                                                    ? `OpenAI公式の既定値は ${DEFAULT_OPENAI_COMPATIBLE_BASE_URL} です。`
+                                                    : '環境変数 OPENAI_BASE_URL またはOPENAI_API_KEY が優先されています。'}
+                                            </p>
+                                            {openAiBaseChanged && serverConfig.openai.apiKey.configured && (
+                                                <p className="ai-connection-help warning">
+                                                    接続先を変更すると、現在保存されているAPIキーは解除されます。
+                                                </p>
+                                            )}
+
+                                            <label className="ai-connection-label" htmlFor="onboarding-openai-api-key">
+                                                APIキー
+                                            </label>
+                                            <input
+                                                id="onboarding-openai-api-key"
+                                                className="input"
+                                                type="password"
+                                                value={openAiApiKey}
+                                                disabled={!serverConfig.openai.apiKey.editable || connectionBusy}
+                                                autoComplete="new-password"
+                                                spellCheck={false}
+                                                placeholder={serverConfig.openai.apiKey.configured
+                                                    ? '変更する場合のみ入力'
+                                                    : 'APIキーを入力（ローカル互換APIでは省略可）'}
+                                                onChange={(event) => setOpenAiApiKeyInput(event.target.value)}
+                                            />
+                                            {!serverConfig.openai.apiKey.editable && (
+                                                <p className="ai-connection-help">
+                                                    環境変数 OPENAI_API_KEY が優先されています。
+                                                </p>
+                                            )}
+                                            <p className="ai-connection-help">
+                                                キーは接続先ごとに保存され、変更後も画面には表示しません。
+                                            </p>
+                                        </>
+                                    )}
+                                </div>
+                            )}
+
                             {connectionState === 'error' && (
                                 <div className="onboarding-status error" role="alert">
                                     <span>{connectionMessage}</span>
-                                    <button type="button" onClick={() => setShowConnectionHelp((show) => !show)}>
-                                        {showConnectionHelp ? '設定方法を閉じる' : '設定方法を見る'}
-                                    </button>
-                                    {showConnectionHelp && (
-                                        <p>
-                                            {aiProvider === 'openrouter'
-                                                ? 'APIキーが設定されていないようです。「設定」→「モデル」でOpenRouter APIキーを保存してください。'
-                                                : 'OpenAI / 互換APIに接続できません。「設定」→「モデル」でbase URLとAPIキーを確認してください。'}
-                                        </p>
-                                    )}
+                                    <p>入力内容と接続先の起動状態を確認して、もう一度お試しください。</p>
                                 </div>
                             )}
 
@@ -247,18 +513,22 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                     type="button"
                                     className="btn btn-ghost"
                                     onClick={onSkip}
-                                    disabled={connectionState === 'checking'}
+                                    disabled={connectionBusy}
                                 >
                                     初期設定をスキップ
                                 </button>
                                 <button
                                     type="button"
                                     className="btn btn-primary"
-                                    onClick={checkConnection}
-                                    disabled={connectionState === 'checking'}
+                                    onClick={() => void saveAndCheckConnection()}
+                                    disabled={!serverConfig || connectionBusy}
                                 >
                                     {connectionState === 'checking' && <Loader2 size={16} className="animate-spin" />}
-                                    {connectionState === 'error' ? 'もう一度確認' : '次へ'}
+                                    {connectionState === 'checking'
+                                        ? '保存・確認中…'
+                                        : hasConnectionChanges
+                                            ? '保存して接続確認'
+                                            : '接続を確認'}
                                 </button>
                             </div>
                         </>
@@ -266,7 +536,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                         <>
                             <div className="onboarding-heading">
                                 <div>
-                                    <p className="onboarding-step-label">2 / 2 · 話す相手を作る</p>
+                                    <p className="onboarding-step-label">3 / 3 · 話す相手を作る</p>
                                     <h1>誰と話しますか？</h1>
                                 </div>
                             </div>

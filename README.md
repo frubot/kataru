@@ -34,7 +34,7 @@ npm install
 
 ### OpenRouterを使う場合
 
-接続先の初期値はOpenRouterです。起動後に「設定」→「モデル」でAPIキーを保存できます。APIキーはブラウザやSQLiteには保存されず、OSの資格情報ストアへ保存されます。
+接続先の初期値はOpenRouterです。初回起動の案内、または「設定」→「モデル」でAPIキーを保存できます。APIキーはブラウザやSQLiteには保存されず、OSの資格情報ストアへ保存されます。
 
 CLIから設定する場合:
 
@@ -62,7 +62,7 @@ npm run dev
 
 ### OpenAIまたは互換APIを使う場合
 
-OpenAIの既定base URLは`https://api.openai.com/v1`です。起動後に「設定」→「モデル」で「OpenAI / 互換API」を選び、APIキーやbase URLを設定できます。
+OpenAIの既定base URLは`https://api.openai.com/v1`です。初回起動の案内、または「設定」→「モデル」で「OpenAI / 互換API」を選び、APIキーやbase URLを設定できます。
 
 CLIから設定する場合:
 

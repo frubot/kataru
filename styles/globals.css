@@ -2146,19 +2146,23 @@ body {
   height: 4px;
   overflow: hidden;
   border-radius: 999px;
-  background: var(--accent-primary);
+  background: var(--bg-tertiary);
 }
 
 .onboarding-progress-fill {
   display: block;
-  width: 0;
+  width: 33.333%;
   height: 100%;
-  background: #b5e61d;
+  background: var(--accent-primary);
   transition: width 0.2s ease;
 }
 
-.onboarding-progress.has-completed-step .onboarding-progress-fill {
-  width: 50%;
+.onboarding-progress.is-connection-step .onboarding-progress-fill {
+  width: 66.666%;
+}
+
+.onboarding-progress.is-character-step .onboarding-progress-fill {
+  width: 100%;
 }
 
 .onboarding-heading {
@@ -2330,6 +2334,10 @@ body {
   margin: 0.625rem 0 0;
   color: var(--text-secondary);
   overflow-wrap: anywhere;
+}
+
+.onboarding-connection-card {
+  background: var(--bg-primary);
 }
 
 .onboarding-form {

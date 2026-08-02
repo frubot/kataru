@@ -71,7 +71,9 @@ pub fn character_setting(character: &Value) -> String {
         sections.push(system);
     }
     if !speech_style.is_empty() {
-        sections.push(format!("# 口調\nこれはキャラクターの実際の口調の一部を抜粋したものです。\n\n{speech_style}"));
+        sections.push(format!(
+            "# 口調\nこれはキャラクターの実際の口調の一部を抜粋したものです。\n\n{speech_style}"
+        ));
     }
     if !protagonist.is_empty() {
         sections.push(format!("# 主人公の概要\n{protagonist}"));

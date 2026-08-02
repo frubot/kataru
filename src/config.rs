@@ -11,10 +11,29 @@ use crate::error::{AppError, AppResult};
 pub const DEFAULT_PORT: u16 = 37371;
 pub const DEFAULT_HOST: &str = "127.0.0.1";
 
+pub fn default_data_dir() -> AppResult<PathBuf> {
+    ProjectDirs::from("", "", "Kataru")
+        .map(|dirs| dirs.data_local_dir().to_path_buf())
+        .ok_or_else(|| {
+            AppError::Internal("ユーザーデータ保存先を決定できませんでした。".to_owned())
+        })
+}
+
+pub fn portable_data_dir() -> AppResult<PathBuf> {
+    let executable = env::current_exe()?;
+    executable
+        .parent()
+        .map(|parent| parent.join("kataru-data"))
+        .ok_or_else(|| {
+            AppError::Internal("実行ファイルの保存先を取得できませんでした。".to_owned())
+        })
+}
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub host: String,
     pub port: u16,
+    pub data_dir: PathBuf,
     pub database_path: PathBuf,
     pub open_browser: bool,
     pub development_origin: Option<String>,
@@ -22,12 +41,9 @@ pub struct Config {
 
 impl Config {
     pub fn from_args() -> AppResult<Self> {
-        let project_dirs = ProjectDirs::from("", "", "Kataru").ok_or_else(|| {
-            AppError::Internal("ユーザーデータ保存先を決定できませんでした。".to_owned())
-        })?;
         let mut host = DEFAULT_HOST.to_owned();
         let mut port = DEFAULT_PORT;
-        let mut data_dir = project_dirs.data_local_dir().to_path_buf();
+        let mut data_dir = default_data_dir()?;
         let mut open_browser = false;
         let mut development_origin = None;
 
@@ -59,15 +75,7 @@ impl Config {
                     data_dir = PathBuf::from(value);
                 }
                 "--portable" => {
-                    let executable = env::current_exe()?;
-                    data_dir = executable
-                        .parent()
-                        .ok_or_else(|| {
-                            AppError::Internal(
-                                "実行ファイルの保存先を取得できませんでした。".to_owned(),
-                            )
-                        })?
-                        .join("kataru-data");
+                    data_dir = portable_data_dir()?;
                 }
                 "--open" => open_browser = true,
                 "--dev-origin" => {
@@ -92,7 +100,7 @@ impl Config {
                 }
                 "--help" | "-h" => {
                     println!(
-                        "Kataru\n\n  version, --version, -V 現在のバージョンを表示\n  update                 最新版を確認して自動更新\n\n  --host <HOST>          待受ホスト（既定: {DEFAULT_HOST}）\n  --port <PORT>          待受ポート（既定: {DEFAULT_PORT}）\n  --data-dir <PATH>      データ保存先\n  --portable             実行ファイル横の kataru-data を使用\n  --open                 ブラウザを自動で開く\n  --dev-origin <ORIGIN>  開発UI用のloopbackオリジンを許可"
+                        "Kataru\n\n  version, --version, -V 現在のバージョンを表示\n  update                 最新版を確認して自動更新\n  config                 AI接続設定を表示・変更\n\n  --host <HOST>          待受ホスト（既定: {DEFAULT_HOST}）\n  --port <PORT>          待受ポート（既定: {DEFAULT_PORT}）\n  --data-dir <PATH>      データ保存先\n  --portable             実行ファイル横の kataru-data を使用\n  --open                 ブラウザを自動で開く\n  --dev-origin <ORIGIN>  開発UI用のloopbackオリジンを許可"
                     );
                     std::process::exit(0);
                 }
@@ -105,6 +113,7 @@ impl Config {
         Ok(Self {
             host,
             port,
+            data_dir: data_dir.clone(),
             database_path: data_dir.join("kataru.db"),
             open_browser,
             development_origin,
@@ -142,6 +151,7 @@ mod tests {
         Config {
             host: host.to_owned(),
             port: DEFAULT_PORT,
+            data_dir: PathBuf::from("."),
             database_path: PathBuf::from("kataru.db"),
             open_browser: false,
             development_origin: None,

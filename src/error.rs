@@ -15,6 +15,8 @@ pub enum AppError {
     #[error("{0}")]
     NotFound(String),
     #[error("{0}")]
+    Forbidden(String),
+    #[error("{0}")]
     Upstream(String, StatusCode),
     #[error("{0}")]
     Internal(String),
@@ -33,6 +35,7 @@ impl IntoResponse for AppError {
         let status = match &self {
             Self::BadRequest(_) => StatusCode::BAD_REQUEST,
             Self::NotFound(_) => StatusCode::NOT_FOUND,
+            Self::Forbidden(_) => StatusCode::FORBIDDEN,
             Self::Upstream(_, status) => *status,
             Self::Internal(_) | Self::Io(_) | Self::Database(_) | Self::Json(_) | Self::Http(_) => {
                 StatusCode::INTERNAL_SERVER_ERROR

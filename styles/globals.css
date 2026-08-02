@@ -645,6 +645,99 @@ body {
   background: var(--bg-hover);
 }
 
+.ai-connection-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid var(--border-color);
+  border-radius: 0.75rem;
+  background: var(--bg-secondary);
+}
+
+.ai-connection-loading {
+  flex-direction: row;
+  align-items: center;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+.ai-connection-loading .spin {
+  animation: spin 0.8s linear infinite;
+}
+
+.ai-connection-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  color: var(--accent-primary);
+}
+
+.ai-connection-heading > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.ai-connection-heading strong {
+  color: var(--text-primary);
+  font-size: 0.875rem;
+}
+
+.ai-connection-heading span,
+.ai-connection-help {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.ai-connection-label {
+  margin-bottom: -0.4rem;
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.ai-connection-card .input:disabled {
+  cursor: not-allowed;
+  opacity: 0.68;
+}
+
+.ai-connection-help {
+  margin: -0.25rem 0 0;
+}
+
+.ai-connection-help.warning {
+  color: var(--warning);
+}
+
+.ai-connection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.ai-connection-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.ai-connection-message {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.ai-connection-message.success {
+  color: var(--success);
+}
+
+.ai-connection-message.error {
+  color: var(--error);
+}
+
 .statistics-panel {
   width: 100%;
 }

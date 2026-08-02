@@ -8,7 +8,7 @@ export interface AiProviderConfig {
 }
 
 export const DEFAULT_AI_PROVIDER: AiProvider = 'openrouter';
-export const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = 'http://localhost:1234/v1';
+export const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = 'https://api.openai.com/v1';
 export const DEFAULT_OPENAI_COMPATIBLE_EMBEDDINGS_ENABLED = true;
 export const DEFAULT_OPENAI_COMPATIBLE_IMAGE_GENERATION_ENABLED = false;
 

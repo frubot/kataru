@@ -106,6 +106,7 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
     let provider = Provider::resolve(
         state.http_client.clone(),
         state.application_origin.clone(),
+        &state.ai_config.effective(),
         provider_config,
     )?;
 

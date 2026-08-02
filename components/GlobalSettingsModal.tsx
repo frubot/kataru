@@ -3,6 +3,7 @@ import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Braces, Search, 
 import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, DEFAULT_SUMMARY_MODEL, DEFAULT_CHAT_MODEL, DEFAULT_DIRECTOR_MODEL, DEFAULT_AUTO_GENERATION_MODEL, DEFAULT_TITLE_GENERATION_MODEL, DEFAULT_IMAGE_MODEL, DEFAULT_MEMORY_EXTRACTION_MODEL, DEFAULT_MEMORY_EMBEDDING_MODEL, type AiProvider } from '@/lib/store';
 import { createFullBackup, downloadJson, parseFullBackup, reassignIds, ParsedBackup } from '@/lib/importExport';
 import StatisticsPanel from '@/components/StatisticsPanel';
+import AiConnectionSettings from '@/components/AiConnectionSettings';
 
 interface GlobalSettingsModalProps {
     isOpen: boolean;
@@ -136,7 +137,7 @@ const VN_SPEED_OPTIONS = [
 
 const AI_PROVIDER_OPTIONS = [
     { id: 'openrouter', label: 'OpenRouter' },
-    { id: 'openai-compatible', label: 'OpenAI互換API' },
+    { id: 'openai-compatible', label: 'OpenAI / 互換API' },
 ] as const satisfies readonly { id: AiProvider; label: string }[];
 
 const VN_SPEED_INDEX: Record<VnTypingSpeed, number> = {
@@ -1142,6 +1143,8 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     )}
                                 </div>
 
+                                <AiConnectionSettings provider={aiProvider} />
+
                                 {aiProvider === 'openai-compatible' && (
                                     <>
 
@@ -1159,10 +1162,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                             onToggle: () => setOpenAiCompatibleImageGenerationEnabled(!openAiCompatibleImageGenerationEnabled),
                                             ariaLabel: 'OpenAI互換APIの画像生成利用を切り替え',
                                         })}
-                                        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                                            エンドポイントは環境変数 <code style={{ fontSize: '0.7rem' }}>OPENAI_COMPAT_BASE_URL</code> で設定してください。
-                                            APIキーを使用する必要がある場合、環境変数 <code style={{ fontSize: '0.7rem' }}>OPENAI_COMPAT_API_KEY</code> で設定してください。
-                                        </p>
                                         <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
                                             互換APIでは一部の機能が制限されます。OpenRouterで全ての機能をご利用いただけます。
                                         </p>

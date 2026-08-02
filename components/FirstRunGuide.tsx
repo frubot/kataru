@@ -35,8 +35,8 @@ const PROVIDER_OPTIONS: readonly {
     },
     {
         id: 'openai-compatible',
-        title: 'OpenAI Completions 互換API',
-        description: '上級者向け: 他のプロパイダーに接続します。',
+        title: 'OpenAI / 互換API',
+        description: 'OpenAI公式APIまたは互換プロバイダーに接続します。',
         Icon: Cpu,
     },
 ];
@@ -235,8 +235,8 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                     {showConnectionHelp && (
                                         <p>
                                             {aiProvider === 'openrouter'
-                                                ? 'APIキーが設定されていないようです。OPENROUTER_API_KEY を設定し、Kataruを再起動してください。'
-                                                : 'OpenAI Completions 互換APIに接続できません。接続先を変える場合は、Kataruを起動する前に OPENAI_COMPAT_BASE_URL を設定します。'}
+                                                ? 'APIキーが設定されていないようです。「設定」→「モデル」でOpenRouter APIキーを保存してください。'
+                                                : 'OpenAI / 互換APIに接続できません。「設定」→「モデル」でbase URLとAPIキーを確認してください。'}
                                         </p>
                                     )}
                                 </div>

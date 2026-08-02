@@ -1,4 +1,5 @@
 mod ai;
+mod ai_config;
 mod config;
 mod conversation;
 mod db;
@@ -7,6 +8,7 @@ mod static_assets;
 mod update;
 
 use std::{
+    net::SocketAddr,
     path::PathBuf,
     sync::{Arc, Mutex},
 };
@@ -55,6 +57,8 @@ pub struct AppState {
     pub database: Database,
     pub http_client: Client,
     pub application_origin: String,
+    pub configuration_origins: Arc<[String]>,
+    pub ai_config: ai_config::AiConfigManager,
     pub conversation_jobs: conversation::jobs::ConversationJobs,
     update_shutdown: Arc<Notify>,
     pending_update_marker: Arc<Mutex<Option<PathBuf>>>,
@@ -79,6 +83,9 @@ async fn run() -> AppResult<()> {
     if update::run_special_command_if_requested().await? {
         return Ok(());
     }
+    if ai_config::run_cli_command_if_requested()? {
+        return Ok(());
+    }
 
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -89,27 +96,31 @@ async fn run() -> AppResult<()> {
 
     let config = Config::from_args()?;
     let database = Database::open(&config.database_path)?;
+    let ai_config = ai_config::AiConfigManager::open(&config.data_dir)?;
     let http_client = Client::builder()
         .user_agent(format!("Kataru/{}", env!("CARGO_PKG_VERSION")))
         .build()?;
+    let mut allowed_origins = vec![config.origin()];
+    if let Some(origin) = &config.development_origin {
+        allowed_origins.push(origin.clone());
+    }
+    let allowed_origins: Arc<[String]> = Arc::from(allowed_origins);
     let update_shutdown = Arc::new(Notify::new());
     let state = AppState {
         database,
         http_client,
         application_origin: config.origin(),
+        configuration_origins: allowed_origins.clone(),
+        ai_config,
         conversation_jobs: conversation::jobs::ConversationJobs::default(),
         update_shutdown: update_shutdown.clone(),
         pending_update_marker: Arc::new(Mutex::new(None)),
     };
 
-    let mut allowed_origins = vec![config.origin()];
-    if let Some(origin) = &config.development_origin {
-        allowed_origins.push(origin.clone());
-    }
     let security = SecurityState {
         authority: (!config.is_wildcard_host()).then(|| Arc::from(config.authority())),
         port: config.port,
-        allowed_origins: Arc::from(allowed_origins),
+        allowed_origins,
     };
 
     let api = api_router();
@@ -139,9 +150,12 @@ async fn run() -> AppResult<()> {
             .map_err(|error| AppError::Internal(format!("ブラウザを開けませんでした: {error}")))?;
     }
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal(update_shutdown))
-        .await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal(update_shutdown))
+    .await?;
     if let Some(marker) = state
         .pending_update_marker
         .lock()
@@ -165,6 +179,19 @@ fn api_router() -> Router<AppState> {
         )
         .route("/chat", post(ai::chat))
         .route("/ai/status", post(ai::connection_status))
+        .route("/ai/config", get(ai_config::get_config))
+        .route(
+            "/ai/config/openrouter",
+            axum::routing::put(ai_config::update_openrouter).delete(ai_config::delete_openrouter),
+        )
+        .route(
+            "/ai/config/openai",
+            axum::routing::put(ai_config::update_openai),
+        )
+        .route(
+            "/ai/config/openai/api-key",
+            axum::routing::delete(ai_config::delete_openai_api_key),
+        )
         .route("/summarize", post(ai::summarize))
         .route("/embeddings", post(ai::embeddings))
         .route("/generate-image", post(ai::generate_image))
@@ -402,6 +429,8 @@ mod tests {
             database: Database::open(Path::new(":memory:")).expect("open in-memory database"),
             http_client: Client::new(),
             application_origin: "http://127.0.0.1".to_owned(),
+            configuration_origins: Arc::from(["http://127.0.0.1".to_owned()]),
+            ai_config: ai_config::AiConfigManager::in_memory(),
             conversation_jobs: conversation::jobs::ConversationJobs::default(),
             update_shutdown: Arc::new(Notify::new()),
             pending_update_marker: Arc::new(Mutex::new(None)),
@@ -441,6 +470,8 @@ mod tests {
             database: Database::open(Path::new(":memory:")).expect("open in-memory database"),
             http_client: Client::new(),
             application_origin: "http://127.0.0.1".to_owned(),
+            configuration_origins: Arc::from(["http://127.0.0.1".to_owned()]),
+            ai_config: ai_config::AiConfigManager::in_memory(),
             conversation_jobs: conversation::jobs::ConversationJobs::default(),
             update_shutdown: Arc::new(Notify::new()),
             pending_update_marker: Arc::new(Mutex::new(None)),

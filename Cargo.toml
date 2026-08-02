@@ -10,8 +10,10 @@ axum = { version = "0.8", features = ["json", "macros"] }
 base64 = "0.22"
 directories = "6"
 futures-util = "0.3"
+keyring = "4.1"
 mime_guess = "2"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+rpassword = "7.5"
 rusqlite = { version = "0.40", features = ["bundled"] }
 rust-embed = "8"
 serde = { version = "1", features = ["derive"] }
@@ -23,6 +25,9 @@ tower-http = { version = "0.6", features = ["compression-br", "compression-gzip"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 webbrowser = "1"
+
+[dev-dependencies]
+tempfile = "3"
 
 [profile.release]
 lto = "thin"

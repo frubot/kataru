@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Bot, CheckCircle2, Cloud, Cpu, KeyRound, Loader2, Menu, Sparkles } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, KeyRound, Loader2, Menu, Sparkles } from 'lucide-react';
 import {
     formatGeneratedCharacterPrompt,
     formatGeneratedProtagonistPrompt,
@@ -10,7 +10,6 @@ import {
     setAnthropicConfig,
     setOpenAiConfig,
     setOpenRouterApiKey,
-    type AiConfigSource,
     type ServerAiConfigStatus,
 } from '@/lib/serverAiConfig';
 import {
@@ -37,26 +36,18 @@ interface ConnectionStatusResponse {
 const PROVIDER_OPTIONS: readonly {
     id: AiProvider;
     title: string;
-    description: string;
-    Icon: typeof Cloud;
 }[] = [
     {
         id: 'openrouter',
-        title: 'OpenRouter',
-        description: 'OpenRouterに接続します。(推奨)',
-        Icon: Cloud,
+        title: 'OpenRouter'
     },
     {
         id: 'openai-compatible',
-        title: 'OpenAI / 互換API',
-        description: 'OpenAI公式または互換APIに接続します。',
-        Icon: Cpu,
+        title: 'OpenAI / 互換API'
     },
     {
         id: 'anthropic',
-        title: 'Anthropic',
-        description: 'Claude APIまたは互換APIに接続します。',
-        Icon: Bot,
+        title: 'Anthropic'
     },
 ];
 
@@ -159,7 +150,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
             && serverConfig.openai.baseUrlEditable
         ) {
             setConnectionState('error');
-            setConnectionMessage('Base URLを入力してください。');
+            setConnectionMessage('エンドポイントを入力してください。');
             return;
         }
         if (
@@ -168,7 +159,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
             && serverConfig.anthropic.baseUrlEditable
         ) {
             setConnectionState('error');
-            setConnectionMessage('Base URLを入力してください。');
+            setConnectionMessage('エンドポイントを入力してください。');
             return;
         }
         if (aiProvider === 'anthropic' && !trimmedAnthropicModel) {
@@ -387,11 +378,11 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                 </div>
                             </div>
                             <p className="onboarding-lead">
-                                AIキャラクターと自由に会話しましょう。まず、使うプロパイダーを選んでください。
+                                AIキャラクターと話しましょう。プロパイダーを選んでください。
                             </p>
 
                             <div className="onboarding-provider-list" role="radiogroup" aria-label="会話に使うAI">
-                                {PROVIDER_OPTIONS.map(({ id, title, description: optionDescription, Icon }) => {
+                                {PROVIDER_OPTIONS.map(({ id, title}) => {
                                     const selected = aiProvider === id;
                                     return (
                                         <button
@@ -402,22 +393,13 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                             className={`onboarding-provider ${selected ? 'selected' : ''}`}
                                             onClick={() => selectProvider(id)}
                                         >
-                                            <span className="onboarding-provider-icon"><Icon size={20} /></span>
                                             <span className="onboarding-provider-copy">
                                                 <span className="onboarding-provider-title">{title}</span>
-                                                <span className="onboarding-provider-description">{optionDescription}</span>
-                                            </span>
-                                            <span className="onboarding-radio" aria-hidden="true">
-                                                {selected && <span />}
                                             </span>
                                         </button>
                                     );
                                 })}
                             </div>
-
-                            <p className="onboarding-note">
-                                会話データはこのパソコンに保存されます。
-                            </p>
 
                             <div className="onboarding-actions">
                                 <button
@@ -454,8 +436,8 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                 {aiProvider === 'openrouter'
                                     ? 'OpenRouterのAPIキーを保存して、会話できるか確認します。'
                                     : aiProvider === 'anthropic'
-                                        ? 'AnthropicまたはMessages API互換のBase URLとAPIキーを設定します。'
-                                        : 'OpenAI公式APIまたは互換APIのBase URLとAPIキーを設定します。'}
+                                        ? 'Claude APIまたは互換APIのエンドポイントとAPIキーを設定します。'
+                                        : 'OpenAI APIまたは互換APIのエンドポイントとAPIキーを設定します。'}
                             </p>
 
                             {configLoading ? (
@@ -508,14 +490,14 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                             />
                                             {!serverConfig.openrouter.editable && (
                                                 <p className="ai-connection-help">
-                                                    環境変数 OPENROUTER_API_KEY が優先されています。
+                                                    環境変数 OPENROUTER_API_KEY が設定されているため、変更できません。
                                                 </p>
                                             )}
                                         </>
                                     ) : aiProvider === 'anthropic' ? (
                                         <>
                                             <label className="ai-connection-label" htmlFor="onboarding-anthropic-base-url">
-                                                Base URL
+                                                エンドポイント
                                             </label>
                                             <input
                                                 id="onboarding-anthropic-base-url"
@@ -528,9 +510,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                                 onChange={(event) => setAnthropicBaseUrl(event.target.value)}
                                             />
                                             <p className="ai-connection-help">
-                                                {serverConfig.anthropic.baseUrlEditable
-                                                    ? `Anthropic公式の既定値は ${DEFAULT_ANTHROPIC_BASE_URL} です。`
-                                                    : '環境変数 ANTHROPIC_BASE_URL またはANTHROPIC_API_KEY が優先されています。'}
+                                                {!serverConfig.anthropic.baseUrlEditable && '環境変数 ANTHROPIC_BASE_URL またはANTHROPIC_API_KEY が設定されているため、変更できません。'}
                                             </p>
                                             {anthropicBaseChanged && serverConfig.anthropic.apiKey.configured && (
                                                 <p className="ai-connection-help warning">
@@ -557,15 +537,12 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                             />
                                             {!serverConfig.anthropic.apiKey.editable && (
                                                 <p className="ai-connection-help">
-                                                    環境変数 ANTHROPIC_API_KEY が優先されています。
+                                                    環境変数 ANTHROPIC_API_KEY が設定されているため、変更できません。
                                                 </p>
                                             )}
-                                            <p className="ai-connection-help">
-                                                キーは接続先ごとに保存され、変更後も画面には表示しません。
-                                            </p>
 
                                             <label className="ai-connection-label" htmlFor="onboarding-anthropic-model">
-                                                テキスト生成モデル
+                                                使用するモデル
                                             </label>
                                             <input
                                                 id="onboarding-anthropic-model"
@@ -578,13 +555,13 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                                 onChange={(event) => setAnthropicModel(event.target.value)}
                                             />
                                             <p className="ai-connection-help">
-                                                会話、要約、キャラクター生成などの既定モデルに使用します。
+                                                既定モデルに設定されます。あとから変更できます。
                                             </p>
                                         </>
                                     ) : (
                                         <>
                                             <label className="ai-connection-label" htmlFor="onboarding-openai-base-url">
-                                                Base URL
+                                                エンドポイント
                                             </label>
                                             <input
                                                 id="onboarding-openai-base-url"
@@ -597,9 +574,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                                 onChange={(event) => setOpenAiBaseUrl(event.target.value)}
                                             />
                                             <p className="ai-connection-help">
-                                                {serverConfig.openai.baseUrlEditable
-                                                    ? `OpenAI公式の既定値は ${DEFAULT_OPENAI_COMPATIBLE_BASE_URL} です。`
-                                                    : '環境変数 OPENAI_BASE_URL またはOPENAI_API_KEY が優先されています。'}
+                                                {!serverConfig.openai.baseUrlEditable && '環境変数 OPENAI_BASE_URL またはOPENAI_API_KEY が設定されているため、変更できません。'}
                                             </p>
                                             {openAiBaseChanged && serverConfig.openai.apiKey.configured && (
                                                 <p className="ai-connection-help warning">
@@ -620,17 +595,14 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                                 spellCheck={false}
                                                 placeholder={serverConfig.openai.apiKey.configured
                                                     ? '変更する場合のみ入力'
-                                                    : 'APIキーを入力（ローカル互換APIでは省略可）'}
+                                                    : 'APIキーを入力（ローカルAPIでは省略可）'}
                                                 onChange={(event) => setOpenAiApiKeyInput(event.target.value)}
                                             />
                                             {!serverConfig.openai.apiKey.editable && (
                                                 <p className="ai-connection-help">
-                                                    環境変数 OPENAI_API_KEY が優先されています。
+                                                    環境変数 OPENAI_API_KEY が設定されているため、変更できません。
                                                 </p>
                                             )}
-                                            <p className="ai-connection-help">
-                                                キーは接続先ごとに保存され、変更後も画面には表示しません。
-                                            </p>
                                         </>
                                     )}
                                 </div>

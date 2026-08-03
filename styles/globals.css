@@ -2221,7 +2221,7 @@ body {
   padding: 0.875rem;
   border: 1px solid var(--border-color);
   border-radius: 0.75rem;
-  background: var(--bg-primary);
+  background: var(--bg-secondary);
   color: var(--text-primary);
   cursor: pointer;
   text-align: left;
@@ -2235,18 +2235,6 @@ body {
 
 .onboarding-provider.selected {
   background: color-mix(in srgb, var(--accent-primary) 7%, var(--bg-primary));
-}
-
-.onboarding-provider-icon {
-  flex: 0 0 auto;
-  width: 2.25rem;
-  height: 2.25rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 0.625rem;
-  background: var(--bg-tertiary);
-  color: var(--accent-primary);
 }
 
 .onboarding-provider-copy {
@@ -2337,7 +2325,7 @@ body {
 }
 
 .onboarding-connection-card {
-  background: var(--bg-primary);
+  background: var(--bg-secondary);
 }
 
 .onboarding-form {

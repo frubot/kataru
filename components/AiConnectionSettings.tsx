@@ -144,7 +144,7 @@ export default function AiConnectionSettings({ provider }: AiConnectionSettingsP
                         onChange={(event) => setOpenRouterApiKeyInput(event.target.value)}
                     />
                     {!status.openrouter.editable && (
-                        <p className="ai-connection-help">環境変数 OPENROUTER_API_KEY が優先されています。</p>
+                        <p className="ai-connection-help">環境変数 OPENROUTER_API_KEY が設定されているため、変更できません。</p>
                     )}
                     <div className="ai-connection-actions">
                         <button
@@ -178,7 +178,7 @@ export default function AiConnectionSettings({ provider }: AiConnectionSettingsP
             ) : provider === 'anthropic' ? (
                 <>
                     <label className="ai-connection-label" htmlFor="anthropic-base-url-input">
-                        Base URL
+                        エンドポイント
                     </label>
                     <input
                         id="anthropic-base-url-input"
@@ -191,7 +191,7 @@ export default function AiConnectionSettings({ provider }: AiConnectionSettingsP
                     />
                     {!status.anthropic.baseUrlEditable && (
                         <p className="ai-connection-help">
-                            環境変数 ANTHROPIC_BASE_URL またはANTHROPIC_API_KEY が優先されています。
+                            環境変数 ANTHROPIC_BASE_URL またはANTHROPIC_API_KEY が設定されているため、変更できません。
                         </p>
                     )}
                     {anthropicBaseChanged && status.anthropic.apiKey.configured && (
@@ -215,7 +215,7 @@ export default function AiConnectionSettings({ provider }: AiConnectionSettingsP
                         onChange={(event) => setAnthropicApiKeyInput(event.target.value)}
                     />
                     {!status.anthropic.apiKey.editable && (
-                        <p className="ai-connection-help">環境変数 ANTHROPIC_API_KEY が優先されています。</p>
+                        <p className="ai-connection-help">環境変数 ANTHROPIC_API_KEY が設定されているため、変更できません。</p>
                     )}
                     <div className="ai-connection-actions">
                         <button
@@ -256,7 +256,7 @@ export default function AiConnectionSettings({ provider }: AiConnectionSettingsP
             ) : (
                 <>
                     <label className="ai-connection-label" htmlFor="openai-base-url-input">
-                        Base URL
+                        エンドポイント
                     </label>
                     <input
                         id="openai-base-url-input"
@@ -269,7 +269,7 @@ export default function AiConnectionSettings({ provider }: AiConnectionSettingsP
                     />
                     {!status.openai.baseUrlEditable && (
                         <p className="ai-connection-help">
-                            環境変数 OPENAI_BASE_URL またはOPENAI_API_KEY が優先されています。
+                            環境変数 OPENAI_BASE_URL またはOPENAI_API_KEY が設定されているため、変更できません。
                         </p>
                     )}
                     {openAiBaseChanged && status.openai.apiKey.configured && (
@@ -293,7 +293,7 @@ export default function AiConnectionSettings({ provider }: AiConnectionSettingsP
                         onChange={(event) => setOpenAiApiKeyInput(event.target.value)}
                     />
                     {!status.openai.apiKey.editable && (
-                        <p className="ai-connection-help">環境変数 OPENAI_API_KEY が優先されています。</p>
+                        <p className="ai-connection-help">環境変数 OPENAI_API_KEY が設定されているため、変更できません。</p>
                     )}
                     <div className="ai-connection-actions">
                         <button

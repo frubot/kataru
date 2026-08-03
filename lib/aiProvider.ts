@@ -1,4 +1,4 @@
-export type AiProvider = 'openrouter' | 'openai-compatible';
+export type AiProvider = 'openrouter' | 'openai-compatible' | 'anthropic';
 
 export interface AiProviderConfig {
     aiProvider: AiProvider;
@@ -9,11 +9,13 @@ export interface AiProviderConfig {
 
 export const DEFAULT_AI_PROVIDER: AiProvider = 'openrouter';
 export const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = 'https://api.openai.com/v1';
+export const DEFAULT_ANTHROPIC_BASE_URL = 'https://api.anthropic.com/v1';
+export const DEFAULT_ANTHROPIC_TEXT_MODEL = 'claude-sonnet-4-6';
 export const DEFAULT_OPENAI_COMPATIBLE_EMBEDDINGS_ENABLED = true;
 export const DEFAULT_OPENAI_COMPATIBLE_IMAGE_GENERATION_ENABLED = false;
 
 export function isAiProvider(value: unknown): value is AiProvider {
-    return value === 'openrouter' || value === 'openai-compatible';
+    return value === 'openrouter' || value === 'openai-compatible' || value === 'anthropic';
 }
 
 export function normalizeOpenAiCompatibleBaseUrl(value: unknown): string {
@@ -38,6 +40,7 @@ export function normalizeAiProviderConfig(value: unknown): AiProviderConfig {
 }
 
 export function isOpenAiCompatibleFeatureEnabled(config: AiProviderConfig, feature: 'embeddings' | 'imageGeneration'): boolean {
+    if (config.aiProvider === 'anthropic') return false;
     if (config.aiProvider !== 'openai-compatible') return true;
     if (feature === 'embeddings') return config.openAiCompatibleEmbeddingsEnabled;
     return config.openAiCompatibleImageGenerationEnabled;

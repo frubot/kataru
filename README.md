@@ -2,7 +2,7 @@
 
 Kataruは、キャラクターとの会話や複数キャラクターによるシチュエーションを楽しむための、ローカルファーストなロールプレイチャットアプリです。
 
-ReactとViteで構築したUIをRust/Axumサーバーから配信し、キャラクター、会話履歴、メモリ、使用量などをローカルのSQLiteデータベースへ保存します。AI接続先にはOpenRouterまたはOpenAI互換APIを利用できます。
+ReactとViteで構築したUIをRust/Axumサーバーから配信し、キャラクター、会話履歴、メモリ、使用量などをローカルのSQLiteデータベースへ保存します。AI接続先にはOpenRouter、OpenAI互換API、Anthropic Messages API互換APIを利用できます。
 
 ## 主な機能
 
@@ -22,7 +22,7 @@ ReactとViteで構築したUIをRust/Axumサーバーから配信し、キャラ
 - Node.js 20.19以降
 - npm
 - Rustのstable toolchain（Cargoを含む）
-- OpenRouterのAPIキー、または起動済みのOpenAI互換APIサーバー
+- OpenRouter／AnthropicのAPIキー、または起動済みの互換APIサーバー
 
 ## セットアップ
 
@@ -93,6 +93,19 @@ npm run dev
 - OpenAI公式base URLではAPIキーが必須です。カスタムbase URLでキーを省略した場合は互換性のため`local`が送信されます。
 - embeddingsと画像生成は設定画面から個別に有効化できます。利用するAPIサーバーが対応するエンドポイントを実装している必要があります。
 - 保存済みAPIキーはbase URLに紐づきます。接続先を変更すると以前のキーは解除され、新しい接続先へ流用されません。
+
+### Anthropicまたは互換APIを使う場合
+
+Anthropicの既定base URLは`https://api.anthropic.com/v1`です。「設定」→「モデル」で「Anthropic / 互換API」を選び、APIキーとbase URLを設定できます。Kataru内部の会話リクエストと応答はサーバー側でMessages API形式へ変換されます。
+
+CLIから設定する場合:
+
+```bash
+kataru config set anthropic.api-key
+kataru config set anthropic.base-url https://api.anthropic.com/v1
+```
+
+環境変数には`ANTHROPIC_API_KEY`と`ANTHROPIC_BASE_URL`を利用できます。モデル設定には`claude-...`形式など、接続先で有効なモデルIDを指定してください。Anthropicプロバイダーではテキスト生成と構造化出力を利用でき、embeddingsと画像生成は無効になります。
 
 Rustサーバーは`.env`ファイルを自動では読み込みません。環境変数はシェルまたはプロセスマネージャーで設定してください。環境変数はCLI／Web UIで保存した値より優先され、Web UIからは変更できません。
 
@@ -233,7 +246,7 @@ components/          チャット、設定、キャラクター編集などのUI
 lib/                 状態管理、APIクライアント、バックアップ処理
 src/main.rs          Axumサーバー、ルーティング、アクセス保護
 src/ai_config.rs     CLI／Web UI向けのサーバーAI接続設定
-src/ai/              OpenRouter／OpenAI互換APIとの通信
+src/ai/              OpenRouter／OpenAI互換／Anthropic APIとの通信
 src/conversation/    会話生成、要約、指揮役、メモリ処理
 src/db/              SQLiteとストレージコマンド
 migrations/          SQLiteマイグレーション

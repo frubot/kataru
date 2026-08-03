@@ -14,6 +14,12 @@ export interface ServerAiConfigStatus {
         baseUrlEditable: boolean;
         apiKey: ApiKeyStatus;
     };
+    anthropic: {
+        baseUrl: string;
+        baseUrlSource: AiConfigSource;
+        baseUrlEditable: boolean;
+        apiKey: ApiKeyStatus;
+    };
     secretStoreAvailable: boolean;
 }
 
@@ -37,10 +43,16 @@ function isServerAiConfigStatus(value: unknown): value is ServerAiConfigStatus {
     }
     if (!status.openai || typeof status.openai !== 'object') return false;
     const openai = status.openai as Record<string, unknown>;
+    if (!status.anthropic || typeof status.anthropic !== 'object') return false;
+    const anthropic = status.anthropic as Record<string, unknown>;
     return typeof openai.baseUrl === 'string'
         && isSource(openai.baseUrlSource)
         && typeof openai.baseUrlEditable === 'boolean'
-        && isApiKeyStatus(openai.apiKey);
+        && isApiKeyStatus(openai.apiKey)
+        && typeof anthropic.baseUrl === 'string'
+        && isSource(anthropic.baseUrlSource)
+        && typeof anthropic.baseUrlEditable === 'boolean'
+        && isApiKeyStatus(anthropic.apiKey);
 }
 
 async function requestConfig(path: string, init?: RequestInit): Promise<ServerAiConfigStatus> {
@@ -93,4 +105,18 @@ export function setOpenAiConfig(input: {
 
 export function deleteOpenAiApiKey(): Promise<ServerAiConfigStatus> {
     return requestConfig('/api/ai/config/openai/api-key', { method: 'DELETE' });
+}
+
+export function setAnthropicConfig(input: {
+    baseUrl?: string;
+    apiKey?: string;
+}): Promise<ServerAiConfigStatus> {
+    return requestConfig('/api/ai/config/anthropic', {
+        method: 'PUT',
+        body: JSON.stringify(input),
+    });
+}
+
+export function deleteAnthropicApiKey(): Promise<ServerAiConfigStatus> {
+    return requestConfig('/api/ai/config/anthropic/api-key', { method: 'DELETE' });
 }

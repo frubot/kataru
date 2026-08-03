@@ -192,6 +192,14 @@ fn api_router() -> Router<AppState> {
             "/ai/config/openai/api-key",
             axum::routing::delete(ai_config::delete_openai_api_key),
         )
+        .route(
+            "/ai/config/anthropic",
+            axum::routing::put(ai_config::update_anthropic),
+        )
+        .route(
+            "/ai/config/anthropic/api-key",
+            axum::routing::delete(ai_config::delete_anthropic_api_key),
+        )
         .route("/summarize", post(ai::summarize))
         .route("/embeddings", post(ai::embeddings))
         .route("/generate-image", post(ai::generate_image))

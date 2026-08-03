@@ -23,6 +23,7 @@ use crate::{
 };
 
 pub const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
+pub const DEFAULT_ANTHROPIC_BASE_URL: &str = "https://api.anthropic.com/v1";
 const LEGACY_OPENAI_BASE_URL: &str = "http://localhost:1234/v1";
 const CONFIG_FILE_NAME: &str = "server-config.json";
 const KEYRING_SERVICE: &str = "Kataru";
@@ -64,9 +65,19 @@ pub struct OpenAiStatus {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AnthropicStatus {
+    base_url: String,
+    base_url_source: ConfigSource,
+    base_url_editable: bool,
+    api_key: ApiKeyStatus,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AiConfigStatus {
     openrouter: ApiKeyStatus,
     openai: OpenAiStatus,
+    anthropic: AnthropicStatus,
     secret_store_available: bool,
 }
 
@@ -75,6 +86,8 @@ pub struct EffectiveAiConfig {
     pub openrouter_api_key: Option<String>,
     pub openai_base_url: String,
     pub openai_api_key: Option<String>,
+    pub anthropic_base_url: String,
+    pub anthropic_api_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -83,11 +96,18 @@ struct PersistedOpenAiConfig {
     base_url: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+struct PersistedAnthropicConfig {
+    base_url: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 struct PersistedConfig {
     version: u32,
     openai: PersistedOpenAiConfig,
+    anthropic: PersistedAnthropicConfig,
 }
 
 impl Default for PersistedConfig {
@@ -95,6 +115,7 @@ impl Default for PersistedConfig {
         Self {
             version: 1,
             openai: PersistedOpenAiConfig::default(),
+            anthropic: PersistedAnthropicConfig::default(),
         }
     }
 }
@@ -104,6 +125,8 @@ struct EnvironmentConfig {
     openrouter_api_key: Option<String>,
     openai_base_url: Option<String>,
     openai_api_key: Option<String>,
+    anthropic_base_url: Option<String>,
+    anthropic_api_key: Option<String>,
 }
 
 impl EnvironmentConfig {
@@ -129,11 +152,22 @@ impl EnvironmentConfig {
                     .is_some()
                     .then(|| LEGACY_OPENAI_BASE_URL.to_owned())
             });
+        let anthropic_api_key = nonempty_env("ANTHROPIC_API_KEY");
+        let anthropic_base_url = nonempty_env("ANTHROPIC_BASE_URL")
+            .map(|value| normalize_anthropic_base_url(&value))
+            .transpose()?
+            .or_else(|| {
+                anthropic_api_key
+                    .is_some()
+                    .then(|| DEFAULT_ANTHROPIC_BASE_URL.to_owned())
+            });
 
         Ok(Self {
             openrouter_api_key,
             openai_base_url,
             openai_api_key,
+            anthropic_base_url,
+            anthropic_api_key,
         })
     }
 }
@@ -197,6 +231,7 @@ struct ManagerInner {
     persisted: PersistedConfig,
     stored_openrouter_api_key: Option<String>,
     stored_openai_api_key: Option<String>,
+    stored_anthropic_api_key: Option<String>,
     secret_store_available: bool,
 }
 
@@ -230,9 +265,18 @@ impl AiConfigManager {
             .as_deref()
             .map(normalize_openai_base_url)
             .transpose()?;
+        let persisted_anthropic_base_url = persisted
+            .anthropic
+            .base_url
+            .as_deref()
+            .map(normalize_anthropic_base_url)
+            .transpose()?;
         let persisted = PersistedConfig {
             openai: PersistedOpenAiConfig {
                 base_url: persisted_base_url,
+            },
+            anthropic: PersistedAnthropicConfig {
+                base_url: persisted_anthropic_base_url,
             },
             ..persisted
         };
@@ -245,6 +289,13 @@ impl AiConfigManager {
             read_secret(&*secret_store, "openrouter.api-key");
         let (stored_openai_api_key, openai_available) =
             read_secret(&*secret_store, &openai_secret_key(&openai_base_url));
+        let anthropic_base_url = environment
+            .anthropic_base_url
+            .clone()
+            .or_else(|| persisted.anthropic.base_url.clone())
+            .unwrap_or_else(|| DEFAULT_ANTHROPIC_BASE_URL.to_owned());
+        let (stored_anthropic_api_key, anthropic_available) =
+            read_secret(&*secret_store, &anthropic_secret_key(&anthropic_base_url));
 
         Ok(Self {
             config_path,
@@ -254,7 +305,10 @@ impl AiConfigManager {
                 persisted,
                 stored_openrouter_api_key,
                 stored_openai_api_key,
-                secret_store_available: openrouter_available && openai_available,
+                stored_anthropic_api_key,
+                secret_store_available: openrouter_available
+                    && openai_available
+                    && anthropic_available,
             })),
         })
     }
@@ -278,6 +332,17 @@ impl AiConfigManager {
                 .openai_api_key
                 .clone()
                 .or_else(|| inner.stored_openai_api_key.clone()),
+            anthropic_base_url: self
+                .environment
+                .anthropic_base_url
+                .clone()
+                .or_else(|| inner.persisted.anthropic.base_url.clone())
+                .unwrap_or_else(|| DEFAULT_ANTHROPIC_BASE_URL.to_owned()),
+            anthropic_api_key: self
+                .environment
+                .anthropic_api_key
+                .clone()
+                .or_else(|| inner.stored_anthropic_api_key.clone()),
         }
     }
 
@@ -318,6 +383,30 @@ impl AiConfigManager {
                     .as_ref()
                     .map(|_| ConfigSource::Stored)
             });
+        let anthropic_base_url = self
+            .environment
+            .anthropic_base_url
+            .clone()
+            .or_else(|| inner.persisted.anthropic.base_url.clone())
+            .unwrap_or_else(|| DEFAULT_ANTHROPIC_BASE_URL.to_owned());
+        let anthropic_base_url_source = if self.environment.anthropic_base_url.is_some() {
+            ConfigSource::Environment
+        } else if inner.persisted.anthropic.base_url.is_some() {
+            ConfigSource::Stored
+        } else {
+            ConfigSource::Default
+        };
+        let anthropic_source = self
+            .environment
+            .anthropic_api_key
+            .as_ref()
+            .map(|_| ConfigSource::Environment)
+            .or_else(|| {
+                inner
+                    .stored_anthropic_api_key
+                    .as_ref()
+                    .map(|_| ConfigSource::Stored)
+            });
 
         AiConfigStatus {
             openrouter: ApiKeyStatus {
@@ -334,6 +423,17 @@ impl AiConfigManager {
                     configured: openai_source.is_some(),
                     source: openai_source,
                     editable: self.environment.openai_api_key.is_none(),
+                },
+            },
+            anthropic: AnthropicStatus {
+                base_url: anthropic_base_url,
+                base_url_source: anthropic_base_url_source,
+                base_url_editable: self.environment.anthropic_base_url.is_none()
+                    && self.environment.anthropic_api_key.is_none(),
+                api_key: ApiKeyStatus {
+                    configured: anthropic_source.is_some(),
+                    source: anthropic_source,
+                    editable: self.environment.anthropic_api_key.is_none(),
                 },
             },
             secret_store_available: inner.secret_store_available,
@@ -444,6 +544,96 @@ impl AiConfigManager {
         Ok(())
     }
 
+    pub fn set_anthropic_base_url(&self, value: &str) -> AppResult<()> {
+        if self.environment.anthropic_base_url.is_some()
+            || self.environment.anthropic_api_key.is_some()
+        {
+            return Err(environment_override(
+                "ANTHROPIC_BASE_URL / ANTHROPIC_API_KEY",
+            ));
+        }
+        let normalized = normalize_anthropic_base_url(value)?;
+        let old_base_url = self.effective().anthropic_base_url;
+        let changed = old_base_url != normalized;
+        {
+            let mut inner = self.inner.lock().expect("AI config lock poisoned");
+            let mut persisted = inner.persisted.clone();
+            persisted.anthropic.base_url = Some(normalized);
+            save_persisted_config(&self.config_path, &persisted)?;
+            inner.persisted = persisted;
+            if changed {
+                inner.stored_anthropic_api_key = None;
+            }
+        }
+        if changed
+            && let Err(error) = self
+                .secret_store
+                .delete(&anthropic_secret_key(&old_base_url))
+        {
+            tracing::warn!(%error, "failed to remove obsolete Anthropic credential");
+        }
+        Ok(())
+    }
+
+    pub fn unset_anthropic_base_url(&self) -> AppResult<()> {
+        if self.environment.anthropic_base_url.is_some()
+            || self.environment.anthropic_api_key.is_some()
+        {
+            return Err(environment_override(
+                "ANTHROPIC_BASE_URL / ANTHROPIC_API_KEY",
+            ));
+        }
+        let old_base_url = self.effective().anthropic_base_url;
+        {
+            let mut inner = self.inner.lock().expect("AI config lock poisoned");
+            let mut persisted = inner.persisted.clone();
+            persisted.anthropic.base_url = None;
+            save_persisted_config(&self.config_path, &persisted)?;
+            inner.persisted = persisted;
+            if old_base_url != DEFAULT_ANTHROPIC_BASE_URL {
+                inner.stored_anthropic_api_key = None;
+            }
+        }
+        if old_base_url != DEFAULT_ANTHROPIC_BASE_URL
+            && let Err(error) = self
+                .secret_store
+                .delete(&anthropic_secret_key(&old_base_url))
+        {
+            tracing::warn!(%error, "failed to remove obsolete Anthropic credential");
+        }
+        Ok(())
+    }
+
+    pub fn set_anthropic_api_key(&self, value: &str) -> AppResult<()> {
+        if self.environment.anthropic_api_key.is_some() {
+            return Err(environment_override("ANTHROPIC_API_KEY"));
+        }
+        let value = required_secret(value)?;
+        let base_url = self.effective().anthropic_base_url;
+        self.secret_store
+            .set(&anthropic_secret_key(&base_url), value)
+            .map_err(secret_store_error)?;
+        let mut inner = self.inner.lock().expect("AI config lock poisoned");
+        inner.stored_anthropic_api_key = Some(value.to_owned());
+        inner.secret_store_available = true;
+        Ok(())
+    }
+
+    pub fn unset_anthropic_api_key(&self) -> AppResult<()> {
+        if self.environment.anthropic_api_key.is_some() {
+            return Err(environment_override("ANTHROPIC_API_KEY"));
+        }
+        let base_url = self.effective().anthropic_base_url;
+        self.secret_store
+            .delete(&anthropic_secret_key(&base_url))
+            .map_err(secret_store_error)?;
+        self.inner
+            .lock()
+            .expect("AI config lock poisoned")
+            .stored_anthropic_api_key = None;
+        Ok(())
+    }
+
     #[cfg(test)]
     pub fn in_memory() -> Self {
         Self::with_parts(
@@ -492,28 +682,41 @@ fn openai_secret_key(base_url: &str) -> String {
     format!("openai.api-key:{:x}", digest)[..35].to_owned()
 }
 
+fn anthropic_secret_key(base_url: &str) -> String {
+    let digest = Sha256::digest(base_url.as_bytes());
+    format!("anthropic.api-key:{:x}", digest)[..38].to_owned()
+}
+
 pub fn normalize_openai_base_url(value: &str) -> AppResult<String> {
+    normalize_provider_base_url(value, "OpenAI")
+}
+
+pub fn normalize_anthropic_base_url(value: &str) -> AppResult<String> {
+    normalize_provider_base_url(value, "Anthropic")
+}
+
+fn normalize_provider_base_url(value: &str, provider: &str) -> AppResult<String> {
     let value = value.trim();
     let mut url = Url::parse(value)
-        .map_err(|_| AppError::BadRequest("OpenAI base URLが不正です。".to_owned()))?;
+        .map_err(|_| AppError::BadRequest(format!("{provider} base URLが不正です。")))?;
     if !matches!(url.scheme(), "http" | "https") {
-        return Err(AppError::BadRequest(
-            "OpenAI base URLには http または https を指定してください。".to_owned(),
-        ));
+        return Err(AppError::BadRequest(format!(
+            "{provider} base URLには http または https を指定してください。"
+        )));
     }
     if !url.username().is_empty()
         || url.password().is_some()
         || url.query().is_some()
         || url.fragment().is_some()
     {
-        return Err(AppError::BadRequest(
-            "OpenAI base URLに認証情報、query、fragmentは指定できません。".to_owned(),
-        ));
+        return Err(AppError::BadRequest(format!(
+            "{provider} base URLに認証情報、query、fragmentは指定できません。"
+        )));
     }
     if url.scheme() == "http" && !is_loopback_url(&url) {
-        return Err(AppError::BadRequest(
-            "HTTPのOpenAI base URLにはloopbackアドレスだけを指定できます。".to_owned(),
-        ));
+        return Err(AppError::BadRequest(format!(
+            "HTTPの{provider} base URLにはloopbackアドレスだけを指定できます。"
+        )));
     }
     let normalized_path = url.path().trim_end_matches('/').to_owned();
     url.set_path(&normalized_path);
@@ -604,9 +807,18 @@ pub fn run_cli_command_if_requested() -> AppResult<bool> {
         [command, key] if command == "get" && key == "openai.base-url" => {
             println!("{}", manager.status().openai.base_url);
         }
+        [command, key] if command == "get" && key == "anthropic.base-url" => {
+            println!("{}", manager.status().anthropic.base_url);
+        }
         [command, key, value] if command == "set" && key == "openai.base-url" => {
             manager.set_openai_base_url(value)?;
             println!("openai.base-url を保存しました。Kataruが起動中の場合は再起動してください。");
+        }
+        [command, key, value] if command == "set" && key == "anthropic.base-url" => {
+            manager.set_anthropic_base_url(value)?;
+            println!(
+                "anthropic.base-url を保存しました。Kataruが起動中の場合は再起動してください。"
+            );
         }
         [command, key] if command == "set" && is_api_key(key) => {
             let value = rpassword::prompt_password(format!("{key}: "))?;
@@ -624,6 +836,8 @@ pub fn run_cli_command_if_requested() -> AppResult<bool> {
                 "openrouter.api-key" => manager.unset_openrouter_api_key()?,
                 "openai.api-key" => manager.unset_openai_api_key()?,
                 "openai.base-url" => manager.unset_openai_base_url()?,
+                "anthropic.api-key" => manager.unset_anthropic_api_key()?,
+                "anthropic.base-url" => manager.unset_anthropic_base_url()?,
                 _ => return Err(unsupported_config_key(key)),
             }
             println!("{key} を削除しました。Kataruが起動中の場合は再起動してください。");
@@ -639,13 +853,17 @@ pub fn run_cli_command_if_requested() -> AppResult<bool> {
 }
 
 fn is_api_key(key: &str) -> bool {
-    matches!(key, "openrouter.api-key" | "openai.api-key")
+    matches!(
+        key,
+        "openrouter.api-key" | "openai.api-key" | "anthropic.api-key"
+    )
 }
 
 fn set_api_key(manager: &AiConfigManager, key: &str, value: &str) -> AppResult<()> {
     match key {
         "openrouter.api-key" => manager.set_openrouter_api_key(value),
         "openai.api-key" => manager.set_openai_api_key(value),
+        "anthropic.api-key" => manager.set_anthropic_api_key(value),
         _ => Err(unsupported_config_key(key)),
     }
 }
@@ -686,6 +904,24 @@ fn print_config_status(status: &AiConfigStatus) {
             .map(|source| format!(" ({source})"))
             .unwrap_or_default()
     );
+    println!(
+        "anthropic.base-url: {} ({})",
+        status.anthropic.base_url, status.anthropic.base_url_source
+    );
+    println!(
+        "anthropic.api-key: {}{}",
+        if status.anthropic.api_key.configured {
+            "configured"
+        } else {
+            "not configured"
+        },
+        status
+            .anthropic
+            .api_key
+            .source
+            .map(|source| format!(" ({source})"))
+            .unwrap_or_default()
+    );
     if !status.secret_store_available {
         println!("warning: OSの資格情報ストアを利用できません。");
     }
@@ -693,7 +929,7 @@ fn print_config_status(status: &AiConfigStatus) {
 
 fn print_config_help() {
     println!(
-        "Kataru config\n\n  config show\n  config get openai.base-url\n  config set openrouter.api-key [--stdin]\n  config set openai.api-key [--stdin]\n  config set openai.base-url <URL>\n  config unset <KEY>\n\n  --data-dir <PATH>  設定対象のデータ保存先\n  --portable         実行ファイル横の kataru-data を使用"
+        "Kataru config\n\n  config show\n  config get openai.base-url\n  config get anthropic.base-url\n  config set openrouter.api-key [--stdin]\n  config set openai.api-key [--stdin]\n  config set openai.base-url <URL>\n  config set anthropic.api-key [--stdin]\n  config set anthropic.base-url <URL>\n  config unset <KEY>\n\n  --data-dir <PATH>  設定対象のデータ保存先\n  --portable         実行ファイル横の kataru-data を使用"
     );
 }
 
@@ -706,6 +942,13 @@ pub struct ApiKeyUpdate {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenAiUpdate {
+    base_url: Option<String>,
+    api_key: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnthropicUpdate {
     base_url: Option<String>,
     api_key: Option<String>,
 }
@@ -767,6 +1010,37 @@ pub async fn delete_openai_api_key(
 ) -> AppResult<Json<AiConfigStatus>> {
     require_config_write(peer, &headers, &state)?;
     state.ai_config.unset_openai_api_key()?;
+    Ok(Json(state.ai_config.status()))
+}
+
+pub async fn update_anthropic(
+    ConnectInfo(peer): ConnectInfo<std::net::SocketAddr>,
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(input): Json<AnthropicUpdate>,
+) -> AppResult<Json<AiConfigStatus>> {
+    require_config_write(peer, &headers, &state)?;
+    if input.base_url.is_none() && input.api_key.is_none() {
+        return Err(AppError::BadRequest(
+            "baseUrl または apiKey を指定してください。".to_owned(),
+        ));
+    }
+    if let Some(base_url) = input.base_url {
+        state.ai_config.set_anthropic_base_url(&base_url)?;
+    }
+    if let Some(api_key) = input.api_key {
+        state.ai_config.set_anthropic_api_key(&api_key)?;
+    }
+    Ok(Json(state.ai_config.status()))
+}
+
+pub async fn delete_anthropic_api_key(
+    ConnectInfo(peer): ConnectInfo<std::net::SocketAddr>,
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> AppResult<Json<AiConfigStatus>> {
+    require_config_write(peer, &headers, &state)?;
+    state.ai_config.unset_anthropic_api_key()?;
     Ok(Json(state.ai_config.status()))
 }
 
@@ -904,6 +1178,8 @@ mod tests {
                 openrouter_api_key: Some("openrouter-env".to_owned()),
                 openai_base_url: Some(DEFAULT_OPENAI_BASE_URL.to_owned()),
                 openai_api_key: Some("openai-env".to_owned()),
+                anthropic_base_url: Some(DEFAULT_ANTHROPIC_BASE_URL.to_owned()),
+                anthropic_api_key: Some("anthropic-env".to_owned()),
             },
             Arc::new(MemorySecretStore::default()),
         )
@@ -916,11 +1192,18 @@ mod tests {
         );
         assert_eq!(effective.openai_base_url, DEFAULT_OPENAI_BASE_URL);
         assert_eq!(effective.openai_api_key.as_deref(), Some("openai-env"));
+        assert_eq!(effective.anthropic_base_url, DEFAULT_ANTHROPIC_BASE_URL);
+        assert_eq!(
+            effective.anthropic_api_key.as_deref(),
+            Some("anthropic-env")
+        );
         let status = manager.status();
         assert_eq!(status.openai.base_url_source, ConfigSource::Environment);
         assert!(!status.openai.base_url_editable);
         assert!(!status.openai.api_key.editable);
         assert!(!status.openrouter.editable);
+        assert!(!status.anthropic.base_url_editable);
+        assert!(!status.anthropic.api_key.editable);
     }
 
     #[test]
@@ -974,9 +1257,32 @@ mod tests {
             .set_openrouter_api_key("openrouter-do-not-return")
             .unwrap();
         manager.set_openai_api_key("openai-do-not-return").unwrap();
+        manager
+            .set_anthropic_api_key("anthropic-do-not-return")
+            .unwrap();
 
         let serialized = serde_json::to_string(&manager.status()).unwrap();
         assert!(!serialized.contains("openrouter-do-not-return"));
         assert!(!serialized.contains("openai-do-not-return"));
+        assert!(!serialized.contains("anthropic-do-not-return"));
+    }
+
+    #[test]
+    fn changing_anthropic_base_url_unbinds_the_stored_key() {
+        let directory = tempfile::tempdir().unwrap();
+        let manager = AiConfigManager::with_parts(
+            directory.path().join(CONFIG_FILE_NAME),
+            PersistedConfig::default(),
+            EnvironmentConfig::default(),
+            Arc::new(MemorySecretStore::default()),
+        )
+        .unwrap();
+        manager.set_anthropic_api_key("secret").unwrap();
+        assert!(manager.status().anthropic.api_key.configured);
+
+        manager
+            .set_anthropic_base_url("http://127.0.0.1:8080/v1")
+            .unwrap();
+        assert!(!manager.status().anthropic.api_key.configured);
     }
 }

@@ -33,8 +33,11 @@ export default function ImageGenerationModal({ isOpen, onClose, onComplete }: Pr
     const abortRef = useRef<AbortController | null>(null);
     const imgRef = useRef<HTMLImageElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const canGenerateImages = aiProvider === 'openrouter' || openAiCompatibleImageGenerationEnabled;
-    const imageGenerationHint = aiProvider === 'openai-compatible'
+    const canGenerateImages = aiProvider === 'openrouter'
+        || (aiProvider === 'openai-compatible' && openAiCompatibleImageGenerationEnabled);
+    const imageGenerationHint = aiProvider === 'anthropic'
+        ? 'Anthropic APIでは画像生成を利用できません。ファイルからアップロードしてください。'
+        : aiProvider === 'openai-compatible'
         ? openAiCompatibleImageGenerationEnabled
             ? 'OpenAI互換APIでは、テキストからの画像生成だけを試します。'
             : 'OpenAI互換APIでの画像生成は無効です。ファイルからアップロードしてください。'

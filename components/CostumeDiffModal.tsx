@@ -108,7 +108,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
 
     const generate = async (name: string, busyKey: string, promptDetail?: string) => {
         if (!canGenerateDiffs) {
-            setError('OpenAI互換APIでは元画像を使う衣装差分生成に対応していません。アップロードを使ってください。');
+            setError('選択中のプロバイダーでは元画像を使う衣装差分生成に対応していません。アップロードを使ってください。');
             return;
         }
         if (!baseImage) {
@@ -320,7 +320,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                         {addMode === 'generate' ? (
                             <p style={hintStyle}>
                                 {!canGenerateDiffs
-                                    ? 'OpenAI互換APIでは元画像を使う差分生成に対応していません。アップロードで追加してください。'
+                                    ? '選択中のプロバイダーでは元画像を使う差分生成に対応していません。アップロードで追加してください。'
                                     : baseImage
                                     ? 'デフォルトの立ち絵をベースに、衣装だけを変更して生成します'
                                     : '生成には「アバター画像」から立ち絵の登録が必要です。アップロードなら衣装差分を直接追加できます。'}

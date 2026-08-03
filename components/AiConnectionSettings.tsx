@@ -3,9 +3,11 @@ import { KeyRound, RefreshCw, Save, Trash2 } from 'lucide-react';
 
 import type { AiProvider } from '@/lib/aiProvider';
 import {
+    deleteAnthropicApiKey,
     deleteOpenAiApiKey,
     deleteOpenRouterApiKey,
     getServerAiConfig,
+    setAnthropicConfig,
     setOpenAiConfig,
     setOpenRouterApiKey,
     type AiConfigSource,
@@ -32,6 +34,8 @@ export default function AiConnectionSettings({ provider }: AiConnectionSettingsP
     const [openRouterApiKey, setOpenRouterApiKeyInput] = useState('');
     const [openAiBaseUrl, setOpenAiBaseUrl] = useState('');
     const [openAiApiKey, setOpenAiApiKeyInput] = useState('');
+    const [anthropicBaseUrl, setAnthropicBaseUrl] = useState('');
+    const [anthropicApiKey, setAnthropicApiKeyInput] = useState('');
     const [message, setMessage] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
@@ -40,8 +44,10 @@ export default function AiConnectionSettings({ provider }: AiConnectionSettingsP
     const applyStatus = useCallback((next: ServerAiConfigStatus) => {
         setStatus(next);
         setOpenAiBaseUrl(next.openai.baseUrl);
+        setAnthropicBaseUrl(next.anthropic.baseUrl);
         setOpenRouterApiKeyInput('');
         setOpenAiApiKeyInput('');
+        setAnthropicApiKeyInput('');
     }, []);
 
     const load = useCallback(async () => {
@@ -101,16 +107,26 @@ export default function AiConnectionSettings({ provider }: AiConnectionSettingsP
 
     const selectedApiKeyStatus = provider === 'openrouter'
         ? status.openrouter
-        : status.openai.apiKey;
+        : provider === 'anthropic'
+            ? status.anthropic.apiKey
+            : status.openai.apiKey;
+    const providerLabel = provider === 'openrouter'
+        ? 'OpenRouter'
+        : provider === 'anthropic'
+            ? 'Anthropic / 互換API'
+            : 'OpenAI / 互換API';
     const openAiBaseChanged = openAiBaseUrl.trim() !== status.openai.baseUrl;
     const canSaveOpenAi = (status.openai.baseUrlEditable && openAiBaseChanged)
         || (status.openai.apiKey.editable && openAiApiKey.trim().length > 0);
+    const anthropicBaseChanged = anthropicBaseUrl.trim() !== status.anthropic.baseUrl;
+    const canSaveAnthropic = (status.anthropic.baseUrlEditable && anthropicBaseChanged)
+        || (status.anthropic.apiKey.editable && anthropicApiKey.trim().length > 0);
 
     return (
         <div className="ai-connection-card">
             <div className="ai-connection-heading">
                 <div>
-                    <strong>{provider === 'openrouter' ? 'OpenRouter' : 'OpenAI / 互換API'} 接続設定</strong>
+                    <strong>{providerLabel} 接続設定</strong>
                     <span>{keyStatusLabel(selectedApiKeyStatus.configured, selectedApiKeyStatus.source)}</span>
                 </div>
                 <KeyRound size={18} aria-hidden="true" />
@@ -166,6 +182,87 @@ export default function AiConnectionSettings({ provider }: AiConnectionSettingsP
                             >
                                 <Trash2 size={15} aria-hidden="true" />
                                 削除
+                            </button>
+                        )}
+                    </div>
+                </>
+            ) : provider === 'anthropic' ? (
+                <>
+                    <label className="ai-connection-label" htmlFor="anthropic-base-url-input">
+                        Base URL
+                    </label>
+                    <input
+                        id="anthropic-base-url-input"
+                        className="input"
+                        type="url"
+                        value={anthropicBaseUrl}
+                        disabled={!status.anthropic.baseUrlEditable || saving}
+                        spellCheck={false}
+                        onChange={(event) => setAnthropicBaseUrl(event.target.value)}
+                    />
+                    {!status.anthropic.baseUrlEditable && (
+                        <p className="ai-connection-help">
+                            環境変数 ANTHROPIC_BASE_URL またはANTHROPIC_API_KEY が優先されています。
+                        </p>
+                    )}
+                    {anthropicBaseChanged && status.anthropic.apiKey.configured && (
+                        <p className="ai-connection-help warning">
+                            接続先を変更すると、現在保存されているAPIキーは解除されます。
+                        </p>
+                    )}
+
+                    <label className="ai-connection-label" htmlFor="anthropic-api-key-input">
+                        APIキー
+                    </label>
+                    <input
+                        id="anthropic-api-key-input"
+                        className="input"
+                        type="password"
+                        value={anthropicApiKey}
+                        disabled={!status.anthropic.apiKey.editable || saving}
+                        autoComplete="new-password"
+                        spellCheck={false}
+                        placeholder={status.anthropic.apiKey.configured ? '変更する場合のみ入力' : 'APIキーを入力'}
+                        onChange={(event) => setAnthropicApiKeyInput(event.target.value)}
+                    />
+                    {!status.anthropic.apiKey.editable && (
+                        <p className="ai-connection-help">環境変数 ANTHROPIC_API_KEY が優先されています。</p>
+                    )}
+                    <p className="ai-connection-help">
+                        Anthropic公式の既定値は https://api.anthropic.com/v1 です。Messages API互換の接続先も指定できます。
+                    </p>
+                    <div className="ai-connection-actions">
+                        <button
+                            type="button"
+                            className="btn btn-primary"
+                            disabled={!canSaveAnthropic || saving}
+                            onClick={() => void runUpdate(
+                                () => setAnthropicConfig({
+                                    ...(status.anthropic.baseUrlEditable && anthropicBaseChanged
+                                        ? { baseUrl: anthropicBaseUrl }
+                                        : {}),
+                                    ...(status.anthropic.apiKey.editable && anthropicApiKey.trim()
+                                        ? { apiKey: anthropicApiKey }
+                                        : {}),
+                                }),
+                                'Anthropic接続設定を保存しました。',
+                            )}
+                        >
+                            <Save size={15} aria-hidden="true" />
+                            保存
+                        </button>
+                        {status.anthropic.apiKey.configured && status.anthropic.apiKey.editable && (
+                            <button
+                                type="button"
+                                className="btn btn-ghost"
+                                disabled={saving}
+                                onClick={() => void runUpdate(
+                                    deleteAnthropicApiKey,
+                                    'Anthropic APIキーを削除しました。',
+                                )}
+                            >
+                                <Trash2 size={15} aria-hidden="true" />
+                                キーを削除
                             </button>
                         )}
                     </div>

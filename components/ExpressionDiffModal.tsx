@@ -116,7 +116,7 @@ export default function ExpressionDiffModal({ isOpen, onClose, expressions, cost
 
     const generate = async (name: string, busyKey: string, promptDetail?: string) => {
         if (!canGenerateDiffs) {
-            setError('OpenAI互換APIでは元画像を使う表情差分生成に対応していません。アップロードを使ってください。');
+            setError('選択中のプロバイダーでは元画像を使う表情差分生成に対応していません。アップロードを使ってください。');
             return;
         }
         if (!neutral) {
@@ -371,7 +371,7 @@ export default function ExpressionDiffModal({ isOpen, onClose, expressions, cost
                         {addMode === 'generate' ? (
                             <p style={hintStyle}>
                                 {!canGenerateDiffs
-                                    ? 'OpenAI互換APIでは元画像を使う差分生成に対応していません。アップロードで追加してください。'
+                                    ? '選択中のプロバイダーでは元画像を使う差分生成に対応していません。アップロードで追加してください。'
                                     : neutral
                                     ? selectedCostume
                                         ? '選択中の衣装画像をベースに、表情名と補足プロンプトを使って衣装専用差分を生成します'

@@ -538,7 +538,9 @@ async function requestMemoryEmbedding(
 ): Promise<{ embedding: number[]; model: string } | null> {
     const trimmed = input.trim();
     if (!trimmed || typeof window === 'undefined') return null;
-    if (aiProviderConfig.aiProvider === 'openai-compatible' && !aiProviderConfig.openAiCompatibleEmbeddingsEnabled) {
+    if (aiProviderConfig.aiProvider === 'anthropic'
+        || (aiProviderConfig.aiProvider === 'openai-compatible'
+            && !aiProviderConfig.openAiCompatibleEmbeddingsEnabled)) {
         return null;
     }
 

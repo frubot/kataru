@@ -805,6 +805,9 @@ async fn request_embedding(
     if input.trim().is_empty() {
         return Ok(None);
     }
+    if !provider.embeddings_enabled() {
+        return Ok(None);
+    }
     if payload
         .pointer("/aiProviderConfig/aiProvider")
         .and_then(Value::as_str)

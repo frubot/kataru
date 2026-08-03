@@ -14,7 +14,10 @@ use crate::{
     error::{AppError, AppResult},
 };
 
-use super::provider::{Provider, map_request_error};
+use super::{
+    anthropic,
+    provider::{Provider, map_request_error},
+};
 
 const DEFAULT_AUTO_GENERATION_MODEL: &str = "z-ai/glm-5.2";
 const DEFAULT_TITLE_GENERATION_MODEL: &str = "deepseek/deepseek-v4-flash";
@@ -97,11 +100,16 @@ async fn upstream_error(response: reqwest::Response) -> AppError {
     )
 }
 
-async fn read_upstream_json(response: reqwest::Response) -> AppResult<Value> {
+async fn read_upstream_json(provider: &Provider, response: reqwest::Response) -> AppResult<Value> {
     if !response.status().is_success() {
         return Err(upstream_error(response).await);
     }
-    response.json::<Value>().await.map_err(map_request_error)
+    let data = response.json::<Value>().await.map_err(map_request_error)?;
+    Ok(if provider.is_anthropic() {
+        anthropic::response_to_openai(data)
+    } else {
+        data
+    })
 }
 
 async fn raw_upstream_response(response: reqwest::Response) -> AppResult<Response> {
@@ -120,12 +128,20 @@ async fn raw_upstream_response(response: reqwest::Response) -> AppResult<Respons
     Ok(output)
 }
 
-async fn successful_json_response(response: reqwest::Response) -> AppResult<Response> {
+async fn successful_json_response(
+    provider: &Provider,
+    response: reqwest::Response,
+) -> AppResult<Response> {
     if !response.status().is_success() {
         return Err(upstream_error(response).await);
     }
-    let bytes = response.bytes().await.map_err(map_request_error)?;
-    let mut output = Response::new(Body::from(bytes));
+    let body = if provider.is_anthropic() {
+        let data = response.json::<Value>().await.map_err(map_request_error)?;
+        Body::from(serde_json::to_vec(&anthropic::response_to_openai(data))?)
+    } else {
+        Body::from(response.bytes().await.map_err(map_request_error)?)
+    };
+    let mut output = Response::new(body);
     output.headers_mut().insert(
         header::CONTENT_TYPE,
         HeaderValue::from_static("application/json"),
@@ -185,6 +201,9 @@ fn build_chat_body(
         if use_response_format && requested_response_format.is_some() && use_required_parameters {
             body.insert("provider".to_owned(), json!({ "require_parameters": true }));
         }
+    }
+    if provider.is_anthropic() {
+        copy_if_present(&mut body, input, "topK", "top_k");
     }
     Ok(Value::Object(body))
 }
@@ -248,11 +267,15 @@ pub async fn chat(State(state): State<AppState>, Json(input): Json<Value>) -> Ap
         return Err(upstream_error(upstream).await);
     }
     if !should_stream {
-        return successful_json_response(upstream).await;
+        return successful_json_response(&provider, upstream).await;
     }
 
-    let stream = upstream.bytes_stream();
-    let mut response = Response::new(Body::from_stream(stream));
+    let body = if provider.is_anthropic() {
+        anthropic::stream_body(upstream)
+    } else {
+        Body::from_stream(upstream.bytes_stream())
+    };
+    let mut response = Response::new(body);
     response.headers_mut().insert(
         header::CONTENT_TYPE,
         HeaderValue::from_static("text/event-stream"),
@@ -361,9 +384,11 @@ async fn structured_attempt(
         } else {
             body.insert("provider".to_owned(), Value::Object(provider_options));
         }
-    } else {
+    } else if provider.is_openai_compatible() {
         body.remove("reasoningEffort");
         body.remove("top_k");
+    } else {
+        body.remove("reasoningEffort");
     }
     provider
         .send_json("chat/completions", &Value::Object(body), timeout_secs)
@@ -387,7 +412,23 @@ pub(crate) async fn structured_completion(
     )
     .await?;
     if first.status().is_success() {
-        return read_upstream_json(first).await;
+        return read_upstream_json(provider, first).await;
+    }
+    if provider.is_anthropic() && first.status() == StatusCode::BAD_REQUEST {
+        drop(first);
+        let fallback = structured_attempt(
+            provider,
+            &request,
+            &response_format,
+            false,
+            false,
+            timeout_secs,
+        )
+        .await?;
+        if fallback.status().is_success() {
+            return read_upstream_json(provider, fallback).await;
+        }
+        return Err(upstream_error(fallback).await);
     }
     if !provider.is_openrouter() {
         return Err(upstream_error(first).await);
@@ -403,7 +444,7 @@ pub(crate) async fn structured_completion(
     )
     .await?;
     if second.status().is_success() {
-        return read_upstream_json(second).await;
+        return read_upstream_json(provider, second).await;
     }
     Err(upstream_error(second).await)
 }
@@ -436,7 +477,7 @@ async fn plain_completion(provider: &Provider, body: Value, timeout_secs: u64) -
     let response = provider
         .send_json("chat/completions", &body, timeout_secs)
         .await?;
-    read_upstream_json(response).await
+    read_upstream_json(provider, response).await
 }
 
 pub async fn summarize(
@@ -606,9 +647,11 @@ pub async fn generate_image(
 
     if !provider.is_openrouter() {
         if !provider.image_generation_enabled() {
-            return Err(AppError::BadRequest(
-                "OpenAI互換APIでの画像生成は設定で無効化されています。".to_owned(),
-            ));
+            return Err(AppError::BadRequest(if provider.is_anthropic() {
+                "Anthropic APIでは画像生成を利用できません。".to_owned()
+            } else {
+                "OpenAI互換APIでの画像生成は設定で無効化されています。".to_owned()
+            }));
         }
         if base_image.is_some() {
             return Err(AppError::Upstream(
@@ -630,7 +673,7 @@ pub async fn generate_image(
                 180,
             )
             .await?;
-        let data = read_upstream_json(upstream).await?;
+        let data = read_upstream_json(&provider, upstream).await?;
         let item = data.pointer("/data/0");
         let image = item
             .and_then(|value| value.get("b64_json"))
@@ -675,8 +718,11 @@ pub async fn generate_image(
     if let Some(aspect_ratio) = aspect_ratio {
         body["image_config"] = json!({ "aspect_ratio": aspect_ratio });
     }
-    let data =
-        read_upstream_json(provider.send_json("chat/completions", &body, 180).await?).await?;
+    let data = read_upstream_json(
+        &provider,
+        provider.send_json("chat/completions", &body, 180).await?,
+    )
+    .await?;
     let message = data.pointer("/choices/0/message");
     let image = message
         .and_then(|value| value.pointer("/images/0/image_url/url"))

@@ -138,6 +138,7 @@ const VN_SPEED_OPTIONS = [
 const AI_PROVIDER_OPTIONS = [
     { id: 'openrouter', label: 'OpenRouter' },
     { id: 'openai-compatible', label: 'OpenAI / 互換API' },
+    { id: 'anthropic', label: 'Anthropic / 互換API' },
 ] as const satisfies readonly { id: AiProvider; label: string }[];
 
 const VN_SPEED_INDEX: Record<VnTypingSpeed, number> = {
@@ -1166,6 +1167,11 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                             互換APIでは一部の機能が制限されます。OpenRouterで全ての機能をご利用いただけます。
                                         </p>
                                     </>
+                                )}
+                                {aiProvider === 'anthropic' && (
+                                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                                        Anthropicでは会話とテキスト生成を利用できます。既定値と各キャラクターのモデルには、接続先で有効なClaudeモデルIDを指定してください。埋め込みと画像生成は利用できません。
+                                    </p>
                                 )}
                             </div>
                         </div>

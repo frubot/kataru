@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, CheckCircle2, Cloud, Cpu, KeyRound, Loader2, Menu, Sparkles } from 'lucide-react';
+import { ArrowLeft, Bot, CheckCircle2, Cloud, Cpu, KeyRound, Loader2, Menu, Sparkles } from 'lucide-react';
 import {
     formatGeneratedCharacterPrompt,
     formatGeneratedProtagonistPrompt,
@@ -7,12 +7,17 @@ import {
 } from '@/lib/characterGeneration';
 import {
     getServerAiConfig,
+    setAnthropicConfig,
     setOpenAiConfig,
     setOpenRouterApiKey,
     type AiConfigSource,
     type ServerAiConfigStatus,
 } from '@/lib/serverAiConfig';
-import { DEFAULT_OPENAI_COMPATIBLE_BASE_URL } from '@/lib/aiProvider';
+import {
+    DEFAULT_ANTHROPIC_BASE_URL,
+    DEFAULT_ANTHROPIC_TEXT_MODEL,
+    DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
+} from '@/lib/aiProvider';
 import { useStore, type AiProvider } from '@/lib/store';
 
 interface FirstRunGuideProps {
@@ -58,6 +63,12 @@ const PROVIDER_OPTIONS: readonly {
         description: 'OpenAI公式APIまたは互換プロバイダーに接続します。',
         Icon: Cpu,
     },
+    {
+        id: 'anthropic',
+        title: 'Anthropic / 互換API',
+        description: 'ClaudeまたはMessages API互換プロバイダーに接続します。',
+        Icon: Bot,
+    },
 ];
 
 export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: FirstRunGuideProps) {
@@ -67,6 +78,12 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
         getAiProviderConfig,
         defaultChatModel,
         defaultAutoGenerationModel,
+        setDefaultChatModel,
+        setDefaultDirectorModel,
+        setDefaultAutoGenerationModel,
+        setTitleGenerationModel,
+        setSummaryModel,
+        setMemoryExtractionModel,
         createCharacter,
         createRoom,
     } = useStore();
@@ -78,6 +95,11 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
     const [openRouterApiKey, setOpenRouterApiKeyInput] = useState('');
     const [openAiBaseUrl, setOpenAiBaseUrl] = useState('');
     const [openAiApiKey, setOpenAiApiKeyInput] = useState('');
+    const [anthropicBaseUrl, setAnthropicBaseUrl] = useState('');
+    const [anthropicApiKey, setAnthropicApiKeyInput] = useState('');
+    const [anthropicModel, setAnthropicModel] = useState(
+        defaultChatModel.startsWith('claude-') ? defaultChatModel : DEFAULT_ANTHROPIC_TEXT_MODEL,
+    );
     const [connectionState, setConnectionState] = useState<ConnectionState>('idle');
     const [connectionMessage, setConnectionMessage] = useState('');
     const [name, setName] = useState('');
@@ -100,8 +122,10 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                 if (cancelled) return;
                 setServerConfig(status);
                 setOpenAiBaseUrl(status.openai.baseUrl);
+                setAnthropicBaseUrl(status.anthropic.baseUrl);
                 setOpenRouterApiKeyInput('');
                 setOpenAiApiKeyInput('');
+                setAnthropicApiKeyInput('');
             })
             .catch((error) => {
                 if (cancelled) return;
@@ -130,6 +154,10 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
         const trimmedOpenAiKey = openAiApiKey.trim();
         const trimmedOpenAiBaseUrl = openAiBaseUrl.trim().replace(/\/+$/, '');
         const openAiBaseChanged = trimmedOpenAiBaseUrl !== serverConfig.openai.baseUrl;
+        const trimmedAnthropicKey = anthropicApiKey.trim();
+        const trimmedAnthropicBaseUrl = anthropicBaseUrl.trim().replace(/\/+$/, '');
+        const anthropicBaseChanged = trimmedAnthropicBaseUrl !== serverConfig.anthropic.baseUrl;
+        const trimmedAnthropicModel = anthropicModel.trim();
 
         if (aiProvider === 'openrouter' && !serverConfig.openrouter.configured && !trimmedOpenRouterKey) {
             setConnectionState('error');
@@ -143,6 +171,29 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
         ) {
             setConnectionState('error');
             setConnectionMessage('Base URLを入力してください。');
+            return;
+        }
+        if (
+            aiProvider === 'anthropic'
+            && !trimmedAnthropicBaseUrl
+            && serverConfig.anthropic.baseUrlEditable
+        ) {
+            setConnectionState('error');
+            setConnectionMessage('Base URLを入力してください。');
+            return;
+        }
+        if (aiProvider === 'anthropic' && !trimmedAnthropicModel) {
+            setConnectionState('error');
+            setConnectionMessage('Anthropicで使用するモデルIDを入力してください。');
+            return;
+        }
+        if (
+            aiProvider === 'anthropic'
+            && (!serverConfig.anthropic.apiKey.configured || anthropicBaseChanged)
+            && !trimmedAnthropicKey
+        ) {
+            setConnectionState('error');
+            setConnectionMessage('Anthropic APIキーを入力してください。');
             return;
         }
         if (
@@ -175,12 +226,32 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                 if (Object.keys(update).length > 0) {
                     nextServerConfig = await setOpenAiConfig(update);
                 }
+            } else if (aiProvider === 'anthropic') {
+                const update = {
+                    ...(serverConfig.anthropic.baseUrlEditable && anthropicBaseChanged
+                        ? { baseUrl: trimmedAnthropicBaseUrl }
+                        : {}),
+                    ...(serverConfig.anthropic.apiKey.editable && trimmedAnthropicKey
+                        ? { apiKey: trimmedAnthropicKey }
+                        : {}),
+                };
+                if (Object.keys(update).length > 0) {
+                    nextServerConfig = await setAnthropicConfig(update);
+                }
+                setDefaultChatModel(trimmedAnthropicModel);
+                setDefaultDirectorModel(trimmedAnthropicModel);
+                setDefaultAutoGenerationModel(trimmedAnthropicModel);
+                setTitleGenerationModel(trimmedAnthropicModel);
+                setSummaryModel(trimmedAnthropicModel);
+                setMemoryExtractionModel(trimmedAnthropicModel);
             }
 
             setServerConfig(nextServerConfig);
             setOpenAiBaseUrl(nextServerConfig.openai.baseUrl);
+            setAnthropicBaseUrl(nextServerConfig.anthropic.baseUrl);
             setOpenRouterApiKeyInput('');
             setOpenAiApiKeyInput('');
+            setAnthropicApiKeyInput('');
 
             const response = await fetch('/api/ai/status', {
                 method: 'POST',
@@ -252,14 +323,27 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
     const selectedApiKeyStatus = serverConfig
         ? aiProvider === 'openrouter'
             ? serverConfig.openrouter
-            : serverConfig.openai.apiKey
+            : aiProvider === 'anthropic'
+                ? serverConfig.anthropic.apiKey
+                : serverConfig.openai.apiKey
         : null;
     const openAiBaseChanged = serverConfig != null
         && openAiBaseUrl.trim().replace(/\/+$/, '') !== serverConfig.openai.baseUrl;
+    const anthropicBaseChanged = serverConfig != null
+        && anthropicBaseUrl.trim().replace(/\/+$/, '') !== serverConfig.anthropic.baseUrl;
     const hasConnectionChanges = aiProvider === 'openrouter'
         ? openRouterApiKey.trim().length > 0
-        : openAiBaseChanged || openAiApiKey.trim().length > 0;
+        : aiProvider === 'anthropic'
+            ? anthropicBaseChanged
+                || anthropicApiKey.trim().length > 0
+                || anthropicModel.trim() !== defaultChatModel
+            : openAiBaseChanged || openAiApiKey.trim().length > 0;
     const connectionBusy = configLoading || connectionState === 'checking';
+    const providerLabel = aiProvider === 'openrouter'
+        ? 'OpenRouter'
+        : aiProvider === 'anthropic'
+            ? 'Anthropic / 互換API'
+            : 'OpenAI / 互換API';
 
     return (
         <section className="chat-container onboarding-container" aria-label="はじめ方">
@@ -371,14 +455,18 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                     <h1>
                                         {aiProvider === 'openrouter'
                                             ? 'OpenRouterを設定'
-                                            : 'APIの接続先を設定'}
+                                            : aiProvider === 'anthropic'
+                                                ? 'Anthropicを設定'
+                                                : 'APIの接続先を設定'}
                                     </h1>
                                 </div>
                             </div>
                             <p className="onboarding-lead">
                                 {aiProvider === 'openrouter'
                                     ? 'OpenRouterのAPIキーを保存して、会話できるか確認します。'
-                                    : 'OpenAI公式APIまたは互換APIのBase URLとAPIキーを設定します。'}
+                                    : aiProvider === 'anthropic'
+                                        ? 'AnthropicまたはMessages API互換のBase URLとAPIキーを設定します。'
+                                        : 'OpenAI公式APIまたは互換APIのBase URLとAPIキーを設定します。'}
                             </p>
 
                             {configLoading ? (
@@ -398,7 +486,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                     <div className="ai-connection-heading">
                                         <div>
                                             <strong>
-                                                {aiProvider === 'openrouter' ? 'OpenRouter' : 'OpenAI / 互換API'} 接続設定
+                                                {providerLabel} 接続設定
                                             </strong>
                                             <span>
                                                 {selectedApiKeyStatus
@@ -444,6 +532,75 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                             )}
                                             <p className="ai-connection-help">
                                                 キーはブラウザーに保存せず、OSの資格情報ストアで保護します。保存後も画面には表示しません。
+                                            </p>
+                                        </>
+                                    ) : aiProvider === 'anthropic' ? (
+                                        <>
+                                            <label className="ai-connection-label" htmlFor="onboarding-anthropic-base-url">
+                                                Base URL
+                                            </label>
+                                            <input
+                                                id="onboarding-anthropic-base-url"
+                                                className="input"
+                                                type="url"
+                                                value={anthropicBaseUrl}
+                                                disabled={!serverConfig.anthropic.baseUrlEditable || connectionBusy}
+                                                spellCheck={false}
+                                                placeholder={DEFAULT_ANTHROPIC_BASE_URL}
+                                                onChange={(event) => setAnthropicBaseUrl(event.target.value)}
+                                            />
+                                            <p className="ai-connection-help">
+                                                {serverConfig.anthropic.baseUrlEditable
+                                                    ? `Anthropic公式の既定値は ${DEFAULT_ANTHROPIC_BASE_URL} です。`
+                                                    : '環境変数 ANTHROPIC_BASE_URL またはANTHROPIC_API_KEY が優先されています。'}
+                                            </p>
+                                            {anthropicBaseChanged && serverConfig.anthropic.apiKey.configured && (
+                                                <p className="ai-connection-help warning">
+                                                    接続先を変更すると、現在保存されているAPIキーは解除されます。
+                                                </p>
+                                            )}
+
+                                            <label className="ai-connection-label" htmlFor="onboarding-anthropic-api-key">
+                                                APIキー
+                                            </label>
+                                            <input
+                                                id="onboarding-anthropic-api-key"
+                                                className="input"
+                                                type="password"
+                                                value={anthropicApiKey}
+                                                disabled={!serverConfig.anthropic.apiKey.editable || connectionBusy}
+                                                autoComplete="new-password"
+                                                spellCheck={false}
+                                                autoFocus={serverConfig.anthropic.apiKey.editable && !serverConfig.anthropic.apiKey.configured}
+                                                placeholder={serverConfig.anthropic.apiKey.configured
+                                                    ? '変更する場合のみ入力'
+                                                    : 'Anthropic APIキーを入力'}
+                                                onChange={(event) => setAnthropicApiKeyInput(event.target.value)}
+                                            />
+                                            {!serverConfig.anthropic.apiKey.editable && (
+                                                <p className="ai-connection-help">
+                                                    環境変数 ANTHROPIC_API_KEY が優先されています。
+                                                </p>
+                                            )}
+                                            <p className="ai-connection-help">
+                                                キーは接続先ごとに保存され、変更後も画面には表示しません。
+                                            </p>
+
+                                            <label className="ai-connection-label" htmlFor="onboarding-anthropic-model">
+                                                テキスト生成モデル
+                                            </label>
+                                            <input
+                                                id="onboarding-anthropic-model"
+                                                className="input"
+                                                type="text"
+                                                value={anthropicModel}
+                                                disabled={connectionBusy}
+                                                spellCheck={false}
+                                                placeholder={DEFAULT_ANTHROPIC_TEXT_MODEL}
+                                                onChange={(event) => setAnthropicModel(event.target.value)}
+                                            />
+                                            <p className="ai-connection-help">
+                                                会話、要約、キャラクター生成などの既定モデルに使用します。
                                             </p>
                                         </>
                                     ) : (

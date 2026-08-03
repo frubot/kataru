@@ -10,7 +10,6 @@ import {
     setAnthropicConfig,
     setOpenAiConfig,
     setOpenRouterApiKey,
-    type AiConfigSource,
     type ServerAiConfigStatus,
 } from '@/lib/serverAiConfig';
 

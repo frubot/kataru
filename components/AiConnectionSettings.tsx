@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { KeyRound, RefreshCw, Save, Trash2 } from 'lucide-react';
+import { RefreshCw, Save, Trash2 } from 'lucide-react';
 
 import type { AiProvider } from '@/lib/aiProvider';
 import {
@@ -113,12 +113,6 @@ export default function AiConnectionSettings({ provider }: AiConnectionSettingsP
 
     return (
         <div className="ai-connection-card">
-            <div className="ai-connection-heading">
-                <div>
-                    <strong>{providerLabel} 接続設定</strong>
-                </div>
-                <KeyRound size={18} aria-hidden="true" />
-            </div>
 
             {!status.secretStoreAvailable && !selectedApiKeyStatus.configured && (
                 <p className="ai-connection-message error" role="alert">

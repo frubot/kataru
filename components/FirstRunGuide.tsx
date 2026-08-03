@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, CheckCircle2, KeyRound, Loader2, Menu, Sparkles } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Loader2, Menu, Sparkles } from 'lucide-react';
 import {
     formatGeneratedCharacterPrompt,
     formatGeneratedProtagonistPrompt,
@@ -454,14 +454,6 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                 </div>
                             ) : (
                                 <div className="ai-connection-card onboarding-connection-card">
-                                    <div className="ai-connection-heading">
-                                        <div>
-                                            <strong>
-                                                {providerLabel} 接続設定
-                                            </strong>
-                                        </div>
-                                        <KeyRound size={18} aria-hidden="true" />
-                                    </div>
 
                                     {!serverConfig.secretStoreAvailable && !selectedApiKeyStatus?.configured && (
                                         <p className="ai-connection-message error" role="alert">

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Braces, Search, Image, Check, ChevronDown, RefreshCw, ExternalLink, type LucideIcon } from 'lucide-react';
+import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Braces, Check, ChevronDown, RefreshCw, ExternalLink, type LucideIcon } from 'lucide-react';
 import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, DEFAULT_SUMMARY_MODEL, DEFAULT_CHAT_MODEL, DEFAULT_DIRECTOR_MODEL, DEFAULT_AUTO_GENERATION_MODEL, DEFAULT_TITLE_GENERATION_MODEL, DEFAULT_IMAGE_MODEL, DEFAULT_MEMORY_EXTRACTION_MODEL, DEFAULT_MEMORY_EMBEDDING_MODEL, type AiProvider } from '@/lib/store';
 import { createFullBackup, downloadJson, parseFullBackup, reassignIds, ParsedBackup } from '@/lib/importExport';
 import StatisticsPanel from '@/components/StatisticsPanel';
@@ -322,8 +322,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         memoryEmbeddingModel, setMemoryEmbeddingModel,
         generateTitleOnFirstReply, setGenerateTitleOnFirstReply,
         aiProvider, setAiProvider,
-        openAiCompatibleEmbeddingsEnabled, setOpenAiCompatibleEmbeddingsEnabled,
-        openAiCompatibleImageGenerationEnabled, setOpenAiCompatibleImageGenerationEnabled,
         fullJsonDebugEnabled, fullJsonDebugLogs,
         setThemeMode, setThemePalette, setVnTypingSpeed,
         setFullJsonDebugEnabled, clearFullJsonDebugLogs,
@@ -1146,31 +1144,9 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
 
                                 <AiConnectionSettings provider={aiProvider} />
 
-                                {aiProvider === 'openai-compatible' && (
-                                    <>
-
-                                        {renderDebugToggle({
-                                            Icon: Search,
-                                            label: 'embeddings モデルを使う',
-                                            enabled: openAiCompatibleEmbeddingsEnabled,
-                                            onToggle: () => setOpenAiCompatibleEmbeddingsEnabled(!openAiCompatibleEmbeddingsEnabled),
-                                            ariaLabel: 'OpenAI互換APIのembeddings利用を切り替え',
-                                        })}
-                                        {renderDebugToggle({
-                                            Icon: Image,
-                                            label: '画像生成モデルを使う',
-                                            enabled: openAiCompatibleImageGenerationEnabled,
-                                            onToggle: () => setOpenAiCompatibleImageGenerationEnabled(!openAiCompatibleImageGenerationEnabled),
-                                            ariaLabel: 'OpenAI互換APIの画像生成利用を切り替え',
-                                        })}
-                                        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                                            互換APIでは一部の機能が制限されます。OpenRouterで全ての機能をご利用いただけます。
-                                        </p>
-                                    </>
-                                )}
-                                {aiProvider === 'anthropic' && (
+                                {aiProvider !== 'openrouter' && (
                                     <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                                        Anthropicでは会話とテキスト生成を利用できます。既定値と各キャラクターのモデルには、接続先で有効なClaudeモデルIDを指定してください。埋め込みと画像生成は利用できません。
+                                        互換APIでは一部の機能が制限されます。OpenRouterで全ての機能をご利用いただけます。
                                     </p>
                                 )}
                             </div>
@@ -1283,23 +1259,25 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                 </div>
 
                                 {/* Default image model */}
-                                <div>
-                                    <label
-                                        htmlFor="default-image-model-input"
-                                        style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: '0.375rem' }}
-                                    >
-                                        画像生成
-                                    </label>
-                                    <input
-                                        id="default-image-model-input"
-                                        type="text"
-                                        className="input"
-                                        value={defaultImageModel}
-                                        onChange={(e) => setDefaultImageModel(e.target.value)}
-                                        onBlur={handleDefaultImageModelBlur}
-                                        placeholder={`例: ${DEFAULT_IMAGE_MODEL}`}
-                                    />
-                                </div>
+                                {aiProvider === 'openrouter' && (
+                                    <div>
+                                        <label
+                                            htmlFor="default-image-model-input"
+                                            style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: '0.375rem' }}
+                                        >
+                                            画像生成
+                                        </label>
+                                        <input
+                                            id="default-image-model-input"
+                                            type="text"
+                                            className="input"
+                                            value={defaultImageModel}
+                                            onChange={(e) => setDefaultImageModel(e.target.value)}
+                                            onBlur={handleDefaultImageModelBlur}
+                                            placeholder={`例: ${DEFAULT_IMAGE_MODEL}`}
+                                        />
+                                    </div>
+                                )}
 
                                 {/* Memory extraction model */}
                                 <div>
@@ -1321,23 +1299,25 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                 </div>
 
                                 {/* Memory embedding model */}
-                                <div>
-                                    <label
-                                        htmlFor="memory-embedding-model-input"
-                                        style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: '0.375rem' }}
-                                    >
-                                        メモリ検索
-                                    </label>
-                                    <input
-                                        id="memory-embedding-model-input"
-                                        type="text"
-                                        className="input"
-                                        value={memoryEmbeddingModel}
-                                        onChange={(e) => setMemoryEmbeddingModel(e.target.value)}
-                                        onBlur={handleMemoryEmbeddingModelBlur}
-                                        placeholder={`例: ${DEFAULT_MEMORY_EMBEDDING_MODEL}`}
-                                    />
-                                </div>
+                                {aiProvider === 'openrouter' && (
+                                    <div>
+                                        <label
+                                            htmlFor="memory-embedding-model-input"
+                                            style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: '0.375rem' }}
+                                        >
+                                            メモリ検索
+                                        </label>
+                                        <input
+                                            id="memory-embedding-model-input"
+                                            type="text"
+                                            className="input"
+                                            value={memoryEmbeddingModel}
+                                            onChange={(e) => setMemoryEmbeddingModel(e.target.value)}
+                                            onBlur={handleMemoryEmbeddingModelBlur}
+                                            placeholder={`例: ${DEFAULT_MEMORY_EMBEDDING_MODEL}`}
+                                        />
+                                    </div>
+                                )}
                             </div>
                         </div>
 

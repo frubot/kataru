@@ -34,17 +34,6 @@ interface ConnectionStatusResponse {
     message?: string;
 }
 
-const CONFIG_SOURCE_LABELS: Record<AiConfigSource, string> = {
-    default: '既定値',
-    stored: '保存済み',
-    environment: '環境変数',
-};
-
-function keyStatusLabel(configured: boolean, source: AiConfigSource | null): string {
-    if (!configured) return '未設定';
-    return source ? `設定済み（${CONFIG_SOURCE_LABELS[source]}）` : '設定済み';
-}
-
 const PROVIDER_OPTIONS: readonly {
     id: AiProvider;
     title: string;
@@ -54,19 +43,19 @@ const PROVIDER_OPTIONS: readonly {
     {
         id: 'openrouter',
         title: 'OpenRouter',
-        description: 'OpenRouterを使います。いろいろなAIから選べます。',
+        description: 'OpenRouterに接続します。(推奨)',
         Icon: Cloud,
     },
     {
         id: 'openai-compatible',
         title: 'OpenAI / 互換API',
-        description: 'OpenAI公式APIまたは互換プロバイダーに接続します。',
+        description: 'OpenAI公式または互換APIに接続します。',
         Icon: Cpu,
     },
     {
         id: 'anthropic',
-        title: 'Anthropic / 互換API',
-        description: 'ClaudeまたはMessages API互換プロバイダーに接続します。',
+        title: 'Anthropic',
+        description: 'Claude APIまたは互換APIに接続します。',
         Icon: Bot,
     },
 ];
@@ -393,12 +382,12 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                         <>
                             <div className="onboarding-heading">
                                 <div>
-                                    <p className="onboarding-step-label">1 / 3 · AIを選ぶ</p>
+                                    <p className="onboarding-step-label">1 / 3 · プロパイダーを選ぶ</p>
                                     <h1>Kataruへようこそ</h1>
                                 </div>
                             </div>
                             <p className="onboarding-lead">
-                                AIキャラクターと自由に会話しましょう。まず、会話に使うプロパイダーを選んでください。
+                                AIキャラクターと自由に会話しましょう。まず、使うプロパイダーを選んでください。
                             </p>
 
                             <div className="onboarding-provider-list" role="radiogroup" aria-label="会話に使うAI">
@@ -456,8 +445,8 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                         {aiProvider === 'openrouter'
                                             ? 'OpenRouterを設定'
                                             : aiProvider === 'anthropic'
-                                                ? 'Anthropicを設定'
-                                                : 'APIの接続先を設定'}
+                                                ? 'Claude API'
+                                                : 'OpenAI API'}
                                     </h1>
                                 </div>
                             </div>
@@ -488,14 +477,6 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                             <strong>
                                                 {providerLabel} 接続設定
                                             </strong>
-                                            <span>
-                                                {selectedApiKeyStatus
-                                                    ? keyStatusLabel(
-                                                        selectedApiKeyStatus.configured,
-                                                        selectedApiKeyStatus.source,
-                                                    )
-                                                    : '未設定'}
-                                            </span>
                                         </div>
                                         <KeyRound size={18} aria-hidden="true" />
                                     </div>
@@ -530,9 +511,6 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                                     環境変数 OPENROUTER_API_KEY が優先されています。
                                                 </p>
                                             )}
-                                            <p className="ai-connection-help">
-                                                キーはブラウザーに保存せず、OSの資格情報ストアで保護します。保存後も画面には表示しません。
-                                            </p>
                                         </>
                                     ) : aiProvider === 'anthropic' ? (
                                         <>
@@ -694,11 +672,11 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                             <div className="onboarding-heading">
                                 <div>
                                     <p className="onboarding-step-label">3 / 3 · 話す相手を作る</p>
-                                    <h1>誰と話しますか？</h1>
+                                    <h1>キャラクターについて教えてください</h1>
                                 </div>
                             </div>
                             <p className="onboarding-lead">
-                                名前と、性格や話し方を簡単に書くだけで始められます。あとから変更できます。
+                                簡単に設定を書くだけで始められます。あとから変更できます。
                             </p>
 
                             <div className="onboarding-form">

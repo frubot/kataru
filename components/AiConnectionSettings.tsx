@@ -18,16 +18,6 @@ interface AiConnectionSettingsProps {
     provider: AiProvider;
 }
 
-const SOURCE_LABELS: Record<AiConfigSource, string> = {
-    default: '既定値',
-    stored: '保存済み',
-    environment: '環境変数',
-};
-
-function keyStatusLabel(configured: boolean, source: AiConfigSource | null): string {
-    if (!configured) return '未設定';
-    return source ? `設定済み（${SOURCE_LABELS[source]}）` : '設定済み';
-}
 
 export default function AiConnectionSettings({ provider }: AiConnectionSettingsProps) {
     const [status, setStatus] = useState<ServerAiConfigStatus | null>(null);
@@ -127,14 +117,13 @@ export default function AiConnectionSettings({ provider }: AiConnectionSettingsP
             <div className="ai-connection-heading">
                 <div>
                     <strong>{providerLabel} 接続設定</strong>
-                    <span>{keyStatusLabel(selectedApiKeyStatus.configured, selectedApiKeyStatus.source)}</span>
                 </div>
                 <KeyRound size={18} aria-hidden="true" />
             </div>
 
             {!status.secretStoreAvailable && !selectedApiKeyStatus.configured && (
                 <p className="ai-connection-message error" role="alert">
-                    OSの資格情報ストアを利用できません。環境変数でAPIキーを設定してください。
+                    問題が発生しました: OSの資格情報ストアが利用できません。環境変数でAPIキーを設定してださい。
                 </p>
             )}
 
@@ -228,9 +217,6 @@ export default function AiConnectionSettings({ provider }: AiConnectionSettingsP
                     {!status.anthropic.apiKey.editable && (
                         <p className="ai-connection-help">環境変数 ANTHROPIC_API_KEY が優先されています。</p>
                     )}
-                    <p className="ai-connection-help">
-                        Anthropic公式の既定値は https://api.anthropic.com/v1 です。Messages API互換の接続先も指定できます。
-                    </p>
                     <div className="ai-connection-actions">
                         <button
                             type="button"
@@ -309,9 +295,6 @@ export default function AiConnectionSettings({ provider }: AiConnectionSettingsP
                     {!status.openai.apiKey.editable && (
                         <p className="ai-connection-help">環境変数 OPENAI_API_KEY が優先されています。</p>
                     )}
-                    <p className="ai-connection-help">
-                        OpenAI公式の既定値は https://api.openai.com/v1 です。loopbackのHTTP URLも指定できます。
-                    </p>
                     <div className="ai-connection-actions">
                         <button
                             type="button"

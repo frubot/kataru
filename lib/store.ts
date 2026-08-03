@@ -10,8 +10,12 @@ import {
     DEFAULT_IMAGE_MODEL,
     DEFAULT_MEMORY_EMBEDDING_MODEL,
     DEFAULT_MEMORY_EXTRACTION_MODEL,
+    DEFAULT_MODEL_DEFAULTS,
     DEFAULT_SUMMARY_MODEL,
     DEFAULT_TITLE_GENERATION_MODEL,
+    normalizeModelDefaultsByProvider,
+    type ModelDefaults,
+    type ModelDefaultsByProvider,
 } from './modelDefaults';
 import {
     DEFAULT_AI_PROVIDER,
@@ -315,6 +319,7 @@ interface AppState {
     defaultImageModel: string;
     memoryExtractionModel: string;
     memoryEmbeddingModel: string;
+    modelDefaultsByProvider: ModelDefaultsByProvider;
     generateTitleOnFirstReply: boolean;
     aiProvider: AiProvider;
     openAiCompatibleBaseUrl: string;
@@ -981,6 +986,34 @@ const clearThemeCache = () => {
 
 const DEBUG_LOG_LIMIT = 50;
 
+let modelDefaultsWriteQueue: Promise<void> = Promise.resolve();
+
+function persistModelDefaultsByProvider(modelDefaultsByProvider: ModelDefaultsByProvider) {
+    modelDefaultsWriteQueue = modelDefaultsWriteQueue
+        .catch(() => undefined)
+        .then(() => db.setMeta('modelDefaultsByProvider', modelDefaultsByProvider));
+    fire(modelDefaultsWriteQueue);
+}
+
+function updateModelDefault<K extends keyof ModelDefaults>(
+    set: (partial: Partial<AppState>) => void,
+    get: () => AppState,
+    key: K,
+    value: ModelDefaults[K],
+) {
+    const state = get();
+    const providerDefaults = {
+        ...state.modelDefaultsByProvider[state.aiProvider],
+        [key]: value,
+    };
+    const modelDefaultsByProvider = {
+        ...state.modelDefaultsByProvider,
+        [state.aiProvider]: providerDefaults,
+    };
+    set({ [key]: value, modelDefaultsByProvider });
+    persistModelDefaultsByProvider(modelDefaultsByProvider);
+}
+
 function getAiProviderConfigFromState(state: Pick<AppState,
     'aiProvider' |
     'openAiCompatibleBaseUrl' |
@@ -1009,6 +1042,7 @@ export const useStore = create<AppState>()((set, get) => ({
     defaultImageModel: DEFAULT_IMAGE_MODEL,
     memoryExtractionModel: DEFAULT_MEMORY_EXTRACTION_MODEL,
     memoryEmbeddingModel: DEFAULT_MEMORY_EMBEDDING_MODEL,
+    modelDefaultsByProvider: normalizeModelDefaultsByProvider(undefined),
     generateTitleOnFirstReply: false,
     aiProvider: DEFAULT_AI_PROVIDER,
     openAiCompatibleBaseUrl: DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
@@ -1025,7 +1059,7 @@ export const useStore = create<AppState>()((set, get) => ({
     hydrate: async () => {
         if (get().hydrated) return;
         await db.migrateLegacyDatabase();
-        const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, currentRoomId, vnTypingSpeed, fullJsonDebugEnabled, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedGenerateTitleOnFirstReply, storedAiProvider, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion] = await Promise.all([
+        const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, currentRoomId, vnTypingSpeed, fullJsonDebugEnabled, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByProvider, storedGenerateTitleOnFirstReply, storedAiProvider, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion] = await Promise.all([
             db.getAllCharacters(),
             db.getAllGroups(),
             db.getAllRooms(),
@@ -1043,6 +1077,7 @@ export const useStore = create<AppState>()((set, get) => ({
             db.getMeta<string>('defaultImageModel'),
             db.getMeta<string>('memoryExtractionModel'),
             db.getMeta<string>('memoryEmbeddingModel'),
+            db.getMeta<ModelDefaultsByProvider>('modelDefaultsByProvider'),
             db.getMeta<boolean>('generateTitleOnFirstReply'),
             db.getMeta<AiProvider>('aiProvider'),
             db.getMeta<string>('openAiCompatibleBaseUrl'),
@@ -1057,23 +1092,51 @@ export const useStore = create<AppState>()((set, get) => ({
             fire(db.deleteMeta('openAiCompatibleApiKey'));
         }
         fire(db.deleteMeta('thinkDebugEnabled'));
-        const resolvedDefaultChatModel = typeof storedDefaultChatModel === 'string' && storedDefaultChatModel.trim()
+        const legacyDefaultChatModel = typeof storedDefaultChatModel === 'string' && storedDefaultChatModel.trim()
             ? storedDefaultChatModel.trim()
             : DEFAULT_CHAT_MODEL;
-        const characters = normalizeCharacters(loadedCharacters, resolvedDefaultChatModel);
+        const legacyDefaultDirectorModel = typeof storedDefaultDirectorModel === 'string' && storedDefaultDirectorModel.trim()
+            ? storedDefaultDirectorModel.trim()
+            : legacyDefaultChatModel || DEFAULT_DIRECTOR_MODEL;
+        const legacyModelDefaults: ModelDefaults = {
+            summaryModel: typeof storedSummaryModel === 'string' && storedSummaryModel.trim()
+                ? storedSummaryModel.trim()
+                : DEFAULT_SUMMARY_MODEL,
+            defaultChatModel: legacyDefaultChatModel,
+            defaultDirectorModel: legacyDefaultDirectorModel,
+            defaultAutoGenerationModel: typeof storedDefaultAutoGenerationModel === 'string' && storedDefaultAutoGenerationModel.trim()
+                ? storedDefaultAutoGenerationModel.trim()
+                : DEFAULT_AUTO_GENERATION_MODEL,
+            titleGenerationModel: typeof storedTitleGenerationModel === 'string' && storedTitleGenerationModel.trim()
+                ? storedTitleGenerationModel.trim()
+                : DEFAULT_TITLE_GENERATION_MODEL,
+            defaultImageModel: typeof storedDefaultImageModel === 'string' && storedDefaultImageModel.trim()
+                ? storedDefaultImageModel.trim()
+                : DEFAULT_IMAGE_MODEL,
+            memoryExtractionModel: typeof storedMemoryExtractionModel === 'string' && storedMemoryExtractionModel.trim()
+                ? storedMemoryExtractionModel.trim()
+                : DEFAULT_MEMORY_EXTRACTION_MODEL,
+            memoryEmbeddingModel: typeof storedMemoryEmbeddingModel === 'string' && storedMemoryEmbeddingModel.trim()
+                ? storedMemoryEmbeddingModel.trim()
+                : DEFAULT_MEMORY_EMBEDDING_MODEL,
+        };
+        const resolvedAiProvider = isAiProvider(storedAiProvider) ? storedAiProvider : DEFAULT_AI_PROVIDER;
+        const modelDefaultsByProvider = normalizeModelDefaultsByProvider(
+            storedModelDefaultsByProvider,
+            legacyModelDefaults,
+        );
+        const activeModelDefaults = modelDefaultsByProvider[resolvedAiProvider];
+        const characters = normalizeCharacters(loadedCharacters, activeModelDefaults.defaultChatModel);
         const changedCharacters = characters.filter((character, index) => character !== loadedCharacters[index]);
         if (changedCharacters.length > 0) {
             await Promise.all(changedCharacters.map((character) => db.putCharacter(character)));
         }
-        const resolvedDefaultDirectorModel = typeof storedDefaultDirectorModel === 'string' && storedDefaultDirectorModel.trim()
-            ? storedDefaultDirectorModel.trim()
-            : resolvedDefaultChatModel || DEFAULT_DIRECTOR_MODEL;
         const normalized = normalizeGroupData({
             characters,
             groups: storedGroups,
             rooms: storedRooms.map((r) => ({ ...r, messages: [] })),
-            fallbackModel: resolvedDefaultChatModel,
-            directorFallbackModel: resolvedDefaultDirectorModel,
+            fallbackModel: activeModelDefaults.defaultChatModel,
+            directorFallbackModel: activeModelDefaults.defaultDirectorModel,
         });
         const groups = normalized.groups;
         const rooms: Room[] = normalized.rooms;
@@ -1097,30 +1160,10 @@ export const useStore = create<AppState>()((set, get) => ({
         });
         writeThemeCache(resolvedTheme.mode, resolvedTheme.palette);
         const resolvedVnTypingSpeed = isVnTypingSpeed(vnTypingSpeed) ? vnTypingSpeed : DEFAULT_VN_TYPING_SPEED;
-        const resolvedSummaryModel = typeof storedSummaryModel === 'string' && storedSummaryModel.trim()
-            ? storedSummaryModel.trim()
-            : DEFAULT_SUMMARY_MODEL;
         if (themeMode !== resolvedTheme.mode) fire(db.setMeta('themeMode', resolvedTheme.mode));
         if (themePalette !== resolvedTheme.palette) fire(db.setMeta('themePalette', resolvedTheme.palette));
         if (vnTypingSpeed !== resolvedVnTypingSpeed) fire(db.setMeta('vnTypingSpeed', resolvedVnTypingSpeed));
-        if (storedSummaryModel !== resolvedSummaryModel) fire(db.setMeta('summaryModel', resolvedSummaryModel));
-        const resolvedDefaultImageModel = typeof storedDefaultImageModel === 'string' && storedDefaultImageModel.trim()
-            ? storedDefaultImageModel.trim()
-            : DEFAULT_IMAGE_MODEL;
-        const resolvedDefaultAutoGenerationModel = typeof storedDefaultAutoGenerationModel === 'string' && storedDefaultAutoGenerationModel.trim()
-            ? storedDefaultAutoGenerationModel.trim()
-            : DEFAULT_AUTO_GENERATION_MODEL;
-        const resolvedTitleGenerationModel = typeof storedTitleGenerationModel === 'string' && storedTitleGenerationModel.trim()
-            ? storedTitleGenerationModel.trim()
-            : DEFAULT_TITLE_GENERATION_MODEL;
-        const resolvedMemoryExtractionModel = typeof storedMemoryExtractionModel === 'string' && storedMemoryExtractionModel.trim()
-            ? storedMemoryExtractionModel.trim()
-            : DEFAULT_MEMORY_EXTRACTION_MODEL;
-        const resolvedMemoryEmbeddingModel = typeof storedMemoryEmbeddingModel === 'string' && storedMemoryEmbeddingModel.trim()
-            ? storedMemoryEmbeddingModel.trim()
-            : DEFAULT_MEMORY_EMBEDDING_MODEL;
         const resolvedGenerateTitleOnFirstReply = storedGenerateTitleOnFirstReply === true;
-        const resolvedAiProvider = isAiProvider(storedAiProvider) ? storedAiProvider : DEFAULT_AI_PROVIDER;
         const resolvedOpenAiCompatibleBaseUrl = normalizeOpenAiCompatibleBaseUrl(storedOpenAiCompatibleBaseUrl);
         const resolvedOpenAiCompatibleEmbeddingsEnabled = typeof storedOpenAiCompatibleEmbeddingsEnabled === 'boolean'
             ? storedOpenAiCompatibleEmbeddingsEnabled
@@ -1135,13 +1178,9 @@ export const useStore = create<AppState>()((set, get) => ({
         const resolvedOnboardingVersion = hasExistingContent
             ? Math.max(normalizedOnboardingVersion, CURRENT_ONBOARDING_VERSION)
             : normalizedOnboardingVersion;
-        if (storedDefaultChatModel !== resolvedDefaultChatModel) fire(db.setMeta('defaultChatModel', resolvedDefaultChatModel));
-        if (storedDefaultDirectorModel !== resolvedDefaultDirectorModel) fire(db.setMeta('defaultDirectorModel', resolvedDefaultDirectorModel));
-        if (storedDefaultAutoGenerationModel !== resolvedDefaultAutoGenerationModel) fire(db.setMeta('defaultAutoGenerationModel', resolvedDefaultAutoGenerationModel));
-        if (storedTitleGenerationModel !== resolvedTitleGenerationModel) fire(db.setMeta('titleGenerationModel', resolvedTitleGenerationModel));
-        if (storedDefaultImageModel !== resolvedDefaultImageModel) fire(db.setMeta('defaultImageModel', resolvedDefaultImageModel));
-        if (storedMemoryExtractionModel !== resolvedMemoryExtractionModel) fire(db.setMeta('memoryExtractionModel', resolvedMemoryExtractionModel));
-        if (storedMemoryEmbeddingModel !== resolvedMemoryEmbeddingModel) fire(db.setMeta('memoryEmbeddingModel', resolvedMemoryEmbeddingModel));
+        if (JSON.stringify(storedModelDefaultsByProvider) !== JSON.stringify(modelDefaultsByProvider)) {
+            persistModelDefaultsByProvider(modelDefaultsByProvider);
+        }
         if (storedGenerateTitleOnFirstReply !== resolvedGenerateTitleOnFirstReply) fire(db.setMeta('generateTitleOnFirstReply', resolvedGenerateTitleOnFirstReply));
         if (storedAiProvider !== resolvedAiProvider) fire(db.setMeta('aiProvider', resolvedAiProvider));
         if (storedOpenAiCompatibleBaseUrl !== resolvedOpenAiCompatibleBaseUrl) fire(db.setMeta('openAiCompatibleBaseUrl', resolvedOpenAiCompatibleBaseUrl));
@@ -1158,14 +1197,8 @@ export const useStore = create<AppState>()((set, get) => ({
             themeMode: resolvedTheme.mode,
             themePalette: resolvedTheme.palette,
             vnTypingSpeed: resolvedVnTypingSpeed,
-            summaryModel: resolvedSummaryModel,
-            defaultChatModel: resolvedDefaultChatModel,
-            defaultDirectorModel: resolvedDefaultDirectorModel,
-            defaultAutoGenerationModel: resolvedDefaultAutoGenerationModel,
-            titleGenerationModel: resolvedTitleGenerationModel,
-            defaultImageModel: resolvedDefaultImageModel,
-            memoryExtractionModel: resolvedMemoryExtractionModel,
-            memoryEmbeddingModel: resolvedMemoryEmbeddingModel,
+            ...activeModelDefaults,
+            modelDefaultsByProvider,
             generateTitleOnFirstReply: resolvedGenerateTitleOnFirstReply,
             aiProvider: resolvedAiProvider,
             openAiCompatibleBaseUrl: resolvedOpenAiCompatibleBaseUrl,
@@ -1204,8 +1237,7 @@ export const useStore = create<AppState>()((set, get) => ({
         fire(db.setMeta('vnTypingSpeed', vnTypingSpeed));
     },
     setSummaryModel: (summaryModel) => {
-        set({ summaryModel });
-        fire(db.setMeta('summaryModel', summaryModel));
+        updateModelDefault(set, get, 'summaryModel', summaryModel);
     },
     setFullJsonDebugEnabled: (fullJsonDebugEnabled) => {
         set({ fullJsonDebugEnabled });
@@ -1213,39 +1245,33 @@ export const useStore = create<AppState>()((set, get) => ({
     },
 
     setDefaultChatModel: (defaultChatModel) => {
-        set({ defaultChatModel });
-        fire(db.setMeta('defaultChatModel', defaultChatModel));
+        updateModelDefault(set, get, 'defaultChatModel', defaultChatModel);
     },
     setDefaultDirectorModel: (defaultDirectorModel) => {
-        set({ defaultDirectorModel });
-        fire(db.setMeta('defaultDirectorModel', defaultDirectorModel));
+        updateModelDefault(set, get, 'defaultDirectorModel', defaultDirectorModel);
     },
     setDefaultAutoGenerationModel: (defaultAutoGenerationModel) => {
-        set({ defaultAutoGenerationModel });
-        fire(db.setMeta('defaultAutoGenerationModel', defaultAutoGenerationModel));
+        updateModelDefault(set, get, 'defaultAutoGenerationModel', defaultAutoGenerationModel);
     },
     setTitleGenerationModel: (titleGenerationModel) => {
-        set({ titleGenerationModel });
-        fire(db.setMeta('titleGenerationModel', titleGenerationModel));
+        updateModelDefault(set, get, 'titleGenerationModel', titleGenerationModel);
     },
     setDefaultImageModel: (defaultImageModel) => {
-        set({ defaultImageModel });
-        fire(db.setMeta('defaultImageModel', defaultImageModel));
+        updateModelDefault(set, get, 'defaultImageModel', defaultImageModel);
     },
     setMemoryExtractionModel: (memoryExtractionModel) => {
-        set({ memoryExtractionModel });
-        fire(db.setMeta('memoryExtractionModel', memoryExtractionModel));
+        updateModelDefault(set, get, 'memoryExtractionModel', memoryExtractionModel);
     },
     setMemoryEmbeddingModel: (memoryEmbeddingModel) => {
-        set({ memoryEmbeddingModel });
-        fire(db.setMeta('memoryEmbeddingModel', memoryEmbeddingModel));
+        updateModelDefault(set, get, 'memoryEmbeddingModel', memoryEmbeddingModel);
     },
     setGenerateTitleOnFirstReply: (generateTitleOnFirstReply) => {
         set({ generateTitleOnFirstReply });
         fire(db.setMeta('generateTitleOnFirstReply', generateTitleOnFirstReply));
     },
     setAiProvider: (aiProvider) => {
-        set({ aiProvider });
+        const modelDefaults = get().modelDefaultsByProvider[aiProvider] ?? DEFAULT_MODEL_DEFAULTS;
+        set({ aiProvider, ...modelDefaults });
         fire(db.setMeta('aiProvider', aiProvider));
     },
     setOpenAiCompatibleBaseUrl: (openAiCompatibleBaseUrl) => {
@@ -2144,6 +2170,7 @@ export const useStore = create<AppState>()((set, get) => ({
 
     resetApplication: async () => {
         currentRoomLoadSeq++;
+        await modelDefaultsWriteQueue.catch(() => undefined);
         await db.resetAll();
         currentRoomLoadSeq++;
         clearThemeCache();
@@ -2160,6 +2187,7 @@ export const useStore = create<AppState>()((set, get) => ({
             defaultImageModel: DEFAULT_IMAGE_MODEL,
             memoryExtractionModel: DEFAULT_MEMORY_EXTRACTION_MODEL,
             memoryEmbeddingModel: DEFAULT_MEMORY_EMBEDDING_MODEL,
+            modelDefaultsByProvider: normalizeModelDefaultsByProvider(undefined),
             generateTitleOnFirstReply: false,
             aiProvider: DEFAULT_AI_PROVIDER,
             openAiCompatibleBaseUrl: DEFAULT_OPENAI_COMPATIBLE_BASE_URL,

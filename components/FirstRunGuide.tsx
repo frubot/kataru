@@ -319,12 +319,6 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                 || anthropicModel.trim() !== defaultChatModel
             : openAiBaseChanged || openAiApiKey.trim().length > 0;
     const connectionBusy = configLoading || connectionState === 'checking';
-    const providerLabel = aiProvider === 'openrouter'
-        ? 'OpenRouter'
-        : aiProvider === 'anthropic'
-            ? 'Anthropic / 互換API'
-            : 'OpenAI / 互換API';
-
     return (
         <section className="chat-container onboarding-container" aria-label="はじめ方">
             <div className="chat-header mobile-only onboarding-mobile-header">

@@ -99,11 +99,6 @@ export default function AiConnectionSettings({ provider }: AiConnectionSettingsP
         : provider === 'anthropic'
             ? status.anthropic.apiKey
             : status.openai.apiKey;
-    const providerLabel = provider === 'openrouter'
-        ? 'OpenRouter'
-        : provider === 'anthropic'
-            ? 'Anthropic / 互換API'
-            : 'OpenAI / 互換API';
     const openAiBaseChanged = openAiBaseUrl.trim() !== status.openai.baseUrl;
     const canSaveOpenAi = (status.openai.baseUrlEditable && openAiBaseChanged)
         || (status.openai.apiKey.editable && openAiApiKey.trim().length > 0);
@@ -142,7 +137,7 @@ export default function AiConnectionSettings({ provider }: AiConnectionSettingsP
                     <div className="ai-connection-actions">
                         <button
                             type="button"
-                            className="btn btn-primary"
+                            className="btn btn-ghost"
                             disabled={!status.openrouter.editable || !openRouterApiKey.trim() || saving}
                             onClick={() => void runUpdate(
                                 () => setOpenRouterApiKey(openRouterApiKey),
@@ -213,7 +208,7 @@ export default function AiConnectionSettings({ provider }: AiConnectionSettingsP
                     <div className="ai-connection-actions">
                         <button
                             type="button"
-                            className="btn btn-primary"
+                            className="btn btn-ghost"
                             disabled={!canSaveAnthropic || saving}
                             onClick={() => void runUpdate(
                                 () => setAnthropicConfig({
@@ -291,7 +286,7 @@ export default function AiConnectionSettings({ provider }: AiConnectionSettingsP
                     <div className="ai-connection-actions">
                         <button
                             type="button"
-                            className="btn btn-primary"
+                            className="btn btn-ghost"
                             disabled={!canSaveOpenAi || saving}
                             onClick={() => void runUpdate(
                                 () => setOpenAiConfig({

@@ -22,7 +22,7 @@ fn roleplay_reply_instruction(character_name: &str) -> String {
 
 ## messageフィールド内のフォーマット
 
-### キャラクターの返答に関して
+### キャラクターの返答
   あなたは{character_name}を演じます。
   キャラクターにおける制約:
    - 設定を遵守して返答する必要があります。
@@ -30,7 +30,7 @@ fn roleplay_reply_instruction(character_name: &str) -> String {
 
 ### ナレーション
   キャラクターとしての返答だけでなく、ユーザーが周囲の状況を理解しやすいようにナレーションも表します。
-  ナレーションにおける制約:
+  ナレーションの制約:
    - 感情や動作、行動、状況に関連するものはナレーションとして叙述的に説明してください。文体はキャラクター設定に影響されません。(Good: 嬉しそうに話す。 Bad: 嬉しそうに話しました。)
    - *説明文* のように * で囲っで説明します。
    - 主人公を指す場合は"あなた"と表記してください。
@@ -52,12 +52,16 @@ fn roleplay_reply_instruction(character_name: &str) -> String {
 }
 
 const MESSAGE_REPLY_INSTRUCTION: &str = r#"
- あなたはメッセンジャーアプリで、相手ののメッセージに対して返信するところです。
+ あなたはメッセンジャーアプリを使って、相手とやりとりします。
+ アプリ上での出来事なので、文章は発言ではなくテキストです。
 
-## JSONスキーマの"messages"フィールドについて
- - "messages" フィールドに、1〜4個の短い文章で入力してください。
- - 主人公が添付する[写真の概要]は主人公があなたに送信した写真についての短い説明です。
- - あなたが写真を送りたい場合、[ここに送りたい写真の短い説明を入れる] を表記することで任意の画像を送信できます。
+ ## 例
+ Good:
+ ["確かに。","じゃあ10時にハチ公前集合ね👍マジ明日頑張れそう…。","楽しみ！笑"]
+
+ ## 写真の添付
+ 主人公が添付する[写真の概要]は主人公が添付した写真についての短い説明です。
+ もしあなたが写真を添付したいなら、[画像の説明] を表記することで任意の画像を送信できます。
 "#;
 
 pub fn character_setting(character: &Value) -> String {
@@ -159,7 +163,7 @@ pub fn assistant_schema(expression_names: &[String], use_message_mode: bool) -> 
             "expression".into(),
             json!({
                 "type": "string",
-                "description": "今現在のキャラクターの表情。",
+                "description": "あなたの表情",
                 "enum": expression_names,
             }),
         );
@@ -170,7 +174,7 @@ pub fn assistant_schema(expression_names: &[String], use_message_mode: bool) -> 
             "messages".into(),
             json!({
                 "type": "array",
-                "description": "あなたの返答",
+                "description": "あなたの返信",
                 "minItems": 1,
                 "maxItems": 4,
                 "items": {"type": "string"},
@@ -180,7 +184,7 @@ pub fn assistant_schema(expression_names: &[String], use_message_mode: bool) -> 
     } else {
         properties.insert(
             "message".into(),
-            json!({"type": "string", "description": "キャラクター返答とナレーション"}),
+            json!({"type": "string", "description": "あなたの返答とナレーション"}),
         );
         required.push("message");
     }

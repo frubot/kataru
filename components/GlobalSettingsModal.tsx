@@ -75,8 +75,8 @@ const THEME_MODE_OPTIONS = [
 
 const PALETTE_OPTIONS = [
     {
-        id: 'classic',
-        label: 'クラシック',
+        id: 'indigo',
+        label: 'インディゴ',
         preview: {
             light: { bg: '#f6f7ff', surface: '#ffffff', accent: '#4f46e5' },
             dark: { bg: '#0f1117', surface: '#202435', accent: '#818cf8' },

@@ -297,7 +297,7 @@ export interface FullJsonDebugLog {
 }
 
 export type ThemeMode = 'light' | 'dark';
-export type ThemePalette = 'classic' | 'sakura' | 'sage' | 'sky' | 'amber' | 'mono';
+export type ThemePalette = 'indigo' | 'sakura' | 'sage' | 'sky' | 'amber' | 'mono';
 export type VnTypingSpeed = 'slow' | 'default' | 'fast' | 'streaming';
 
 type ThemeSelection = {
@@ -941,7 +941,7 @@ function normalizeGroupData(params: {
 
 // Cache theme to localStorage for no-flash first paint (synchronous access before IDB loads)
 export const THEME_LS_KEY = 'kataru-theme';
-const DEFAULT_THEME_SELECTION: ThemeSelection = { mode: 'dark', palette: 'classic' };
+const DEFAULT_THEME_SELECTION: ThemeSelection = { mode: 'dark', palette: 'mono' };
 const DEFAULT_VN_TYPING_SPEED: VnTypingSpeed = 'default';
 // Set these to numbers to apply defaults when a character or situation does not override them.
 export const DEFAULT_CHARACTER_MAX_TOKENS: number | undefined = 1024;
@@ -956,7 +956,7 @@ export function getThemeClassName(mode: ThemeMode, palette: ThemePalette) {
 
 const isThemeMode = (value: unknown): value is ThemeMode => value === 'light' || value === 'dark';
 const isThemePalette = (value: unknown): value is ThemePalette =>
-    value === 'classic' ||
+    value === 'indigo' ||
     value === 'sakura' ||
     value === 'sage' ||
     value === 'sky' ||

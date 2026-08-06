@@ -1081,6 +1081,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const vnTypewriterRef = useRef<{ messageId: string; fullContent: string } | null>(null);
     const vnTypeDelayRef = useRef<{ timeout: ReturnType<typeof setTimeout>; resolve: () => void } | null>(null);
     const chatNoticeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const chatNoticeHoveredRef = useRef(false);
     const vnTypingSpeedRef = useRef(vnTypingSpeed);
     const messagePointerDragRef = useRef(false);
     const currentRoomId = room?.id;
@@ -1100,8 +1101,18 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         chatNoticeTimeoutRef.current = null;
     }, []);
 
+    const scheduleChatNoticeAutoHide = useCallback(() => {
+        if (chatNoticeHoveredRef.current) return;
+        clearChatNoticeTimer();
+        chatNoticeTimeoutRef.current = setTimeout(() => {
+            chatNoticeTimeoutRef.current = null;
+            setChatNotice(null);
+        }, CHAT_NOTICE_AUTO_HIDE_MS);
+    }, [clearChatNoticeTimer]);
+
     const dismissChatNotice = useCallback(() => {
         clearChatNoticeTimer();
+        chatNoticeHoveredRef.current = false;
         setChatNotice(null);
     }, [clearChatNoticeTimer]);
 
@@ -1112,11 +1123,18 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             message,
             tone: 'error',
         });
-        chatNoticeTimeoutRef.current = setTimeout(() => {
-            chatNoticeTimeoutRef.current = null;
-            setChatNotice(null);
-        }, CHAT_NOTICE_AUTO_HIDE_MS);
+        scheduleChatNoticeAutoHide();
+    }, [clearChatNoticeTimer, scheduleChatNoticeAutoHide]);
+
+    const handleChatNoticeMouseEnter = useCallback(() => {
+        chatNoticeHoveredRef.current = true;
+        clearChatNoticeTimer();
     }, [clearChatNoticeTimer]);
+
+    const handleChatNoticeMouseLeave = useCallback(() => {
+        chatNoticeHoveredRef.current = false;
+        scheduleChatNoticeAutoHide();
+    }, [scheduleChatNoticeAutoHide]);
 
     const logChatError = useCallback((context: string, error: unknown) => {
         if (detailedErrorLoggingEnabled) {
@@ -2774,7 +2792,14 @@ export default function ChatWindow({ room, character, situation, groupName, grou
 
             <div className="chat-input-area" style={{ position: 'relative' }}>
                 {chatNotice && (
-                    <div key={chatNotice.id} className={`chat-notice ${chatNotice.tone}`} role="alert" aria-live="polite">
+                    <div
+                        key={chatNotice.id}
+                        className={`chat-notice ${chatNotice.tone}`}
+                        role="alert"
+                        aria-live="polite"
+                        onMouseEnter={handleChatNoticeMouseEnter}
+                        onMouseLeave={handleChatNoticeMouseLeave}
+                    >
                         <AlertTriangle size={16} className="chat-notice-icon" />
                         <span className="chat-notice-message">{chatNotice.message}</span>
                         <button

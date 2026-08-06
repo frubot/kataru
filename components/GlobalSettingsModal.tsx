@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Braces, Check, ChevronDown, RefreshCw, ExternalLink, type LucideIcon } from 'lucide-react';
+import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Check, ChevronDown, RefreshCw, ExternalLink, type LucideIcon } from 'lucide-react';
 import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, getDefaultModelDefaults, type AiProvider } from '@/lib/store';
 import { createFullBackup, downloadJson, parseFullBackup, reassignIds, ParsedBackup } from '@/lib/importExport';
 import StatisticsPanel from '@/components/StatisticsPanel';
@@ -637,13 +637,11 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         clearFullJsonDebugLogs();
     };
     const renderDebugToggle = ({
-        Icon,
         label,
         enabled,
         onToggle,
         ariaLabel,
     }: {
-        Icon: LucideIcon;
         label: string;
         enabled: boolean;
         onToggle: () => void;
@@ -651,8 +649,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
     }) => (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
             <div style={{ minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
-                    <Icon size={15} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
+                <div>
                     <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
                         {label}
                     </span>
@@ -1333,23 +1330,18 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                             </h3>
                             <div>
                                 {renderDebugToggle({
-                                    Icon: Braces,
-                                    label: '完全なJSONを表示',
+                                    label: '入出力ログの有効化',
                                     enabled: fullJsonDebugEnabled,
                                     onToggle: () => setFullJsonDebugEnabled(!fullJsonDebugEnabled),
                                     ariaLabel: '完全なJSON表示を有効化',
                                 })}
                                 <div style={{ marginTop: '1rem' }}>
                                     {renderDebugToggle({
-                                        Icon: AlertTriangle,
-                                        label: '詳細なエラーログの有効化',
+                                        label: '詳細なエラー表示の有効化',
                                         enabled: detailedErrorLoggingEnabled,
                                         onToggle: () => setDetailedErrorLoggingEnabled(!detailedErrorLoggingEnabled),
-                                        ariaLabel: '詳細なエラーログを有効化',
+                                        ariaLabel: '詳細なエラー表示を有効化',
                                     })}
-                                    <p style={{ margin: '0.5rem 0 0', paddingLeft: '1.5rem', color: 'var(--text-muted)', fontSize: '0.75rem', lineHeight: 1.5 }}>
-                                        チャット画面のエラー通知と開発者コンソールに、HTTPステータスや接続先から返された原因などの診断情報を表示します。
-                                    </p>
                                 </div>
                                 <button
                                     className="btn btn-secondary"

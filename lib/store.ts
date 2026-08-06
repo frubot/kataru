@@ -326,6 +326,7 @@ interface AppState {
     openAiCompatibleEmbeddingsEnabled: boolean;
     openAiCompatibleImageGenerationEnabled: boolean;
     fullJsonDebugEnabled: boolean;
+    detailedErrorLoggingEnabled: boolean;
     fullJsonDebugLogs: FullJsonDebugLog[];
     characters: Character[];
     groups: Situation[];
@@ -358,6 +359,7 @@ interface AppState {
     setOpenAiCompatibleImageGenerationEnabled: (enabled: boolean) => void;
     getAiProviderConfig: () => AiProviderConfig;
     setFullJsonDebugEnabled: (enabled: boolean) => void;
+    setDetailedErrorLoggingEnabled: (enabled: boolean) => void;
 
     // Characters
     createCharacter: (name: string, systemPrompt?: string, model?: string, extras?: CharacterExtras) => string;
@@ -1049,6 +1051,7 @@ export const useStore = create<AppState>()((set, get) => ({
     openAiCompatibleEmbeddingsEnabled: DEFAULT_OPENAI_COMPATIBLE_EMBEDDINGS_ENABLED,
     openAiCompatibleImageGenerationEnabled: DEFAULT_OPENAI_COMPATIBLE_IMAGE_GENERATION_ENABLED,
     fullJsonDebugEnabled: false,
+    detailedErrorLoggingEnabled: false,
     fullJsonDebugLogs: [],
     characters: [],
     groups: [],
@@ -1059,7 +1062,7 @@ export const useStore = create<AppState>()((set, get) => ({
     hydrate: async () => {
         if (get().hydrated) return;
         await db.migrateLegacyDatabase();
-        const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, currentRoomId, vnTypingSpeed, fullJsonDebugEnabled, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByProvider, storedGenerateTitleOnFirstReply, storedAiProvider, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion] = await Promise.all([
+        const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, currentRoomId, vnTypingSpeed, fullJsonDebugEnabled, detailedErrorLoggingEnabled, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByProvider, storedGenerateTitleOnFirstReply, storedAiProvider, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion] = await Promise.all([
             db.getAllCharacters(),
             db.getAllGroups(),
             db.getAllRooms(),
@@ -1069,6 +1072,7 @@ export const useStore = create<AppState>()((set, get) => ({
             db.getMeta<string | null>('currentRoomId'),
             db.getMeta<VnTypingSpeed>('vnTypingSpeed'),
             db.getMeta<boolean>('fullJsonDebugEnabled'),
+            db.getMeta<boolean>('detailedErrorLoggingEnabled'),
             db.getMeta<string>('summaryModel'),
             db.getMeta<string>('defaultChatModel'),
             db.getMeta<string>('defaultDirectorModel'),
@@ -1205,6 +1209,7 @@ export const useStore = create<AppState>()((set, get) => ({
             openAiCompatibleEmbeddingsEnabled: resolvedOpenAiCompatibleEmbeddingsEnabled,
             openAiCompatibleImageGenerationEnabled: resolvedOpenAiCompatibleImageGenerationEnabled,
             fullJsonDebugEnabled: fullJsonDebugEnabled === true,
+            detailedErrorLoggingEnabled: detailedErrorLoggingEnabled === true,
             fullJsonDebugLogs: [],
             currentRoomId: resolvedCurrentRoomId,
         });
@@ -1242,6 +1247,10 @@ export const useStore = create<AppState>()((set, get) => ({
     setFullJsonDebugEnabled: (fullJsonDebugEnabled) => {
         set({ fullJsonDebugEnabled });
         fire(db.setMeta('fullJsonDebugEnabled', fullJsonDebugEnabled));
+    },
+    setDetailedErrorLoggingEnabled: (detailedErrorLoggingEnabled) => {
+        set({ detailedErrorLoggingEnabled });
+        fire(db.setMeta('detailedErrorLoggingEnabled', detailedErrorLoggingEnabled));
     },
 
     setDefaultChatModel: (defaultChatModel) => {
@@ -2194,6 +2203,7 @@ export const useStore = create<AppState>()((set, get) => ({
             openAiCompatibleEmbeddingsEnabled: DEFAULT_OPENAI_COMPATIBLE_EMBEDDINGS_ENABLED,
             openAiCompatibleImageGenerationEnabled: DEFAULT_OPENAI_COMPATIBLE_IMAGE_GENERATION_ENABLED,
             fullJsonDebugEnabled: false,
+            detailedErrorLoggingEnabled: false,
             fullJsonDebugLogs: [],
             characters: [],
             groups: [],

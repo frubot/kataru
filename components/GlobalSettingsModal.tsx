@@ -322,9 +322,9 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         memoryEmbeddingModel, setMemoryEmbeddingModel,
         generateTitleOnFirstReply, setGenerateTitleOnFirstReply,
         aiProvider, setAiProvider,
-        fullJsonDebugEnabled, fullJsonDebugLogs,
+        fullJsonDebugEnabled, detailedErrorLoggingEnabled, fullJsonDebugLogs,
         setThemeMode, setThemePalette, setVnTypingSpeed,
-        setFullJsonDebugEnabled, clearFullJsonDebugLogs,
+        setFullJsonDebugEnabled, setDetailedErrorLoggingEnabled, clearFullJsonDebugLogs,
         clearAllHistory, resetApplication, mergeBackup, restoreBackup,
     } = useStore();
     const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -1338,6 +1338,18 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     onToggle: () => setFullJsonDebugEnabled(!fullJsonDebugEnabled),
                                     ariaLabel: '完全なJSON表示を有効化',
                                 })}
+                                <div style={{ marginTop: '1rem' }}>
+                                    {renderDebugToggle({
+                                        Icon: AlertTriangle,
+                                        label: '詳細なエラーログの有効化',
+                                        enabled: detailedErrorLoggingEnabled,
+                                        onToggle: () => setDetailedErrorLoggingEnabled(!detailedErrorLoggingEnabled),
+                                        ariaLabel: '詳細なエラーログを有効化',
+                                    })}
+                                    <p style={{ margin: '0.5rem 0 0', paddingLeft: '1.5rem', color: 'var(--text-muted)', fontSize: '0.75rem', lineHeight: 1.5 }}>
+                                        チャット画面のエラー通知と開発者コンソールに、HTTPステータスや接続先から返された原因などの診断情報を表示します。
+                                    </p>
+                                </div>
                                 <button
                                     className="btn btn-secondary"
                                     onClick={handleClearDebugLogs}

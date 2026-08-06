@@ -660,6 +660,101 @@ function getChatErrorMessage(error: unknown): string {
     return '予期しないエラーが発生しました。もう一度お試しください。';
 }
 
+function formatOriginalError(name?: string, message?: string): string | undefined {
+    const detail = [name, message]
+        .filter((value): value is string => !!value?.trim())
+        .join(': ');
+    return shortenErrorDetail(detail);
+}
+
+function getChatErrorDetail(error: unknown, detailed: boolean): string | undefined {
+    if (error instanceof ChatNetworkError) {
+        const original = formatOriginalError(error.originalName, error.originalMessage);
+        return original ? `通信エラー: ${original}` : '通信エラーの原因を取得できませんでした。';
+    }
+
+    if (error instanceof ChatRequestError) {
+        const detail = [`HTTP ${error.status}`, error.detail].filter(Boolean).join(': ');
+        if (!detailed) return detail;
+        return [
+            detail,
+            error.contentType ? `Content-Type ${error.contentType}` : undefined,
+            error.elapsedMs != null ? `応答まで ${error.elapsedMs}ms` : undefined,
+        ].filter(Boolean).join(' / ');
+    }
+
+    if (error instanceof ChatStreamError) {
+        const detail = error.detail ? `ストリーミング応答: ${error.detail}` : 'ストリーミング応答の詳細を取得できませんでした。';
+        return detailed ? `${detail} / 経過 ${error.elapsedMs}ms` : detail;
+    }
+
+    if (error instanceof ChatResponseReadError) {
+        const original = formatOriginalError(error.originalName, error.originalMessage);
+        if (!detailed) return original ? `応答本文の読み取り: ${original}` : undefined;
+        return [
+            `HTTP ${error.status}`,
+            `読み取り段階: ${error.phase}`,
+            error.contentType ? `Content-Type ${error.contentType}` : undefined,
+            `経過 ${error.elapsedMs}ms`,
+            original ? `原因: ${original}` : undefined,
+        ].filter(Boolean).join(' / ');
+    }
+
+    if (error instanceof ChatResponseJsonError) {
+        const bodyType = error.bodyInfo.looksLikeHtml
+            ? 'HTML'
+            : error.bodyInfo.looksLikeJson
+                ? 'JSONらしき形式'
+                : error.bodyInfo.firstChar
+                    ? 'テキスト'
+                    : '空';
+        const original = formatOriginalError(error.originalName, error.originalMessage);
+        const basic = `応答本文 ${bodyType}、${error.bodyInfo.length}文字`;
+        if (!detailed) return basic;
+        return [
+            `HTTP ${error.status}`,
+            error.contentType ? `Content-Type ${error.contentType}` : undefined,
+            basic,
+            `経過 ${error.elapsedMs}ms`,
+            original ? `解析エラー: ${original}` : undefined,
+        ].filter(Boolean).join(' / ');
+    }
+
+    if (error instanceof ChatResponseFormatError) {
+        return `応答形式: ${shortenErrorDetail(error.detail) ?? '想定外の形式'}`;
+    }
+
+    if (error instanceof ChatClientProcessingError) {
+        const stageLabels: Record<ChatClientProcessingStage, string> = {
+            'assistant-response-parse': 'AI応答の解析',
+            'message-save': '返信の保存',
+            'message-display': '返信の表示',
+        };
+        const original = formatOriginalError(error.originalName, error.originalMessage);
+        return [
+            `処理段階: ${stageLabels[error.stage]}`,
+            original ? `原因: ${original}` : undefined,
+        ].filter(Boolean).join(' / ');
+    }
+
+    if (error instanceof Error) {
+        return formatOriginalError(error.name, error.message);
+    }
+
+    if (typeof error === 'string') {
+        return shortenErrorDetail(error);
+    }
+
+    return error == null ? undefined : shortenErrorDetail(String(error));
+}
+
+function getChatErrorNotice(error: unknown, detailed: boolean): string {
+    const message = getChatErrorMessage(error);
+    const detail = getChatErrorDetail(error, detailed);
+    if (!detail) return message;
+    return detailed ? `${message}\n詳細: ${detail}` : `${message}（${detail}）`;
+}
+
 function getChatErrorDebugInfo(error: unknown): Record<string, unknown> {
     if (error instanceof ChatNetworkError) {
         return {
@@ -933,6 +1028,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         generateTitleOnFirstReply,
         titleGenerationModel,
         fullJsonDebugEnabled,
+        detailedErrorLoggingEnabled,
         fullJsonDebugLogs,
         addFullJsonDebugLog,
         clearFullJsonDebugLogs,
@@ -1021,6 +1117,14 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             setChatNotice(null);
         }, CHAT_NOTICE_AUTO_HIDE_MS);
     }, [clearChatNoticeTimer]);
+
+    const logChatError = useCallback((context: string, error: unknown) => {
+        if (detailedErrorLoggingEnabled) {
+            console.error(context, getChatErrorDebugInfo(error));
+            return;
+        }
+        console.error(context, getChatErrorMessage(error));
+    }, [detailedErrorLoggingEnabled]);
 
     const generateInitialRoomTitle = useCallback(async (roomId: string, originalRoomName: string) => {
         const latestRoom = getCurrentRoom();
@@ -1194,13 +1298,15 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             if (completed.status === 'completed') {
                 await refreshConversationRoom(job.roomId);
             } else if (completed.status === 'failed' && getCurrentRoom()?.id === job.roomId) {
-                showChatNotice(completed.error || 'バックグラウンド生成に失敗しました。');
+                const error = completed.error || 'バックグラウンド生成に失敗しました。';
+                logChatError('Conversation job failed:', error);
+                showChatNotice(getChatErrorNotice(error, detailedErrorLoggingEnabled));
             }
         } catch (error) {
             if (!(error instanceof Error && error.name === 'AbortError')) {
-                console.error('Conversation job recovery failed:', getChatErrorDebugInfo(error));
+                logChatError('Conversation job recovery failed:', error);
                 if (getCurrentRoom()?.id === job.roomId) {
-                    showChatNotice(getChatErrorMessage(error));
+                    showChatNotice(getChatErrorNotice(error, detailedErrorLoggingEnabled));
                 }
             }
         } finally {
@@ -1212,6 +1318,8 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         clearGenerationController,
         finishGenerationSession,
         getCurrentRoom,
+        detailedErrorLoggingEnabled,
+        logChatError,
         pollConversationJob,
         refreshConversationRoom,
         showChatNotice,
@@ -1784,9 +1892,9 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             if (error instanceof Error && error.name === 'AbortError') {
                 return { status: session.detached ? 'detached' : 'aborted' };
             }
-            console.error('Rust conversation turn failed:', getChatErrorDebugInfo(error));
+            logChatError('Rust conversation turn failed:', error);
             if (getCurrentRoom()?.id === sourceRoom.id) {
-                showChatNotice(getChatErrorMessage(error));
+                showChatNotice(getChatErrorNotice(error, detailedErrorLoggingEnabled));
             }
             return { status: 'error' };
         } finally {

@@ -1152,7 +1152,63 @@ fn slice_by_user_history(messages: &[Value], limit: usize) -> Vec<Value> {
 }
 
 fn history_content(message: &Value) -> String {
-    sanitize_message_content(&string(message, "content")).replace(['\r', '\n'], "")
+    insert_space_after_italic_action(
+        &sanitize_message_content(&string(message, "content")).replace(['\r', '\n'], ""),
+    )
+}
+
+fn insert_space_after_italic_action(content: &str) -> String {
+    let bytes = content.as_bytes();
+    let mut result = String::with_capacity(content.len());
+    let mut copied_until = 0;
+    let mut index = 0;
+
+    while index < bytes.len() {
+        if !is_single_asterisk_marker(bytes, index) {
+            index += 1;
+            continue;
+        }
+
+        let opening = index;
+        let mut closing = opening + 1;
+        while closing < bytes.len() && !is_single_asterisk_marker(bytes, closing) {
+            closing += 1;
+        }
+        if closing >= bytes.len() || closing == opening + 1 {
+            index = opening + 1;
+            continue;
+        }
+
+        let after_closing = closing + 1;
+        if after_closing < bytes.len()
+            && !bytes[after_closing].is_ascii_whitespace()
+            && bytes[after_closing] != b'*'
+        {
+            result.push_str(&content[copied_until..after_closing]);
+            result.push(' ');
+            copied_until = after_closing;
+        }
+        index = after_closing;
+    }
+
+    result.push_str(&content[copied_until..]);
+    result
+}
+
+fn is_single_asterisk_marker(bytes: &[u8], index: usize) -> bool {
+    if bytes.get(index) != Some(&b'*')
+        || bytes.get(index.wrapping_sub(1)) == Some(&b'*')
+        || bytes.get(index + 1) == Some(&b'*')
+    {
+        return false;
+    }
+
+    let preceding_backslashes = bytes[..index]
+        .iter()
+        .rev()
+        .take_while(|byte| **byte == b'\\')
+        .count();
+    preceding_backslashes % 2 == 0
 }
 
 fn sanitize_assistant_history(messages: &mut [Value]) {
@@ -1299,6 +1355,26 @@ mod tests {
         let message = json!({"content": "一行目\n二行目\r\n三行目\\n*未完了"});
 
         assert_eq!(history_content(&message), "一行目二行目三行目未完了");
+    }
+
+    #[test]
+    fn history_content_separates_italic_action_from_following_message() {
+        let message = json!({"content": "*動作*こんにちは。*視線を上げる*元気？"});
+
+        assert_eq!(
+            history_content(&message),
+            "*動作* こんにちは。*視線を上げる* 元気？"
+        );
+    }
+
+    #[test]
+    fn history_content_keeps_existing_spaces_and_literal_asterisks() {
+        let message = json!({"content": "*動作* こんにちは。\\*literal\\*text"});
+
+        assert_eq!(
+            history_content(&message),
+            "*動作* こんにちは。\\*literal\\*text"
+        );
     }
 
     #[test]

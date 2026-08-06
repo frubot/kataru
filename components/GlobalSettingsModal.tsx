@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Check, ChevronDown, RefreshCw, ExternalLink, type LucideIcon } from 'lucide-react';
 import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, getDefaultModelDefaults, type AiProvider } from '@/lib/store';
 import { createFullBackup, downloadJson, parseFullBackup, reassignIds, ParsedBackup } from '@/lib/importExport';
@@ -641,11 +641,13 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         enabled,
         onToggle,
         ariaLabel,
+        beforeToggle,
     }: {
         label: string;
         enabled: boolean;
         onToggle: () => void;
         ariaLabel: string;
+        beforeToggle?: ReactNode;
     }) => (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
             <div style={{ minWidth: 0 }}>
@@ -655,35 +657,38 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                     </span>
                 </div>
             </div>
-            <button
-                type="button"
-                onClick={onToggle}
-                style={{
-                    position: 'relative',
-                    width: '44px',
-                    height: '24px',
-                    borderRadius: '12px',
-                    border: 'none',
-                    cursor: 'pointer',
-                    background: enabled ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
-                    transition: 'background 0.2s ease',
-                    padding: 0,
-                    flexShrink: 0,
-                }}
-                aria-label={ariaLabel}
-            >
-                <span style={{
-                    position: 'absolute',
-                    top: '2px',
-                    left: enabled ? '22px' : '2px',
-                    width: '20px',
-                    height: '20px',
-                    borderRadius: '50%',
-                    background: '#fff',
-                    transition: 'left 0.2s ease',
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-                }} />
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
+                {beforeToggle}
+                <button
+                    type="button"
+                    onClick={onToggle}
+                    style={{
+                        position: 'relative',
+                        width: '44px',
+                        height: '24px',
+                        borderRadius: '12px',
+                        border: 'none',
+                        cursor: 'pointer',
+                        background: enabled ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
+                        transition: 'background 0.2s ease',
+                        padding: 0,
+                        flexShrink: 0,
+                    }}
+                    aria-label={ariaLabel}
+                >
+                    <span style={{
+                        position: 'absolute',
+                        top: '2px',
+                        left: enabled ? '22px' : '2px',
+                        width: '20px',
+                        height: '20px',
+                        borderRadius: '50%',
+                        background: '#fff',
+                        transition: 'left 0.2s ease',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                    }} />
+                </button>
+            </div>
         </div>
     );
 
@@ -1334,6 +1339,19 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     enabled: fullJsonDebugEnabled,
                                     onToggle: () => setFullJsonDebugEnabled(!fullJsonDebugEnabled),
                                     ariaLabel: '完全なJSON表示を有効化',
+                                    beforeToggle: fullJsonDebugEnabled ? (
+                                        <button
+                                            type="button"
+                                            className="btn btn-ghost"
+                                            onClick={handleClearDebugLogs}
+                                            disabled={debugLogCount === 0}
+                                            aria-label="ログを削除"
+                                            title="ログを削除"
+                                            style={{ padding: '0.5rem', color: 'var(--error)' }}
+                                        >
+                                            <Trash2 size={16} aria-hidden="true" />
+                                        </button>
+                                    ) : null,
                                 })}
                                 <div style={{ marginTop: '1rem' }}>
                                     {renderDebugToggle({
@@ -1343,15 +1361,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         ariaLabel: '詳細なエラー表示を有効化',
                                     })}
                                 </div>
-                                <button
-                                    className="btn btn-secondary"
-                                    onClick={handleClearDebugLogs}
-                                    disabled={debugLogCount === 0}
-                                    style={{ marginTop: '1.50rem' }}
-                                >
-                                    <Trash2 size={16} />
-                                    ログを消去
-                                </button>
                             </div>
                         </div>
                         )}

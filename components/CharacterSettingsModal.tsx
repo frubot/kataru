@@ -606,7 +606,7 @@ export default function CharacterSettingsModal({ isOpen, onClose, character, isN
                             className="input"
                             value={model}
                             onChange={(e) => setModel(e.target.value)}
-                            placeholder="例: moonshotai/kimi-k2.6"
+                            placeholder={`例: ${defaultChatModel}`}
                         />
                     </div>
 

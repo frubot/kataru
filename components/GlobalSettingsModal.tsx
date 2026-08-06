@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Braces, Check, ChevronDown, RefreshCw, ExternalLink, type LucideIcon } from 'lucide-react';
-import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, DEFAULT_SUMMARY_MODEL, DEFAULT_CHAT_MODEL, DEFAULT_DIRECTOR_MODEL, DEFAULT_AUTO_GENERATION_MODEL, DEFAULT_TITLE_GENERATION_MODEL, DEFAULT_IMAGE_MODEL, DEFAULT_MEMORY_EXTRACTION_MODEL, DEFAULT_MEMORY_EMBEDDING_MODEL, type AiProvider } from '@/lib/store';
+import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, getDefaultModelDefaults, type AiProvider } from '@/lib/store';
 import { createFullBackup, downloadJson, parseFullBackup, reassignIds, ParsedBackup } from '@/lib/importExport';
 import StatisticsPanel from '@/components/StatisticsPanel';
 import AiConnectionSettings from '@/components/AiConnectionSettings';
@@ -327,6 +327,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         setFullJsonDebugEnabled, setDetailedErrorLoggingEnabled, clearFullJsonDebugLogs,
         clearAllHistory, resetApplication, mergeBackup, restoreBackup,
     } = useStore();
+    const providerDefaults = getDefaultModelDefaults(aiProvider);
     const [showClearConfirm, setShowClearConfirm] = useState(false);
     const [showResetConfirm, setShowResetConfirm] = useState(false);
     const [importData, setImportData] = useState<ParsedBackup | null>(null);
@@ -554,42 +555,42 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
 
     const handleSummaryModelBlur = () => {
         const normalized = summaryModel.trim();
-        setSummaryModel(normalized || DEFAULT_SUMMARY_MODEL);
+        setSummaryModel(normalized || providerDefaults.summaryModel);
     };
 
     const handleDefaultChatModelBlur = () => {
         const normalized = defaultChatModel.trim();
-        setDefaultChatModel(normalized || DEFAULT_CHAT_MODEL);
+        setDefaultChatModel(normalized || providerDefaults.defaultChatModel);
     };
 
     const handleDefaultDirectorModelBlur = () => {
         const normalized = defaultDirectorModel.trim();
-        setDefaultDirectorModel(normalized || DEFAULT_DIRECTOR_MODEL);
+        setDefaultDirectorModel(normalized || providerDefaults.defaultDirectorModel);
     };
 
     const handleDefaultAutoGenerationModelBlur = () => {
         const normalized = defaultAutoGenerationModel.trim();
-        setDefaultAutoGenerationModel(normalized || DEFAULT_AUTO_GENERATION_MODEL);
+        setDefaultAutoGenerationModel(normalized || providerDefaults.defaultAutoGenerationModel);
     };
 
     const handleTitleGenerationModelBlur = () => {
         const normalized = titleGenerationModel.trim();
-        setTitleGenerationModel(normalized || DEFAULT_TITLE_GENERATION_MODEL);
+        setTitleGenerationModel(normalized || providerDefaults.titleGenerationModel);
     };
 
     const handleDefaultImageModelBlur = () => {
         const normalized = defaultImageModel.trim();
-        setDefaultImageModel(normalized || DEFAULT_IMAGE_MODEL);
+        setDefaultImageModel(normalized || providerDefaults.defaultImageModel);
     };
 
     const handleMemoryExtractionModelBlur = () => {
         const normalized = memoryExtractionModel.trim();
-        setMemoryExtractionModel(normalized || DEFAULT_MEMORY_EXTRACTION_MODEL);
+        setMemoryExtractionModel(normalized || providerDefaults.memoryExtractionModel);
     };
 
     const handleMemoryEmbeddingModelBlur = () => {
         const normalized = memoryEmbeddingModel.trim();
-        setMemoryEmbeddingModel(normalized || DEFAULT_MEMORY_EMBEDDING_MODEL);
+        setMemoryEmbeddingModel(normalized || providerDefaults.memoryEmbeddingModel);
     };
 
     const handleTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, tabIndex: number) => {
@@ -1178,7 +1179,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         value={defaultChatModel}
                                         onChange={(e) => setDefaultChatModel(e.target.value)}
                                         onBlur={handleDefaultChatModelBlur}
-                                        placeholder={`例: ${DEFAULT_CHAT_MODEL}`}
+                                        placeholder={`例: ${providerDefaults.defaultChatModel}`}
                                     />
                                 </div>
 
@@ -1197,7 +1198,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         value={defaultDirectorModel}
                                         onChange={(e) => setDefaultDirectorModel(e.target.value)}
                                         onBlur={handleDefaultDirectorModelBlur}
-                                        placeholder={`例: ${DEFAULT_DIRECTOR_MODEL}`}
+                                        placeholder={`例: ${providerDefaults.defaultDirectorModel}`}
                                     />
                                 </div>
 
@@ -1216,7 +1217,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         value={defaultAutoGenerationModel}
                                         onChange={(e) => setDefaultAutoGenerationModel(e.target.value)}
                                         onBlur={handleDefaultAutoGenerationModelBlur}
-                                        placeholder={`例: ${DEFAULT_AUTO_GENERATION_MODEL}`}
+                                        placeholder={`例: ${providerDefaults.defaultAutoGenerationModel}`}
                                     />
                                 </div>
 
@@ -1235,7 +1236,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         value={titleGenerationModel}
                                         onChange={(e) => setTitleGenerationModel(e.target.value)}
                                         onBlur={handleTitleGenerationModelBlur}
-                                        placeholder={`例: ${DEFAULT_TITLE_GENERATION_MODEL}`}
+                                        placeholder={`例: ${providerDefaults.titleGenerationModel}`}
                                     />
                                 </div>
 
@@ -1254,7 +1255,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         value={summaryModel}
                                         onChange={(e) => setSummaryModel(e.target.value)}
                                         onBlur={handleSummaryModelBlur}
-                                        placeholder={`例: ${DEFAULT_SUMMARY_MODEL}`}
+                                        placeholder={`例: ${providerDefaults.summaryModel}`}
                                     />
                                 </div>
 
@@ -1274,7 +1275,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                             value={defaultImageModel}
                                             onChange={(e) => setDefaultImageModel(e.target.value)}
                                             onBlur={handleDefaultImageModelBlur}
-                                            placeholder={`例: ${DEFAULT_IMAGE_MODEL}`}
+                                            placeholder={`例: ${providerDefaults.defaultImageModel}`}
                                         />
                                     </div>
                                 )}
@@ -1294,7 +1295,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         value={memoryExtractionModel}
                                         onChange={(e) => setMemoryExtractionModel(e.target.value)}
                                         onBlur={handleMemoryExtractionModelBlur}
-                                        placeholder={`例: ${DEFAULT_MEMORY_EXTRACTION_MODEL}`}
+                                        placeholder={`例: ${providerDefaults.memoryExtractionModel}`}
                                     />
                                 </div>
 
@@ -1314,7 +1315,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                             value={memoryEmbeddingModel}
                                             onChange={(e) => setMemoryEmbeddingModel(e.target.value)}
                                             onBlur={handleMemoryEmbeddingModelBlur}
-                                            placeholder={`例: ${DEFAULT_MEMORY_EMBEDDING_MODEL}`}
+                                            placeholder={`例: ${providerDefaults.memoryEmbeddingModel}`}
                                         />
                                     </div>
                                 )}

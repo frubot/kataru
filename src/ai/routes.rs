@@ -19,11 +19,6 @@ use super::{
     provider::{Provider, map_request_error},
 };
 
-const DEFAULT_AUTO_GENERATION_MODEL: &str = "z-ai/glm-5.2";
-const DEFAULT_TITLE_GENERATION_MODEL: &str = "deepseek/deepseek-v4-flash";
-const DEFAULT_MEMORY_EXTRACTION_MODEL: &str = "deepseek/deepseek-v4-flash";
-const DEFAULT_MEMORY_EMBEDDING_MODEL: &str = "qwen/qwen3-embedding-8b";
-
 fn provider_for(state: &AppState, body: &Value) -> AppResult<Provider> {
     Provider::from_state(state, body.get("aiProviderConfig"))
 }
@@ -77,6 +72,21 @@ fn optional_trimmed_string(body: &Value, field: &str) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
+}
+
+pub(crate) fn optional_model(body: &Value, field: &str, default_field: &str) -> Option<String> {
+    optional_trimmed_string(body, field).or_else(|| {
+        body.pointer("/aiProviderConfig/modelDefaults")
+            .and_then(|defaults| optional_trimmed_string(defaults, default_field))
+    })
+}
+
+pub(crate) fn resolve_model(body: &Value, field: &str, default_field: &str) -> AppResult<String> {
+    optional_model(body, field, default_field).ok_or_else(|| {
+        AppError::BadRequest(format!(
+            "{field} または aiProviderConfig.modelDefaults.{default_field} が必要です。"
+        ))
+    })
 }
 
 fn copy_if_present(target: &mut Map<String, Value>, source: &Value, from: &str, to: &str) {
@@ -156,7 +166,7 @@ fn build_chat_body(
     use_response_format: bool,
     should_stream: bool,
 ) -> AppResult<Value> {
-    let model = required_string(input, "model", "model は必須です。")?;
+    let model = resolve_model(input, "model", "defaultChatModel")?;
     let input_messages = input
         .get("messages")
         .and_then(Value::as_array)
@@ -489,7 +499,7 @@ pub async fn summarize(
         .get("messages")
         .and_then(Value::as_array)
         .ok_or_else(|| AppError::BadRequest("messages は配列である必要があります。".to_owned()))?;
-    let model = required_string(&input, "model", "model は必須です。")?;
+    let model = resolve_model(&input, "model", "summaryModel")?;
     let is_group_chat = input
         .get("isGroupChat")
         .and_then(Value::as_bool)
@@ -572,8 +582,7 @@ pub async fn embeddings(
             "input は文字列、または入力配列である必要があります。".to_owned(),
         ));
     }
-    let model = optional_trimmed_string(&input, "model")
-        .unwrap_or_else(|| DEFAULT_MEMORY_EMBEDDING_MODEL.to_owned());
+    let model = resolve_model(&input, "model", "memoryEmbeddingModel")?;
     let input_type = input
         .get("inputType")
         .or_else(|| input.get("input_type"))
@@ -615,8 +624,8 @@ pub async fn generate_image(
     Json(input): Json<Value>,
 ) -> AppResult<Response> {
     let provider = provider_for(&state, &input)?;
-    let prompt = required_string(&input, "prompt", "prompt と model は必須です。")?;
-    let model = required_string(&input, "model", "prompt と model は必須です。")?;
+    let prompt = required_string(&input, "prompt", "prompt は必須です。")?;
+    let model = resolve_model(&input, "model", "defaultImageModel")?;
     let inline_base_image = optional_trimmed_string(&input, "baseImage");
     let base_image_asset_id = optional_trimmed_string(&input, "baseImageAssetId");
     if inline_base_image.is_some() && base_image_asset_id.is_some() {
@@ -878,8 +887,7 @@ pub async fn generate_character(
 ) -> AppResult<Response> {
     let provider = provider_for(&state, &input)?;
     let direction = optional_trimmed_string(&input, "direction").unwrap_or_default();
-    let model = optional_trimmed_string(&input, "model")
-        .unwrap_or_else(|| DEFAULT_AUTO_GENERATION_MODEL.to_owned());
+    let model = resolve_model(&input, "model", "defaultAutoGenerationModel")?;
     let system_prompt = r#"
 完全にオリジナルなキャラクター概要を説明文として作成してください。
 出力はJSONのみで、Markdownを使用しないでください。値は全て日本語である必要があります。
@@ -964,8 +972,7 @@ pub async fn generate_situation_description(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let model = optional_trimmed_string(&input, "model")
-        .unwrap_or_else(|| DEFAULT_AUTO_GENERATION_MODEL.to_owned());
+    let model = resolve_model(&input, "model", "defaultAutoGenerationModel")?;
     let system_prompt = [
         "You generate concise but vivid Japanese situation descriptions for a roleplay chat app.",
         "Output JSON only. Do not wrap it in markdown.",
@@ -1155,8 +1162,7 @@ pub async fn generate_title(
             "タイトル生成に必要な会話がありません。".to_owned(),
         ));
     }
-    let model = optional_trimmed_string(&input, "model")
-        .unwrap_or_else(|| DEFAULT_TITLE_GENERATION_MODEL.to_owned());
+    let model = resolve_model(&input, "model", "titleGenerationModel")?;
     let transcript = messages
         .iter()
         .filter_map(|message| {
@@ -1439,12 +1445,11 @@ pub async fn extract_memories(
     Json(input): Json<Value>,
 ) -> AppResult<Response> {
     let provider = provider_for(&state, &input)?;
-    let model = optional_trimmed_string(&input, "model")
-        .unwrap_or_else(|| DEFAULT_MEMORY_EXTRACTION_MODEL.to_owned());
     let recent_messages = normalize_recent_messages(&input);
     if recent_messages.is_empty() {
         return Ok(Json(json!({ "updates": [] })).into_response());
     }
+    let model = resolve_model(&input, "model", "memoryExtractionModel")?;
     let character_system_prompt = input
         .get("characterSystemPrompt")
         .and_then(Value::as_str)
@@ -1476,4 +1481,48 @@ pub async fn extract_memories(
         "usage": data.get("usage").cloned().unwrap_or(Value::Null)
     }))
     .into_response())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn model_resolution_uses_the_active_provider_default() {
+        let input = json!({
+            "model": "   ",
+            "aiProviderConfig": {
+                "modelDefaults": {
+                    "summaryModel": "provider-default-model"
+                }
+            }
+        });
+
+        assert_eq!(
+            resolve_model(&input, "model", "summaryModel").unwrap(),
+            "provider-default-model"
+        );
+    }
+
+    #[test]
+    fn model_resolution_prefers_an_explicit_model() {
+        let input = json!({
+            "model": "explicit-model",
+            "aiProviderConfig": {
+                "modelDefaults": {
+                    "summaryModel": "provider-default-model"
+                }
+            }
+        });
+
+        assert_eq!(
+            resolve_model(&input, "model", "summaryModel").unwrap(),
+            "explicit-model"
+        );
+    }
+
+    #[test]
+    fn model_resolution_rejects_a_missing_model_and_default() {
+        assert!(resolve_model(&json!({}), "model", "summaryModel").is_err());
+    }
 }

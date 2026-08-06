@@ -162,7 +162,7 @@ export default function SituationDescriptionGeneratorModal({
                             value={model}
                             onChange={(e) => setModel(e.target.value)}
                             disabled={generating}
-                            placeholder="例: deepseek/deepseek-v4-flash"
+                            placeholder={`例: ${initialModel}`}
                         />
                     </div>
 

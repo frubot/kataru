@@ -11,8 +11,8 @@ use crate::{
     ai::{
         AiProviderConfig, Provider,
         routes::{
-            extract_message_text, memory_extraction_prompt, memory_schema, parse_memory_updates,
-            structured_completion,
+            extract_message_text, memory_extraction_prompt, memory_schema, optional_model,
+            parse_memory_updates, resolve_model, structured_completion,
         },
     },
     error::{AppError, AppResult},
@@ -115,12 +115,7 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
     } else {
         character
     };
-    let summary_model = payload
-        .get("summaryModel")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("google/gemini-2.5-flash-lite");
+    let summary_model = optional_model(&payload, "summaryModel", "summaryModel");
     let history_limit = situation
         .and_then(|value| value.get("maxHistory"))
         .and_then(Value::as_u64)
@@ -140,7 +135,7 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
         summary_character.is_some_and(|value| boolean(value, "enableSummary")),
         history_limit,
         situation.is_some(),
-        summary_model,
+        summary_model.as_deref(),
         situation,
         &participants,
     )
@@ -265,10 +260,13 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
                 }
             };
             let relevant = if memory_allowed {
+                let embedding_model =
+                    resolve_model(&payload, "memoryEmbeddingModel", "memoryEmbeddingModel")?;
                 search_memories(
                     &state,
                     &provider,
                     &payload,
+                    &embedding_model,
                     &memory_character_id,
                     &room_id,
                     &actor_history,
@@ -307,10 +305,13 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
         let memory_allowed =
             !secret_mode && !matches!(character.get("enableMemory"), Some(Value::Bool(false)));
         let relevant = if memory_allowed {
+            let embedding_model =
+                resolve_model(&payload, "memoryEmbeddingModel", "memoryEmbeddingModel")?;
             search_memories(
                 &state,
                 &provider,
                 &payload,
+                &embedding_model,
                 &string(character, "id"),
                 &room_id,
                 &active_history,
@@ -351,9 +352,11 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
 
     let memory_candidates = if !secret_mode {
         if let Some(context) = extraction_context {
+            let extraction_model =
+                resolve_model(&payload, "memoryExtractionModel", "memoryExtractionModel")?;
             extract_memory_candidates(
                 &provider,
-                &payload,
+                &extraction_model,
                 context,
                 &generated,
                 &room_id,
@@ -599,7 +602,7 @@ async fn maybe_summarize(
     enabled: bool,
     history_limit: usize,
     group: bool,
-    model: &str,
+    model: Option<&str>,
     situation: Option<&Value>,
     participants: &[Value],
 ) -> AppResult<(Option<String>, Vec<Value>)> {
@@ -612,6 +615,12 @@ async fn maybe_summarize(
     if to_summarize.len() < 2 {
         return Ok((existing, history.to_vec()));
     }
+    let model = model.ok_or_else(|| {
+        AppError::BadRequest(
+            "summaryModel または aiProviderConfig.modelDefaults.summaryModel が必要です。"
+                .to_owned(),
+        )
+    })?;
     let named_messages = if group {
         with_speaker_names(to_summarize, participants, situation)
     } else {
@@ -652,6 +661,7 @@ async fn search_memories(
     state: &AppState,
     provider: &Provider,
     payload: &Value,
+    embedding_model: &str,
     character_id: &str,
     room_id: &str,
     messages: &[Value],
@@ -691,12 +701,6 @@ async fn search_memories(
         .iter()
         .filter_map(|message| message.get("id").and_then(Value::as_str))
         .collect::<HashSet<_>>();
-    let embedding_model = payload
-        .get("memoryEmbeddingModel")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("openai/text-embedding-3-small");
     let query_embedding =
         request_embedding(provider, payload, &query, embedding_model, "search_query")
             .await
@@ -852,18 +856,12 @@ struct ExtractionContext {
 
 async fn extract_memory_candidates(
     provider: &Provider,
-    payload: &Value,
+    model: &str,
     context: ExtractionContext,
     generated: &[Value],
     room_id: &str,
     usages: &mut Vec<Value>,
 ) -> AppResult<Vec<Value>> {
-    let model = payload
-        .get("memoryExtractionModel")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("google/gemini-2.5-flash-lite");
     let mut recent = context
         .recent_history
         .iter()

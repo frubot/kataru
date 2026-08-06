@@ -154,7 +154,7 @@ export default function CharacterGeneratorModal({ isOpen, onClose, onApply }: Pr
                             value={model}
                             onChange={(e) => setModel(e.target.value)}
                             disabled={generating}
-                            placeholder="例: z-ai/glm-5.1"
+                            placeholder={`例: ${defaultAutoGenerationModel}`}
                         />
                     </div>
 

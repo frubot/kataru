@@ -8,7 +8,6 @@ import {
     Message,
     Situation,
     SituationParticipant,
-    DEFAULT_TITLE_GENERATION_MODEL,
 } from '@/lib/store';
 import type { MemoryKind, MemoryRecord, MemoryScope, SituationPriorMessage } from '@/lib/store';
 import type { VnTypingSpeed } from '@/lib/store';
@@ -1160,7 +1159,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     messages: titleMessages,
-                    model: titleGenerationModel.trim() || DEFAULT_TITLE_GENERATION_MODEL,
+                    model: titleGenerationModel.trim(),
                     aiProviderConfig: getAiProviderConfig(),
                 }),
                 signal: controller.signal,

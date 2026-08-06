@@ -338,7 +338,7 @@ export default function ExpressionDiffModal({ isOpen, onClose, expressions, cost
                                     value={model}
                                     onChange={(e) => setModel(e.target.value)}
                                     disabled={!!busy || !canGenerateDiffs}
-                                    placeholder="例: bytedance-seed/seedream-4.5"
+                                    placeholder={`例: ${defaultImageModel}`}
                                 />
                             </div>
                         )}

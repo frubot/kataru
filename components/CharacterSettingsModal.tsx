@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { X, Brain, ChevronDown, ChevronRight, RotateCcw, User, Smile, Shirt, Info, Sparkles, FileText, LayoutList } from 'lucide-react';
 import {
     useStore,
@@ -31,6 +31,27 @@ interface CharacterSettingsModalProps {
     character: Character | null;
     isNew?: boolean;
     onOpenMemoryList?: () => void;
+}
+
+function buildInitialCharacterDraft(character: Character | null, defaultChatModel: string) {
+    return {
+        name: character?.name ?? '',
+        systemPrompt: character?.systemPrompt ?? '',
+        speechStyle: character?.speechStyle ?? '',
+        protagonistPrompt: character?.protagonistPrompt ?? '',
+        userConstraints: character?.userConstraints ?? '',
+        model: character?.model.trim() || defaultChatModel,
+        enableMemory: character?.enableMemory ?? true,
+        enableSummary: character?.enableSummary ?? true,
+        maxTokens: character?.maxTokens != null ? String(character.maxTokens) : '',
+        maxHistory: character?.maxHistory != null ? String(character.maxHistory) : '',
+        temperature: character?.temperature ?? null,
+        topP: character?.topP ?? null,
+        topK: character?.topK ?? null,
+        icon: character?.icon ?? null,
+        expressions: character?.expressions ?? [],
+        costumes: character?.costumes ?? [],
+    };
 }
 
 // ---- スライダーパラメータ定義 ----
@@ -311,43 +332,27 @@ export default function CharacterSettingsModal({ isOpen, onClose, character, isN
     const [characterGeneratorOpen, setCharacterGeneratorOpen] = useState(false);
     const [expressionsOpen, setExpressionsOpen] = useState(false);
     const [costumesOpen, setCostumesOpen] = useState(false);
+    const initialDraftRef = useRef<ReturnType<typeof buildInitialCharacterDraft> | null>(null);
 
     useEffect(() => {
-        if (character) {
-            setName(character.name);
-            setSystemPrompt(character.systemPrompt);
-            setSpeechStyle(character.speechStyle ?? '');
-            setProtagonistPrompt(character.protagonistPrompt ?? '');
-            setUserConstraints(character.userConstraints ?? '');
-            setModel(character.model.trim() || defaultChatModel);
-            setEnableMemory(character.enableMemory ?? true);
-            setEnableSummary(character.enableSummary ?? true);
-            setMaxTokens(character.maxTokens != null ? String(character.maxTokens) : '');
-            setMaxHistory(character.maxHistory != null ? String(character.maxHistory) : '');
-            setTemperature(character.temperature ?? null);
-            setTopP(character.topP ?? null);
-            setTopK(character.topK ?? null);
-            setIcon(character.icon ?? null);
-            setExpressions(character.expressions ?? []);
-            setCostumes(character.costumes ?? []);
-        } else {
-            setName('');
-            setSystemPrompt('');
-            setSpeechStyle('');
-            setProtagonistPrompt('');
-            setUserConstraints('');
-            setModel(defaultChatModel);
-            setEnableMemory(true);
-            setEnableSummary(true);
-            setMaxTokens('');
-            setMaxHistory('');
-            setTemperature(null);
-            setTopP(null);
-            setTopK(null);
-            setIcon(null);
-            setExpressions([]);
-            setCostumes([]);
-        }
+        const initialDraft = buildInitialCharacterDraft(character, defaultChatModel);
+        initialDraftRef.current = initialDraft;
+        setName(initialDraft.name);
+        setSystemPrompt(initialDraft.systemPrompt);
+        setSpeechStyle(initialDraft.speechStyle);
+        setProtagonistPrompt(initialDraft.protagonistPrompt);
+        setUserConstraints(initialDraft.userConstraints);
+        setModel(initialDraft.model);
+        setEnableMemory(initialDraft.enableMemory);
+        setEnableSummary(initialDraft.enableSummary);
+        setMaxTokens(initialDraft.maxTokens);
+        setMaxHistory(initialDraft.maxHistory);
+        setTemperature(initialDraft.temperature);
+        setTopP(initialDraft.topP);
+        setTopK(initialDraft.topK);
+        setIcon(initialDraft.icon);
+        setExpressions(initialDraft.expressions);
+        setCostumes(initialDraft.costumes);
         setParametersOpen(false);
     }, [character, defaultChatModel, isOpen]);
 
@@ -358,6 +363,30 @@ export default function CharacterSettingsModal({ isOpen, onClose, character, isN
     }, [isOpen]);
 
     const saveAndClose = useCallback(() => {
+        const currentDraft = {
+            name,
+            systemPrompt,
+            speechStyle,
+            protagonistPrompt,
+            userConstraints,
+            model,
+            enableMemory,
+            enableSummary,
+            maxTokens,
+            maxHistory,
+            temperature,
+            topP,
+            topK,
+            icon,
+            expressions,
+            costumes,
+        };
+        const initialDraft = initialDraftRef.current;
+        if (!isNew && character && initialDraft && JSON.stringify(currentDraft) === JSON.stringify(initialDraft)) {
+            onClose();
+            return;
+        }
+
         const trimmedName = name.trim();
 
         // 必須の名前が未入力の新規画面は、空のキャラクターを作らずに閉じる。

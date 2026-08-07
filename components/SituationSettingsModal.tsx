@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { ChevronDown, ChevronRight, ChevronUp, MessagesSquare, Plus, RotateCcw, Sparkles, Trash2, User, Users, X } from 'lucide-react';
 import {
     Character,
@@ -502,6 +502,20 @@ function buildInitialState(
     };
 }
 
+function serializeSituationDraft(draft: ReturnType<typeof buildInitialState>) {
+    return JSON.stringify({
+        name: draft.name,
+        situationPrompt: draft.situationPrompt,
+        maxAutoTurns: draft.maxAutoTurns,
+        maxHistory: draft.maxHistory,
+        memoryReadOnly: draft.memoryReadOnly,
+        priorMessages: draft.priorMessages,
+        selectedCharacterIds: Array.from(draft.selectedCharacterIds),
+        characterActorMeta: draft.characterActorMeta,
+        temporaryActors: draft.temporaryActors,
+    });
+}
+
 function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omit<SituationSettingsModalProps, 'isOpen'>) {
     const {
         characters,
@@ -516,6 +530,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
     const isEditing = !!situation;
     const sortedCharacters = useMemo(() => [...characters].sort((a, b) => b.updatedAt - a.updatedAt), [characters]);
     const initial = buildInitialState(situation, room);
+    const initialDraftRef = useRef(initial);
     const [name, setName] = useState(initial.name);
     const [situationPrompt, setSituationPrompt] = useState(initial.situationPrompt);
     const [maxAutoTurns, setMaxAutoTurns] = useState(initial.maxAutoTurns);
@@ -725,6 +740,24 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
     ], [characterActorMeta, defaultChatModel, selectedCharacterIds, validTemporaryActors]);
 
     const saveAndClose = useCallback(() => {
+        if (isEditing) {
+            const currentDraft = {
+                name,
+                situationPrompt,
+                maxAutoTurns,
+                maxHistory,
+                memoryReadOnly,
+                priorMessages,
+                selectedCharacterIds,
+                characterActorMeta,
+                temporaryActors,
+            };
+            if (serializeSituationDraft(currentDraft) === serializeSituationDraft(initialDraftRef.current)) {
+                onClose();
+                return;
+            }
+        }
+
         const director: SituationDirector = {
             enabled: true,
             model: situation?.director?.model?.trim() || defaultDirectorModel,
@@ -769,7 +802,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
         }
 
         onClose();
-    }, [actorCount, buildActors, createSituationRoom, defaultDirectorModel, effectiveMaxTurns, memoryReadOnly, name, onClose, onCreated, parsedMaxHistory, priorMessages, room, situation, situationPrompt, updateRoomSettings, updateSituation]);
+    }, [actorCount, buildActors, characterActorMeta, createSituationRoom, defaultDirectorModel, effectiveMaxTurns, isEditing, maxAutoTurns, maxHistory, memoryReadOnly, name, onClose, onCreated, parsedMaxHistory, priorMessages, room, selectedCharacterIds, situation, situationPrompt, temporaryActors, updateRoomSettings, updateSituation]);
 
     useEffect(() => {
         const childModalOpen = descriptionGeneratorOpen || temporaryActorGeneratorOpen;

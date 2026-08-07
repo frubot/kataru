@@ -88,7 +88,6 @@ export OPENAI_API_KEY="your-api-key"
 npm run dev
 ```
 
-- `OPENAI_COMPAT_BASE_URL`と`OPENAI_COMPAT_API_KEY`も移行用の非推奨エイリアスとして利用できます。
 - 互換エンドポイントでキーを省略した場合は互換性のため`local`が送信されます。
 - embeddingsと画像生成は設定画面から有効化できますが、利用するサービス側が対応していない場合があります。
 

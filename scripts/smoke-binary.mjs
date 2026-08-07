@@ -100,8 +100,8 @@ const child = spawn(
     windowsHide: true,
     env: {
       ...process.env,
-      OPENAI_COMPAT_BASE_URL: `http://127.0.0.1:${providerPort}/v1`,
-      OPENAI_COMPAT_API_KEY: "smoke-test",
+      OPENAI_BASE_URL: `http://127.0.0.1:${providerPort}/v1`,
+      OPENAI_API_KEY: "smoke-test",
     },
   },
 );

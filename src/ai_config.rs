@@ -24,7 +24,6 @@ use crate::{
 
 pub const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 pub const DEFAULT_ANTHROPIC_BASE_URL: &str = "https://api.anthropic.com/v1";
-const LEGACY_OPENAI_BASE_URL: &str = "http://localhost:1234/v1";
 const CONFIG_FILE_NAME: &str = "server-config.json";
 const KEYRING_SERVICE: &str = "Kataru";
 
@@ -132,25 +131,14 @@ struct EnvironmentConfig {
 impl EnvironmentConfig {
     fn load() -> AppResult<Self> {
         let openrouter_api_key = nonempty_env("OPENROUTER_API_KEY");
-        let standard_openai_api_key = nonempty_env("OPENAI_API_KEY");
-        let legacy_openai_api_key = nonempty_env("OPENAI_COMPAT_API_KEY");
-        let openai_api_key = standard_openai_api_key
-            .clone()
-            .or_else(|| legacy_openai_api_key.clone());
-        let explicit_base_url =
-            nonempty_env("OPENAI_BASE_URL").or_else(|| nonempty_env("OPENAI_COMPAT_BASE_URL"));
-        let openai_base_url = explicit_base_url
+        let openai_api_key = nonempty_env("OPENAI_API_KEY");
+        let openai_base_url = nonempty_env("OPENAI_BASE_URL")
             .map(|value| normalize_openai_base_url(&value))
             .transpose()?
             .or_else(|| {
-                standard_openai_api_key
+                openai_api_key
                     .is_some()
                     .then(|| DEFAULT_OPENAI_BASE_URL.to_owned())
-            })
-            .or_else(|| {
-                legacy_openai_api_key
-                    .is_some()
-                    .then(|| LEGACY_OPENAI_BASE_URL.to_owned())
             });
         let anthropic_api_key = nonempty_env("ANTHROPIC_API_KEY");
         let anthropic_base_url = nonempty_env("ANTHROPIC_BASE_URL")

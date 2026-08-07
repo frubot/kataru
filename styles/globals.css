@@ -741,6 +741,55 @@ body {
   width: 100%;
 }
 
+.statistics-total-card {
+  margin-bottom: 1rem;
+  background: rgba(var(--accent-primary-rgb), 0.1);
+}
+
+.statistics-total-heading {
+  margin: 0 0 0.75rem;
+  color: var(--accent-primary);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.statistics-total-metrics {
+  display: grid;
+  gap: 1rem;
+}
+
+.statistics-total-metrics-tokens {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.statistics-total-metrics-cost {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.statistics-total-metric {
+  min-width: 0;
+}
+
+.statistics-total-label {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+}
+
+.statistics-total-value {
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.statistics-total-value-cost {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
 .statistics-chart-card {
   margin-bottom: 1rem;
   padding: 1rem 1rem 0.75rem;
@@ -2787,6 +2836,11 @@ body {
   .settings-modal-close {
     top: 0.5rem;
     right: 0.75rem;
+  }
+
+  .statistics-total-metrics-tokens {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem 1rem;
   }
 
   /* Sidebar button touch targets on mobile */

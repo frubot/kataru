@@ -345,38 +345,38 @@ export default function StatisticsPanel() {
                         )}
 
                         {/* Total Summary */}
-                        <div className="card" style={{ marginBottom: '1rem', background: 'rgba(var(--accent-primary-rgb), 0.1)' }}>
-                            <h3 style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: '0.75rem', color: 'var(--accent-primary)' }}>
+                        <div className="card statistics-total-card">
+                            <h3 className="statistics-total-heading">
                                 合計
                             </h3>
                             {viewMode === 'tokens' ? (
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '1rem' }}>
-                                    <div>
-                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>入力</div>
-                                        <div style={{ fontSize: '1.125rem', fontWeight: 600 }}>{formatTokens(totals.promptTokens)}</div>
+                                <div className="statistics-total-metrics statistics-total-metrics-tokens">
+                                    <div className="statistics-total-metric">
+                                        <div className="statistics-total-label">入力</div>
+                                        <div className="statistics-total-value">{formatTokens(totals.promptTokens)}</div>
                                     </div>
-                                    <div>
-                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>出力</div>
-                                        <div style={{ fontSize: '1.125rem', fontWeight: 600 }}>{formatTokens(totals.completionTokens)}</div>
+                                    <div className="statistics-total-metric">
+                                        <div className="statistics-total-label">出力</div>
+                                        <div className="statistics-total-value">{formatTokens(totals.completionTokens)}</div>
                                     </div>
-                                    <div>
-                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>合計</div>
-                                        <div style={{ fontSize: '1.125rem', fontWeight: 600 }}>{formatTokens(totals.totalTokens)}</div>
+                                    <div className="statistics-total-metric">
+                                        <div className="statistics-total-label">合計</div>
+                                        <div className="statistics-total-value">{formatTokens(totals.totalTokens)}</div>
                                     </div>
-                                    <div>
-                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>リクエスト</div>
-                                        <div style={{ fontSize: '1.125rem', fontWeight: 600 }}>{formatTokens(totals.recordCount)}回</div>
+                                    <div className="statistics-total-metric">
+                                        <div className="statistics-total-label">リクエスト</div>
+                                        <div className="statistics-total-value">{formatTokens(totals.recordCount)}回</div>
                                     </div>
                                 </div>
                             ) : (
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '1rem' }}>
-                                    <div>
-                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>料金</div>
-                                        <div style={{ fontSize: '1.5rem', fontWeight: 700 }}>{formatCost(totals.cost)}</div>
+                                <div className="statistics-total-metrics statistics-total-metrics-cost">
+                                    <div className="statistics-total-metric">
+                                        <div className="statistics-total-label">料金</div>
+                                        <div className="statistics-total-value statistics-total-value-cost">{formatCost(totals.cost)}</div>
                                     </div>
-                                    <div>
-                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>リクエスト</div>
-                                        <div style={{ fontSize: '1.5rem', fontWeight: 700 }}>{formatTokens(totals.recordCount)}回</div>
+                                    <div className="statistics-total-metric">
+                                        <div className="statistics-total-label">リクエスト</div>
+                                        <div className="statistics-total-value statistics-total-value-cost">{formatTokens(totals.recordCount)}回</div>
                                     </div>
                                 </div>
                             )}

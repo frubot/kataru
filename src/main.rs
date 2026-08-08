@@ -209,6 +209,10 @@ fn api_router() -> Router<AppState> {
             post(ai::generate_situation_description),
         )
         .route("/generate-title", post(ai::generate_title))
+        .route(
+            "/generate-reply-suggestions",
+            post(ai::generate_reply_suggestions),
+        )
         .route("/extract-memories", post(ai::extract_memories))
         .route(
             "/conversation/turn",

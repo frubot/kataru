@@ -44,6 +44,12 @@ type TitleGenerationRequestMessage = {
     content: string;
     name?: string;
 };
+type ReplySuggestionState = {
+    roomId: string;
+    sourceMessageId: string;
+    suggestions: string[];
+    loading: boolean;
+};
 type ConversationCharacter = {
     id: string;
     name: string;
@@ -1026,6 +1032,8 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         memoryEmbeddingModel,
         generateTitleOnFirstReply,
         titleGenerationModel,
+        replySuggestionsEnabled,
+        replySuggestionModel,
         fullJsonDebugEnabled,
         detailedErrorLoggingEnabled,
         fullJsonDebugLogs,
@@ -1066,6 +1074,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const [vnCostumeMenuOpen, setVnCostumeMenuOpen] = useState(false);
     const [debugLogOpen, setDebugLogOpen] = useState(false);
     const [chatNotice, setChatNotice] = useState<ChatNotice | null>(null);
+    const [replySuggestionState, setReplySuggestionState] = useState<ReplySuggestionState | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const vnDialogueBodyRef = useRef<HTMLDivElement>(null);
     const chatModeMenuRef = useRef<HTMLDivElement>(null);
@@ -1081,6 +1090,8 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const vnTypeDelayRef = useRef<{ timeout: ReturnType<typeof setTimeout>; resolve: () => void } | null>(null);
     const chatNoticeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const chatNoticeHoveredRef = useRef(false);
+    const replySuggestionRequestKeyRef = useRef<string | null>(null);
+    const replySuggestionControllerRef = useRef<AbortController | null>(null);
     const vnTypingSpeedRef = useRef(vnTypingSpeed);
     const messagePointerDragRef = useRef(false);
     const currentRoomId = room?.id;
@@ -1089,6 +1100,30 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const isInlineVnEditing = isVisualNovelMode && isEditingMessage;
     const debugPanelEnabled = fullJsonDebugEnabled;
     const visibleDebugLogCount = fullJsonDebugLogs.length;
+    const replySuggestionRoomId = room?.id;
+    const replySuggestionMessages = room?.messages;
+    const latestReplySuggestionMessage = useMemo(() => {
+        const visibleMessages = replySuggestionMessages?.filter((message) => !message.archived) ?? [];
+        return visibleMessages[visibleMessages.length - 1];
+    }, [replySuggestionMessages]);
+    const replySuggestionMessagesJson = useMemo(
+        () => JSON.stringify(
+            buildTitleGenerationMessages(replySuggestionMessages ?? [], groupCharacters).slice(-20)
+        ),
+        [groupCharacters, replySuggestionMessages],
+    );
+    const protagonistPromptForSuggestions = useMemo(() => {
+        const participants = isGroupRoom ? groupCharacters ?? [] : character ? [character] : [];
+        const seen = new Set<string>();
+        return participants
+            .flatMap((participant) => {
+                const prompt = participant.protagonistPrompt?.trim();
+                if (!prompt || seen.has(prompt)) return [];
+                seen.add(prompt);
+                return [`${participant.name}から見た主人公:\n${prompt}`];
+            })
+            .join('\n\n');
+    }, [character, groupCharacters, isGroupRoom]);
 
     const scrollToBottom = useCallback(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -1398,6 +1433,122 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     useEffect(() => {
         setEditingMessage(null);
     }, [currentRoomId]);
+
+    useEffect(() => {
+        const canGenerate = replySuggestionsEnabled
+            && replySuggestionRoomId != null
+            && latestReplySuggestionMessage?.role === 'assistant'
+            && !isLoading
+            && !isSummarizing
+            && !isTypewriterActive;
+
+        if (!canGenerate || !replySuggestionRoomId || !latestReplySuggestionMessage) {
+            if (!replySuggestionsEnabled || latestReplySuggestionMessage?.role !== 'assistant') {
+                replySuggestionRequestKeyRef.current = null;
+                setReplySuggestionState((current) => current ? null : current);
+            }
+            return;
+        }
+
+        const sourceMessageId = latestReplySuggestionMessage.id;
+        const requestKey = `${replySuggestionRoomId}:${sourceMessageId}`;
+        if (replySuggestionRequestKeyRef.current === requestKey) return;
+        replySuggestionRequestKeyRef.current = requestKey;
+        const controller = new AbortController();
+        replySuggestionControllerRef.current = controller;
+        const timeoutId = setTimeout(() => {
+            controller.abort();
+            if (replySuggestionControllerRef.current === controller) {
+                setReplySuggestionState((current) =>
+                    current?.roomId === replySuggestionRoomId && current.sourceMessageId === sourceMessageId
+                        ? null
+                        : current
+                );
+            }
+        }, 60_000);
+        let settled = false;
+        setReplySuggestionState({
+            roomId: replySuggestionRoomId,
+            sourceMessageId,
+            suggestions: [],
+            loading: true,
+        });
+
+        void fetch('/api/generate-reply-suggestions', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                messages: JSON.parse(replySuggestionMessagesJson),
+                model: replySuggestionModel.trim(),
+                protagonistPrompt: protagonistPromptForSuggestions,
+                situationPrompt: situation?.situationPrompt,
+                aiProviderConfig: getAiProviderConfig(),
+            }),
+            signal: controller.signal,
+        })
+            .then(async (response) => {
+                if (!response.ok) throw new Error(`Reply suggestion request failed (${response.status})`);
+                return response.json();
+            })
+            .then((data) => {
+                const suggestions = Array.isArray(data?.suggestions)
+                    ? data.suggestions
+                        .filter((value: unknown): value is string => typeof value === 'string' && value.trim().length > 0)
+                        .map((value: string) => value.trim())
+                    : [];
+                if (
+                    controller.signal.aborted
+                    || replySuggestionControllerRef.current !== controller
+                    || suggestions.length !== 3
+                ) return;
+                setReplySuggestionState((current) =>
+                    current?.roomId === replySuggestionRoomId && current.sourceMessageId === sourceMessageId
+                        ? { ...current, suggestions, loading: false }
+                        : current
+                );
+            })
+            .catch((error) => {
+                if (error instanceof Error && error.name === 'AbortError') return;
+                if (replySuggestionControllerRef.current !== controller) return;
+                console.warn('Reply suggestion generation failed:', error);
+                setReplySuggestionState((current) =>
+                    current?.roomId === replySuggestionRoomId && current.sourceMessageId === sourceMessageId
+                        ? null
+                        : current
+                );
+            })
+            .finally(() => {
+                settled = true;
+                clearTimeout(timeoutId);
+                if (replySuggestionControllerRef.current === controller) {
+                    replySuggestionControllerRef.current = null;
+                }
+            });
+
+        return () => {
+            clearTimeout(timeoutId);
+            controller.abort();
+            if (replySuggestionControllerRef.current === controller) {
+                replySuggestionControllerRef.current = null;
+            }
+            if (!settled && replySuggestionRequestKeyRef.current === requestKey) {
+                replySuggestionRequestKeyRef.current = null;
+            }
+        };
+    }, [
+        getAiProviderConfig,
+        isLoading,
+        isSummarizing,
+        isTypewriterActive,
+        latestReplySuggestionMessage,
+        protagonistPromptForSuggestions,
+        replySuggestionModel,
+        replySuggestionMessagesJson,
+        replySuggestionsEnabled,
+        replySuggestionRoomId,
+        situation?.situationPrompt,
+    ]);
 
     useEffect(() => {
         const checkMobile = () => {
@@ -1919,9 +2070,13 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         }
     };
 
-    const handleSubmit = async (e?: React.FormEvent, editDraft?: EditingMessageDraft) => {
+    const handleSubmit = async (
+        e?: React.FormEvent,
+        editDraft?: EditingMessageDraft,
+        suggestedReply?: string,
+    ) => {
         e?.preventDefault();
-        const submittedInput = editDraft?.content ?? input;
+        const submittedInput = suggestedReply ?? editDraft?.content ?? input;
         if (!submittedInput.trim() || !room || isLoading || isSummarizing) return;
         if (!isGroupRoom && !character) return;
         if (isGroupRoom && (!groupCharacters || groupCharacters.length === 0)) return;
@@ -1932,6 +2087,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             && room.isDraft === true
             && !isSecretMode;
         const originalRoomName = room.name;
+        const previousReplySuggestionState = replySuggestionState;
         let editCutIndex = -1;
         let editDeletedMessages: Message[] = [];
         let editDeletedMemories: MemoryRecord[] = [];
@@ -1953,6 +2109,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         }
 
         dismissChatNotice();
+        setReplySuggestionState(null);
         if (editDraft) {
             editDeletedMemories = await deleteMessagesFrom(room.id, editCutIndex);
             setEditingMessage(null);
@@ -1990,6 +2147,10 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 if (userMessageIndex >= 0) {
                     await deleteMessagesFrom(room.id, userMessageIndex);
                 }
+                if (suggestedReply && previousReplySuggestionState?.roomId === room.id) {
+                    setInput('');
+                    setReplySuggestionState(previousReplySuggestionState);
+                }
             }
         };
 
@@ -2009,6 +2170,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
 
     const handleRegenerate = async () => {
         if (!room || isLoading) return;
+        setReplySuggestionState(null);
 
         if (isGroupRoom && groupCharacters) {
             // Remove all assistant messages from the last round (after the last user message)
@@ -2089,6 +2251,11 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const handleSubmitEditMessage = () => {
         if (!editingMessage || editingMessage.roomId !== room?.id) return;
         void handleSubmit(undefined, editingMessage);
+    };
+
+    const handleReplySuggestionSelect = (suggestion: string) => {
+        if (isLoading || isSummarizing || isEditingMessage || !suggestion.trim()) return;
+        void handleSubmit(undefined, undefined, suggestion);
     };
 
     const handleCopyMessage = useCallback((messageId: string, content: string) => {
@@ -2344,6 +2511,12 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const chatInputSubmitDisabled = isInlineVnEditing
         ? !editingMessage?.content.trim()
         : !input.trim() || isEditingMessage;
+    const showReplySuggestions = replySuggestionsEnabled
+        && replySuggestionState != null
+        && replySuggestionState.roomId === room?.id
+        && !isEditingMessage
+        && !input.trim()
+        && (replySuggestionState.loading || replySuggestionState.suggestions.length === 3);
     const handleChatInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         if (isInlineVnEditing) {
             handleEditMessageChange(e.target.value);
@@ -2810,6 +2983,34 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                         >
                             <X size={14} />
                         </button>
+                    </div>
+                )}
+                {showReplySuggestions && replySuggestionState && (
+                    <div
+                        className={`reply-suggestions${isVisualNovelMode ? ' vn-reply-suggestions' : ''}`}
+                        aria-label="主人公の返答候補"
+                    >
+                        <div className="reply-suggestions-heading">
+                            <Sparkles size={14} aria-hidden="true" />
+                            <span>{replySuggestionState.loading ? '返答を考えています…' : '返答を選ぶ'}</span>
+                        </div>
+                        {!replySuggestionState.loading && (
+                            <div className="reply-suggestions-list">
+                                {replySuggestionState.suggestions.map((suggestion, index) => (
+                                    <button
+                                        key={`${index}:${suggestion}`}
+                                        type="button"
+                                        className="reply-suggestion-button"
+                                        onClick={() => handleReplySuggestionSelect(suggestion)}
+                                        disabled={chatInputDisabled}
+                                        title={`${suggestion}（選択して送信）`}
+                                    >
+                                        <span className="reply-suggestion-number" aria-hidden="true">{index + 1}</span>
+                                        <span className="reply-suggestion-text">{suggestion}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 )}
                 {mentionQuery !== null && mentionCandidates.length > 0 && (

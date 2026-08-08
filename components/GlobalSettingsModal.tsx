@@ -325,10 +325,12 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         defaultDirectorModel, setDefaultDirectorModel,
         defaultAutoGenerationModel, setDefaultAutoGenerationModel,
         titleGenerationModel, setTitleGenerationModel,
+        replySuggestionModel, setReplySuggestionModel,
         defaultImageModel, setDefaultImageModel,
         memoryExtractionModel, setMemoryExtractionModel,
         memoryEmbeddingModel, setMemoryEmbeddingModel,
         generateTitleOnFirstReply, setGenerateTitleOnFirstReply,
+        replySuggestionsEnabled, setReplySuggestionsEnabled,
         aiProvider, setAiProvider,
         fullJsonDebugEnabled, detailedErrorLoggingEnabled, fullJsonDebugLogs,
         setThemeMode, setThemePalette, setVnTypingSpeed,
@@ -584,6 +586,11 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
     const handleTitleGenerationModelBlur = () => {
         const normalized = titleGenerationModel.trim();
         setTitleGenerationModel(normalized || providerDefaults.titleGenerationModel);
+    };
+
+    const handleReplySuggestionModelBlur = () => {
+        const normalized = replySuggestionModel.trim();
+        setReplySuggestionModel(normalized || providerDefaults.replySuggestionModel);
     };
 
     const handleDefaultImageModelBlur = () => {
@@ -1250,6 +1257,25 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     />
                                 </div>
 
+                                {/* Reply suggestion model */}
+                                <div>
+                                    <label
+                                        htmlFor="reply-suggestion-model-input"
+                                        style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: '0.375rem' }}
+                                    >
+                                        返答の提案
+                                    </label>
+                                    <input
+                                        id="reply-suggestion-model-input"
+                                        type="text"
+                                        className="input"
+                                        value={replySuggestionModel}
+                                        onChange={(e) => setReplySuggestionModel(e.target.value)}
+                                        onBlur={handleReplySuggestionModelBlur}
+                                        placeholder={`例: ${providerDefaults.replySuggestionModel}`}
+                                    />
+                                </div>
+
                                 {/* Summary model */}
                                 <div>
                                     <label
@@ -1408,6 +1434,41 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                             position: 'absolute',
                                             top: '2px',
                                             left: generateTitleOnFirstReply ? '22px' : '2px',
+                                            width: '20px',
+                                            height: '20px',
+                                            borderRadius: '50%',
+                                            background: '#fff',
+                                            transition: 'left 0.2s ease',
+                                            boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                                        }} />
+                                    </button>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', marginTop: '1rem' }}>
+                                    <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
+                                        返答の選択肢を表示
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setReplySuggestionsEnabled(!replySuggestionsEnabled)}
+                                        style={{
+                                            position: 'relative',
+                                            width: '44px',
+                                            height: '24px',
+                                            borderRadius: '12px',
+                                            border: 'none',
+                                            cursor: 'pointer',
+                                            background: replySuggestionsEnabled ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
+                                            transition: 'background 0.2s ease',
+                                            padding: 0,
+                                            flexShrink: 0,
+                                        }}
+                                        aria-label="返答の選択肢を表示"
+                                        aria-pressed={replySuggestionsEnabled}
+                                    >
+                                        <span style={{
+                                            position: 'absolute',
+                                            top: '2px',
+                                            left: replySuggestionsEnabled ? '22px' : '2px',
                                             width: '20px',
                                             height: '20px',
                                             borderRadius: '50%',

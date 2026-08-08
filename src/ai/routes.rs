@@ -1151,6 +1151,160 @@ fn normalize_generated_title(content: &str) -> Option<String> {
     }
 }
 
+fn normalize_reply_suggestion_messages(value: Option<&Value>) -> Vec<Value> {
+    let messages = value
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            let record = item.as_object()?;
+            let role = match record.get("role").and_then(Value::as_str) {
+                Some("assistant") => "assistant",
+                Some("user") => "user",
+                _ => return None,
+            };
+            let content = record.get("content")?.as_str()?.trim();
+            if content.is_empty() {
+                return None;
+            }
+            let name = record
+                .get("name")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|value| take_chars(value, 80));
+            Some(json!({
+                "role": role,
+                "content": take_chars(content, 2400),
+                "name": name,
+            }))
+        })
+        .collect::<Vec<_>>();
+    let skip_count = messages.len().saturating_sub(20);
+    messages.into_iter().skip(skip_count).collect()
+}
+
+fn reply_suggestion_schema() -> Value {
+    json!({
+        "name": "protagonist_reply_suggestions",
+        "strict": true,
+        "schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["suggestions"],
+            "properties": {
+                "suggestions": {
+                    "type": "array",
+                    "minItems": 3,
+                    "maxItems": 3,
+                    "items": { "type": "string" }
+                }
+            }
+        }
+    })
+}
+
+fn normalize_reply_suggestions(content: &str) -> Option<Vec<String>> {
+    let parsed = parse_json_object_text(content)?;
+    let suggestions = parsed.get("suggestions")?.as_array()?;
+    let mut normalized = Vec::with_capacity(3);
+    for value in suggestions {
+        let suggestion = value.as_str()?.trim();
+        let suggestion = take_chars(suggestion, 240);
+        if suggestion.is_empty() || normalized.contains(&suggestion) {
+            continue;
+        }
+        normalized.push(suggestion);
+    }
+    (normalized.len() == 3).then_some(normalized)
+}
+
+pub async fn generate_reply_suggestions(
+    State(state): State<AppState>,
+    Json(input): Json<Value>,
+) -> AppResult<Response> {
+    let provider = provider_for(&state, &input)?;
+    let messages = normalize_reply_suggestion_messages(input.get("messages"));
+    if messages.is_empty()
+        || messages
+            .last()
+            .and_then(|message| message.get("role"))
+            .and_then(Value::as_str)
+            != Some("assistant")
+    {
+        return Err(AppError::BadRequest(
+            "返答の提案には、相手の返答で終わる会話が必要です。".to_owned(),
+        ));
+    }
+    let model = resolve_model(&input, "model", "replySuggestionModel")?;
+    let transcript = messages
+        .iter()
+        .filter_map(|message| {
+            let role = message.get("role")?.as_str()?;
+            let content = message.get("content")?.as_str()?;
+            let label = message
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or(if role == "user" {
+                    "主人公"
+                } else {
+                    "相手"
+                });
+            Some(format!("{label}: {content}"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    let protagonist_prompt = optional_trimmed_string(&input, "protagonistPrompt")
+        .map(|value| take_chars(&value, 2400))
+        .unwrap_or_default();
+    let situation_prompt = optional_trimmed_string(&input, "situationPrompt")
+        .map(|value| take_chars(&value, 2400))
+        .unwrap_or_default();
+    let context = [
+        (!protagonist_prompt.is_empty()).then(|| format!("# 主人公の設定\n{protagonist_prompt}")),
+        (!situation_prompt.is_empty()).then(|| format!("# シチュエーション\n{situation_prompt}")),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join("\n\n");
+    let system_prompt = r#"あなたはロールプレイ会話で、ユーザーが操作する主人公の次の返答候補を作る提案役です。
+会話の続きを自然に進められる、主人公自身の返答を3種類提案してください。
+3つは反応、態度、会話の進め方が互いに異なるものにしてください。ただし、主人公の設定と直前の文脈に従ってください。
+各候補は、そのまま主人公の発言として送信できる本文だけにしてください。番号、見出し、引用符、解説、Markdownは含めないでください。
+会話と同じ言語を使用してください。"#;
+    let user_prompt = if context.is_empty() {
+        format!("# 会話\n{transcript}\n\n主人公の次の返答候補を3つ作成してください。")
+    } else {
+        format!("{context}\n\n# 会話\n{transcript}\n\n主人公の次の返答候補を3つ作成してください。")
+    };
+    let mut request = json!({
+        "model": model,
+        "messages": [
+            { "role": "system", "content": system_prompt },
+            { "role": "user", "content": user_prompt }
+        ],
+        "temperature": 0.85,
+        "max_tokens": 480
+    });
+    if provider.is_openrouter() {
+        request["reasoning"] = json!({ "effort": "none" });
+    }
+    let data = structured_completion(&provider, request, reply_suggestion_schema(), 60).await?;
+    let suggestions =
+        normalize_reply_suggestions(&extract_message_text(&data)).ok_or_else(|| {
+            AppError::Upstream(
+                "返答の提案結果の形式が不正でした。".to_owned(),
+                StatusCode::BAD_GATEWAY,
+            )
+        })?;
+    Ok(Json(json!({
+        "suggestions": suggestions,
+        "usage": data.get("usage").cloned().unwrap_or(Value::Null)
+    }))
+    .into_response())
+}
+
 pub async fn generate_title(
     State(state): State<AppState>,
     Json(input): Json<Value>,
@@ -1524,5 +1678,25 @@ mod tests {
     #[test]
     fn model_resolution_rejects_a_missing_model_and_default() {
         assert!(resolve_model(&json!({}), "model", "summaryModel").is_err());
+    }
+
+    #[test]
+    fn reply_suggestions_require_three_distinct_values() {
+        assert_eq!(
+            normalize_reply_suggestions(
+                r#"{"suggestions":["そうだね","詳しく教えて","今はやめておく"]}"#
+            ),
+            Some(vec![
+                "そうだね".to_owned(),
+                "詳しく教えて".to_owned(),
+                "今はやめておく".to_owned(),
+            ])
+        );
+        assert!(
+            normalize_reply_suggestions(
+                r#"{"suggestions":["そうだね","そうだね","今はやめておく"]}"#
+            )
+            .is_none()
+        );
     }
 }

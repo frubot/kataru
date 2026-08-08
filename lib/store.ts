@@ -10,6 +10,7 @@ import {
     DEFAULT_IMAGE_MODEL,
     DEFAULT_MEMORY_EMBEDDING_MODEL,
     DEFAULT_MEMORY_EXTRACTION_MODEL,
+    DEFAULT_REPLY_SUGGESTION_MODEL,
     DEFAULT_SUMMARY_MODEL,
     DEFAULT_TITLE_GENERATION_MODEL,
     getDefaultModelDefaults,
@@ -36,6 +37,7 @@ export {
     DEFAULT_IMAGE_MODEL,
     DEFAULT_MEMORY_EMBEDDING_MODEL,
     DEFAULT_MEMORY_EXTRACTION_MODEL,
+    DEFAULT_REPLY_SUGGESTION_MODEL,
     DEFAULT_SUMMARY_MODEL,
     DEFAULT_TITLE_GENERATION_MODEL,
     getDefaultModelDefaults,
@@ -320,11 +322,13 @@ interface AppState {
     defaultDirectorModel: string;
     defaultAutoGenerationModel: string;
     titleGenerationModel: string;
+    replySuggestionModel: string;
     defaultImageModel: string;
     memoryExtractionModel: string;
     memoryEmbeddingModel: string;
     modelDefaultsByProvider: ModelDefaultsByProvider;
     generateTitleOnFirstReply: boolean;
+    replySuggestionsEnabled: boolean;
     aiProvider: AiProvider;
     openAiCompatibleBaseUrl: string;
     openAiCompatibleEmbeddingsEnabled: boolean;
@@ -353,10 +357,12 @@ interface AppState {
     setDefaultDirectorModel: (model: string) => void;
     setDefaultAutoGenerationModel: (model: string) => void;
     setTitleGenerationModel: (model: string) => void;
+    setReplySuggestionModel: (model: string) => void;
     setDefaultImageModel: (model: string) => void;
     setMemoryExtractionModel: (model: string) => void;
     setMemoryEmbeddingModel: (model: string) => void;
     setGenerateTitleOnFirstReply: (enabled: boolean) => void;
+    setReplySuggestionsEnabled: (enabled: boolean) => void;
     setAiProvider: (provider: AiProvider) => void;
     setOpenAiCompatibleBaseUrl: (baseUrl: string) => void;
     setOpenAiCompatibleEmbeddingsEnabled: (enabled: boolean) => void;
@@ -1034,6 +1040,7 @@ function getAiProviderConfigFromState(state: Pick<AppState,
     'defaultDirectorModel' |
     'defaultAutoGenerationModel' |
     'titleGenerationModel' |
+    'replySuggestionModel' |
     'defaultImageModel' |
     'memoryExtractionModel' |
     'memoryEmbeddingModel'
@@ -1044,6 +1051,7 @@ function getAiProviderConfigFromState(state: Pick<AppState,
         defaultDirectorModel: state.defaultDirectorModel,
         defaultAutoGenerationModel: state.defaultAutoGenerationModel,
         titleGenerationModel: state.titleGenerationModel,
+        replySuggestionModel: state.replySuggestionModel,
         defaultImageModel: state.defaultImageModel,
         memoryExtractionModel: state.memoryExtractionModel,
         memoryEmbeddingModel: state.memoryEmbeddingModel,
@@ -1068,11 +1076,13 @@ export const useStore = create<AppState>()((set, get) => ({
     defaultDirectorModel: DEFAULT_DIRECTOR_MODEL,
     defaultAutoGenerationModel: DEFAULT_AUTO_GENERATION_MODEL,
     titleGenerationModel: DEFAULT_TITLE_GENERATION_MODEL,
+    replySuggestionModel: DEFAULT_REPLY_SUGGESTION_MODEL,
     defaultImageModel: DEFAULT_IMAGE_MODEL,
     memoryExtractionModel: DEFAULT_MEMORY_EXTRACTION_MODEL,
     memoryEmbeddingModel: DEFAULT_MEMORY_EMBEDDING_MODEL,
     modelDefaultsByProvider: normalizeModelDefaultsByProvider(undefined),
     generateTitleOnFirstReply: false,
+    replySuggestionsEnabled: false,
     aiProvider: DEFAULT_AI_PROVIDER,
     openAiCompatibleBaseUrl: DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
     openAiCompatibleEmbeddingsEnabled: DEFAULT_OPENAI_COMPATIBLE_EMBEDDINGS_ENABLED,
@@ -1089,7 +1099,7 @@ export const useStore = create<AppState>()((set, get) => ({
     hydrate: async () => {
         if (get().hydrated) return;
         await db.migrateLegacyDatabase();
-        const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, currentRoomId, vnTypingSpeed, fullJsonDebugEnabled, detailedErrorLoggingEnabled, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByProvider, storedGenerateTitleOnFirstReply, storedAiProvider, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion] = await Promise.all([
+        const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, currentRoomId, vnTypingSpeed, fullJsonDebugEnabled, detailedErrorLoggingEnabled, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByProvider, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiProvider, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion] = await Promise.all([
             db.getAllCharacters(),
             db.getAllGroups(),
             db.getAllRooms(),
@@ -1110,6 +1120,7 @@ export const useStore = create<AppState>()((set, get) => ({
             db.getMeta<string>('memoryEmbeddingModel'),
             db.getMeta<ModelDefaultsByProvider>('modelDefaultsByProvider'),
             db.getMeta<boolean>('generateTitleOnFirstReply'),
+            db.getMeta<boolean>('replySuggestionsEnabled'),
             db.getMeta<AiProvider>('aiProvider'),
             db.getMeta<string>('openAiCompatibleBaseUrl'),
             db.getMeta<boolean>('openAiCompatibleEmbeddingsEnabled'),
@@ -1151,6 +1162,7 @@ export const useStore = create<AppState>()((set, get) => ({
             titleGenerationModel: typeof storedTitleGenerationModel === 'string' && storedTitleGenerationModel.trim()
                 ? storedTitleGenerationModel.trim()
                 : DEFAULT_TITLE_GENERATION_MODEL,
+            replySuggestionModel: DEFAULT_REPLY_SUGGESTION_MODEL,
             defaultImageModel: typeof storedDefaultImageModel === 'string' && storedDefaultImageModel.trim()
                 ? storedDefaultImageModel.trim()
                 : DEFAULT_IMAGE_MODEL,
@@ -1205,6 +1217,7 @@ export const useStore = create<AppState>()((set, get) => ({
         if (themePalette !== resolvedTheme.palette) fire(db.setMeta('themePalette', resolvedTheme.palette));
         if (vnTypingSpeed !== resolvedVnTypingSpeed) fire(db.setMeta('vnTypingSpeed', resolvedVnTypingSpeed));
         const resolvedGenerateTitleOnFirstReply = storedGenerateTitleOnFirstReply === true;
+        const resolvedReplySuggestionsEnabled = storedReplySuggestionsEnabled === true;
         const resolvedOpenAiCompatibleBaseUrl = normalizeOpenAiCompatibleBaseUrl(storedOpenAiCompatibleBaseUrl);
         const resolvedOpenAiCompatibleEmbeddingsEnabled = typeof storedOpenAiCompatibleEmbeddingsEnabled === 'boolean'
             ? storedOpenAiCompatibleEmbeddingsEnabled
@@ -1223,6 +1236,7 @@ export const useStore = create<AppState>()((set, get) => ({
             persistModelDefaultsByProvider(modelDefaultsByProvider);
         }
         if (storedGenerateTitleOnFirstReply !== resolvedGenerateTitleOnFirstReply) fire(db.setMeta('generateTitleOnFirstReply', resolvedGenerateTitleOnFirstReply));
+        if (storedReplySuggestionsEnabled !== resolvedReplySuggestionsEnabled) fire(db.setMeta('replySuggestionsEnabled', resolvedReplySuggestionsEnabled));
         if (storedAiProvider !== resolvedAiProvider) fire(db.setMeta('aiProvider', resolvedAiProvider));
         if (storedOpenAiCompatibleBaseUrl !== resolvedOpenAiCompatibleBaseUrl) fire(db.setMeta('openAiCompatibleBaseUrl', resolvedOpenAiCompatibleBaseUrl));
         if (storedOpenAiCompatibleEmbeddingsEnabled !== resolvedOpenAiCompatibleEmbeddingsEnabled) fire(db.setMeta('openAiCompatibleEmbeddingsEnabled', resolvedOpenAiCompatibleEmbeddingsEnabled));
@@ -1241,6 +1255,7 @@ export const useStore = create<AppState>()((set, get) => ({
             ...activeModelDefaults,
             modelDefaultsByProvider,
             generateTitleOnFirstReply: resolvedGenerateTitleOnFirstReply,
+            replySuggestionsEnabled: resolvedReplySuggestionsEnabled,
             aiProvider: resolvedAiProvider,
             openAiCompatibleBaseUrl: resolvedOpenAiCompatibleBaseUrl,
             openAiCompatibleEmbeddingsEnabled: resolvedOpenAiCompatibleEmbeddingsEnabled,
@@ -1302,6 +1317,9 @@ export const useStore = create<AppState>()((set, get) => ({
     setTitleGenerationModel: (titleGenerationModel) => {
         updateModelDefault(set, get, 'titleGenerationModel', titleGenerationModel);
     },
+    setReplySuggestionModel: (replySuggestionModel) => {
+        updateModelDefault(set, get, 'replySuggestionModel', replySuggestionModel);
+    },
     setDefaultImageModel: (defaultImageModel) => {
         updateModelDefault(set, get, 'defaultImageModel', defaultImageModel);
     },
@@ -1314,6 +1332,10 @@ export const useStore = create<AppState>()((set, get) => ({
     setGenerateTitleOnFirstReply: (generateTitleOnFirstReply) => {
         set({ generateTitleOnFirstReply });
         fire(db.setMeta('generateTitleOnFirstReply', generateTitleOnFirstReply));
+    },
+    setReplySuggestionsEnabled: (replySuggestionsEnabled) => {
+        set({ replySuggestionsEnabled });
+        fire(db.setMeta('replySuggestionsEnabled', replySuggestionsEnabled));
     },
     setAiProvider: (aiProvider) => {
         const modelDefaults = get().modelDefaultsByProvider[aiProvider] ?? getDefaultModelDefaults(aiProvider);
@@ -2230,11 +2252,13 @@ export const useStore = create<AppState>()((set, get) => ({
             defaultDirectorModel: DEFAULT_DIRECTOR_MODEL,
             defaultAutoGenerationModel: DEFAULT_AUTO_GENERATION_MODEL,
             titleGenerationModel: DEFAULT_TITLE_GENERATION_MODEL,
+            replySuggestionModel: DEFAULT_REPLY_SUGGESTION_MODEL,
             defaultImageModel: DEFAULT_IMAGE_MODEL,
             memoryExtractionModel: DEFAULT_MEMORY_EXTRACTION_MODEL,
             memoryEmbeddingModel: DEFAULT_MEMORY_EMBEDDING_MODEL,
             modelDefaultsByProvider: normalizeModelDefaultsByProvider(undefined),
             generateTitleOnFirstReply: false,
+            replySuggestionsEnabled: false,
             aiProvider: DEFAULT_AI_PROVIDER,
             openAiCompatibleBaseUrl: DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
             openAiCompatibleEmbeddingsEnabled: DEFAULT_OPENAI_COMPATIBLE_EMBEDDINGS_ENABLED,

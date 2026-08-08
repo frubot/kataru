@@ -1921,7 +1921,7 @@ body {
   padding: 0.5rem 0.75rem;
   border-radius: 0.125rem;
   border-color: color-mix(in srgb, var(--text-primary) 24%, transparent);
-  background: color-mix(in srgb, var(--bg-primary) 48%, transparent);
+  background: color-mix(in srgb, var(--bg-primary) 72%, transparent);
 }
 
 .vn-reply-suggestions .reply-suggestion-text {
@@ -2066,8 +2066,8 @@ body {
   border-top: 1px solid color-mix(in srgb, var(--text-primary) 22%, transparent);
   border-bottom: 1px solid color-mix(in srgb, var(--text-primary) 18%, transparent);
   border-radius: 0.125rem;
-  background: color-mix(in srgb, var(--bg-secondary) 76%, transparent);
-  backdrop-filter: blur(5px);
+  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+  backdrop-filter: none;
   box-shadow: inset 0 1px 0 color-mix(in srgb, white 10%, transparent);
 }
 

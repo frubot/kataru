@@ -306,6 +306,78 @@ function uniqueMemories(memories: string[]): string[] {
     return uniqueTrimmedStrings(memories);
 }
 
+function isSingleAsteriskMarker(content: string, index: number): boolean {
+    if (content[index] !== '*'
+        || content[index - 1] === '*'
+        || content[index + 1] === '*'
+    ) {
+        return false;
+    }
+
+    let precedingBackslashes = 0;
+    for (let i = index - 1; i >= 0 && content[i] === '\\'; i--) {
+        precedingBackslashes++;
+    }
+    return precedingBackslashes % 2 === 0;
+}
+
+function stripDialogueSegmentBrackets(segment: string): string {
+    const openingMatch = /^(\s*)「/.exec(segment);
+    const closingMatch = /」(\s*)$/.exec(segment);
+    if (!openingMatch || !closingMatch) return segment;
+
+    const openingIndex = openingMatch[1].length;
+    const closingIndex = segment.length - closingMatch[1].length - 1;
+    if (openingIndex >= closingIndex) return segment;
+
+    let depth = 0;
+    for (let i = openingIndex; i <= closingIndex; i++) {
+        if (segment[i] === '「') {
+            depth++;
+        } else if (segment[i] === '」') {
+            depth--;
+            if (depth < 0 || (depth === 0 && i !== closingIndex)) return segment;
+        }
+    }
+    if (depth !== 0) return segment;
+
+    return segment.slice(0, openingIndex)
+        + segment.slice(openingIndex + 1, closingIndex)
+        + segment.slice(closingIndex + 1);
+}
+
+export function sanitizeAssistantReplyContent(content: string): string {
+    const trimmed = content.trim();
+    let result = '';
+    let segmentStart = 0;
+    let index = 0;
+
+    while (index < trimmed.length) {
+        if (!isSingleAsteriskMarker(trimmed, index)) {
+            index++;
+            continue;
+        }
+
+        const opening = index;
+        let closing = opening + 1;
+        while (closing < trimmed.length && !isSingleAsteriskMarker(trimmed, closing)) {
+            closing++;
+        }
+        if (closing >= trimmed.length || closing === opening + 1) {
+            index = opening + 1;
+            continue;
+        }
+
+        result += stripDialogueSegmentBrackets(trimmed.slice(segmentStart, opening));
+        result += trimmed.slice(opening, closing + 1);
+        segmentStart = closing + 1;
+        index = segmentStart;
+    }
+
+    result += stripDialogueSegmentBrackets(trimmed.slice(segmentStart));
+    return result.trim();
+}
+
 export function parseAssistantResponse(
     content: string,
     expressionNames?: string[],
@@ -328,7 +400,7 @@ export function parseAssistantResponse(
                 : parsedJson.messages ?? []
         : [content];
     const messages = rawMessages
-        .map((rawMessage) => rawMessage.trim())
+        .map(sanitizeAssistantReplyContent)
         .filter(Boolean);
     const normalizedMessages = messages.length > 0 ? messages : ['...'];
     const expression = normalizeExpressionName(

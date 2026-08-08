@@ -4,4 +4,4 @@ mod prompts;
 mod response;
 
 pub use orchestrator::turn;
-pub(crate) use response::sanitize_message_content;
+pub(crate) use response::sanitize_assistant_reply_content;

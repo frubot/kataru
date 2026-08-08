@@ -26,7 +26,7 @@ use super::{
     },
     response::{
         AssistantEnvelope, DirectorDecision, parse_assistant_response, parse_director_decision,
-        parse_summary_response, sanitize_message_content,
+        parse_summary_response, sanitize_assistant_reply_content, sanitize_message_content,
     },
 };
 
@@ -1218,7 +1218,7 @@ fn sanitize_assistant_history(messages: &mut [Value]) {
         if let Some(object) = message.as_object_mut() {
             object.insert(
                 "content".to_owned(),
-                Value::String(sanitize_message_content(&content)),
+                Value::String(sanitize_assistant_reply_content(&content)),
             );
         }
     }

@@ -1149,7 +1149,9 @@ fn sanitize_assistant_message(message: &mut Value) {
     {
         object.insert(
             "content".to_owned(),
-            Value::String(crate::conversation::sanitize_message_content(&content)),
+            Value::String(crate::conversation::sanitize_assistant_reply_content(
+                &content,
+            )),
         );
     }
 }

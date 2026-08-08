@@ -2716,7 +2716,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             </div>
 
             {isVisualNovelMode ? (
-                <div className="vn-stage">
+                <div className={`vn-stage${showReplySuggestions ? ' has-reply-suggestions' : ''}`}>
                     <div className="vn-scene">
                         <div className={`vn-character-wrap ${vnBounceActive ? 'vn-character-bounce' : ''}`}>
                             {vnExpressionImage ? (

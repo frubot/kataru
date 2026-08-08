@@ -15,6 +15,7 @@ import {
 } from '@/lib/store';
 import { generateId } from '@/lib/id';
 import CharacterGeneratorModal from './CharacterGeneratorModal';
+import ImageGenerationModal from './ImageGenerationModal';
 import SituationDescriptionGeneratorModal from './SituationDescriptionGeneratorModal';
 import StoredImage from './StoredImage';
 
@@ -23,6 +24,7 @@ type TemporaryActorDraft = {
     name: string;
     systemPrompt: string;
     model: string;
+    icon: string | null;
     temperature: number | null;
     topP: number | null;
     topK: number | null;
@@ -95,6 +97,7 @@ function createTemporaryDraft(): TemporaryActorDraft {
         name: '',
         systemPrompt: '',
         model: '',
+        icon: null,
         temperature: null,
         topP: null,
         topK: null,
@@ -478,6 +481,7 @@ function TemporaryActorSettingsModal({
     const [draft, setDraft] = useState<TemporaryActorDraft>(() => ({ ...actor }));
     const [parametersOpen, setParametersOpen] = useState(false);
     const [generatorOpen, setGeneratorOpen] = useState(false);
+    const [imageGenOpen, setImageGenOpen] = useState(false);
     const hasCustomParams = draft.temperature !== null || draft.topP !== null || draft.topK !== null;
 
     const updateDraft = (updates: Partial<TemporaryActorDraft>) => {
@@ -498,7 +502,7 @@ function TemporaryActorSettingsModal({
 
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
-            if (event.key !== 'Escape' || generatorOpen) return;
+            if (event.key !== 'Escape' || generatorOpen || imageGenOpen) return;
             if (isNew) {
                 onClose();
             } else {
@@ -507,7 +511,7 @@ function TemporaryActorSettingsModal({
         };
         document.addEventListener('keydown', handleKeyDown);
         return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [generatorOpen, isNew, onClose, saveAndClose]);
+    }, [generatorOpen, imageGenOpen, isNew, onClose, saveAndClose]);
 
     const labelStyle: CSSProperties = {
         display: 'block',
@@ -573,6 +577,62 @@ function TemporaryActorSettingsModal({
                     </div>
 
                     <div className="modal-body">
+                        <div style={{ ...sectionStyle, display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                            <button
+                                type="button"
+                                onClick={() => setImageGenOpen(true)}
+                                title={draft.icon ? 'アイコンを変更' : 'アイコンを追加'}
+                                aria-label={draft.icon ? 'アイコンを変更' : 'アイコンを追加'}
+                                style={{
+                                    width: '72px',
+                                    height: '72px',
+                                    borderRadius: '50%',
+                                    border: '2px dashed var(--border-color)',
+                                    background: 'var(--bg-secondary)',
+                                    cursor: 'pointer',
+                                    overflow: 'hidden',
+                                    flexShrink: 0,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    padding: 0,
+                                }}
+                            >
+                                {draft.icon ? (
+                                    <StoredImage
+                                        src={draft.icon}
+                                        alt={`${draft.name || 'キャラクター'}のアイコン`}
+                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                    />
+                                ) : (
+                                    <User size={28} style={{ color: 'var(--text-muted)' }} />
+                                )}
+                            </button>
+                            <div style={{ minWidth: 0 }}>
+                                <div style={{ ...labelStyle, marginBottom: '0.25rem' }}>アイコン画像</div>
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                    クリックして画像を追加・変更できます
+                                </div>
+                                {draft.icon && (
+                                    <button
+                                        type="button"
+                                        onClick={() => updateDraft({ icon: null })}
+                                        style={{
+                                            fontSize: '0.75rem',
+                                            color: 'var(--error)',
+                                            background: 'none',
+                                            border: 'none',
+                                            cursor: 'pointer',
+                                            padding: 0,
+                                            marginTop: '0.375rem',
+                                        }}
+                                    >
+                                        削除
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
                         <div style={sectionStyle}>
                             <label htmlFor={`temporary-actor-name-${actor.id}`} style={labelStyle}>キャラクター名</label>
                             <input
@@ -673,6 +733,15 @@ function TemporaryActorSettingsModal({
                     setGeneratorOpen(false);
                 }}
             />
+
+            <ImageGenerationModal
+                isOpen={imageGenOpen}
+                onClose={() => setImageGenOpen(false)}
+                onComplete={(avatar) => {
+                    updateDraft({ icon: avatar });
+                    setImageGenOpen(false);
+                }}
+            />
         </>
     );
 }
@@ -699,6 +768,7 @@ function buildInitialState(
                 name: actor.name,
                 systemPrompt: actor.systemPrompt,
                 model: actor.model ?? '',
+                icon: actor.icon ?? null,
                 temperature: typeof actor.temperature === 'number' ? actor.temperature : null,
                 topP: typeof actor.topP === 'number' ? actor.topP : null,
                 topK: typeof actor.topK === 'number' ? actor.topK : null,
@@ -790,7 +860,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
             })),
         ...temporaryActors
             .filter((actor) => actor.name.trim())
-            .map((actor) => ({ id: actor.id, name: actor.name.trim(), icon: undefined })),
+            .map((actor) => ({ id: actor.id, name: actor.name.trim(), icon: actor.icon ?? undefined })),
     ], [characterActorMeta, characters, selectedCharacterIds, temporaryActors]);
 
     const toggleCharacter = (character: Character) => {
@@ -926,6 +996,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
             name: actor.name.trim(),
             systemPrompt: actor.systemPrompt.trim(),
             model: actor.model.trim() || defaultChatModel,
+            ...(actor.icon ? { icon: actor.icon } : {}),
             ...(actor.temperature !== null ? { temperature: actor.temperature } : {}),
             ...(actor.topP !== null ? { topP: actor.topP } : {}),
             ...(actor.topK !== null ? { topK: actor.topK } : {}),

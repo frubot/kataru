@@ -361,6 +361,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                         >
                             <span className="onboarding-progress-fill" />
                         </div>
+                        <span className="onboarding-back-placeholder" aria-hidden="true" />
                     </div>
 
                     {step === 'provider' ? (

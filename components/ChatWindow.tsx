@@ -2990,10 +2990,12 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                         className={`reply-suggestions${isVisualNovelMode ? ' vn-reply-suggestions' : ''}`}
                         aria-label="主人公の返答候補"
                     >
-                        <div className="reply-suggestions-heading">
-                            <Sparkles size={14} aria-hidden="true" />
-                            <span>{replySuggestionState.loading ? '返答を考えています…' : '返答を選ぶ'}</span>
-                        </div>
+                        {replySuggestionState.loading && (
+                            <div className="reply-suggestions-heading">
+                                <Sparkles size={14} aria-hidden="true" />
+                                <span>返答を考えています…</span>
+                            </div>
+                        )}
                         {!replySuggestionState.loading && (
                             <div className="reply-suggestions-list">
                                 {replySuggestionState.suggestions.map((suggestion, index) => (
@@ -3005,7 +3007,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                                         disabled={chatInputDisabled}
                                         title={`${suggestion}（選択して送信）`}
                                     >
-                                        <span className="reply-suggestion-number" aria-hidden="true">{index + 1}</span>
                                         <span className="reply-suggestion-text">{suggestion}</span>
                                     </button>
                                 ))}

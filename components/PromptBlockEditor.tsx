@@ -128,6 +128,14 @@ function groupBlocks(items: BlockItem[]): Group[] {
   return groups;
 }
 
+function createEmptyParagraph(): BlockItem {
+  return { type: 'paragraph', text: '', id: uid() };
+}
+
+function ensureEditableBlockItems(items: BlockItem[]): BlockItem[] {
+  return items.length > 0 ? items : [createEmptyParagraph()];
+}
+
 function focusNextInput(current: HTMLElement, direction: 'next' | 'prev' = 'next') {
   const container = current.closest('[data-prompt-editor]') as HTMLElement | null;
   if (!container) return;
@@ -276,11 +284,13 @@ function ParagraphRow({
   onChange,
   onDelete,
   onInsertAfter,
+  placeholder,
 }: {
   text: string;
   onChange: (v: string) => void;
   onDelete: () => void;
   onInsertAfter: (block: PromptBlock) => void;
+  placeholder?: string;
 }) {
   const taRef = useRef<HTMLTextAreaElement>(null);
 
@@ -319,7 +329,7 @@ function ParagraphRow({
         value={text}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="テキスト"
+        placeholder={placeholder ?? 'テキスト'}
         rows={1}
         style={{
           flex: 1,
@@ -494,12 +504,14 @@ function BlockRow({
   onDelete,
   onInsertAfter,
   onConvertType,
+  placeholder,
 }: {
   block: BlockItem;
   onUpdate: (next: BlockItem) => void;
   onDelete: () => void;
   onInsertAfter: (block: PromptBlock) => void;
   onConvertType: () => void;
+  placeholder?: string;
 }) {
   const [hover, setHover] = useState(false);
   if (block.type === 'heading') return null;
@@ -526,6 +538,7 @@ function BlockRow({
             onChange={(text) => onUpdate({ ...block, text })}
             onDelete={onDelete}
             onInsertAfter={onInsertAfter}
+            placeholder={placeholder}
           />
         )}
         {block.type === 'bulletList' && (
@@ -732,7 +745,7 @@ export default function PromptBlockEditor({
   minHeight = '150px',
   maxHeight,
 }: PromptBlockEditorProps) {
-  const [items, setItems] = useState<BlockItem[]>(() => markdownToBlockItems(markdown));
+  const [items, setItems] = useState<BlockItem[]>(() => ensureEditableBlockItems(markdownToBlockItems(markdown)));
   const [openMap, setOpenMap] = useState<Record<BlockId, boolean>>(() => ({}));
   const containerRef = useRef<HTMLDivElement>(null);
   const effectiveMaxHeight = maxHeight === undefined ? 'min(450px, 60vh)' : maxHeight;
@@ -755,7 +768,7 @@ export default function PromptBlockEditor({
   useEffect(() => {
     const current = blockItemsToMarkdown(items);
     if (current === markdown) return;
-    const next = markdownToBlockItems(markdown);
+    const next = ensureEditableBlockItems(markdownToBlockItems(markdown));
     setItems(next);
     setOpenMap((prev) => {
       const map: Record<BlockId, boolean> = {};
@@ -770,8 +783,9 @@ export default function PromptBlockEditor({
   }, [markdown]);
 
   const emit = (next: BlockItem[]) => {
-    setItems(next);
-    onChange(blockItemsToMarkdown(next));
+    const editableNext = ensureEditableBlockItems(next);
+    setItems(editableNext);
+    onChange(blockItemsToMarkdown(editableNext));
   };
 
   const toggleHeading = (id: BlockId) => {
@@ -841,23 +855,12 @@ export default function PromptBlockEditor({
 
   const groups = useMemo(() => groupBlocks(items), [items]);
 
-  const emptyState = items.length === 0;
-
   return (
     <div
       ref={containerRef}
       data-prompt-editor
       style={containerStyle}
     >
-      {emptyState && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-          {placeholder && (
-            <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)', padding: '0.5rem 0' }}>{placeholder}</div>
-          )}
-          <AddBlockButton onAdd={appendToRoot} onlyHeading />
-        </div>
-      )}
-
       {groups.map((group, gi) => {
         const headingBlockRaw = group.headingId ? items.find((b) => b.id === group.headingId) : null;
         const headingBlock = headingBlockRaw && headingBlockRaw.type === 'heading' ? headingBlockRaw : null;
@@ -912,6 +915,7 @@ export default function PromptBlockEditor({
                           onDelete={() => deleteBlock(b.id)}
                           onInsertAfter={(block) => insertAfter(b.id, block)}
                           onConvertType={() => convertBlockType(b.id)}
+                          placeholder={placeholder}
                         />
                       ))}
 
@@ -934,11 +938,9 @@ export default function PromptBlockEditor({
         );
       })}
 
-      {!emptyState && (
-        <div style={{ marginTop: '0.25rem' }}>
-          <AddBlockButton onAdd={appendToRoot} onlyHeading />
-        </div>
-      )}
+      <div style={{ marginTop: '0.25rem' }}>
+        <AddBlockButton onAdd={appendToRoot} onlyHeading />
+      </div>
     </div>
   );
 }

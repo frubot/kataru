@@ -1896,13 +1896,11 @@ body {
 }
 
 .vn-reply-suggestions {
+  position: relative;
+  z-index: 2;
   width: min(100%, 920px);
-  padding: 0.625rem 0.75rem 0.75rem;
-  border: 1px solid color-mix(in srgb, var(--text-primary) 24%, transparent);
-  border-radius: 0.25rem;
-  background: color-mix(in srgb, var(--bg-secondary) 82%, transparent);
-  backdrop-filter: blur(8px);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.24), inset 0 1px 0 color-mix(in srgb, white 10%, transparent);
+  padding: 0;
+  background: transparent;
 }
 
 .vn-reply-suggestions .reply-suggestions-heading {
@@ -2838,7 +2836,7 @@ body {
   }
 
   .vn-reply-suggestions {
-    padding: 0.5rem;
+    padding: 0;
   }
 
   .onboarding-mobile-header {

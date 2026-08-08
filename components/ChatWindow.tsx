@@ -2562,6 +2562,35 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     }
 
     const displayedRoomName = room.isDraft ? '' : room.name;
+    const replySuggestions = showReplySuggestions && replySuggestionState && (
+        <div
+            className={`reply-suggestions${isVisualNovelMode ? ' vn-reply-suggestions' : ''}`}
+            aria-label="主人公の返答候補"
+        >
+            {replySuggestionState.loading && (
+                <div className="reply-suggestions-heading">
+                    <Sparkles size={14} aria-hidden="true" />
+                    <span>返答を考えています…</span>
+                </div>
+            )}
+            {!replySuggestionState.loading && (
+                <div className="reply-suggestions-list">
+                    {replySuggestionState.suggestions.map((suggestion, index) => (
+                        <button
+                            key={`${index}:${suggestion}`}
+                            type="button"
+                            className="reply-suggestion-button"
+                            onClick={() => handleReplySuggestionSelect(suggestion)}
+                            disabled={chatInputDisabled}
+                            title={`${suggestion}（選択して送信）`}
+                        >
+                            <span className="reply-suggestion-text">{suggestion}</span>
+                        </button>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
 
     return (
         <div className={`chat-container ${isVisualNovelMode ? 'vn-mode' : ''} ${isMessageMode ? 'message-mode' : ''}`}>
@@ -2709,6 +2738,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                         </div>
                     </div>
 
+                    {isVisualNovelMode && replySuggestions}
                     <div className="vn-dialogue">
                         <div className="vn-dialogue-topline">
                             <div className="vn-speaker">
@@ -2985,35 +3015,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                         </button>
                     </div>
                 )}
-                {showReplySuggestions && replySuggestionState && (
-                    <div
-                        className={`reply-suggestions${isVisualNovelMode ? ' vn-reply-suggestions' : ''}`}
-                        aria-label="主人公の返答候補"
-                    >
-                        {replySuggestionState.loading && (
-                            <div className="reply-suggestions-heading">
-                                <Sparkles size={14} aria-hidden="true" />
-                                <span>返答を考えています…</span>
-                            </div>
-                        )}
-                        {!replySuggestionState.loading && (
-                            <div className="reply-suggestions-list">
-                                {replySuggestionState.suggestions.map((suggestion, index) => (
-                                    <button
-                                        key={`${index}:${suggestion}`}
-                                        type="button"
-                                        className="reply-suggestion-button"
-                                        onClick={() => handleReplySuggestionSelect(suggestion)}
-                                        disabled={chatInputDisabled}
-                                        title={`${suggestion}（選択して送信）`}
-                                    >
-                                        <span className="reply-suggestion-text">{suggestion}</span>
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                )}
+                {!isVisualNovelMode && replySuggestions}
                 {mentionQuery !== null && mentionCandidates.length > 0 && (
                     <div style={{
                         position: 'absolute',

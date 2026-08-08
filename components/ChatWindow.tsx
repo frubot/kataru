@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
-import { Send, Sparkles, MessageSquare, MessagesSquare, Menu, Brain, Bug, Square, SquarePen, Gamepad2, Copy, Check, RefreshCw, ChevronsDown, Shirt, AlertTriangle, X, ChevronDown, HatGlasses, Undo2 } from 'lucide-react';
+import { Send, Sparkles, MessageSquare, MessagesSquare, Menu, Brain, Bug, Square, SquarePen, Gamepad2, Copy, Check, RefreshCw, ChevronsDown, Shirt, AlertTriangle, X, ChevronDown, HatGlasses, Undo2, Trash2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import {
     useStore,
@@ -2909,13 +2909,21 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                         if (e.target === e.currentTarget) setDebugLogOpen(false);
                     }}
                 >
-                    <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 820 }}>
-                        <div className="modal-header">
-                            <h2 style={{ fontSize: '1.125rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                <Bug size={18} />
-                                デバッグログ
-                            </h2>
-                            <button className="btn btn-ghost" onClick={() => setDebugLogOpen(false)} style={{ padding: '0.5rem' }} title="閉じる">
+                    <div
+                        className="modal-content settings-form-modal"
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ maxWidth: 820 }}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label="デバッグログ"
+                    >
+                        <div className="settings-form-modal-actions">
+                            <button
+                                className="btn btn-ghost"
+                                onClick={() => setDebugLogOpen(false)}
+                                aria-label="閉じる"
+                                title="閉じる"
+                            >
                                 <X size={20} />
                             </button>
                         </div>
@@ -3001,14 +3009,14 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                                 </div>
                             )}
                         </div>
-                        <div className="modal-footer">
-                            <button className="btn btn-secondary" onClick={handleClearActiveDebugLogs} disabled={fullJsonDebugLogs.length === 0}>
-                                ログを消去
-                            </button>
-                            <button className="btn btn-primary" onClick={() => setDebugLogOpen(false)}>
-                                閉じる
-                            </button>
-                        </div>
+                        {fullJsonDebugLogs.length > 0 && (
+                            <div className="modal-footer">
+                                <button className="btn btn-secondary" onClick={handleClearActiveDebugLogs}>
+                                    <Trash2 size={15} />
+                                    ログを消去
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}

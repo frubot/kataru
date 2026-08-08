@@ -64,7 +64,7 @@ type SettingsTab = 'general' | 'models' | 'debug' | 'statistics';
 const SETTINGS_TABS = [
     { id: 'general', label: '一般' },
     { id: 'models', label: 'モデル' },
-    { id: 'debug', label: 'デバッグ' },
+    { id: 'debug', label: '開発者' },
     { id: 'statistics', label: '統計' },
 ] as const satisfies readonly { id: SettingsTab; label: string }[];
 

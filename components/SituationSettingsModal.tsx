@@ -460,6 +460,223 @@ function TemporaryActorParamSlider({ paramKey, value, onChange }: TemporaryActor
     );
 }
 
+interface TemporaryActorSettingsModalProps {
+    actor: TemporaryActorDraft;
+    isNew: boolean;
+    defaultChatModel: string;
+    onClose: () => void;
+    onSave: (actor: TemporaryActorDraft) => void;
+}
+
+function TemporaryActorSettingsModal({
+    actor,
+    isNew,
+    defaultChatModel,
+    onClose,
+    onSave,
+}: TemporaryActorSettingsModalProps) {
+    const [draft, setDraft] = useState<TemporaryActorDraft>(() => ({ ...actor }));
+    const [parametersOpen, setParametersOpen] = useState(false);
+    const [generatorOpen, setGeneratorOpen] = useState(false);
+    const hasCustomParams = draft.temperature !== null || draft.topP !== null || draft.topK !== null;
+
+    const updateDraft = (updates: Partial<TemporaryActorDraft>) => {
+        setDraft((current) => ({ ...current, ...updates }));
+    };
+
+    const saveAndClose = useCallback(() => {
+        const trimmedName = draft.name.trim();
+        if (isNew && !trimmedName) {
+            onClose();
+            return;
+        }
+        onSave({
+            ...draft,
+            name: trimmedName || actor.name,
+        });
+    }, [actor.name, draft, isNew, onClose, onSave]);
+
+    useEffect(() => {
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key !== 'Escape' || generatorOpen) return;
+            if (isNew) {
+                onClose();
+            } else {
+                saveAndClose();
+            }
+        };
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [generatorOpen, isNew, onClose, saveAndClose]);
+
+    const labelStyle: CSSProperties = {
+        display: 'block',
+        fontSize: '0.875rem',
+        fontWeight: 500,
+        marginBottom: '0.5rem',
+        color: 'var(--text-secondary)',
+    };
+    const sectionStyle: CSSProperties = { marginBottom: '1.25rem' };
+
+    return (
+        <>
+            <div
+                className="modal-overlay"
+                onPointerDown={(event) => {
+                    if (event.target !== event.currentTarget) return;
+                    if (isNew) {
+                        onClose();
+                    } else {
+                        saveAndClose();
+                    }
+                }}
+            >
+                <div
+                    className="modal-content settings-form-modal"
+                    onClick={(event) => event.stopPropagation()}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label={isNew ? '登場人物を追加' : `${actor.name}の設定`}
+                >
+                    <div className="settings-form-modal-actions">
+                        {isNew && (
+                            <button
+                                type="button"
+                                className="btn btn-ghost"
+                                onClick={() => setGeneratorOpen(true)}
+                                title="AIでキャラクター生成"
+                                aria-label="AIでキャラクター生成"
+                            >
+                                <Sparkles size={16} />
+                            </button>
+                        )}
+                        {isNew ? (
+                            <button
+                                type="button"
+                                className="btn btn-primary settings-form-modal-save"
+                                onClick={saveAndClose}
+                                disabled={!draft.name.trim()}
+                            >
+                                保存
+                            </button>
+                        ) : (
+                            <button
+                                type="button"
+                                className="btn btn-ghost"
+                                onClick={saveAndClose}
+                                aria-label="閉じて保存"
+                                title="閉じて保存"
+                            >
+                                <X size={20} />
+                            </button>
+                        )}
+                    </div>
+
+                    <div className="modal-body">
+                        <div style={sectionStyle}>
+                            <label htmlFor={`temporary-actor-name-${actor.id}`} style={labelStyle}>キャラクター名</label>
+                            <input
+                                id={`temporary-actor-name-${actor.id}`}
+                                type="text"
+                                className="input"
+                                value={draft.name}
+                                onChange={(event) => updateDraft({ name: event.target.value })}
+                                placeholder="キャラクターの名前"
+                                autoFocus={isNew}
+                            />
+                        </div>
+
+                        <div style={sectionStyle}>
+                            <label htmlFor={`temporary-actor-model-${actor.id}`} style={labelStyle}>モデル</label>
+                            <input
+                                id={`temporary-actor-model-${actor.id}`}
+                                type="text"
+                                className="input"
+                                value={draft.model}
+                                onChange={(event) => updateDraft({ model: event.target.value })}
+                                placeholder={`例: ${defaultChatModel}`}
+                            />
+                        </div>
+
+                        <div style={sectionStyle}>
+                            <label htmlFor={`temporary-actor-prompt-${actor.id}`} style={labelStyle}>設定プロンプト</label>
+                            <textarea
+                                id={`temporary-actor-prompt-${actor.id}`}
+                                className="input"
+                                value={draft.systemPrompt}
+                                onChange={(event) => updateDraft({ systemPrompt: event.target.value })}
+                                rows={8}
+                                placeholder="キャラクターに関する詳細を記述してください..."
+                                style={{ resize: 'vertical', minHeight: '10rem' }}
+                            />
+                        </div>
+
+                        <div style={sectionStyle}>
+                            <button
+                                type="button"
+                                onClick={() => setParametersOpen((open) => !open)}
+                                aria-expanded={parametersOpen}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    gap: '0.75rem',
+                                    width: '100%',
+                                    padding: '0.625rem 0',
+                                    border: 'none',
+                                    background: 'transparent',
+                                    color: 'var(--text-secondary)',
+                                    cursor: 'pointer',
+                                    textAlign: 'left',
+                                }}
+                            >
+                                <span style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                                    {parametersOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                                    <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>生成パラメータ</span>
+                                </span>
+                                {hasCustomParams && (
+                                    <span style={{ fontSize: '0.75rem', color: 'var(--accent-primary)' }}>カスタム</span>
+                                )}
+                            </button>
+                            {parametersOpen && (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', paddingTop: '0.75rem' }}>
+                                    <TemporaryActorParamSlider
+                                        paramKey="temperature"
+                                        value={draft.temperature}
+                                        onChange={(temperature) => updateDraft({ temperature })}
+                                    />
+                                    <TemporaryActorParamSlider
+                                        paramKey="topP"
+                                        value={draft.topP}
+                                        onChange={(topP) => updateDraft({ topP })}
+                                    />
+                                    <TemporaryActorParamSlider
+                                        paramKey="topK"
+                                        value={draft.topK}
+                                        onChange={(topK) => updateDraft({ topK })}
+                                    />
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <CharacterGeneratorModal
+                isOpen={generatorOpen}
+                onClose={() => setGeneratorOpen(false)}
+                onApply={(generated) => {
+                    updateDraft({
+                        name: generated.name,
+                        systemPrompt: generated.systemPrompt,
+                    });
+                    setGeneratorOpen(false);
+                }}
+            />
+        </>
+    );
+}
+
 function buildInitialState(
     situation: Situation | null | undefined,
     room: Room | null | undefined,
@@ -541,8 +758,10 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
     const [characterActorMeta, setCharacterActorMeta] = useState<Record<string, CharacterActorMeta>>(initial.characterActorMeta);
     const [temporaryActors, setTemporaryActors] = useState<TemporaryActorDraft[]>(initial.temporaryActors);
     const [descriptionGeneratorOpen, setDescriptionGeneratorOpen] = useState(false);
-    const [temporaryActorGeneratorOpen, setTemporaryActorGeneratorOpen] = useState(false);
-    const [expandedTemporaryActorParams, setExpandedTemporaryActorParams] = useState<Set<string>>(new Set());
+    const [temporaryActorModal, setTemporaryActorModal] = useState<{
+        actor: TemporaryActorDraft;
+        isNew: boolean;
+    } | null>(null);
 
     const validTemporaryActors = useMemo(
         () => temporaryActors.filter((actor) => actor.name.trim()),
@@ -594,51 +813,25 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
     };
 
     const addTemporaryActor = () => {
-        setTemporaryActors((prev) => [...prev, createTemporaryDraft()]);
+        setTemporaryActorModal({ actor: createTemporaryDraft(), isNew: true });
     };
 
-    const addGeneratedTemporaryActor = (draft: { name: string; systemPrompt: string }) => {
-        setTemporaryActors((prev) => [
-            ...prev,
-            {
-                id: generateId(),
-                name: draft.name,
-                systemPrompt: draft.systemPrompt,
-                model: '',
-                temperature: null,
-                topP: null,
-                topK: null,
-            },
-        ]);
-        setTemporaryActorGeneratorOpen(false);
+    const editTemporaryActor = (actor: TemporaryActorDraft) => {
+        setTemporaryActorModal({ actor: { ...actor }, isNew: false });
     };
 
-    const updateTemporaryActor = (id: string, updates: Partial<TemporaryActorDraft>) => {
-        setTemporaryActors((prev) => prev.map((actor) => (
-            actor.id === id ? { ...actor, ...updates } : actor
-        )));
+    const saveTemporaryActor = (actor: TemporaryActorDraft) => {
+        setTemporaryActors((current) => {
+            const exists = current.some((item) => item.id === actor.id);
+            return exists
+                ? current.map((item) => item.id === actor.id ? actor : item)
+                : [...current, actor];
+        });
+        setTemporaryActorModal(null);
     };
 
     const removeTemporaryActor = (id: string) => {
         setTemporaryActors((prev) => prev.filter((actor) => actor.id !== id));
-        setExpandedTemporaryActorParams((prev) => {
-            if (!prev.has(id)) return prev;
-            const next = new Set(prev);
-            next.delete(id);
-            return next;
-        });
-    };
-
-    const toggleTemporaryActorParams = (id: string) => {
-        setExpandedTemporaryActorParams((prev) => {
-            const next = new Set(prev);
-            if (next.has(id)) {
-                next.delete(id);
-            } else {
-                next.add(id);
-            }
-            return next;
-        });
     };
 
     const addPriorMessage = (role: SituationPriorMessage['role']) => {
@@ -805,7 +998,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
     }, [actorCount, buildActors, characterActorMeta, createSituationRoom, defaultDirectorModel, effectiveMaxTurns, isEditing, maxAutoTurns, maxHistory, memoryReadOnly, name, onClose, onCreated, parsedMaxHistory, priorMessages, room, selectedCharacterIds, situation, situationPrompt, temporaryActors, updateRoomSettings, updateSituation]);
 
     useEffect(() => {
-        const childModalOpen = descriptionGeneratorOpen || temporaryActorGeneratorOpen;
+        const childModalOpen = descriptionGeneratorOpen || temporaryActorModal !== null;
         const handleKeyDown = (event: KeyboardEvent) => {
             if (event.key === 'Escape' && !childModalOpen) {
                 if (isEditing) {
@@ -817,7 +1010,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
         };
         document.addEventListener('keydown', handleKeyDown);
         return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [descriptionGeneratorOpen, isEditing, onClose, saveAndClose, temporaryActorGeneratorOpen]);
+    }, [descriptionGeneratorOpen, isEditing, onClose, saveAndClose, temporaryActorModal]);
 
     return (
         <>
@@ -1153,114 +1346,62 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                                 <User size={16} />
                                 その他の登場人物
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                                <button type="button" className="btn btn-secondary" onClick={() => setTemporaryActorGeneratorOpen(true)}>
-                                    <Sparkles size={16} />
-                                    AI生成
-                                </button>
-                                <button type="button" className="btn btn-secondary" onClick={addTemporaryActor}>
-                                    <Plus size={16} />
-                                    追加
-                                </button>
-                            </div>
+                            <button type="button" className="btn btn-secondary" onClick={addTemporaryActor}>
+                                <Plus size={16} />
+                                追加
+                            </button>
                         </div>
 
-                        {temporaryActors.map((actor) => {
-                            const paramsExpanded = expandedTemporaryActorParams.has(actor.id);
-                            const hasCustomParams = actor.temperature !== null || actor.topP !== null || actor.topK !== null;
-                            return (
-                                <div
-                                    key={actor.id}
-                                    style={{
-                                        display: 'flex',
-                                        flexDirection: 'column',
-                                        gap: '0.5rem',
-                                        padding: '0.75rem',
-                                        border: '1px solid var(--border-color)',
-                                        borderRadius: '0.5rem',
-                                        background: 'var(--bg-secondary)',
-                                    }}
-                                >
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                        <input
-                                            type="text"
-                                            value={actor.name}
-                                            onChange={(e) => updateTemporaryActor(actor.id, { name: e.target.value })}
-                                            placeholder="名前"
-                                            style={{ ...fieldStyle, flex: 1, minWidth: 0 }}
-                                        />
-                                        <button type="button" className="btn btn-ghost" onClick={() => removeTemporaryActor(actor.id)} style={{ padding: '0.5rem', color: 'var(--error)' }} title="削除">
+                        {temporaryActors.length > 0 && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
+                                {temporaryActors.map((actor) => (
+                                    <div
+                                        key={actor.id}
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '0.375rem',
+                                            border: '1px solid var(--border-color)',
+                                            borderRadius: '0.5rem',
+                                            background: 'var(--bg-secondary)',
+                                            padding: '0.25rem',
+                                        }}
+                                    >
+                                        <button
+                                            type="button"
+                                            onClick={() => editTemporaryActor(actor)}
+                                            aria-label={`${actor.name}の設定を編集`}
+                                            style={{
+                                                flex: 1,
+                                                minWidth: 0,
+                                                padding: '0.625rem 0.75rem',
+                                                border: 'none',
+                                                background: 'transparent',
+                                                color: 'var(--text-primary)',
+                                                cursor: 'pointer',
+                                                textAlign: 'left',
+                                                font: 'inherit',
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis',
+                                                whiteSpace: 'nowrap',
+                                            }}
+                                        >
+                                            {actor.name}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="btn btn-ghost"
+                                            onClick={() => removeTemporaryActor(actor.id)}
+                                            style={{ padding: '0.5rem', color: 'var(--error)', flexShrink: 0 }}
+                                            title={`${actor.name}を削除`}
+                                            aria-label={`${actor.name}を削除`}
+                                        >
                                             <Trash2 size={16} />
                                         </button>
                                     </div>
-                                    <textarea
-                                        value={actor.systemPrompt}
-                                        onChange={(e) => updateTemporaryActor(actor.id, { systemPrompt: e.target.value })}
-                                        rows={3}
-                                        placeholder="キャラクター設定"
-                                        style={{ ...fieldStyle, resize: 'vertical' }}
-                                    />
-                                    <input
-                                        type="text"
-                                        value={actor.model}
-                                        onChange={(e) => updateTemporaryActor(actor.id, { model: e.target.value })}
-                                        placeholder={`モデル (${defaultChatModel})`}
-                                        style={fieldStyle}
-                                    />
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: paramsExpanded ? '0.75rem' : 0, paddingTop: '0.25rem' }}>
-                                        <button
-                                            type="button"
-                                            onClick={() => toggleTemporaryActorParams(actor.id)}
-                                            aria-expanded={paramsExpanded}
-                                            style={{
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'space-between',
-                                                gap: '0.75rem',
-                                                width: '100%',
-                                                padding: '0.5rem 0',
-                                                border: 'none',
-                                                background: 'transparent',
-                                                color: 'var(--text-secondary)',
-                                                cursor: 'pointer',
-                                                textAlign: 'left',
-                                            }}
-                                        >
-                                            <span style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', minWidth: 0 }}>
-                                                {paramsExpanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-                                                <span style={{ fontSize: '0.8125rem', fontWeight: 500 }}>
-                                                    生成パラメータ
-                                                </span>
-                                            </span>
-                                            {hasCustomParams && (
-                                                <span style={{ fontSize: '0.75rem', color: 'var(--accent-primary)', flexShrink: 0 }}>
-                                                    カスタム
-                                                </span>
-                                            )}
-                                        </button>
-                                        {paramsExpanded && (
-                                            <>
-                                                <TemporaryActorParamSlider
-                                                    paramKey="temperature"
-                                                    value={actor.temperature}
-                                                    onChange={(value) => updateTemporaryActor(actor.id, { temperature: value })}
-                                                />
-                                                <TemporaryActorParamSlider
-                                                    paramKey="topP"
-                                                    value={actor.topP}
-                                                    onChange={(value) => updateTemporaryActor(actor.id, { topP: value })}
-                                                />
-                                                <TemporaryActorParamSlider
-                                                    paramKey="topK"
-                                                    value={actor.topK}
-                                                    onChange={(value) => updateTemporaryActor(actor.id, { topK: value })}
-                                                />
-                                            </>
-                                        )}
-                                    </div>
-                                </div>
-                            );
-                        })}
+                                ))}
+                            </div>
+                        )}
                     </section>
 
                     <section
@@ -1296,11 +1437,16 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                 initialModel={defaultAutoGenerationModel}
             />
 
-            <CharacterGeneratorModal
-                isOpen={temporaryActorGeneratorOpen}
-                onClose={() => setTemporaryActorGeneratorOpen(false)}
-                onApply={addGeneratedTemporaryActor}
-            />
+            {temporaryActorModal && (
+                <TemporaryActorSettingsModal
+                    key={`${temporaryActorModal.actor.id}:${temporaryActorModal.isNew ? 'new' : 'edit'}`}
+                    actor={temporaryActorModal.actor}
+                    isNew={temporaryActorModal.isNew}
+                    defaultChatModel={defaultChatModel}
+                    onClose={() => setTemporaryActorModal(null)}
+                    onSave={saveTemporaryActor}
+                />
+            )}
         </>
     );
 }

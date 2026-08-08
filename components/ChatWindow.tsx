@@ -2506,7 +2506,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         ? '直前の入力を編集中'
         : isEditingMessage
             ? '編集中のメッセージで送信してください'
-            : (isMobile ? '返信' : '返信… (Enterで送信)');
+            : '返信';
     const chatInputDisabled = isLoading || isSummarizing || (isEditingMessage && !isInlineVnEditing);
     const chatInputSubmitDisabled = isInlineVnEditing
         ? !editingMessage?.content.trim()

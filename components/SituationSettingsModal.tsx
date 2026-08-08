@@ -1445,6 +1445,9 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                                             style={{
                                                 flex: 1,
                                                 minWidth: 0,
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '0.5rem',
                                                 padding: '0.625rem 0.75rem',
                                                 border: 'none',
                                                 background: 'transparent',
@@ -1457,7 +1460,16 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                                                 whiteSpace: 'nowrap',
                                             }}
                                         >
-                                            {actor.name}
+                                            <div style={{ width: 24, height: 24, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: 'var(--bg-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                {actor.icon ? (
+                                                    <StoredImage src={actor.icon} alt={actor.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                ) : (
+                                                    <User size={15} style={{ color: 'var(--text-muted)' }} />
+                                                )}
+                                            </div>
+                                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                {actor.name}
+                                            </span>
                                         </button>
                                         <button
                                             type="button"

@@ -154,6 +154,8 @@ export type SituationActor =
         type: 'temporary';
         name: string;
         systemPrompt: string;
+        speechStyle?: string;
+        userConstraints?: string;
         model?: string;
         icon?: string;
         rolePrompt?: string;
@@ -755,6 +757,8 @@ function normalizeSituationActor(rawActor: unknown, validCharacterIds: Set<strin
             type: 'temporary',
             name,
             systemPrompt,
+            ...(typeof rawActor.speechStyle === 'string' && rawActor.speechStyle.trim() ? { speechStyle: rawActor.speechStyle.trim() } : {}),
+            ...(typeof rawActor.userConstraints === 'string' && rawActor.userConstraints.trim() ? { userConstraints: rawActor.userConstraints.trim() } : {}),
             model: typeof rawActor.model === 'string' && rawActor.model.trim() ? rawActor.model.trim() : fallbackModel,
             ...(typeof rawActor.icon === 'string' && rawActor.icon ? { icon: rawActor.icon } : {}),
             ...(typeof rawActor.rolePrompt === 'string' && rawActor.rolePrompt.trim() ? { rolePrompt: rawActor.rolePrompt.trim() } : {}),
@@ -873,6 +877,8 @@ export function resolveSituationParticipants(
                 actorType: 'temporary',
                 name: actor.name,
                 systemPrompt: actor.systemPrompt,
+                speechStyle: actor.speechStyle,
+                userConstraints: actor.userConstraints,
                 model: actor.model?.trim() || fallbackModel,
                 icon: actor.icon,
                 maxTokens: actor.maxTokens,

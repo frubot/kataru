@@ -23,6 +23,8 @@ type TemporaryActorDraft = {
     id: string;
     name: string;
     systemPrompt: string;
+    speechStyle: string;
+    userConstraints: string;
     model: string;
     icon: string | null;
     temperature: number | null;
@@ -96,6 +98,8 @@ function createTemporaryDraft(): TemporaryActorDraft {
         id: generateId(),
         name: '',
         systemPrompt: '',
+        speechStyle: '',
+        userConstraints: '',
         model: '',
         icon: null,
         temperature: null,
@@ -659,15 +663,41 @@ function TemporaryActorSettingsModal({
                         </div>
 
                         <div style={sectionStyle}>
-                            <label htmlFor={`temporary-actor-prompt-${actor.id}`} style={labelStyle}>設定プロンプト</label>
+                            <label htmlFor={`temporary-actor-prompt-${actor.id}`} style={labelStyle}>キャラクターについて</label>
                             <textarea
                                 id={`temporary-actor-prompt-${actor.id}`}
                                 className="input"
                                 value={draft.systemPrompt}
                                 onChange={(event) => updateDraft({ systemPrompt: event.target.value })}
-                                rows={8}
+                                rows={6}
                                 placeholder="キャラクターに関する詳細を記述してください..."
-                                style={{ resize: 'vertical', minHeight: '10rem' }}
+                                style={{ resize: 'vertical', minHeight: '7.5rem' }}
+                            />
+                        </div>
+
+                        <div style={sectionStyle}>
+                            <label htmlFor={`temporary-actor-speech-style-${actor.id}`} style={labelStyle}>口調</label>
+                            <textarea
+                                id={`temporary-actor-speech-style-${actor.id}`}
+                                className="input"
+                                value={draft.speechStyle}
+                                onChange={(event) => updateDraft({ speechStyle: event.target.value })}
+                                rows={4}
+                                placeholder="例: 丁寧語で話す。親しい相手には少しくだけた表現を使う。"
+                                style={{ resize: 'vertical', minHeight: '6rem' }}
+                            />
+                        </div>
+
+                        <div style={sectionStyle}>
+                            <label htmlFor={`temporary-actor-user-constraints-${actor.id}`} style={labelStyle}>追加の制約</label>
+                            <textarea
+                                id={`temporary-actor-user-constraints-${actor.id}`}
+                                className="input"
+                                value={draft.userConstraints}
+                                onChange={(event) => updateDraft({ userConstraints: event.target.value })}
+                                rows={4}
+                                placeholder="キャラクターに守らせたい制約を記述してください..."
+                                style={{ resize: 'vertical', minHeight: '6rem' }}
                             />
                         </div>
 
@@ -767,6 +797,8 @@ function buildInitialState(
                 id: actor.id,
                 name: actor.name,
                 systemPrompt: actor.systemPrompt,
+                speechStyle: actor.speechStyle ?? '',
+                userConstraints: actor.userConstraints ?? '',
                 model: actor.model ?? '',
                 icon: actor.icon ?? null,
                 temperature: typeof actor.temperature === 'number' ? actor.temperature : null,
@@ -995,6 +1027,8 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
             type: 'temporary' as const,
             name: actor.name.trim(),
             systemPrompt: actor.systemPrompt.trim(),
+            ...(actor.speechStyle.trim() ? { speechStyle: actor.speechStyle.trim() } : {}),
+            ...(actor.userConstraints.trim() ? { userConstraints: actor.userConstraints.trim() } : {}),
             model: actor.model.trim() || defaultChatModel,
             ...(actor.icon ? { icon: actor.icon } : {}),
             ...(actor.temperature !== null ? { temperature: actor.temperature } : {}),

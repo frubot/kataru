@@ -209,7 +209,6 @@ export default memo(function MessageBubble({
                                 height: 'auto',
                                 gap: '0.25rem',
                                 color: isCopied ? 'var(--accent-primary)' : 'var(--text-muted)',
-                                border: '1px solid var(--border-color)',
                                 borderRadius: '0.75rem',
                                 transition: 'color 0.15s ease',
                             }}
@@ -228,7 +227,6 @@ export default memo(function MessageBubble({
                                 height: 'auto',
                                 gap: '0.25rem',
                                 color: 'var(--text-muted)',
-                                border: '1px solid var(--border-color)',
                                 borderRadius: '0.75rem',
                                 display: isArchived ? 'none' : undefined,
                             }}
@@ -326,7 +324,6 @@ export default memo(function MessageBubble({
                                     height: 'auto',
                                     color: isCopied ? 'var(--accent-primary)' : 'var(--text-muted)',
                                     gap: '0.25rem',
-                                    border: '1px solid var(--border-color)',
                                     borderRadius: '0.75rem',
                                     transition: 'color 0.15s ease',
                                 }}
@@ -345,7 +342,6 @@ export default memo(function MessageBubble({
                                     height: 'auto',
                                     color: 'var(--text-muted)',
                                     gap: '0.25rem',
-                                    border: '1px solid var(--border-color)',
                                     borderRadius: '0.75rem',
                                     display: showRegenerateBtn ? undefined : 'none',
                                 }}

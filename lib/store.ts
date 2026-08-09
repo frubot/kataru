@@ -225,6 +225,11 @@ export type CreateSituationInput = {
     roomName?: string;
 };
 
+export interface RoomReplySuggestions {
+    sourceMessageId: string;
+    suggestions: string[];
+}
+
 export interface Room {
     id: string;
     characterId: string;
@@ -236,6 +241,7 @@ export interface Room {
     maxMentionChain?: number;
     viewMode?: 'chat' | 'message' | 'vn';
     costumeSelections?: Record<string, string>; // characterId -> costume name; missing means default
+    replySuggestions?: RoomReplySuggestions; // latest assistant reply only; older suggestion sets are not retained
     secretMode?: boolean; // memory-only; omitted from IndexedDB and backups
     isDraft?: boolean; // memory-only; omitted from IndexedDB and backups
     lastMessagePreview?: string;
@@ -401,6 +407,7 @@ interface AppState {
     updateSituation: (id: string, updates: Partial<Pick<Situation, 'name' | 'favorite' | 'situationPrompt' | 'priorMessages' | 'actors' | 'director' | 'memoryMode' | 'maxHistory'>>) => void;
     updateRoomName: (id: string, name: string) => void;
     updateRoomSettings: (id: string, updates: Partial<Pick<Room, 'maxMentionChain' | 'viewMode' | 'costumeSelections'>>) => void;
+    setRoomReplySuggestions: (id: string, replySuggestions?: RoomReplySuggestions) => void;
     setRoomSecretMode: (id: string, enabled: boolean) => void;
 
     // Messages
@@ -1907,6 +1914,37 @@ export const useStore = create<AppState>()((set, get) => ({
         }
     },
 
+    setRoomReplySuggestions: (id, replySuggestions) => {
+        const normalizedSuggestions = replySuggestions?.suggestions
+            .map((suggestion) => suggestion.trim())
+            .filter(Boolean);
+        const normalized = replySuggestions
+            && replySuggestions.sourceMessageId.trim()
+            && normalizedSuggestions?.length === 3
+            ? {
+                sourceMessageId: replySuggestions.sourceMessageId.trim(),
+                suggestions: normalizedSuggestions,
+            }
+            : undefined;
+        let updatedRoom: Room | undefined;
+        set((state) => ({
+            rooms: state.rooms.map((r) => {
+                if (r.id !== id) return r;
+                if (normalized) {
+                    const latestVisibleMessage = [...r.messages].reverse().find((message) => !message.archived);
+                    if (latestVisibleMessage?.role !== 'assistant' || latestVisibleMessage.id !== normalized.sourceMessageId) {
+                        return r;
+                    }
+                }
+                updatedRoom = { ...r, replySuggestions: normalized };
+                return updatedRoom;
+            }),
+        }));
+        if (shouldPersistRoom(updatedRoom)) {
+            fire(db.putRoom(toStoredRoom(updatedRoom)));
+        }
+    },
+
     setRoomSecretMode: (id, enabled) => {
         let updatedRoom: Room | undefined;
         set((state) => ({
@@ -1960,6 +1998,7 @@ export const useStore = create<AppState>()((set, get) => ({
                     ...r,
                     isDraft: isSecret ? r.isDraft : undefined,
                     messages: [...r.messages, message],
+                    replySuggestions: undefined,
                     ...(isSecret ? {} : {
                         lastMessagePreview: toPreview(content),
                         lastMessageAt: now,
@@ -1987,10 +2026,11 @@ export const useStore = create<AppState>()((set, get) => ({
                 removedId = removed?.id;
                 const newLast = messages[messages.length - 1];
                 updatedRoom = r.secretMode === true
-                    ? { ...r, messages }
+                    ? { ...r, messages, replySuggestions: undefined }
                     : {
                         ...r,
                         messages,
+                        replySuggestions: undefined,
                         lastMessagePreview: newLast ? toPreview(newLast.content) : undefined,
                         lastMessageAt: newLast?.timestamp,
                         updatedAt: Date.now(),
@@ -2017,10 +2057,11 @@ export const useStore = create<AppState>()((set, get) => ({
                 const messages = r.messages.slice(0, fromIndex);
                 const newLast = messages[messages.length - 1];
                 updatedRoom = r.secretMode === true
-                    ? { ...r, messages }
+                    ? { ...r, messages, replySuggestions: undefined }
                     : {
                         ...r,
                         messages,
+                        replySuggestions: undefined,
                         lastMessagePreview: newLast ? toPreview(newLast.content) : undefined,
                         lastMessageAt: newLast?.timestamp,
                         updatedAt: Date.now(),
@@ -2074,10 +2115,11 @@ export const useStore = create<AppState>()((set, get) => ({
                 const restored = [...r.messages.slice(0, fromIndex), ...messages];
                 const newLast = restored[restored.length - 1];
                 updatedRoom = r.secretMode === true
-                    ? { ...r, messages: restored }
+                    ? { ...r, messages: restored, replySuggestions: undefined }
                     : {
                         ...r,
                         messages: restored,
+                        replySuggestions: undefined,
                         lastMessagePreview: newLast ? toPreview(newLast.content) : undefined,
                         lastMessageAt: newLast?.timestamp,
                         updatedAt: Date.now(),
@@ -2211,6 +2253,7 @@ export const useStore = create<AppState>()((set, get) => ({
                 updatedRoom = {
                     ...r,
                     messages: [],
+                    replySuggestions: undefined,
                     summary: undefined,
                     summaryCheckpointUserMessageId: undefined,
                     lastMessagePreview: undefined,

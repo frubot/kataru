@@ -1023,6 +1023,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         compressRoomHistory,
         updateRoomSettings,
         updateRoomName,
+        setRoomReplySuggestions,
         setRoomSecretMode,
         createRoom,
         createRoomForSituation,
@@ -1102,10 +1103,31 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const visibleDebugLogCount = fullJsonDebugLogs.length;
     const replySuggestionRoomId = room?.id;
     const replySuggestionMessages = room?.messages;
+    const savedReplySuggestions = room?.replySuggestions;
     const latestReplySuggestionMessage = useMemo(() => {
         const visibleMessages = replySuggestionMessages?.filter((message) => !message.archived) ?? [];
         return visibleMessages[visibleMessages.length - 1];
     }, [replySuggestionMessages]);
+    const savedReplySuggestionState = useMemo<ReplySuggestionState | null>(() => {
+        const saved = savedReplySuggestions;
+        if (
+            !saved
+            || !replySuggestionRoomId
+            || latestReplySuggestionMessage?.role !== 'assistant'
+            || saved.sourceMessageId !== latestReplySuggestionMessage.id
+            || !Array.isArray(saved.suggestions)
+        ) return null;
+        const suggestions = saved.suggestions
+            .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+            .map((value) => value.trim());
+        if (suggestions.length !== 3) return null;
+        return {
+            roomId: replySuggestionRoomId,
+            sourceMessageId: saved.sourceMessageId,
+            suggestions,
+            loading: false,
+        };
+    }, [latestReplySuggestionMessage, replySuggestionRoomId, savedReplySuggestions]);
     const replySuggestionMessagesJson = useMemo(
         () => JSON.stringify(
             buildTitleGenerationMessages(replySuggestionMessages ?? [], groupCharacters).slice(-20)
@@ -1452,6 +1474,22 @@ export default function ChatWindow({ room, character, situation, groupName, grou
 
         const sourceMessageId = latestReplySuggestionMessage.id;
         const requestKey = `${replySuggestionRoomId}:${sourceMessageId}`;
+        if (savedReplySuggestionState) {
+            replySuggestionRequestKeyRef.current = requestKey;
+            setReplySuggestionState((current) => {
+                if (
+                    current?.roomId === savedReplySuggestionState.roomId
+                    && current.sourceMessageId === savedReplySuggestionState.sourceMessageId
+                    && !current.loading
+                    && current.suggestions.length === savedReplySuggestionState.suggestions.length
+                    && current.suggestions.every((suggestion, index) =>
+                        suggestion === savedReplySuggestionState.suggestions[index]
+                    )
+                ) return current;
+                return savedReplySuggestionState;
+            });
+            return;
+        }
         if (replySuggestionRequestKeyRef.current === requestKey) return;
         replySuggestionRequestKeyRef.current = requestKey;
         const controller = new AbortController();
@@ -1502,6 +1540,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     || replySuggestionControllerRef.current !== controller
                     || suggestions.length !== 3
                 ) return;
+                setRoomReplySuggestions(replySuggestionRoomId, { sourceMessageId, suggestions });
                 setReplySuggestionState((current) =>
                     current?.roomId === replySuggestionRoomId && current.sourceMessageId === sourceMessageId
                         ? { ...current, suggestions, loading: false }
@@ -1547,6 +1586,8 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         replySuggestionMessagesJson,
         replySuggestionsEnabled,
         replySuggestionRoomId,
+        savedReplySuggestionState,
+        setRoomReplySuggestions,
         situation?.situationPrompt,
     ]);
 

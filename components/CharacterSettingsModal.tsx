@@ -407,12 +407,16 @@ function CharacterSettingsModalContent({ isOpen, onClose, character, isNew = fal
         const childModalOpen = imageGenOpen || characterGeneratorOpen || expressionsOpen || costumesOpen;
         const handleKeyDown = (e: KeyboardEvent) => {
             if (isOpen && e.key === 'Escape' && !childModalOpen) {
-                onClose();
+                if (isNew || !character) {
+                    onClose();
+                } else {
+                    saveAndClose();
+                }
             }
         };
         document.addEventListener('keydown', handleKeyDown);
         return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [characterGeneratorOpen, costumesOpen, expressionsOpen, imageGenOpen, isOpen, onClose]);
+    }, [character, characterGeneratorOpen, costumesOpen, expressionsOpen, imageGenOpen, isNew, isOpen, onClose, saveAndClose]);
 
     const handleOpenMemory = () => {
         if (onOpenMemoryList && character) {
@@ -476,7 +480,11 @@ function CharacterSettingsModalContent({ isOpen, onClose, character, isNew = fal
             className="modal-overlay"
             onPointerDown={(e) => {
                 if (e.target === e.currentTarget) {
-                    onClose();
+                    if (isNew || !character) {
+                        onClose();
+                    } else {
+                        saveAndClose();
+                    }
                 }
             }}
         >

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { X, Brain, ChevronDown, ChevronRight, RotateCcw, User, Smile, Shirt, Info, Sparkles, FileText, LayoutList } from 'lucide-react';
 import {
     useStore,
@@ -297,70 +297,51 @@ function ParamSlider({ paramKey, value, onChange }: ParamSliderProps) {
 }
 
 // ---- メインコンポーネント ----
-export default function CharacterSettingsModal({ isOpen, onClose, character, isNew = false, onOpenMemoryList }: CharacterSettingsModalProps) {
+export default function CharacterSettingsModal(props: CharacterSettingsModalProps) {
+    const { isOpen, character, isNew = false } = props;
+
+    if (!isOpen) return null;
+
+    const draftKey = isNew ? 'new-character' : `character:${character?.id ?? 'missing'}`;
+    return <CharacterSettingsModalContent key={draftKey} {...props} />;
+}
+
+function CharacterSettingsModalContent({ isOpen, onClose, character, isNew = false, onOpenMemoryList }: CharacterSettingsModalProps) {
     const { createCharacter, updateCharacter, defaultChatModel } = useStore();
-    const [name, setName] = useState('');
-    const [systemPrompt, setSystemPrompt] = useState('');
-    const [speechStyle, setSpeechStyle] = useState('');
-    const [protagonistPrompt, setProtagonistPrompt] = useState('');
-    const [userConstraints, setUserConstraints] = useState('');
-    const [model, setModel] = useState(defaultChatModel);
+    const [initialDraft] = useState(() => buildInitialCharacterDraft(character, defaultChatModel));
+    const [name, setName] = useState(initialDraft.name);
+    const [systemPrompt, setSystemPrompt] = useState(initialDraft.systemPrompt);
+    const [speechStyle, setSpeechStyle] = useState(initialDraft.speechStyle);
+    const [protagonistPrompt, setProtagonistPrompt] = useState(initialDraft.protagonistPrompt);
+    const [userConstraints, setUserConstraints] = useState(initialDraft.userConstraints);
+    const [model, setModel] = useState(initialDraft.model);
     const [useBlockEditor, setUseBlockEditor] = useState(true);
 
     // Summary / compression settings
-    const [enableSummary, setEnableSummary] = useState(true);
+    const [enableSummary, setEnableSummary] = useState(initialDraft.enableSummary);
 
     // Memory settings
-    const [enableMemory, setEnableMemory] = useState(true);
+    const [enableMemory, setEnableMemory] = useState(initialDraft.enableMemory);
 
     // Parameter settings
     const [parametersOpen, setParametersOpen] = useState(false);
-    const [maxTokens, setMaxTokens] = useState<string>('');
-    const [maxHistory, setMaxHistory] = useState<string>('');
+    const [maxTokens, setMaxTokens] = useState<string>(initialDraft.maxTokens);
+    const [maxHistory, setMaxHistory] = useState<string>(initialDraft.maxHistory);
     // null = use code default, number = custom value
-    const [temperature, setTemperature] = useState<number | null>(null);
-    const [topP, setTopP] = useState<number | null>(null);
-    const [topK, setTopK] = useState<number | null>(null);
+    const [temperature, setTemperature] = useState<number | null>(initialDraft.temperature);
+    const [topP, setTopP] = useState<number | null>(initialDraft.topP);
+    const [topK, setTopK] = useState<number | null>(initialDraft.topK);
 
     // Avatar
-    const [icon, setIcon] = useState<string | null>(null);
+    const [icon, setIcon] = useState<string | null>(initialDraft.icon);
 
     // Expressions
-    const [expressions, setExpressions] = useState<Expression[]>([]);
-    const [costumes, setCostumes] = useState<Costume[]>([]);
+    const [expressions, setExpressions] = useState<Expression[]>(initialDraft.expressions);
+    const [costumes, setCostumes] = useState<Costume[]>(initialDraft.costumes);
     const [imageGenOpen, setImageGenOpen] = useState(false);
     const [characterGeneratorOpen, setCharacterGeneratorOpen] = useState(false);
     const [expressionsOpen, setExpressionsOpen] = useState(false);
     const [costumesOpen, setCostumesOpen] = useState(false);
-    const initialDraftRef = useRef<ReturnType<typeof buildInitialCharacterDraft> | null>(null);
-
-    useEffect(() => {
-        const initialDraft = buildInitialCharacterDraft(character, defaultChatModel);
-        initialDraftRef.current = initialDraft;
-        setName(initialDraft.name);
-        setSystemPrompt(initialDraft.systemPrompt);
-        setSpeechStyle(initialDraft.speechStyle);
-        setProtagonistPrompt(initialDraft.protagonistPrompt);
-        setUserConstraints(initialDraft.userConstraints);
-        setModel(initialDraft.model);
-        setEnableMemory(initialDraft.enableMemory);
-        setEnableSummary(initialDraft.enableSummary);
-        setMaxTokens(initialDraft.maxTokens);
-        setMaxHistory(initialDraft.maxHistory);
-        setTemperature(initialDraft.temperature);
-        setTopP(initialDraft.topP);
-        setTopK(initialDraft.topK);
-        setIcon(initialDraft.icon);
-        setExpressions(initialDraft.expressions);
-        setCostumes(initialDraft.costumes);
-        setParametersOpen(false);
-    }, [character, defaultChatModel, isOpen]);
-
-    useEffect(() => {
-        if (!isOpen) {
-            setCharacterGeneratorOpen(false);
-        }
-    }, [isOpen]);
 
     const saveAndClose = useCallback(() => {
         const currentDraft = {
@@ -381,8 +362,7 @@ export default function CharacterSettingsModal({ isOpen, onClose, character, isN
             expressions,
             costumes,
         };
-        const initialDraft = initialDraftRef.current;
-        if (!isNew && character && initialDraft && JSON.stringify(currentDraft) === JSON.stringify(initialDraft)) {
+        if (!isNew && character && JSON.stringify(currentDraft) === JSON.stringify(initialDraft)) {
             onClose();
             return;
         }
@@ -421,24 +401,18 @@ export default function CharacterSettingsModal({ isOpen, onClose, character, isN
             updateCharacter(character.id, updates);
         }
         onClose();
-    }, [character, costumes, createCharacter, defaultChatModel, enableMemory, enableSummary, expressions, icon, isNew, maxHistory, maxTokens, model, name, onClose, protagonistPrompt, speechStyle, systemPrompt, temperature, topK, topP, updateCharacter, userConstraints]);
+    }, [character, costumes, createCharacter, defaultChatModel, enableMemory, enableSummary, expressions, icon, initialDraft, isNew, maxHistory, maxTokens, model, name, onClose, protagonistPrompt, speechStyle, systemPrompt, temperature, topK, topP, updateCharacter, userConstraints]);
 
     useEffect(() => {
         const childModalOpen = imageGenOpen || characterGeneratorOpen || expressionsOpen || costumesOpen;
         const handleKeyDown = (e: KeyboardEvent) => {
             if (isOpen && e.key === 'Escape' && !childModalOpen) {
-                if (isNew || !character) {
-                    onClose();
-                } else {
-                    saveAndClose();
-                }
+                onClose();
             }
         };
         document.addEventListener('keydown', handleKeyDown);
         return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [character, characterGeneratorOpen, costumesOpen, expressionsOpen, imageGenOpen, isNew, isOpen, onClose, saveAndClose]);
-
-    if (!isOpen) return null;
+    }, [characterGeneratorOpen, costumesOpen, expressionsOpen, imageGenOpen, isOpen, onClose]);
 
     const handleOpenMemory = () => {
         if (onOpenMemoryList && character) {
@@ -502,11 +476,7 @@ export default function CharacterSettingsModal({ isOpen, onClose, character, isN
             className="modal-overlay"
             onPointerDown={(e) => {
                 if (e.target === e.currentTarget) {
-                    if (isNew || !character) {
-                        onClose();
-                    } else {
-                        saveAndClose();
-                    }
+                    onClose();
                 }
             }}
         >

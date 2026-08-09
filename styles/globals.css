@@ -1955,7 +1955,11 @@ body {
 
 .chat-container.vn-mode .chat-input-area {
   padding-top: 0.25rem;
-  background: transparent;
+  background: color-mix(in srgb, var(--accent-primary) 8%, var(--bg-primary));
+}
+
+.mode-light .chat-container.vn-mode .chat-input-area {
+  background: color-mix(in srgb, var(--accent-primary) 6%, var(--bg-primary));
 }
 
 .chat-container.vn-mode .chat-notice {
@@ -2063,7 +2067,6 @@ body {
   );
   margin: 0 auto 0.625rem;
   padding: 0.875rem 1.25rem 1.125rem;
-  border-bottom: 1px solid color-mix(in srgb, var(--text-primary) 18%, transparent);
   border-radius: 0.125rem;
   background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
   backdrop-filter: none;

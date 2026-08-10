@@ -65,7 +65,11 @@ pub async fn turn(
 
 pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value> {
     let room = object_field(&payload, "room")?.clone();
+    let situation = payload.get("situation").filter(|value| value.is_object());
     let mut history = array_field_or(&payload, "messages", &room, "messages");
+    if let Some(situation) = situation {
+        prepend_situation_prior_messages(&mut history, situation);
+    }
     sanitize_assistant_history(&mut history);
     history.retain(|message| !boolean(message, "archived"));
     if history.is_empty() {
@@ -78,7 +82,6 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
         .get("secretMode")
         .and_then(Value::as_bool)
         .unwrap_or_else(|| boolean(&room, "secretMode"));
-    let situation = payload.get("situation").filter(|value| value.is_object());
     let participants = payload
         .get("groupCharacters")
         .and_then(Value::as_array)
@@ -1121,6 +1124,51 @@ fn array_field_or(value: &Value, key: &str, fallback: &Value, fallback_key: &str
         .unwrap_or_default()
 }
 
+fn prepend_situation_prior_messages(history: &mut Vec<Value>, situation: &Value) {
+    let Some(prior_messages) = situation.get("priorMessages").and_then(Value::as_array) else {
+        return;
+    };
+
+    let converted = prior_messages
+        .iter()
+        .enumerate()
+        .filter_map(|(index, message)| {
+            let content = string(message, "content");
+            if content.is_empty() {
+                return None;
+            }
+            let id = format!("situation-prior-{index}");
+            match string(message, "role").as_str() {
+                "user" => Some(json!({
+                    "id": id,
+                    "role": "user",
+                    "content": content,
+                })),
+                "assistant" => {
+                    let character_id = string(message, "actorId");
+                    (!character_id.is_empty()).then(|| {
+                        json!({
+                            "id": id,
+                            "role": "assistant",
+                            "content": content,
+                            "characterId": character_id,
+                        })
+                    })
+                }
+                _ => None,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    if converted.is_empty() {
+        return;
+    }
+
+    let mut merged = converted;
+    merged.append(history);
+    *history = merged;
+}
+
 fn count_user_messages(messages: &[Value]) -> usize {
     messages
         .iter()
@@ -1386,6 +1434,26 @@ mod tests {
 
         assert_eq!(messages[0]["content"], "user *literal");
         assert_eq!(messages[1]["content"], "assistantunfinished");
+    }
+
+    #[test]
+    fn situation_prior_messages_are_prepended_to_history() {
+        let situation = json!({
+            "priorMessages": [
+                {"id": "prior-user", "role": "user", "content": "以前の発言"},
+                {"id": "prior-assistant", "role": "assistant", "content": "以前の返答", "actorId": "actor-1"}
+            ]
+        });
+        let mut history = vec![json!({"id": "current", "role": "user", "content": "現在の発言"})];
+
+        prepend_situation_prior_messages(&mut history, &situation);
+
+        assert_eq!(history.len(), 3);
+        assert_eq!(history[0]["role"], "user");
+        assert_eq!(history[0]["content"], "以前の発言");
+        assert_eq!(history[1]["role"], "assistant");
+        assert_eq!(history[1]["characterId"], "actor-1");
+        assert_eq!(history[2]["id"], "current");
     }
 
     #[test]

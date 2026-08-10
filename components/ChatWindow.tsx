@@ -121,6 +121,7 @@ function toConversationSituation(situation: Situation | null | undefined) {
         id: situation.id,
         name: situation.name,
         situationPrompt: situation.situationPrompt,
+        priorMessages: situation.priorMessages,
         director: {
             model: situation.director.model,
             systemPrompt: situation.director.systemPrompt,

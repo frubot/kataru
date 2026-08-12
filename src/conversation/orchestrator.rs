@@ -66,10 +66,13 @@ pub async fn turn(
 pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value> {
     let room = object_field(&payload, "room")?.clone();
     let situation = payload.get("situation").filter(|value| value.is_object());
+    let previous_summary = string(&room, "summary");
     let mut history = array_field_or(&payload, "messages", &room, "messages");
-    if let Some(situation) = situation {
-        prepend_situation_prior_messages(&mut history, situation);
-    }
+    let prior_message_count = situation
+        .map(|situation| {
+            prepend_situation_prior_messages(&mut history, situation, &previous_summary)
+        })
+        .unwrap_or(0);
     sanitize_assistant_history(&mut history);
     history.retain(|message| !boolean(message, "archived"));
     if history.is_empty() {
@@ -129,7 +132,6 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
         })
         .map(|value| value.max(1) as usize)
         .unwrap_or(DEFAULT_MAX_HISTORY);
-    let previous_summary = string(&room, "summary");
     let fallback_summary = (!previous_summary.is_empty()).then_some(previous_summary.clone());
     let summary_attempt = maybe_summarize(
         &provider,
@@ -137,6 +139,7 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
         previous_summary,
         summary_character.is_some_and(|value| boolean(value, "enableSummary")),
         history_limit,
+        prior_message_count,
         situation.is_some(),
         summary_model.as_deref(),
         situation,
@@ -604,6 +607,7 @@ async fn maybe_summarize(
     previous_summary: String,
     enabled: bool,
     history_limit: usize,
+    prior_message_count: usize,
     group: bool,
     model: Option<&str>,
     situation: Option<&Value>,
@@ -613,7 +617,7 @@ async fn maybe_summarize(
     if !enabled || count_user_messages(history) <= history_limit {
         return Ok((existing, history.to_vec()));
     }
-    let cut = cut_before_last_user_messages(history, SUMMARY_RECENT_USER_TURNS_TO_KEEP);
+    let cut = summary_cut(history, prior_message_count);
     let to_summarize = &history[..cut];
     if to_summarize.len() < 2 {
         return Ok((existing, history.to_vec()));
@@ -1124,9 +1128,17 @@ fn array_field_or(value: &Value, key: &str, fallback: &Value, fallback_key: &str
         .unwrap_or_default()
 }
 
-fn prepend_situation_prior_messages(history: &mut Vec<Value>, situation: &Value) {
+fn prepend_situation_prior_messages(
+    history: &mut Vec<Value>,
+    situation: &Value,
+    previous_summary: &str,
+) -> usize {
+    if !previous_summary.trim().is_empty() {
+        return 0;
+    }
+
     let Some(prior_messages) = situation.get("priorMessages").and_then(Value::as_array) else {
-        return;
+        return 0;
     };
 
     let converted = prior_messages
@@ -1161,12 +1173,14 @@ fn prepend_situation_prior_messages(history: &mut Vec<Value>, situation: &Value)
         .collect::<Vec<_>>();
 
     if converted.is_empty() {
-        return;
+        return 0;
     }
 
+    let prior_message_count = converted.len();
     let mut merged = converted;
     merged.append(history);
     *history = merged;
+    prior_message_count
 }
 
 fn count_user_messages(messages: &[Value]) -> usize {
@@ -1195,6 +1209,11 @@ fn cut_before_last_user_messages(messages: &[Value], keep: usize) -> usize {
 fn slice_by_user_history(messages: &[Value], limit: usize) -> Vec<Value> {
     let cut = cut_before_last_user_messages(messages, limit);
     messages[cut..].to_vec()
+}
+
+fn summary_cut(messages: &[Value], prior_message_count: usize) -> usize {
+    cut_before_last_user_messages(messages, SUMMARY_RECENT_USER_TURNS_TO_KEEP)
+        .max(prior_message_count.min(messages.len()))
 }
 
 fn history_content(message: &Value) -> String {
@@ -1446,7 +1465,7 @@ mod tests {
         });
         let mut history = vec![json!({"id": "current", "role": "user", "content": "現在の発言"})];
 
-        prepend_situation_prior_messages(&mut history, &situation);
+        prepend_situation_prior_messages(&mut history, &situation, "");
 
         assert_eq!(history.len(), 3);
         assert_eq!(history[0]["role"], "user");
@@ -1454,6 +1473,69 @@ mod tests {
         assert_eq!(history[1]["role"], "assistant");
         assert_eq!(history[1]["characterId"], "actor-1");
         assert_eq!(history[2]["id"], "current");
+    }
+
+    #[test]
+    fn situation_prior_messages_are_not_reintroduced_after_summary() {
+        let situation = json!({
+            "priorMessages": [
+                {"id": "prior-user", "role": "user", "content": "以前の発言"},
+                {"id": "prior-assistant", "role": "assistant", "content": "以前の返答", "actorId": "actor-1"}
+            ]
+        });
+        let mut history = vec![json!({"id": "current", "role": "user", "content": "現在の発言"})];
+
+        prepend_situation_prior_messages(&mut history, &situation, "これまでの要約");
+
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0]["id"], "current");
+    }
+
+    #[test]
+    fn situation_prior_messages_age_out_of_the_active_history() {
+        let situation = json!({
+            "priorMessages": [
+                {"id": "prior-user", "role": "user", "content": "以前の発言"},
+                {"id": "prior-assistant", "role": "assistant", "content": "以前の返答", "actorId": "actor-1"}
+            ]
+        });
+        let mut history = vec![
+            json!({"id": "current-user-1", "role": "user", "content": "現在の発言1"}),
+            json!({"id": "current-assistant-1", "role": "assistant", "content": "現在の返答1", "characterId": "actor-1"}),
+            json!({"id": "current-user-2", "role": "user", "content": "現在の発言2"}),
+        ];
+
+        prepend_situation_prior_messages(&mut history, &situation, "");
+        let active = slice_by_user_history(&history, 2);
+
+        assert_eq!(active.len(), 3);
+        assert_eq!(active[0]["id"], "current-user-1");
+        assert_eq!(active[2]["id"], "current-user-2");
+    }
+
+    #[test]
+    fn situation_prior_messages_remain_in_the_initial_summary_slice() {
+        let situation = json!({
+            "priorMessages": [
+                {"id": "prior-user-1", "role": "user", "content": "以前の発言1"},
+                {"id": "prior-assistant-1", "role": "assistant", "content": "以前の返答1", "actorId": "actor-1"},
+                {"id": "prior-user-2", "role": "user", "content": "以前の発言2"},
+                {"id": "prior-assistant-2", "role": "assistant", "content": "以前の返答2", "actorId": "actor-1"}
+            ]
+        });
+        let mut history = vec![
+            json!({"id": "current-user-1", "role": "user", "content": "現在の発言1"}),
+            json!({"id": "current-assistant-1", "role": "assistant", "content": "現在の返答1", "characterId": "actor-1"}),
+            json!({"id": "current-user-2", "role": "user", "content": "現在の発言2"}),
+        ];
+
+        let prior_message_count = prepend_situation_prior_messages(&mut history, &situation, "");
+        let cut = summary_cut(&history, prior_message_count);
+
+        assert_eq!(cut, 4);
+        assert_eq!(history[0]["content"], "以前の発言1");
+        assert_eq!(history[3]["content"], "以前の返答2");
+        assert_eq!(history[cut]["id"], "current-user-1");
     }
 
     #[test]

@@ -104,6 +104,7 @@ git push --atomic origin master vX.Y.Z
 ```
 
 push後、タグで起動した`.github/workflows/build.yml`をrelease commitのSHAからGitHub CLIで特定し、`headBranch`が`vX.Y.Z`のrunを完了まで監視する。
+ただし、ビルドには数十秒かかるので待機する。
 
 ```powershell
 gh run list --workflow build.yml --commit <release-commit-sha> --event push --limit 5 --json databaseId,headBranch,headSha,status,conclusion,url

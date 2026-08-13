@@ -81,6 +81,7 @@ export interface Character {
     temperature?: number;
     topP?: number;
     topK?: number;
+    enableThinking?: boolean;
     enableMemory?: boolean;
     enableSummary?: boolean;
     expressions?: Expression[];
@@ -379,7 +380,7 @@ interface AppState {
 
     // Characters
     createCharacter: (name: string, systemPrompt?: string, model?: string, extras?: CharacterExtras) => string;
-    updateCharacter: (id: string, updates: Partial<Pick<Character, 'name' | 'systemPrompt' | 'favorite' | 'speechStyle' | 'protagonistPrompt' | 'userConstraints' | 'model' | 'icon' | 'maxTokens' | 'maxHistory' | 'temperature' | 'topP' | 'topK' | 'enableMemory' | 'enableSummary' | 'expressions' | 'costumes'>>) => void;
+    updateCharacter: (id: string, updates: Partial<Pick<Character, 'name' | 'systemPrompt' | 'favorite' | 'speechStyle' | 'protagonistPrompt' | 'userConstraints' | 'model' | 'icon' | 'maxTokens' | 'maxHistory' | 'temperature' | 'topP' | 'topK' | 'enableThinking' | 'enableMemory' | 'enableSummary' | 'expressions' | 'costumes'>>) => void;
     deleteCharacter: (id: string) => void;
     duplicateCharacter: (id: string) => string;
     getCharacter: (id: string) => Character | undefined;

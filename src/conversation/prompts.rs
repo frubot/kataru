@@ -37,7 +37,6 @@ fn roleplay_reply_instruction(character_name: &str) -> String {
    - キャラクターを指す場合は名前("田中太郎"の場合、"太郎"の部分)で表記してください。
    - 第三者視点で記述してください。
    - キャラクターの独白など読み取れないものは記述しないでください。
-   - ナレーションを複数個入れてください。
 
 ### 出力例
   Good:
@@ -153,9 +152,24 @@ pub fn character_system_prompt(
     prompt
 }
 
-pub fn assistant_schema(expression_names: &[String], use_message_mode: bool) -> Value {
+pub fn assistant_schema(
+    expression_names: &[String],
+    use_message_mode: bool,
+    include_thought: bool,
+) -> Value {
     let mut properties = serde_json::Map::new();
     let mut required = Vec::new();
+    if include_thought {
+        properties.insert(
+            "thought".into(),
+            json!({
+                "type": "string",
+                "description": "考え",
+                "minLength": 20
+            }),
+        );
+        required.push("thought");
+    }
     if !expression_names.is_empty() {
         properties.insert(
             "expression".into(),
@@ -182,7 +196,11 @@ pub fn assistant_schema(expression_names: &[String], use_message_mode: bool) -> 
     } else {
         properties.insert(
             "message".into(),
-            json!({"type": "string", "description": "あなたの返答とナレーション"}),
+            json!({
+                "type": "string", 
+                "description": "あなたの返答とナレーション",
+                "minLength": 5
+            }),
         );
         required.push("message");
     }
@@ -473,5 +491,36 @@ mod tests {
 
         assert!(prompt.contains("複数人が参加しています"));
         assert!(prompt.contains("参加者: 主人公, 葵, 凛"));
+    }
+
+    #[test]
+    fn assistant_schema_puts_thought_first_when_enabled() {
+        let schema = assistant_schema(&["neutral".into()], false, true);
+        let properties = schema["json_schema"]["schema"]["properties"]
+            .as_object()
+            .expect("schema properties");
+
+        assert_eq!(
+            properties.keys().map(String::as_str).collect::<Vec<_>>(),
+            ["thought", "expression", "message"]
+        );
+        assert_eq!(
+            schema["json_schema"]["schema"]["required"],
+            json!(["thought", "expression", "message"])
+        );
+    }
+
+    #[test]
+    fn assistant_schema_omits_thought_when_disabled() {
+        let schema = assistant_schema(&[], true, false);
+        let properties = schema["json_schema"]["schema"]["properties"]
+            .as_object()
+            .expect("schema properties");
+
+        assert!(!properties.contains_key("thought"));
+        assert_eq!(
+            schema["json_schema"]["schema"]["required"],
+            json!(["messages"])
+        );
     }
 }

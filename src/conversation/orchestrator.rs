@@ -409,7 +409,11 @@ async fn generate_for_character(
     id_offset: usize,
 ) -> AppResult<Vec<Value>> {
     let expression_names = expression_names(character, room, situation.is_none());
-    let schema = assistant_schema(&expression_names, message_mode);
+    let schema = assistant_schema(
+        &expression_names,
+        message_mode,
+        boolean(character, "enableThinking"),
+    );
     let system_prompt = character_system_prompt(
         character,
         message_mode,

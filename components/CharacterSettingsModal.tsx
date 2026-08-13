@@ -41,6 +41,7 @@ function buildInitialCharacterDraft(character: Character | null, defaultChatMode
         protagonistPrompt: character?.protagonistPrompt ?? '',
         userConstraints: character?.userConstraints ?? '',
         model: character?.model.trim() || defaultChatModel,
+        enableThinking: character?.enableThinking ?? false,
         enableMemory: character?.enableMemory ?? true,
         enableSummary: character?.enableSummary ?? true,
         maxTokens: character?.maxTokens != null ? String(character.maxTokens) : '',
@@ -317,6 +318,9 @@ function CharacterSettingsModalContent({ isOpen, onClose, character, isNew = fal
     const [model, setModel] = useState(initialDraft.model);
     const [useBlockEditor, setUseBlockEditor] = useState(true);
 
+    // Thinking settings
+    const [enableThinking, setEnableThinking] = useState(initialDraft.enableThinking);
+
     // Summary / compression settings
     const [enableSummary, setEnableSummary] = useState(initialDraft.enableSummary);
 
@@ -351,6 +355,7 @@ function CharacterSettingsModalContent({ isOpen, onClose, character, isNew = fal
             protagonistPrompt,
             userConstraints,
             model,
+            enableThinking,
             enableMemory,
             enableSummary,
             maxTokens,
@@ -383,6 +388,7 @@ function CharacterSettingsModalContent({ isOpen, onClose, character, isNew = fal
             protagonistPrompt: protagonistPrompt.trim() ? protagonistPrompt : undefined,
             userConstraints: userConstraints.trim() ? userConstraints : undefined,
             model: resolvedModel,
+            enableThinking,
             enableMemory,
             enableSummary,
             maxTokens: maxTokens ? Number(maxTokens) : undefined,
@@ -401,7 +407,7 @@ function CharacterSettingsModalContent({ isOpen, onClose, character, isNew = fal
             updateCharacter(character.id, updates);
         }
         onClose();
-    }, [character, costumes, createCharacter, defaultChatModel, enableMemory, enableSummary, expressions, icon, initialDraft, isNew, maxHistory, maxTokens, model, name, onClose, protagonistPrompt, speechStyle, systemPrompt, temperature, topK, topP, updateCharacter, userConstraints]);
+    }, [character, costumes, createCharacter, defaultChatModel, enableMemory, enableSummary, enableThinking, expressions, icon, initialDraft, isNew, maxHistory, maxTokens, model, name, onClose, protagonistPrompt, speechStyle, systemPrompt, temperature, topK, topP, updateCharacter, userConstraints]);
 
     useEffect(() => {
         const childModalOpen = imageGenOpen || characterGeneratorOpen || expressionsOpen || costumesOpen;
@@ -735,6 +741,47 @@ function CharacterSettingsModalContent({ isOpen, onClose, character, isNew = fal
                             </div>
                         </>
                     )}
+
+                    {/* 思考トグル */}
+                    <div style={sectionStyle}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+                            <div>
+                                {renderLabelWithInfo('考える', '返答前の思考をJSONのthoughtフィールドに含めます。会話には表示されません。', {
+                                    marginBottom: 0,
+                                })}
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setEnableThinking(!enableThinking)}
+                                style={{
+                                    position: 'relative',
+                                    width: '44px',
+                                    height: '24px',
+                                    borderRadius: '12px',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    background: enableThinking ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
+                                    transition: 'background 0.2s ease',
+                                    padding: 0,
+                                    flexShrink: 0,
+                                }}
+                                aria-label="考えるを有効化"
+                                aria-pressed={enableThinking}
+                            >
+                                <span style={{
+                                    position: 'absolute',
+                                    top: '2px',
+                                    left: enableThinking ? '22px' : '2px',
+                                    width: '20px',
+                                    height: '20px',
+                                    borderRadius: '50%',
+                                    background: '#fff',
+                                    transition: 'left 0.2s ease',
+                                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                                }} />
+                            </button>
+                        </div>
+                    </div>
 
                     {/* 会話圧縮トグル */}
                     <div style={sectionStyle}>

@@ -63,6 +63,7 @@ type ConversationCharacter = {
     temperature?: number;
     topP?: number;
     topK?: number;
+    enableThinking?: boolean;
     enableMemory?: boolean;
     enableSummary?: boolean;
     expressions?: { name: string }[];
@@ -94,6 +95,7 @@ function toConversationCharacter(character: Character | null): ConversationChara
         temperature: character.temperature,
         topP: character.topP,
         topK: character.topK,
+        enableThinking: character.enableThinking,
         enableMemory: character.enableMemory,
         enableSummary: character.enableSummary,
         expressions: character.expressions?.map(({ name }) => ({ name })),

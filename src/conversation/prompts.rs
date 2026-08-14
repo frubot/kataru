@@ -72,7 +72,7 @@ pub fn character_setting(character: &Value) -> String {
     }
     if !speech_style.is_empty() {
         sections.push(format!(
-            "# 口調\nこれはキャラクターの実際の口調の一部を抜粋したものです。\n\n{speech_style}"
+            "# 口調\n以下はキャラクターの口調例です。ただし、特徴のみを真似てください。そのままこれらの言葉を写さないでください。\n\n{speech_style}"
         ));
     }
     if !protagonist.is_empty() {
@@ -164,8 +164,8 @@ pub fn assistant_schema(
             "thought".into(),
             json!({
                 "type": "string",
-                "description": "考え",
-                "minLength": 20
+                "description": "考え。過去の文脈をよく意識する。",
+                "minLength": 100
             }),
         );
         required.push("thought");

@@ -88,121 +88,136 @@ export default function ProviderSelector({ value, onChange, id }: ProviderSelect
             : [...value, provider.slug]);
     };
 
+    const selectedProviders = value.map((slug) => allProviders.find((provider) => provider.slug === slug) ?? {
+        slug,
+        name: slug,
+    });
+
     return (
-        <div className="model-selector provider-selector" ref={rootRef}>
-            <button
-                id={triggerId}
-                type="button"
-                className="input model-selector-trigger"
-                role="combobox"
-                aria-label="使用しないプロバイダー"
-                aria-haspopup="listbox"
-                aria-expanded={isOpen}
-                aria-controls={isOpen ? listboxId : undefined}
-                onClick={() => {
-                    setQuery('');
-                    setOpen((open) => !open);
-                }}
-            >
-                <span className={value.length > 0 ? 'model-selector-value' : 'model-selector-placeholder'}>
-                    {value.length > 0 ? `${value.length}件を除外` : '指定なし'}
-                </span>
-                <ChevronDown
-                    size={16}
-                    aria-hidden="true"
-                    className={isOpen ? 'model-selector-chevron open' : 'model-selector-chevron'}
-                />
-            </button>
+        <div className="provider-selector-wrapper" ref={rootRef}>
+            <div className="model-selector provider-selector">
+                <button
+                    id={triggerId}
+                    type="button"
+                    className="input model-selector-trigger"
+                    role="combobox"
+                    aria-label="使用しないプロバイダー"
+                    aria-haspopup="listbox"
+                    aria-expanded={isOpen}
+                    aria-controls={isOpen ? listboxId : undefined}
+                    onClick={() => {
+                        setQuery('');
+                        setOpen((open) => !open);
+                    }}
+                >
+                    <span className={value.length > 0 ? 'model-selector-value' : 'model-selector-placeholder'}>
+                        {value.length > 0 ? `${value.length}件を除外` : '指定なし'}
+                    </span>
+                    <ChevronDown
+                        size={16}
+                        aria-hidden="true"
+                        className={isOpen ? 'model-selector-chevron open' : 'model-selector-chevron'}
+                    />
+                </button>
 
-            {isOpen && (
-                <div className="model-selector-menu provider-selector-menu">
-                    <div className="model-selector-search-row">
-                        <div className="model-selector-search">
-                            <Search size={15} aria-hidden="true" />
-                            <input
-                                ref={searchRef}
-                                type="search"
-                                value={query}
-                                aria-label="プロバイダーを検索"
-                                placeholder="名前またはslugで検索"
-                                spellCheck={false}
-                                onChange={(event) => setQuery(event.target.value)}
-                                onKeyDown={(event) => {
-                                    if (event.key === 'Escape') {
-                                        event.preventDefault();
-                                        setOpen(false);
-                                    } else if (event.key === 'Enter' && filteredProviders.length === 1) {
-                                        event.preventDefault();
-                                        toggleProvider(filteredProviders[0]);
-                                    }
-                                }}
-                            />
-                        </div>
-                        <button
-                            type="button"
-                            className="model-selector-refresh"
-                            aria-label="プロバイダー一覧を再取得"
-                            title="プロバイダー一覧を再取得"
-                            disabled={loading}
-                            onClick={() => void loadProviders(true)}
-                        >
-                            <RefreshCw size={15} className={loading ? 'spin' : undefined} aria-hidden="true" />
-                        </button>
-                    </div>
-
-                    {value.length > 0 && (
-                        <button
-                            type="button"
-                            className="provider-selector-clear"
-                            onClick={() => onChange([])}
-                        >
-                            選択をすべて解除
-                        </button>
-                    )}
-
-                    <div
-                        id={listboxId}
-                        className="model-selector-options"
-                        role="listbox"
-                        aria-label="OpenRouterプロバイダー"
-                        aria-multiselectable="true"
-                    >
-                        {loading && providers.length === 0 ? (
-                            <p className="model-selector-status" role="status">プロバイダー一覧を読み込んでいます…</p>
-                        ) : error ? (
-                            <div className="model-selector-status error" role="alert">
-                                <span>{error}</span>
-                                <button type="button" onClick={() => void loadProviders(true)}>再試行</button>
+                {isOpen && (
+                    <div className="model-selector-menu provider-selector-menu">
+                        <div className="model-selector-search-row">
+                            <div className="model-selector-search">
+                                <Search size={15} aria-hidden="true" />
+                                <input
+                                    ref={searchRef}
+                                    type="search"
+                                    value={query}
+                                    aria-label="プロバイダーを検索"
+                                    placeholder="名前またはslugで検索"
+                                    spellCheck={false}
+                                    onChange={(event) => setQuery(event.target.value)}
+                                    onKeyDown={(event) => {
+                                        if (event.key === 'Escape') {
+                                            event.preventDefault();
+                                            setOpen(false);
+                                        } else if (event.key === 'Enter' && filteredProviders.length === 1) {
+                                            event.preventDefault();
+                                            toggleProvider(filteredProviders[0]);
+                                        }
+                                    }}
+                                />
                             </div>
-                        ) : filteredProviders.length === 0 ? (
-                            <p className="model-selector-status">
-                                {allProviders.length === 0
-                                    ? '利用可能なプロバイダーがありません。'
-                                    : '一致するプロバイダーがありません。'}
-                            </p>
-                        ) : filteredProviders.map((provider) => {
-                            const selected = value.includes(provider.slug);
-                            return (
-                                <button
-                                    key={provider.slug}
-                                    type="button"
-                                    className={selected ? 'model-selector-option selected' : 'model-selector-option'}
-                                    role="option"
-                                    aria-selected={selected}
-                                    onClick={() => toggleProvider(provider)}
-                                >
-                                    <span className="model-selector-option-copy">
-                                        <span className="model-selector-option-name">{provider.name}</span>
-                                        {provider.name !== provider.slug && (
-                                            <span className="model-selector-option-id">{provider.slug}</span>
-                                        )}
-                                    </span>
-                                    {selected && <Check size={16} aria-hidden="true" />}
-                                </button>
-                            );
-                        })}
+                            <button
+                                type="button"
+                                className="model-selector-refresh"
+                                aria-label="プロバイダー一覧を再取得"
+                                title="プロバイダー一覧を再取得"
+                                disabled={loading}
+                                onClick={() => void loadProviders(true)}
+                            >
+                                <RefreshCw size={15} className={loading ? 'spin' : undefined} aria-hidden="true" />
+                            </button>
+                        </div>
+
+                        {value.length > 0 && (
+                            <button
+                                type="button"
+                                className="provider-selector-clear"
+                                onClick={() => onChange([])}
+                            >
+                                選択をすべて解除
+                            </button>
+                        )}
+
+                        <div
+                            id={listboxId}
+                            className="model-selector-options"
+                            role="listbox"
+                            aria-label="OpenRouterプロバイダー"
+                            aria-multiselectable="true"
+                        >
+                            {loading && providers.length === 0 ? (
+                                <p className="model-selector-status" role="status">プロバイダー一覧を読み込んでいます…</p>
+                            ) : error ? (
+                                <div className="model-selector-status error" role="alert">
+                                    <span>{error}</span>
+                                    <button type="button" onClick={() => void loadProviders(true)}>再試行</button>
+                                </div>
+                            ) : filteredProviders.length === 0 ? (
+                                <p className="model-selector-status">
+                                    {allProviders.length === 0
+                                        ? '利用可能なプロバイダーがありません。'
+                                        : '一致するプロバイダーがありません。'}
+                                </p>
+                            ) : filteredProviders.map((provider) => {
+                                const selected = value.includes(provider.slug);
+                                return (
+                                    <button
+                                        key={provider.slug}
+                                        type="button"
+                                        className={selected ? 'model-selector-option selected' : 'model-selector-option'}
+                                        role="option"
+                                        aria-selected={selected}
+                                        onClick={() => toggleProvider(provider)}
+                                    >
+                                        <span className="model-selector-option-copy">
+                                            <span className="model-selector-option-name">{provider.name}</span>
+                                            {provider.name !== provider.slug && (
+                                                <span className="model-selector-option-id">{provider.slug}</span>
+                                            )}
+                                        </span>
+                                        {selected && <Check size={16} aria-hidden="true" />}
+                                    </button>
+                                );
+                            })}
+                        </div>
                     </div>
-                </div>
+                )}
+            </div>
+
+            {selectedProviders.length > 0 && (
+                <ul className="provider-selector-selected" aria-label="選択中のプロバイダー">
+                    {selectedProviders.map((provider) => (
+                        <li key={provider.slug}>・{provider.name}</li>
+                    ))}
+                </ul>
             )}
         </div>
     );

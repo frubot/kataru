@@ -798,7 +798,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                             <div style={{
                                 display: 'flex',
                                 flexDirection: 'column',
-                                gap: '1rem',
+                                gap: '0.75rem',
                             }}>
                                 <div className="settings-select-anchor" ref={themeModeMenuRef}>
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>

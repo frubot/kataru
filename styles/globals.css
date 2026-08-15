@@ -890,7 +890,7 @@ body {
 }
 
 .global-settings-selector-row-divider {
-  padding-bottom: 1rem;
+  padding-bottom: 0.75rem;
   border-bottom: 1px solid var(--border-color);
 }
 
@@ -913,6 +913,8 @@ body {
 }
 
 .global-settings-model-selector-control .model-selector-trigger {
+  min-height: 2.4rem;
+  padding: 0.425rem 0.875rem;
   justify-content: flex-end;
   text-align: right;
 }

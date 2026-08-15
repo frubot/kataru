@@ -1161,7 +1161,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                             }}>
 
                                 {/* Default chat model */}
-                                <div className="global-settings-selector-row">
+                                <div className="global-settings-selector-row global-settings-selector-row-divider">
                                     <label
                                         htmlFor="default-chat-model-input"
                                         style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
@@ -1180,7 +1180,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                 </div>
 
                                 {/* Default director model */}
-                                <div className="global-settings-selector-row">
+                                <div className="global-settings-selector-row global-settings-selector-row-divider">
                                     <label
                                         htmlFor="default-director-model-input"
                                         style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
@@ -1199,7 +1199,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                 </div>
 
                                 {/* Default auto generation model */}
-                                <div className="global-settings-selector-row">
+                                <div className="global-settings-selector-row global-settings-selector-row-divider">
                                     <label
                                         htmlFor="default-auto-generation-model-input"
                                         style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
@@ -1218,7 +1218,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                 </div>
 
                                 {/* Title generation model */}
-                                <div className="global-settings-selector-row">
+                                <div className="global-settings-selector-row global-settings-selector-row-divider">
                                     <label
                                         htmlFor="title-generation-model-input"
                                         style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
@@ -1237,7 +1237,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                 </div>
 
                                 {/* Reply suggestion model */}
-                                <div className="global-settings-selector-row">
+                                <div className="global-settings-selector-row global-settings-selector-row-divider">
                                     <label
                                         htmlFor="reply-suggestion-model-input"
                                         style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
@@ -1256,7 +1256,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                 </div>
 
                                 {/* Summary model */}
-                                <div className="global-settings-selector-row">
+                                <div className="global-settings-selector-row global-settings-selector-row-divider">
                                     <label
                                         htmlFor="summary-model-input"
                                         style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
@@ -1276,7 +1276,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
 
                                 {/* Default image model */}
                                 {aiApiType === 'openrouter' && (
-                                    <div className="global-settings-selector-row">
+                                    <div className="global-settings-selector-row global-settings-selector-row-divider">
                                         <label
                                             htmlFor="default-image-model-input"
                                             style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
@@ -1296,7 +1296,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                 )}
 
                                 {/* Memory extraction model */}
-                                <div className="global-settings-selector-row">
+                                <div className="global-settings-selector-row global-settings-selector-row-divider">
                                     <label
                                         htmlFor="memory-extraction-model-input"
                                         style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}

@@ -889,11 +889,37 @@ body {
   gap: 1rem;
 }
 
+.global-settings-selector-row-divider {
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
 .global-settings-selector-control {
   width: min(60%, 24rem);
   min-width: 0;
   margin-left: auto;
   flex: 0 1 auto;
+}
+
+.global-settings-selector-control .model-selector-trigger {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.global-settings-selector-control .model-selector-trigger:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--bg-hover);
+}
+
+.global-settings-selector-control .model-selector-trigger:focus {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.global-settings-selector-control .model-selector-trigger:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
 }
 
 .ai-connection-card {

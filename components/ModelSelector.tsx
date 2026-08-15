@@ -66,8 +66,12 @@ export default function ModelSelector({
         setModels([]);
         setLoading(false);
         setError(null);
+        void loadModels();
+    }, [aiApiType, loadModels]);
+
+    useEffect(() => {
         if (isOpen) void loadModels();
-    }, [aiApiType, isOpen, loadModels]);
+    }, [isOpen, loadModels]);
 
     useEffect(() => {
         if (!isOpen) return;
@@ -94,6 +98,11 @@ export default function ModelSelector({
             || model.name.toLocaleLowerCase().includes(normalizedQuery)
         ));
     }, [models, query]);
+
+    const selectedModel = useMemo(
+        () => models.find((model) => model.id === value),
+        [models, value],
+    );
 
     const openMenu = () => {
         if (disabled) return;
@@ -126,9 +135,10 @@ export default function ModelSelector({
                         openMenu();
                     }
                 }}
+                title={selectedModel && selectedModel.name !== value ? value : undefined}
             >
                 <span className={value ? 'model-selector-value' : 'model-selector-placeholder'}>
-                    {value || placeholder}
+                    {selectedModel?.name || value || placeholder}
                 </span>
                 <ChevronDown
                     size={16}

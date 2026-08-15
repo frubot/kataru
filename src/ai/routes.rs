@@ -109,6 +109,45 @@ fn normalize_models_response(input: &Value) -> Vec<Value> {
     models
 }
 
+fn normalize_providers_response(input: &Value) -> Vec<Value> {
+    let entries = input
+        .get("data")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten();
+    let mut seen = HashSet::new();
+    let mut providers = entries
+        .filter_map(|entry| {
+            let record = entry.as_object()?;
+            let slug = record.get("slug")?.as_str()?.trim();
+            if slug.is_empty() || !seen.insert(slug.to_owned()) {
+                return None;
+            }
+            let name = record
+                .get("name")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or(slug);
+            Some(json!({ "slug": slug, "name": name }))
+        })
+        .collect::<Vec<_>>();
+    providers.sort_by(|left, right| {
+        left.get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_lowercase()
+            .cmp(
+                &right
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_lowercase(),
+            )
+    });
+    providers
+}
+
 pub async fn models(
     State(state): State<AppState>,
     Json(input): Json<Value>,
@@ -129,6 +168,28 @@ pub async fn models(
     }
     let data = response.json::<Value>().await.map_err(map_request_error)?;
     Ok(Json(json!({ "data": normalize_models_response(&data) })))
+}
+
+pub async fn providers(
+    State(state): State<AppState>,
+    Json(input): Json<Value>,
+) -> AppResult<Json<Value>> {
+    let api_client = ai_api_client_for(&state, &input)?;
+    if !api_client.is_openrouter() {
+        return Err(AppError::BadRequest(
+            "プロバイダー一覧はOpenRouterでのみ利用できます。".to_owned(),
+        ));
+    }
+    let response = api_client
+        .get("providers", Duration::from_secs(15))
+        .send()
+        .await
+        .map_err(map_request_error)?;
+    if !response.status().is_success() {
+        return Err(upstream_error(response).await);
+    }
+    let data = response.json::<Value>().await.map_err(map_request_error)?;
+    Ok(Json(json!({ "data": normalize_providers_response(&data) })))
 }
 
 fn required_string(body: &Value, field: &str, message: &str) -> AppResult<String> {
@@ -1782,6 +1843,28 @@ mod tests {
         }));
 
         assert_eq!(models, vec![json!({ "id": "model-b", "name": "model-b" })]);
+    }
+
+    #[test]
+    fn provider_list_uses_names_and_slugs_and_drops_invalid_entries() {
+        let providers = normalize_providers_response(&json!({
+            "data": [
+                { "slug": "together", "name": "Together" },
+                { "slug": "deepinfra", "name": "DeepInfra" },
+                { "slug": "together", "name": "Duplicate" },
+                { "slug": "blank-name", "name": "  " },
+                { "name": "Missing slug" }
+            ]
+        }));
+
+        assert_eq!(
+            providers,
+            vec![
+                json!({ "slug": "blank-name", "name": "blank-name" }),
+                json!({ "slug": "deepinfra", "name": "DeepInfra" }),
+                json!({ "slug": "together", "name": "Together" }),
+            ]
+        );
     }
 
     #[test]

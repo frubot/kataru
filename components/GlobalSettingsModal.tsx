@@ -5,6 +5,7 @@ import { createFullBackup, downloadJson, parseFullBackup, reassignIds, ParsedBac
 import StatisticsPanel from '@/components/StatisticsPanel';
 import AiConnectionSettings from '@/components/AiConnectionSettings';
 import ModelSelector from '@/components/ModelSelector';
+import ProviderSelector from '@/components/ProviderSelector';
 
 interface GlobalSettingsModalProps {
     isOpen: boolean;
@@ -333,6 +334,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         generateTitleOnFirstReply, setGenerateTitleOnFirstReply,
         replySuggestionsEnabled, setReplySuggestionsEnabled,
         aiApiType, setAiApiType,
+        openRouterIgnoredProviders, setOpenRouterIgnoredProviders,
         fullJsonDebugEnabled, detailedErrorLoggingEnabled, fullJsonDebugLogs,
         setThemeMode, setThemePalette, setVnTypingSpeed,
         setFullJsonDebugEnabled, setDetailedErrorLoggingEnabled, clearFullJsonDebugLogs,
@@ -1117,6 +1119,25 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                 </div>
 
                                 <AiConnectionSettings apiType={aiApiType} />
+
+                                {aiApiType === 'openrouter' && (
+                                    <div>
+                                        <label
+                                            htmlFor="openrouter-ignored-providers"
+                                            style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: '0.375rem' }}
+                                        >
+                                            使用しないプロバイダー
+                                        </label>
+                                        <ProviderSelector
+                                            id="openrouter-ignored-providers"
+                                            value={openRouterIgnoredProviders}
+                                            onChange={setOpenRouterIgnoredProviders}
+                                        />
+                                        <p style={{ marginTop: '0.375rem', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                                            選択したプロバイダーをOpenRouterのルーティング候補から除外します。
+                                        </p>
+                                    </div>
+                                )}
 
                                 {aiApiType !== 'openrouter' && (
                                     <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>

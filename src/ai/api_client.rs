@@ -1,9 +1,9 @@
-use std::time::Duration;
+use std::{collections::HashSet, time::Duration};
 
 use axum::http::StatusCode;
 use reqwest::{Client, RequestBuilder, Response};
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use crate::{
     AppState,
@@ -34,6 +34,7 @@ pub enum AiApiKind {
 pub struct AiApiConfig {
     #[serde(alias = "aiProvider")]
     pub ai_api_type: Option<String>,
+    pub open_router_ignored_providers: Vec<String>,
     pub open_ai_compatible_base_url: Option<String>,
     pub open_ai_compatible_embeddings_enabled: bool,
     pub open_ai_compatible_image_generation_enabled: bool,
@@ -43,6 +44,7 @@ impl Default for AiApiConfig {
     fn default() -> Self {
         Self {
             ai_api_type: None,
+            open_router_ignored_providers: Vec::new(),
             open_ai_compatible_base_url: None,
             open_ai_compatible_embeddings_enabled: true,
             open_ai_compatible_image_generation_enabled: false,
@@ -57,6 +59,7 @@ pub struct AiApiClient {
     base_url: String,
     api_key: Option<String>,
     application_origin: String,
+    ignored_providers: Vec<String>,
     embeddings_enabled: bool,
     image_generation_enabled: bool,
 }
@@ -127,6 +130,7 @@ impl AiApiClient {
             base_url,
             api_key,
             application_origin: application_origin.as_ref().to_owned(),
+            ignored_providers: normalize_provider_slugs(config.open_router_ignored_providers),
             embeddings_enabled: config.open_ai_compatible_embeddings_enabled,
             image_generation_enabled: config.open_ai_compatible_image_generation_enabled,
         })
@@ -204,23 +208,74 @@ impl AiApiClient {
             .json(body)
     }
 
+    fn with_openrouter_provider_preferences(&self, body: &Value) -> Value {
+        if !self.is_openrouter() || self.ignored_providers.is_empty() {
+            return body.clone();
+        }
+        let mut routed_body = body.clone();
+        let Some(body_object) = routed_body.as_object_mut() else {
+            return routed_body;
+        };
+        let mut provider_options = body_object
+            .remove("provider")
+            .and_then(|value| value.as_object().cloned())
+            .unwrap_or_else(Map::new);
+        let mut ignored_providers = self.ignored_providers.clone();
+        if let Some(existing) = provider_options
+            .remove("ignore")
+            .and_then(|value| value.as_array().cloned())
+        {
+            ignored_providers.extend(
+                existing
+                    .into_iter()
+                    .filter_map(|value| value.as_str().map(str::to_owned)),
+            );
+        }
+        provider_options.insert(
+            "ignore".to_owned(),
+            Value::Array(
+                normalize_provider_slugs(ignored_providers)
+                    .into_iter()
+                    .map(Value::String)
+                    .collect(),
+            ),
+        );
+        body_object.insert("provider".to_owned(), Value::Object(provider_options));
+        routed_body
+    }
+
     pub async fn send_json(
         &self,
         path: &str,
         body: &Value,
         timeout_secs: u64,
     ) -> AppResult<Response> {
+        let routed_body = self.with_openrouter_provider_preferences(body);
         let anthropic_body = if self.is_anthropic() && path.trim_matches('/') == "chat/completions"
         {
             Some(anthropic::request_from_openai(body)?)
         } else {
             None
         };
-        self.post_json(path, anthropic_body.as_ref().unwrap_or(body), timeout_secs)
-            .send()
-            .await
-            .map_err(map_request_error)
+        self.post_json(
+            path,
+            anthropic_body.as_ref().unwrap_or(&routed_body),
+            timeout_secs,
+        )
+        .send()
+        .await
+        .map_err(map_request_error)
     }
+}
+
+fn normalize_provider_slugs(values: Vec<String>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    values
+        .into_iter()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty() && value.len() <= 128 && seen.insert(value.clone()))
+        .take(256)
+        .collect()
 }
 
 pub fn map_request_error(error: reqwest::Error) -> AppError {
@@ -276,6 +331,7 @@ mod tests {
                 open_ai_compatible_base_url: Some("https://attacker.example/v1".to_owned()),
                 open_ai_compatible_embeddings_enabled: true,
                 open_ai_compatible_image_generation_enabled: false,
+                ..AiApiConfig::default()
             }),
         )
         .unwrap();
@@ -383,5 +439,58 @@ mod tests {
             Some("openrouter")
         );
         assert_eq!(body["provider"]["ignore"][0], "some-upstream-provider");
+    }
+
+    #[test]
+    fn openrouter_ignored_providers_merge_with_existing_routing_options() {
+        let api_client = AiApiClient::resolve(
+            Client::new(),
+            "http://127.0.0.1:37371",
+            &server_config(),
+            Some(AiApiConfig {
+                open_router_ignored_providers: vec![
+                    "deepinfra".to_owned(),
+                    " together ".to_owned(),
+                    "deepinfra".to_owned(),
+                ],
+                ..AiApiConfig::default()
+            }),
+        )
+        .unwrap();
+
+        let body = api_client.with_openrouter_provider_preferences(&json!({
+            "model": "example/model",
+            "provider": {
+                "data_collection": "deny",
+                "ignore": ["openai", "deepinfra"]
+            }
+        }));
+
+        assert_eq!(body["provider"]["data_collection"], "deny");
+        assert_eq!(
+            body["provider"]["ignore"],
+            json!(["deepinfra", "together", "openai"])
+        );
+    }
+
+    #[test]
+    fn non_openrouter_requests_do_not_receive_provider_preferences() {
+        let api_client = AiApiClient::resolve(
+            Client::new(),
+            "http://127.0.0.1:37371",
+            &server_config(),
+            Some(AiApiConfig {
+                ai_api_type: Some("openai-compatible".to_owned()),
+                open_router_ignored_providers: vec!["deepinfra".to_owned()],
+                ..AiApiConfig::default()
+            }),
+        )
+        .unwrap();
+        let original = json!({"model": "example/model"});
+
+        assert_eq!(
+            api_client.with_openrouter_provider_preferences(&original),
+            original
+        );
     }
 }

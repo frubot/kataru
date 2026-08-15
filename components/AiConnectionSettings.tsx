@@ -3,6 +3,7 @@ import { RefreshCw, Save, Trash2 } from 'lucide-react';
 
 import type { AiApiType } from '@/lib/aiApi';
 import { clearAvailableModelsCache } from '@/lib/availableModels';
+import { clearAvailableProvidersCache } from '@/lib/availableProviders';
 import {
     deleteAnthropicApiKey,
     deleteOpenAiApiKey,
@@ -68,6 +69,7 @@ export default function AiConnectionSettings({ apiType }: AiConnectionSettingsPr
         try {
             applyStatus(await operation());
             clearAvailableModelsCache();
+            clearAvailableProvidersCache();
             setMessage(successMessage);
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : 'AI接続設定を更新できませんでした。');

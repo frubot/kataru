@@ -518,6 +518,24 @@ body {
   opacity: 0.6;
 }
 
+.provider-selector-clear {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: none;
+  border-bottom: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.75rem;
+  text-align: right;
+}
+
+.provider-selector-clear:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
 .model-selector-options {
   max-height: 17rem;
   overflow-y: auto;

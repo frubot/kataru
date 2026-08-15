@@ -6,6 +6,7 @@ export type AiApiType = 'openrouter' | 'openai-compatible' | 'anthropic';
 
 export interface AiApiConfig {
     aiApiType: AiApiType;
+    openRouterIgnoredProviders: string[];
     openAiCompatibleBaseUrl: string;
     openAiCompatibleEmbeddingsEnabled: boolean;
     openAiCompatibleImageGenerationEnabled: boolean;
@@ -13,6 +14,7 @@ export interface AiApiConfig {
 }
 
 export const DEFAULT_AI_API_TYPE: AiApiType = 'openrouter';
+export const DEFAULT_OPENROUTER_IGNORED_PROVIDERS: string[] = [];
 export const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = 'https://api.openai.com/v1';
 export const DEFAULT_ANTHROPIC_BASE_URL = 'https://api.anthropic.com/v1';
 export const DEFAULT_OPENAI_COMPATIBLE_EMBEDDINGS_ENABLED = true;
@@ -27,6 +29,15 @@ export function normalizeOpenAiCompatibleBaseUrl(value: unknown): string {
     return (trimmed || DEFAULT_OPENAI_COMPATIBLE_BASE_URL).replace(/\/+$/, '');
 }
 
+export function normalizeOpenRouterIgnoredProviders(value: unknown): string[] {
+    if (!Array.isArray(value)) return [];
+    return [...new Set(value
+        .filter((entry): entry is string => typeof entry === 'string')
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0 && entry.length <= 128))]
+        .slice(0, 256);
+}
+
 export function normalizeAiApiConfig(value: unknown): AiApiConfig {
     const record = value && typeof value === 'object'
         ? value as Record<string, unknown>
@@ -38,6 +49,7 @@ export function normalizeAiApiConfig(value: unknown): AiApiConfig {
             : DEFAULT_AI_API_TYPE;
     return {
         aiApiType,
+        openRouterIgnoredProviders: normalizeOpenRouterIgnoredProviders(record.openRouterIgnoredProviders),
         openAiCompatibleBaseUrl: normalizeOpenAiCompatibleBaseUrl(record.openAiCompatibleBaseUrl),
         openAiCompatibleEmbeddingsEnabled: typeof record.openAiCompatibleEmbeddingsEnabled === 'boolean'
             ? record.openAiCompatibleEmbeddingsEnabled

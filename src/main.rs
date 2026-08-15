@@ -180,6 +180,7 @@ fn api_router() -> Router<AppState> {
         .route("/chat", post(ai::chat))
         .route("/ai/status", post(ai::connection_status))
         .route("/ai/models", post(ai::models))
+        .route("/ai/providers", post(ai::providers))
         .route("/ai/config", get(ai_config::get_config))
         .route(
             "/ai/config/openrouter",

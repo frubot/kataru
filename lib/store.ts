@@ -22,9 +22,11 @@ import {
 } from './modelDefaults';
 import {
     DEFAULT_AI_API_TYPE,
+    DEFAULT_OPENROUTER_IGNORED_PROVIDERS,
     DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
     DEFAULT_OPENAI_COMPATIBLE_EMBEDDINGS_ENABLED,
     DEFAULT_OPENAI_COMPATIBLE_IMAGE_GENERATION_ENABLED,
+    normalizeOpenRouterIgnoredProviders,
     normalizeOpenAiCompatibleBaseUrl,
     type AiApiType,
     type AiApiConfig,
@@ -45,6 +47,7 @@ export {
 } from './modelDefaults';
 export {
     DEFAULT_AI_API_TYPE,
+    DEFAULT_OPENROUTER_IGNORED_PROVIDERS,
     DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
     DEFAULT_OPENAI_COMPATIBLE_EMBEDDINGS_ENABLED,
     DEFAULT_OPENAI_COMPATIBLE_IMAGE_GENERATION_ENABLED,
@@ -342,6 +345,7 @@ interface AppState {
     generateTitleOnFirstReply: boolean;
     replySuggestionsEnabled: boolean;
     aiApiType: AiApiType;
+    openRouterIgnoredProviders: string[];
     openAiCompatibleBaseUrl: string;
     openAiCompatibleEmbeddingsEnabled: boolean;
     openAiCompatibleImageGenerationEnabled: boolean;
@@ -376,6 +380,7 @@ interface AppState {
     setGenerateTitleOnFirstReply: (enabled: boolean) => void;
     setReplySuggestionsEnabled: (enabled: boolean) => void;
     setAiApiType: (apiType: AiApiType) => void;
+    setOpenRouterIgnoredProviders: (providers: string[]) => void;
     setOpenAiCompatibleBaseUrl: (baseUrl: string) => void;
     setOpenAiCompatibleEmbeddingsEnabled: (enabled: boolean) => void;
     setOpenAiCompatibleImageGenerationEnabled: (enabled: boolean) => void;
@@ -1045,6 +1050,7 @@ function updateModelDefault<K extends keyof ModelDefaults>(
 
 function getAiApiConfigFromState(state: Pick<AppState,
     'aiApiType' |
+    'openRouterIgnoredProviders' |
     'openAiCompatibleBaseUrl' |
     'openAiCompatibleEmbeddingsEnabled' |
     'openAiCompatibleImageGenerationEnabled' |
@@ -1071,6 +1077,7 @@ function getAiApiConfigFromState(state: Pick<AppState,
     }, getDefaultModelDefaults(state.aiApiType));
     return {
         aiApiType: state.aiApiType,
+        openRouterIgnoredProviders: normalizeOpenRouterIgnoredProviders(state.openRouterIgnoredProviders),
         openAiCompatibleBaseUrl: normalizeOpenAiCompatibleBaseUrl(state.openAiCompatibleBaseUrl),
         openAiCompatibleEmbeddingsEnabled: state.openAiCompatibleEmbeddingsEnabled,
         openAiCompatibleImageGenerationEnabled: state.openAiCompatibleImageGenerationEnabled,
@@ -1097,6 +1104,7 @@ export const useStore = create<AppState>()((set, get) => ({
     generateTitleOnFirstReply: false,
     replySuggestionsEnabled: false,
     aiApiType: DEFAULT_AI_API_TYPE,
+    openRouterIgnoredProviders: DEFAULT_OPENROUTER_IGNORED_PROVIDERS,
     openAiCompatibleBaseUrl: DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
     openAiCompatibleEmbeddingsEnabled: DEFAULT_OPENAI_COMPATIBLE_EMBEDDINGS_ENABLED,
     openAiCompatibleImageGenerationEnabled: DEFAULT_OPENAI_COMPATIBLE_IMAGE_GENERATION_ENABLED,
@@ -1112,7 +1120,7 @@ export const useStore = create<AppState>()((set, get) => ({
     hydrate: async () => {
         if (get().hydrated) return;
         await db.migrateLegacyDatabase();
-        const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, currentRoomId, vnTypingSpeed, fullJsonDebugEnabled, detailedErrorLoggingEnabled, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion] = await Promise.all([
+        const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, currentRoomId, vnTypingSpeed, fullJsonDebugEnabled, detailedErrorLoggingEnabled, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion] = await Promise.all([
             db.getAllCharacters(),
             db.getAllGroups(),
             db.getAllRooms(),
@@ -1137,6 +1145,7 @@ export const useStore = create<AppState>()((set, get) => ({
             db.getMeta<boolean>('replySuggestionsEnabled'),
             db.getMeta<AiApiType>('aiApiType'),
             db.getMeta<unknown>('aiProvider'),
+            db.getMeta<unknown>('openRouterIgnoredProviders'),
             db.getMeta<string>('openAiCompatibleBaseUrl'),
             db.getMeta<boolean>('openAiCompatibleEmbeddingsEnabled'),
             db.getMeta<boolean>('openAiCompatibleImageGenerationEnabled'),
@@ -1242,6 +1251,7 @@ export const useStore = create<AppState>()((set, get) => ({
         if (vnTypingSpeed !== resolvedVnTypingSpeed) fire(db.setMeta('vnTypingSpeed', resolvedVnTypingSpeed));
         const resolvedGenerateTitleOnFirstReply = storedGenerateTitleOnFirstReply === true;
         const resolvedReplySuggestionsEnabled = storedReplySuggestionsEnabled === true;
+        const resolvedOpenRouterIgnoredProviders = normalizeOpenRouterIgnoredProviders(storedOpenRouterIgnoredProviders);
         const resolvedOpenAiCompatibleBaseUrl = normalizeOpenAiCompatibleBaseUrl(storedOpenAiCompatibleBaseUrl);
         const resolvedOpenAiCompatibleEmbeddingsEnabled = typeof storedOpenAiCompatibleEmbeddingsEnabled === 'boolean'
             ? storedOpenAiCompatibleEmbeddingsEnabled
@@ -1263,6 +1273,9 @@ export const useStore = create<AppState>()((set, get) => ({
         if (storedReplySuggestionsEnabled !== resolvedReplySuggestionsEnabled) fire(db.setMeta('replySuggestionsEnabled', resolvedReplySuggestionsEnabled));
         if (aiSettingsMigration.shouldPersistAiApiType) {
             fire(db.setMeta('aiApiType', resolvedAiApiType));
+        }
+        if (JSON.stringify(storedOpenRouterIgnoredProviders) !== JSON.stringify(resolvedOpenRouterIgnoredProviders)) {
+            fire(db.setMeta('openRouterIgnoredProviders', resolvedOpenRouterIgnoredProviders));
         }
         if (storedOpenAiCompatibleBaseUrl !== resolvedOpenAiCompatibleBaseUrl) fire(db.setMeta('openAiCompatibleBaseUrl', resolvedOpenAiCompatibleBaseUrl));
         if (storedOpenAiCompatibleEmbeddingsEnabled !== resolvedOpenAiCompatibleEmbeddingsEnabled) fire(db.setMeta('openAiCompatibleEmbeddingsEnabled', resolvedOpenAiCompatibleEmbeddingsEnabled));
@@ -1286,6 +1299,7 @@ export const useStore = create<AppState>()((set, get) => ({
             generateTitleOnFirstReply: resolvedGenerateTitleOnFirstReply,
             replySuggestionsEnabled: resolvedReplySuggestionsEnabled,
             aiApiType: resolvedAiApiType,
+            openRouterIgnoredProviders: resolvedOpenRouterIgnoredProviders,
             openAiCompatibleBaseUrl: resolvedOpenAiCompatibleBaseUrl,
             openAiCompatibleEmbeddingsEnabled: resolvedOpenAiCompatibleEmbeddingsEnabled,
             openAiCompatibleImageGenerationEnabled: resolvedOpenAiCompatibleImageGenerationEnabled,
@@ -1370,6 +1384,11 @@ export const useStore = create<AppState>()((set, get) => ({
         const modelDefaults = get().modelDefaultsByApiType[aiApiType] ?? getDefaultModelDefaults(aiApiType);
         set({ aiApiType, ...modelDefaults });
         fire(db.setMeta('aiApiType', aiApiType));
+    },
+    setOpenRouterIgnoredProviders: (providers) => {
+        const openRouterIgnoredProviders = normalizeOpenRouterIgnoredProviders(providers);
+        set({ openRouterIgnoredProviders });
+        fire(db.setMeta('openRouterIgnoredProviders', openRouterIgnoredProviders));
     },
     setOpenAiCompatibleBaseUrl: (openAiCompatibleBaseUrl) => {
         const normalized = normalizeOpenAiCompatibleBaseUrl(openAiCompatibleBaseUrl);
@@ -2325,6 +2344,7 @@ export const useStore = create<AppState>()((set, get) => ({
             generateTitleOnFirstReply: false,
             replySuggestionsEnabled: false,
             aiApiType: DEFAULT_AI_API_TYPE,
+            openRouterIgnoredProviders: DEFAULT_OPENROUTER_IGNORED_PROVIDERS,
             openAiCompatibleBaseUrl: DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
             openAiCompatibleEmbeddingsEnabled: DEFAULT_OPENAI_COMPATIBLE_EMBEDDINGS_ENABLED,
             openAiCompatibleImageGenerationEnabled: DEFAULT_OPENAI_COMPATIBLE_IMAGE_GENERATION_ENABLED,

@@ -6,6 +6,7 @@ import { buildBaseImageRequest } from '@/lib/imageSource';
 import { cropRectToPng, loadImage, resizeToMaxEdge } from '@/lib/imageUtils';
 import { CropArea, createInitialCrop, type CropBox } from './ImageCropArea';
 import StoredImage from './StoredImage';
+import ModelSelector from './ModelSelector';
 
 const MAX_EDGE = 1024;
 const COSTUME_ASPECT_RATIO = '2:3';
@@ -281,11 +282,9 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                         {addMode === 'generate' && (
                             <div style={{ marginBottom: 8 }}>
                                 <label style={fieldLabelStyle}>モデル名</label>
-                                <input
-                                    type="text"
-                                    className="input"
+                                <ModelSelector
                                     value={model}
-                                    onChange={(e) => setModel(e.target.value)}
+                                    onChange={setModel}
                                     disabled={!!busy || !canGenerateDiffs}
                                     placeholder={`例: ${defaultImageModel}`}
                                 />

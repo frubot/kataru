@@ -17,6 +17,7 @@ import CostumeDiffModal from './CostumeDiffModal';
 import CharacterGeneratorModal from './CharacterGeneratorModal';
 import PromptBlockEditor from './PromptBlockEditor';
 import StoredImage from './StoredImage';
+import ModelSelector from './ModelSelector';
 
 const NEUTRAL_NAME = 'neutral';
 const DEFAULT_COSTUME_NAME = 'default';
@@ -613,12 +614,10 @@ function CharacterSettingsModalContent({ isOpen, onClose, character, isNew = fal
 
                     {/* モデル */}
                     <div style={sectionStyle}>
-                        {renderLabelWithInfo('モデル', '選択中の接続先で利用可能なモデル名を入力してください')}
-                        <input
-                            type="text"
-                            className="input"
+                        {renderLabelWithInfo('モデル', '選択中の接続先で利用可能なモデルから選択してください')}
+                        <ModelSelector
                             value={model}
-                            onChange={(e) => setModel(e.target.value)}
+                            onChange={setModel}
                             placeholder={`例: ${defaultChatModel}`}
                         />
                     </div>

@@ -7,6 +7,7 @@ import {
     type GeneratedCharacterProfile,
 } from '@/lib/characterGeneration';
 import { useStore } from '@/lib/store';
+import ModelSelector from './ModelSelector';
 
 interface GeneratedCharacterDraft {
     name: string;
@@ -148,11 +149,9 @@ export default function CharacterGeneratorModal({ isOpen, onClose, onApply }: Pr
 
                     <div>
                         <label style={labelStyle}>生成モデル</label>
-                        <input
-                            type="text"
-                            className="input"
+                        <ModelSelector
                             value={model}
-                            onChange={(e) => setModel(e.target.value)}
+                            onChange={setModel}
                             disabled={generating}
                             placeholder={`例: ${defaultAutoGenerationModel}`}
                         />

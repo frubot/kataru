@@ -4,6 +4,7 @@ import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, getDefaultModelDefaul
 import { createFullBackup, downloadJson, parseFullBackup, reassignIds, ParsedBackup } from '@/lib/importExport';
 import StatisticsPanel from '@/components/StatisticsPanel';
 import AiConnectionSettings from '@/components/AiConnectionSettings';
+import ModelSelector from '@/components/ModelSelector';
 
 interface GlobalSettingsModalProps {
     isOpen: boolean;
@@ -561,51 +562,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         } finally {
             setIsImporting(false);
         }
-    };
-
-    const handleSummaryModelBlur = () => {
-        const normalized = summaryModel.trim();
-        setSummaryModel(normalized || providerDefaults.summaryModel);
-    };
-
-    const handleDefaultChatModelBlur = () => {
-        const normalized = defaultChatModel.trim();
-        setDefaultChatModel(normalized || providerDefaults.defaultChatModel);
-    };
-
-    const handleDefaultDirectorModelBlur = () => {
-        const normalized = defaultDirectorModel.trim();
-        setDefaultDirectorModel(normalized || providerDefaults.defaultDirectorModel);
-    };
-
-    const handleDefaultAutoGenerationModelBlur = () => {
-        const normalized = defaultAutoGenerationModel.trim();
-        setDefaultAutoGenerationModel(normalized || providerDefaults.defaultAutoGenerationModel);
-    };
-
-    const handleTitleGenerationModelBlur = () => {
-        const normalized = titleGenerationModel.trim();
-        setTitleGenerationModel(normalized || providerDefaults.titleGenerationModel);
-    };
-
-    const handleReplySuggestionModelBlur = () => {
-        const normalized = replySuggestionModel.trim();
-        setReplySuggestionModel(normalized || providerDefaults.replySuggestionModel);
-    };
-
-    const handleDefaultImageModelBlur = () => {
-        const normalized = defaultImageModel.trim();
-        setDefaultImageModel(normalized || providerDefaults.defaultImageModel);
-    };
-
-    const handleMemoryExtractionModelBlur = () => {
-        const normalized = memoryExtractionModel.trim();
-        setMemoryExtractionModel(normalized || providerDefaults.memoryExtractionModel);
-    };
-
-    const handleMemoryEmbeddingModelBlur = () => {
-        const normalized = memoryEmbeddingModel.trim();
-        setMemoryEmbeddingModel(normalized || providerDefaults.memoryEmbeddingModel);
     };
 
     const handleTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, tabIndex: number) => {
@@ -1189,13 +1145,10 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     >
                                         会話
                                     </label>
-                                    <input
+                                    <ModelSelector
                                         id="default-chat-model-input"
-                                        type="text"
-                                        className="input"
                                         value={defaultChatModel}
-                                        onChange={(e) => setDefaultChatModel(e.target.value)}
-                                        onBlur={handleDefaultChatModelBlur}
+                                        onChange={setDefaultChatModel}
                                         placeholder={`例: ${providerDefaults.defaultChatModel}`}
                                     />
                                 </div>
@@ -1208,13 +1161,10 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     >
                                         シチュエーション管理
                                     </label>
-                                    <input
+                                    <ModelSelector
                                         id="default-director-model-input"
-                                        type="text"
-                                        className="input"
                                         value={defaultDirectorModel}
-                                        onChange={(e) => setDefaultDirectorModel(e.target.value)}
-                                        onBlur={handleDefaultDirectorModelBlur}
+                                        onChange={setDefaultDirectorModel}
                                         placeholder={`例: ${providerDefaults.defaultDirectorModel}`}
                                     />
                                 </div>
@@ -1227,13 +1177,10 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     >
                                         設定の自動生成
                                     </label>
-                                    <input
+                                    <ModelSelector
                                         id="default-auto-generation-model-input"
-                                        type="text"
-                                        className="input"
                                         value={defaultAutoGenerationModel}
-                                        onChange={(e) => setDefaultAutoGenerationModel(e.target.value)}
-                                        onBlur={handleDefaultAutoGenerationModelBlur}
+                                        onChange={setDefaultAutoGenerationModel}
                                         placeholder={`例: ${providerDefaults.defaultAutoGenerationModel}`}
                                     />
                                 </div>
@@ -1246,13 +1193,10 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     >
                                         タイトル生成
                                     </label>
-                                    <input
+                                    <ModelSelector
                                         id="title-generation-model-input"
-                                        type="text"
-                                        className="input"
                                         value={titleGenerationModel}
-                                        onChange={(e) => setTitleGenerationModel(e.target.value)}
-                                        onBlur={handleTitleGenerationModelBlur}
+                                        onChange={setTitleGenerationModel}
                                         placeholder={`例: ${providerDefaults.titleGenerationModel}`}
                                     />
                                 </div>
@@ -1265,13 +1209,10 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     >
                                         返答の提案
                                     </label>
-                                    <input
+                                    <ModelSelector
                                         id="reply-suggestion-model-input"
-                                        type="text"
-                                        className="input"
                                         value={replySuggestionModel}
-                                        onChange={(e) => setReplySuggestionModel(e.target.value)}
-                                        onBlur={handleReplySuggestionModelBlur}
+                                        onChange={setReplySuggestionModel}
                                         placeholder={`例: ${providerDefaults.replySuggestionModel}`}
                                     />
                                 </div>
@@ -1284,13 +1225,10 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     >
                                         コンテキスト圧縮
                                     </label>
-                                    <input
+                                    <ModelSelector
                                         id="summary-model-input"
-                                        type="text"
-                                        className="input"
                                         value={summaryModel}
-                                        onChange={(e) => setSummaryModel(e.target.value)}
-                                        onBlur={handleSummaryModelBlur}
+                                        onChange={setSummaryModel}
                                         placeholder={`例: ${providerDefaults.summaryModel}`}
                                     />
                                 </div>
@@ -1304,13 +1242,10 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         >
                                             画像生成
                                         </label>
-                                        <input
+                                        <ModelSelector
                                             id="default-image-model-input"
-                                            type="text"
-                                            className="input"
                                             value={defaultImageModel}
-                                            onChange={(e) => setDefaultImageModel(e.target.value)}
-                                            onBlur={handleDefaultImageModelBlur}
+                                            onChange={setDefaultImageModel}
                                             placeholder={`例: ${providerDefaults.defaultImageModel}`}
                                         />
                                     </div>
@@ -1324,13 +1259,10 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     >
                                         メモリ保存
                                     </label>
-                                    <input
+                                    <ModelSelector
                                         id="memory-extraction-model-input"
-                                        type="text"
-                                        className="input"
                                         value={memoryExtractionModel}
-                                        onChange={(e) => setMemoryExtractionModel(e.target.value)}
-                                        onBlur={handleMemoryExtractionModelBlur}
+                                        onChange={setMemoryExtractionModel}
                                         placeholder={`例: ${providerDefaults.memoryExtractionModel}`}
                                     />
                                 </div>
@@ -1344,13 +1276,10 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         >
                                             メモリ検索
                                         </label>
-                                        <input
+                                        <ModelSelector
                                             id="memory-embedding-model-input"
-                                            type="text"
-                                            className="input"
                                             value={memoryEmbeddingModel}
-                                            onChange={(e) => setMemoryEmbeddingModel(e.target.value)}
-                                            onBlur={handleMemoryEmbeddingModelBlur}
+                                            onChange={setMemoryEmbeddingModel}
                                             placeholder={`例: ${providerDefaults.memoryEmbeddingModel}`}
                                         />
                                     </div>

@@ -3,6 +3,7 @@ import { X, Sparkles, Loader2, Upload } from 'lucide-react';
 import { resizeToMaxEdge, cropSquareToJpeg, cropRectToPng, loadImage } from '@/lib/imageUtils';
 import { CropArea, createInitialCrop, type CropBox } from './ImageCropArea';
 import { useStore } from '@/lib/store';
+import ModelSelector from './ModelSelector';
 const MAX_EDGE = 1024;
 const AVATAR_SIZE = 128;
 const IMAGE_ASPECT_RATIO = '2:3';
@@ -206,11 +207,9 @@ export default function ImageGenerationModal({ isOpen, onClose, onComplete }: Pr
                             </div>
                             <div>
                                 <label style={labelStyle}>モデル</label>
-                                <input
-                                    type="text"
-                                    className="input"
+                                <ModelSelector
                                     value={model}
-                                    onChange={(e) => setModel(e.target.value)}
+                                    onChange={setModel}
                                     disabled={generating || !canGenerateImages}
                                 />
                             </div>

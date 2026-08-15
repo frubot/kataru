@@ -18,6 +18,7 @@ import CharacterGeneratorModal from './CharacterGeneratorModal';
 import ImageGenerationModal from './ImageGenerationModal';
 import SituationDescriptionGeneratorModal from './SituationDescriptionGeneratorModal';
 import StoredImage from './StoredImage';
+import ModelSelector from './ModelSelector';
 
 type TemporaryActorDraft = {
     id: string;
@@ -652,12 +653,10 @@ function TemporaryActorSettingsModal({
 
                         <div style={sectionStyle}>
                             <label htmlFor={`temporary-actor-model-${actor.id}`} style={labelStyle}>モデル</label>
-                            <input
+                            <ModelSelector
                                 id={`temporary-actor-model-${actor.id}`}
-                                type="text"
-                                className="input"
                                 value={draft.model}
-                                onChange={(event) => updateDraft({ model: event.target.value })}
+                                onChange={(model) => updateDraft({ model })}
                                 placeholder={`例: ${defaultChatModel}`}
                             />
                         </div>

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Loader2, Sparkles, X } from 'lucide-react';
 import { useStore } from '@/lib/store';
+import ModelSelector from './ModelSelector';
 
 interface Props {
     isOpen: boolean;
@@ -156,11 +157,9 @@ export default function SituationDescriptionGeneratorModal({
 
                     <div>
                         <label style={labelStyle}>生成モデル</label>
-                        <input
-                            type="text"
-                            className="input"
+                        <ModelSelector
                             value={model}
-                            onChange={(e) => setModel(e.target.value)}
+                            onChange={setModel}
                             disabled={generating}
                             placeholder={`例: ${initialModel}`}
                         />

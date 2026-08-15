@@ -7,6 +7,7 @@ use axum::{
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde_json::{Map, Value, json};
+use std::collections::HashSet;
 use std::time::Duration;
 
 use crate::{
@@ -55,6 +56,79 @@ pub async fn connection_status(
             "message": "AIに接続できませんでした。起動状態と設定を確認してください。"
         })),
     }
+}
+
+fn normalize_models_response(input: &Value) -> Vec<Value> {
+    let entries = input
+        .get("data")
+        .and_then(Value::as_array)
+        .or_else(|| input.as_array())
+        .into_iter()
+        .flatten();
+    let mut seen = HashSet::new();
+    let mut models = entries
+        .filter_map(|entry| {
+            let (id, name) = if let Some(id) = entry.as_str() {
+                (id, id)
+            } else {
+                let record = entry.as_object()?;
+                let id = record.get("id")?.as_str()?;
+                let name = record
+                    .get("display_name")
+                    .or_else(|| record.get("name"))
+                    .and_then(Value::as_str)
+                    .unwrap_or(id);
+                (id, name)
+            };
+            let id = id.trim();
+            if id.is_empty() || !seen.insert(id.to_owned()) {
+                return None;
+            }
+            let name = name.trim();
+            Some(json!({
+                "id": id,
+                "name": if name.is_empty() { id } else { name }
+            }))
+        })
+        .collect::<Vec<_>>();
+
+    models.sort_by(|left, right| {
+        let sort_key = |value: &Value| {
+            value
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_lowercase()
+        };
+        sort_key(left).cmp(&sort_key(right)).then_with(|| {
+            left.get("id")
+                .and_then(Value::as_str)
+                .cmp(&right.get("id").and_then(Value::as_str))
+        })
+    });
+    models
+}
+
+pub async fn models(
+    State(state): State<AppState>,
+    Json(input): Json<Value>,
+) -> AppResult<Json<Value>> {
+    let provider = provider_for(&state, &input)?;
+    let path = if provider.is_anthropic() {
+        "models?limit=1000"
+    } else {
+        "models"
+    };
+    let response = provider
+        .get(path, Duration::from_secs(15))
+        .send()
+        .await
+        .map_err(map_request_error)?;
+    if !response.status().is_success() {
+        return Err(upstream_error(response).await);
+    }
+    let data = response.json::<Value>().await.map_err(map_request_error)?;
+    Ok(Json(json!({ "data": normalize_models_response(&data) })))
 }
 
 fn required_string(body: &Value, field: &str, message: &str) -> AppResult<String> {
@@ -1678,6 +1752,35 @@ mod tests {
     #[test]
     fn model_resolution_rejects_a_missing_model_and_default() {
         assert!(resolve_model(&json!({}), "model", "summaryModel").is_err());
+    }
+
+    #[test]
+    fn model_list_normalizes_openai_and_anthropic_names() {
+        let models = normalize_models_response(&json!({
+            "data": [
+                { "id": "openai/gpt-5", "name": "GPT-5" },
+                { "id": "claude-sonnet-4-6", "display_name": "Claude Sonnet 4.6" },
+                { "id": "plain-model" }
+            ]
+        }));
+
+        assert_eq!(
+            models,
+            vec![
+                json!({ "id": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6" }),
+                json!({ "id": "openai/gpt-5", "name": "GPT-5" }),
+                json!({ "id": "plain-model", "name": "plain-model" }),
+            ]
+        );
+    }
+
+    #[test]
+    fn model_list_drops_blank_and_duplicate_ids() {
+        let models = normalize_models_response(&json!({
+            "data": ["model-b", { "id": "model-b", "name": "Duplicate" }, { "id": "  " }]
+        }));
+
+        assert_eq!(models, vec![json!({ "id": "model-b", "name": "model-b" })]);
     }
 
     #[test]

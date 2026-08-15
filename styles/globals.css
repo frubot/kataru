@@ -882,6 +882,20 @@ body {
   background: var(--bg-hover);
 }
 
+.global-settings-selector-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.global-settings-selector-control {
+  width: min(60%, 24rem);
+  min-width: 0;
+  margin-left: auto;
+  flex: 0 1 auto;
+}
+
 .ai-connection-card {
   display: flex;
   flex-direction: column;

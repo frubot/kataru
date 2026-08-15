@@ -1121,21 +1121,23 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                 <AiConnectionSettings apiType={aiApiType} />
 
                                 {aiApiType === 'openrouter' && (
-                                    <div>
+                                    <div className="global-settings-selector-row">
                                         <label
                                             htmlFor="openrouter-ignored-providers"
-                                            style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: '0.375rem' }}
+                                            style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
                                         >
                                             使用しないプロバイダー
                                         </label>
-                                        <ProviderSelector
-                                            id="openrouter-ignored-providers"
-                                            value={openRouterIgnoredProviders}
-                                            onChange={setOpenRouterIgnoredProviders}
-                                        />
-                                        <p style={{ marginTop: '0.375rem', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                                            選択したプロバイダーをOpenRouterのルーティング候補から除外します。
-                                        </p>
+                                        <div className="global-settings-selector-control">
+                                            <ProviderSelector
+                                                id="openrouter-ignored-providers"
+                                                value={openRouterIgnoredProviders}
+                                                onChange={setOpenRouterIgnoredProviders}
+                                            />
+                                            <p style={{ marginTop: '0.375rem', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                                                選択したプロバイダーをOpenRouterのルーティング候補から除外します。
+                                            </p>
+                                        </div>
                                     </div>
                                 )}
 
@@ -1159,159 +1161,177 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                             }}>
 
                                 {/* Default chat model */}
-                                <div>
+                                <div className="global-settings-selector-row">
                                     <label
                                         htmlFor="default-chat-model-input"
-                                        style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: '0.375rem' }}
+                                        style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
                                     >
                                         会話
                                     </label>
-                                    <ModelSelector
-                                        id="default-chat-model-input"
-                                        value={defaultChatModel}
-                                        onChange={setDefaultChatModel}
-                                        outputModality="text"
-                                        placeholder={`例: ${apiTypeDefaults.defaultChatModel}`}
-                                    />
+                                    <div className="global-settings-selector-control">
+                                        <ModelSelector
+                                            id="default-chat-model-input"
+                                            value={defaultChatModel}
+                                            onChange={setDefaultChatModel}
+                                            outputModality="text"
+                                            placeholder={`例: ${apiTypeDefaults.defaultChatModel}`}
+                                        />
+                                    </div>
                                 </div>
 
                                 {/* Default director model */}
-                                <div>
+                                <div className="global-settings-selector-row">
                                     <label
                                         htmlFor="default-director-model-input"
-                                        style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: '0.375rem' }}
+                                        style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
                                     >
                                         シチュエーション管理
                                     </label>
-                                    <ModelSelector
-                                        id="default-director-model-input"
-                                        value={defaultDirectorModel}
-                                        onChange={setDefaultDirectorModel}
-                                        outputModality="text"
-                                        placeholder={`例: ${apiTypeDefaults.defaultDirectorModel}`}
-                                    />
+                                    <div className="global-settings-selector-control">
+                                        <ModelSelector
+                                            id="default-director-model-input"
+                                            value={defaultDirectorModel}
+                                            onChange={setDefaultDirectorModel}
+                                            outputModality="text"
+                                            placeholder={`例: ${apiTypeDefaults.defaultDirectorModel}`}
+                                        />
+                                    </div>
                                 </div>
 
                                 {/* Default auto generation model */}
-                                <div>
+                                <div className="global-settings-selector-row">
                                     <label
                                         htmlFor="default-auto-generation-model-input"
-                                        style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: '0.375rem' }}
+                                        style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
                                     >
                                         設定の自動生成
                                     </label>
-                                    <ModelSelector
-                                        id="default-auto-generation-model-input"
-                                        value={defaultAutoGenerationModel}
-                                        onChange={setDefaultAutoGenerationModel}
-                                        outputModality="text"
-                                        placeholder={`例: ${apiTypeDefaults.defaultAutoGenerationModel}`}
-                                    />
+                                    <div className="global-settings-selector-control">
+                                        <ModelSelector
+                                            id="default-auto-generation-model-input"
+                                            value={defaultAutoGenerationModel}
+                                            onChange={setDefaultAutoGenerationModel}
+                                            outputModality="text"
+                                            placeholder={`例: ${apiTypeDefaults.defaultAutoGenerationModel}`}
+                                        />
+                                    </div>
                                 </div>
 
                                 {/* Title generation model */}
-                                <div>
+                                <div className="global-settings-selector-row">
                                     <label
                                         htmlFor="title-generation-model-input"
-                                        style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: '0.375rem' }}
+                                        style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
                                     >
                                         タイトル生成
                                     </label>
-                                    <ModelSelector
-                                        id="title-generation-model-input"
-                                        value={titleGenerationModel}
-                                        onChange={setTitleGenerationModel}
-                                        outputModality="text"
-                                        placeholder={`例: ${apiTypeDefaults.titleGenerationModel}`}
-                                    />
+                                    <div className="global-settings-selector-control">
+                                        <ModelSelector
+                                            id="title-generation-model-input"
+                                            value={titleGenerationModel}
+                                            onChange={setTitleGenerationModel}
+                                            outputModality="text"
+                                            placeholder={`例: ${apiTypeDefaults.titleGenerationModel}`}
+                                        />
+                                    </div>
                                 </div>
 
                                 {/* Reply suggestion model */}
-                                <div>
+                                <div className="global-settings-selector-row">
                                     <label
                                         htmlFor="reply-suggestion-model-input"
-                                        style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: '0.375rem' }}
+                                        style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
                                     >
                                         返答の提案
                                     </label>
-                                    <ModelSelector
-                                        id="reply-suggestion-model-input"
-                                        value={replySuggestionModel}
-                                        onChange={setReplySuggestionModel}
-                                        outputModality="text"
-                                        placeholder={`例: ${apiTypeDefaults.replySuggestionModel}`}
-                                    />
+                                    <div className="global-settings-selector-control">
+                                        <ModelSelector
+                                            id="reply-suggestion-model-input"
+                                            value={replySuggestionModel}
+                                            onChange={setReplySuggestionModel}
+                                            outputModality="text"
+                                            placeholder={`例: ${apiTypeDefaults.replySuggestionModel}`}
+                                        />
+                                    </div>
                                 </div>
 
                                 {/* Summary model */}
-                                <div>
+                                <div className="global-settings-selector-row">
                                     <label
                                         htmlFor="summary-model-input"
-                                        style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: '0.375rem' }}
+                                        style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
                                     >
                                         コンテキスト圧縮
                                     </label>
-                                    <ModelSelector
-                                        id="summary-model-input"
-                                        value={summaryModel}
-                                        onChange={setSummaryModel}
-                                        outputModality="text"
-                                        placeholder={`例: ${apiTypeDefaults.summaryModel}`}
-                                    />
+                                    <div className="global-settings-selector-control">
+                                        <ModelSelector
+                                            id="summary-model-input"
+                                            value={summaryModel}
+                                            onChange={setSummaryModel}
+                                            outputModality="text"
+                                            placeholder={`例: ${apiTypeDefaults.summaryModel}`}
+                                        />
+                                    </div>
                                 </div>
 
                                 {/* Default image model */}
                                 {aiApiType === 'openrouter' && (
-                                    <div>
+                                    <div className="global-settings-selector-row">
                                         <label
                                             htmlFor="default-image-model-input"
-                                            style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: '0.375rem' }}
+                                            style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
                                         >
                                             画像生成
                                         </label>
-                                        <ModelSelector
-                                            id="default-image-model-input"
-                                            value={defaultImageModel}
-                                            onChange={setDefaultImageModel}
-                                            outputModality="image"
-                                            placeholder={`例: ${apiTypeDefaults.defaultImageModel}`}
-                                        />
+                                        <div className="global-settings-selector-control">
+                                            <ModelSelector
+                                                id="default-image-model-input"
+                                                value={defaultImageModel}
+                                                onChange={setDefaultImageModel}
+                                                outputModality="image"
+                                                placeholder={`例: ${apiTypeDefaults.defaultImageModel}`}
+                                            />
+                                        </div>
                                     </div>
                                 )}
 
                                 {/* Memory extraction model */}
-                                <div>
+                                <div className="global-settings-selector-row">
                                     <label
                                         htmlFor="memory-extraction-model-input"
-                                        style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: '0.375rem' }}
+                                        style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
                                     >
                                         メモリ保存
                                     </label>
-                                    <ModelSelector
-                                        id="memory-extraction-model-input"
-                                        value={memoryExtractionModel}
-                                        onChange={setMemoryExtractionModel}
-                                        outputModality="text"
-                                        placeholder={`例: ${apiTypeDefaults.memoryExtractionModel}`}
-                                    />
+                                    <div className="global-settings-selector-control">
+                                        <ModelSelector
+                                            id="memory-extraction-model-input"
+                                            value={memoryExtractionModel}
+                                            onChange={setMemoryExtractionModel}
+                                            outputModality="text"
+                                            placeholder={`例: ${apiTypeDefaults.memoryExtractionModel}`}
+                                        />
+                                    </div>
                                 </div>
 
                                 {/* Memory embedding model */}
                                 {aiApiType === 'openrouter' && (
-                                    <div>
+                                    <div className="global-settings-selector-row">
                                         <label
                                             htmlFor="memory-embedding-model-input"
-                                            style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)', marginBottom: '0.375rem' }}
+                                            style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
                                         >
                                             メモリ検索
                                         </label>
-                                        <ModelSelector
-                                            id="memory-embedding-model-input"
-                                            value={memoryEmbeddingModel}
-                                            onChange={setMemoryEmbeddingModel}
-                                            outputModality="embeddings"
-                                            placeholder={`例: ${apiTypeDefaults.memoryEmbeddingModel}`}
-                                        />
+                                        <div className="global-settings-selector-control">
+                                            <ModelSelector
+                                                id="memory-embedding-model-input"
+                                                value={memoryEmbeddingModel}
+                                                onChange={setMemoryEmbeddingModel}
+                                                outputModality="embeddings"
+                                                placeholder={`例: ${apiTypeDefaults.memoryEmbeddingModel}`}
+                                            />
+                                        </div>
                                     </div>
                                 )}
                             </div>

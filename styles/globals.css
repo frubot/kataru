@@ -2559,12 +2559,12 @@ body {
   line-height: 1.75;
 }
 
-.onboarding-provider-list {
+.onboarding-api-type-list {
   display: grid;
   gap: 0.625rem;
 }
 
-.onboarding-provider {
+.onboarding-api-type {
   width: 100%;
   display: flex;
   align-items: center;
@@ -2579,32 +2579,32 @@ body {
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 
-.onboarding-provider:hover,
-.onboarding-provider.selected {
+.onboarding-api-type:hover,
+.onboarding-api-type.selected {
   border-color: var(--accent-primary);
 }
 
-.onboarding-provider.selected {
+.onboarding-api-type.selected {
   background: color-mix(in srgb, var(--accent-primary) 7%, var(--bg-primary));
 }
 
-.onboarding-provider-copy {
+.onboarding-api-type-copy {
   flex: 1;
   min-width: 0;
 }
 
-.onboarding-provider-title,
-.onboarding-provider-description {
+.onboarding-api-type-title,
+.onboarding-api-type-description {
   display: block;
 }
 
-.onboarding-provider-title {
+.onboarding-api-type-title {
   font-size: 0.875rem;
   font-weight: 650;
   line-height: 1.4;
 }
 
-.onboarding-provider-description {
+.onboarding-api-type-description {
   margin-top: 0.1875rem;
   color: var(--text-muted);
   font-size: 0.75rem;
@@ -2622,7 +2622,7 @@ body {
   border-radius: 50%;
 }
 
-.onboarding-provider.selected .onboarding-radio {
+.onboarding-api-type.selected .onboarding-radio {
   border-color: var(--accent-primary);
 }
 
@@ -3058,7 +3058,7 @@ body {
     font-size: 1.25rem;
   }
 
-  .onboarding-provider {
+  .onboarding-api-type {
     align-items: flex-start;
   }
 

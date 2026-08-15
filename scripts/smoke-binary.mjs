@@ -61,7 +61,7 @@ async function postJson(url, value, origin) {
   return body;
 }
 
-const mockProvider = createServer(async (request, response) => {
+const mockUpstreamApi = createServer(async (request, response) => {
   let requestBody = "";
   for await (const chunk of request) requestBody += chunk;
   JSON.parse(requestBody);
@@ -82,7 +82,7 @@ const mockProvider = createServer(async (request, response) => {
 });
 
 const dataDirectory = await mkdtemp(join(process.cwd(), ".kataru-smoke-"));
-const providerPort = await listen(mockProvider);
+const apiPort = await listen(mockUpstreamApi);
 const applicationPort = await reservePort();
 const applicationUrl = `http://127.0.0.1:${applicationPort}`;
 let output = "";
@@ -100,7 +100,7 @@ const child = spawn(
     windowsHide: true,
     env: {
       ...process.env,
-      OPENAI_BASE_URL: `http://127.0.0.1:${providerPort}/v1`,
+      OPENAI_BASE_URL: `http://127.0.0.1:${apiPort}/v1`,
       OPENAI_API_KEY: "smoke-test",
     },
   },
@@ -194,8 +194,8 @@ try {
       timestamp: Date.now(),
       archived: false,
     }],
-    aiProviderConfig: {
-      aiProvider: "openai-compatible",
+    aiApiConfig: {
+      aiApiType: "openai-compatible",
     },
   }, applicationUrl);
   assert.equal(turn.messages[0].content, "Rust response");
@@ -217,8 +217,8 @@ try {
     child.kill();
     await exited;
   }
-  mockProvider.closeAllConnections();
-  await new Promise((resolvePromise) => mockProvider.close(resolvePromise));
+  mockUpstreamApi.closeAllConnections();
+  await new Promise((resolvePromise) => mockUpstreamApi.close(resolvePromise));
   await rm(dataDirectory, {
     recursive: true,
     force: true,

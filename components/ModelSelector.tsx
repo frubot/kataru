@@ -26,8 +26,8 @@ export default function ModelSelector({
     const generatedId = useId();
     const triggerId = id ?? `model-selector-${generatedId}`;
     const listboxId = `${triggerId}-listbox`;
-    const aiProvider = useStore((state) => state.aiProvider);
-    const getAiProviderConfig = useStore((state) => state.getAiProviderConfig);
+    const aiApiType = useStore((state) => state.aiApiType);
+    const getAiApiConfig = useStore((state) => state.getAiApiConfig);
     const [isOpen, setOpen] = useState(false);
     const [query, setQuery] = useState('');
     const [models, setModels] = useState<AvailableModel[]>([]);
@@ -43,7 +43,7 @@ export default function ModelSelector({
         setLoading(true);
         setError(null);
         try {
-            const nextModels = await getAvailableModels(getAiProviderConfig(), { force });
+            const nextModels = await getAvailableModels(getAiApiConfig(), { force });
             if (requestId === requestIdRef.current) setModels(nextModels);
         } catch (caught) {
             if (requestId === requestIdRef.current) {
@@ -53,7 +53,7 @@ export default function ModelSelector({
         } finally {
             if (requestId === requestIdRef.current) setLoading(false);
         }
-    }, [getAiProviderConfig]);
+    }, [getAiApiConfig]);
 
     useEffect(() => {
         requestIdRef.current += 1;
@@ -61,7 +61,7 @@ export default function ModelSelector({
         setLoading(false);
         setError(null);
         if (isOpen) void loadModels();
-    }, [aiProvider, isOpen, loadModels]);
+    }, [aiApiType, isOpen, loadModels]);
 
     useEffect(() => {
         if (!isOpen) return;

@@ -28,8 +28,8 @@ interface Props {
 }
 
 export default function ExpressionDiffModal({ isOpen, onClose, expressions, costumes, onUpsert, onRemove }: Props) {
-    const { defaultImageModel, aiProvider, getAiProviderConfig } = useStore();
-    const canGenerateDiffs = aiProvider === 'openrouter';
+    const { defaultImageModel, aiApiType, getAiApiConfig } = useStore();
+    const canGenerateDiffs = aiApiType === 'openrouter';
     const [selectedCostumeName, setSelectedCostumeName] = useState(DEFAULT_COSTUME_NAME);
     const [newName, setNewName] = useState('');
     const [newPromptDetail, setNewPromptDetail] = useState('');
@@ -117,7 +117,7 @@ export default function ExpressionDiffModal({ isOpen, onClose, expressions, cost
 
     const generate = async (name: string, busyKey: string, promptDetail?: string) => {
         if (!canGenerateDiffs) {
-            setError('選択中のプロバイダーでは元画像を使う表情差分生成に対応していません。アップロードを使ってください。');
+            setError('選択中のAPIでは元画像を使う表情差分生成に対応していません。アップロードを使ってください。');
             return;
         }
         if (!neutral) {
@@ -139,7 +139,7 @@ export default function ExpressionDiffModal({ isOpen, onClose, expressions, cost
                     model: model.trim(),
                     ...buildBaseImageRequest(neutral.image),
                     aspectRatio: EXPRESSION_ASPECT_RATIO,
-                    aiProviderConfig: getAiProviderConfig(),
+                    aiApiConfig: getAiApiConfig(),
                 }),
                 signal: controller.signal,
             });
@@ -370,7 +370,7 @@ export default function ExpressionDiffModal({ isOpen, onClose, expressions, cost
                         {addMode === 'generate' ? (
                             <p style={hintStyle}>
                                 {!canGenerateDiffs
-                                    ? '選択中のプロバイダーでは元画像を使う差分生成に対応していません。アップロードで追加してください。'
+                                    ? '選択中のAPIでは元画像を使う差分生成に対応していません。アップロードで追加してください。'
                                     : neutral
                                     ? selectedCostume
                                         ? '選択中の衣装画像をベースに、表情名と補足プロンプトを使って衣装専用差分を生成します'

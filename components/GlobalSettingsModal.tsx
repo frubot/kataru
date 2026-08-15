@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Check, ChevronDown, RefreshCw, ExternalLink, type LucideIcon } from 'lucide-react';
-import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, getDefaultModelDefaults, type AiProvider } from '@/lib/store';
+import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, getDefaultModelDefaults, type AiApiType } from '@/lib/store';
 import { createFullBackup, downloadJson, parseFullBackup, reassignIds, ParsedBackup } from '@/lib/importExport';
 import StatisticsPanel from '@/components/StatisticsPanel';
 import AiConnectionSettings from '@/components/AiConnectionSettings';
@@ -136,11 +136,11 @@ const VN_SPEED_OPTIONS = [
     { id: 'streaming', label: 'ストリーミング' },
 ] as const satisfies readonly { id: VnTypingSpeed; label: string }[];
 
-const AI_PROVIDER_OPTIONS = [
+const AI_API_TYPE_OPTIONS = [
     { id: 'openrouter', label: 'OpenRouter' },
     { id: 'openai-compatible', label: 'OpenAI / 互換API' },
     { id: 'anthropic', label: 'Anthropic / 互換API' },
-] as const satisfies readonly { id: AiProvider; label: string }[];
+] as const satisfies readonly { id: AiApiType; label: string }[];
 
 const VN_SPEED_INDEX: Record<VnTypingSpeed, number> = {
     slow: 0,
@@ -332,13 +332,13 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         memoryEmbeddingModel, setMemoryEmbeddingModel,
         generateTitleOnFirstReply, setGenerateTitleOnFirstReply,
         replySuggestionsEnabled, setReplySuggestionsEnabled,
-        aiProvider, setAiProvider,
+        aiApiType, setAiApiType,
         fullJsonDebugEnabled, detailedErrorLoggingEnabled, fullJsonDebugLogs,
         setThemeMode, setThemePalette, setVnTypingSpeed,
         setFullJsonDebugEnabled, setDetailedErrorLoggingEnabled, clearFullJsonDebugLogs,
         clearAllHistory, resetApplication, mergeBackup, restoreBackup,
     } = useStore();
-    const providerDefaults = getDefaultModelDefaults(aiProvider);
+    const apiTypeDefaults = getDefaultModelDefaults(aiApiType);
     const [showClearConfirm, setShowClearConfirm] = useState(false);
     const [showResetConfirm, setShowResetConfirm] = useState(false);
     const [importData, setImportData] = useState<ParsedBackup | null>(null);
@@ -356,11 +356,11 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
     const [activeTab, setActiveTab] = useState<SettingsTab>('general');
     const [isThemeModeMenuOpen, setThemeModeMenuOpen] = useState(false);
     const [isPaletteMenuOpen, setPaletteMenuOpen] = useState(false);
-    const [isAiProviderMenuOpen, setAiProviderMenuOpen] = useState(false);
+    const [isAiApiTypeMenuOpen, setAiApiTypeMenuOpen] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const themeModeMenuRef = useRef<HTMLDivElement>(null);
     const paletteMenuRef = useRef<HTMLDivElement>(null);
-    const aiProviderMenuRef = useRef<HTMLDivElement>(null);
+    const aiApiTypeMenuRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -372,7 +372,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         if (!isOpen) {
             setThemeModeMenuOpen(false);
             setPaletteMenuOpen(false);
-            setAiProviderMenuOpen(false);
+            setAiApiTypeMenuOpen(false);
         }
     }, [isOpen]);
 
@@ -434,18 +434,18 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
     }, [isPaletteMenuOpen]);
 
     useEffect(() => {
-        if (!isAiProviderMenuOpen) return;
+        if (!isAiApiTypeMenuOpen) return;
 
         const handlePointerDown = (event: PointerEvent) => {
             const target = event.target;
-            if (target instanceof Node && !aiProviderMenuRef.current?.contains(target)) {
-                setAiProviderMenuOpen(false);
+            if (target instanceof Node && !aiApiTypeMenuRef.current?.contains(target)) {
+                setAiApiTypeMenuOpen(false);
             }
         };
 
         document.addEventListener('pointerdown', handlePointerDown);
         return () => document.removeEventListener('pointerdown', handlePointerDown);
-    }, [isAiProviderMenuOpen]);
+    }, [isAiApiTypeMenuOpen]);
 
     if (!isOpen) return null;
 
@@ -1012,7 +1012,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
 
                         {activeTab === 'models' && (
                             <>
-                        {/* API Provider Section */}
+                        {/* API type section */}
                         <div style={{ marginBottom: '1.5rem' }}>
                             <h3 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '0.75rem' }}>
                                 接続先
@@ -1020,18 +1020,18 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                                 <div
                                     className="settings-select-anchor"
-                                    ref={aiProviderMenuRef}
+                                    ref={aiApiTypeMenuRef}
                                     style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}
                                 >
                                     <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
-                                        プロバイダー
+                                        APIの種類
                                     </span>
                                     <button
                                         type="button"
                                         className="settings-select-trigger"
                                         aria-haspopup="menu"
-                                        aria-expanded={isAiProviderMenuOpen}
-                                        onClick={() => setAiProviderMenuOpen((open) => !open)}
+                                        aria-expanded={isAiApiTypeMenuOpen}
+                                        onClick={() => setAiApiTypeMenuOpen((open) => !open)}
                                         style={{
                                             display: 'inline-flex',
                                             alignItems: 'center',
@@ -1049,7 +1049,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         }}
                                     >
                                         <span style={{ whiteSpace: 'nowrap' }}>
-                                            {AI_PROVIDER_OPTIONS.find(({ id }) => id === aiProvider)?.label ?? AI_PROVIDER_OPTIONS[0].label}
+                                            {AI_API_TYPE_OPTIONS.find(({ id }) => id === aiApiType)?.label ?? AI_API_TYPE_OPTIONS[0].label}
                                         </span>
                                         <ChevronDown
                                             size={15}
@@ -1057,12 +1057,12 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                             style={{
                                                 flexShrink: 0,
                                                 color: 'var(--text-muted)',
-                                                transform: isAiProviderMenuOpen ? 'rotate(180deg)' : undefined,
+                                                transform: isAiApiTypeMenuOpen ? 'rotate(180deg)' : undefined,
                                                 transition: 'transform 0.15s ease',
                                             }}
                                         />
                                     </button>
-                                    {isAiProviderMenuOpen && (
+                                    {isAiApiTypeMenuOpen && (
                                         <div
                                             role="menu"
                                             aria-label="接続先"
@@ -1080,8 +1080,8 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                                 zIndex: 20,
                                             }}
                                         >
-                                            {AI_PROVIDER_OPTIONS.map((option) => {
-                                                const selected = aiProvider === option.id;
+                                            {AI_API_TYPE_OPTIONS.map((option) => {
+                                                const selected = aiApiType === option.id;
                                                 return (
                                                     <button
                                                         key={option.id}
@@ -1090,8 +1090,8 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                                         role="menuitemradio"
                                                         aria-checked={selected}
                                                         onClick={() => {
-                                                            setAiProvider(option.id);
-                                                            setAiProviderMenuOpen(false);
+                                                            setAiApiType(option.id);
+                                                            setAiApiTypeMenuOpen(false);
                                                         }}
                                                         style={{
                                                             display: 'flex',
@@ -1116,9 +1116,9 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     )}
                                 </div>
 
-                                <AiConnectionSettings provider={aiProvider} />
+                                <AiConnectionSettings apiType={aiApiType} />
 
-                                {aiProvider !== 'openrouter' && (
+                                {aiApiType !== 'openrouter' && (
                                     <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
                                         互換APIでは一部の機能が制限されます。OpenRouterで全ての機能をご利用いただけます。
                                     </p>
@@ -1149,7 +1149,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         id="default-chat-model-input"
                                         value={defaultChatModel}
                                         onChange={setDefaultChatModel}
-                                        placeholder={`例: ${providerDefaults.defaultChatModel}`}
+                                        placeholder={`例: ${apiTypeDefaults.defaultChatModel}`}
                                     />
                                 </div>
 
@@ -1165,7 +1165,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         id="default-director-model-input"
                                         value={defaultDirectorModel}
                                         onChange={setDefaultDirectorModel}
-                                        placeholder={`例: ${providerDefaults.defaultDirectorModel}`}
+                                        placeholder={`例: ${apiTypeDefaults.defaultDirectorModel}`}
                                     />
                                 </div>
 
@@ -1181,7 +1181,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         id="default-auto-generation-model-input"
                                         value={defaultAutoGenerationModel}
                                         onChange={setDefaultAutoGenerationModel}
-                                        placeholder={`例: ${providerDefaults.defaultAutoGenerationModel}`}
+                                        placeholder={`例: ${apiTypeDefaults.defaultAutoGenerationModel}`}
                                     />
                                 </div>
 
@@ -1197,7 +1197,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         id="title-generation-model-input"
                                         value={titleGenerationModel}
                                         onChange={setTitleGenerationModel}
-                                        placeholder={`例: ${providerDefaults.titleGenerationModel}`}
+                                        placeholder={`例: ${apiTypeDefaults.titleGenerationModel}`}
                                     />
                                 </div>
 
@@ -1213,7 +1213,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         id="reply-suggestion-model-input"
                                         value={replySuggestionModel}
                                         onChange={setReplySuggestionModel}
-                                        placeholder={`例: ${providerDefaults.replySuggestionModel}`}
+                                        placeholder={`例: ${apiTypeDefaults.replySuggestionModel}`}
                                     />
                                 </div>
 
@@ -1229,12 +1229,12 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         id="summary-model-input"
                                         value={summaryModel}
                                         onChange={setSummaryModel}
-                                        placeholder={`例: ${providerDefaults.summaryModel}`}
+                                        placeholder={`例: ${apiTypeDefaults.summaryModel}`}
                                     />
                                 </div>
 
                                 {/* Default image model */}
-                                {aiProvider === 'openrouter' && (
+                                {aiApiType === 'openrouter' && (
                                     <div>
                                         <label
                                             htmlFor="default-image-model-input"
@@ -1246,7 +1246,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                             id="default-image-model-input"
                                             value={defaultImageModel}
                                             onChange={setDefaultImageModel}
-                                            placeholder={`例: ${providerDefaults.defaultImageModel}`}
+                                            placeholder={`例: ${apiTypeDefaults.defaultImageModel}`}
                                         />
                                     </div>
                                 )}
@@ -1263,12 +1263,12 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         id="memory-extraction-model-input"
                                         value={memoryExtractionModel}
                                         onChange={setMemoryExtractionModel}
-                                        placeholder={`例: ${providerDefaults.memoryExtractionModel}`}
+                                        placeholder={`例: ${apiTypeDefaults.memoryExtractionModel}`}
                                     />
                                 </div>
 
                                 {/* Memory embedding model */}
-                                {aiProvider === 'openrouter' && (
+                                {aiApiType === 'openrouter' && (
                                     <div>
                                         <label
                                             htmlFor="memory-embedding-model-input"
@@ -1280,7 +1280,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                             id="memory-embedding-model-input"
                                             value={memoryEmbeddingModel}
                                             onChange={setMemoryEmbeddingModel}
-                                            placeholder={`例: ${providerDefaults.memoryEmbeddingModel}`}
+                                            placeholder={`例: ${apiTypeDefaults.memoryEmbeddingModel}`}
                                         />
                                     </div>
                                 )}

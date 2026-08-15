@@ -20,7 +20,7 @@ type ImageSource = 'generated' | 'uploaded';
 type CropTarget = 'neutral' | 'avatar';
 
 export default function ImageGenerationModal({ isOpen, onClose, onComplete }: Props) {
-    const { defaultImageModel, aiProvider, openAiCompatibleImageGenerationEnabled, getAiProviderConfig } = useStore();
+    const { defaultImageModel, aiApiType, openAiCompatibleImageGenerationEnabled, getAiApiConfig } = useStore();
     const [prompt, setPrompt] = useState('');
     const [model, setModel] = useState(defaultImageModel);
     const [generating, setGenerating] = useState(false);
@@ -34,11 +34,11 @@ export default function ImageGenerationModal({ isOpen, onClose, onComplete }: Pr
     const abortRef = useRef<AbortController | null>(null);
     const imgRef = useRef<HTMLImageElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const canGenerateImages = aiProvider === 'openrouter'
-        || (aiProvider === 'openai-compatible' && openAiCompatibleImageGenerationEnabled);
-    const imageGenerationHint = aiProvider === 'anthropic'
+    const canGenerateImages = aiApiType === 'openrouter'
+        || (aiApiType === 'openai-compatible' && openAiCompatibleImageGenerationEnabled);
+    const imageGenerationHint = aiApiType === 'anthropic'
         ? 'Anthropic APIでは画像生成を利用できません。ファイルからアップロードしてください。'
-        : aiProvider === 'openai-compatible'
+        : aiApiType === 'openai-compatible'
         ? openAiCompatibleImageGenerationEnabled
             ? 'OpenAI互換APIでは、テキストからの画像生成だけを試します。'
             : 'OpenAI互換APIでの画像生成は無効です。ファイルからアップロードしてください。'
@@ -91,7 +91,7 @@ export default function ImageGenerationModal({ isOpen, onClose, onComplete }: Pr
                     prompt: prompt.trim(),
                     model: model.trim(),
                     aspectRatio: IMAGE_ASPECT_RATIO,
-                    aiProviderConfig: getAiProviderConfig(),
+                    aiApiConfig: getAiApiConfig(),
                 }),
                 signal: controller.signal,
             });

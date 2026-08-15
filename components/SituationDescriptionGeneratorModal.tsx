@@ -24,7 +24,7 @@ export default function SituationDescriptionGeneratorModal({
     participants,
     initialModel,
 }: Props) {
-    const { getAiProviderConfig } = useStore();
+    const { getAiApiConfig } = useStore();
     const [direction, setDirection] = useState('');
     const [model, setModel] = useState('');
     const [generated, setGenerated] = useState('');
@@ -82,7 +82,7 @@ export default function SituationDescriptionGeneratorModal({
                     situationName: situationName.trim(),
                     participants,
                     model: model.trim(),
-                    aiProviderConfig: getAiProviderConfig(),
+                    aiApiConfig: getAiApiConfig(),
                 }),
                 signal: controller.signal,
             });

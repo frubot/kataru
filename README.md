@@ -102,7 +102,7 @@ kataru config set anthropic.api-key
 kataru config set anthropic.base-url https://api.anthropic.com/v1
 ```
 
-環境変数には`ANTHROPIC_API_KEY`と`ANTHROPIC_BASE_URL`を利用できます。モデル設定には`claude-...`形式など、接続先で有効なモデルIDを指定してください。Anthropicプロバイダーではテキスト生成と構造化出力を利用でき、embeddingsと画像生成は無効になります。
+環境変数には`ANTHROPIC_API_KEY`と`ANTHROPIC_BASE_URL`を利用できます。モデル設定には`claude-...`形式など、接続先で有効なモデルIDを指定してください。Anthropic APIではテキスト生成と構造化出力を利用でき、embeddingsと画像生成は無効になります。
 
 ## 開発
 

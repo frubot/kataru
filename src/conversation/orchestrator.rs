@@ -9,7 +9,7 @@ use serde_json::{Map, Value, json};
 use crate::{
     AppState,
     ai::{
-        AiProviderConfig, Provider,
+        AiApiClient, AiApiConfig, ai_api_config_value,
         routes::{
             extract_message_text, memory_extraction_prompt, memory_schema, optional_model,
             parse_memory_updates, resolve_model, structured_completion,
@@ -102,18 +102,16 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
         ));
     }
 
-    let provider_config = payload
-        .get("aiProviderConfig")
-        .filter(|value| !value.is_null())
+    let api_config = ai_api_config_value(&payload)
         .cloned()
-        .map(serde_json::from_value::<AiProviderConfig>)
+        .map(serde_json::from_value::<AiApiConfig>)
         .transpose()
-        .map_err(|error| AppError::BadRequest(format!("aiProviderConfig が不正です: {error}")))?;
-    let provider = Provider::resolve(
+        .map_err(|error| AppError::BadRequest(format!("aiApiConfig が不正です: {error}")))?;
+    let api_client = AiApiClient::resolve(
         state.http_client.clone(),
         state.application_origin.clone(),
         &state.ai_config.effective(),
-        provider_config,
+        api_config,
     )?;
 
     let summary_character = if situation.is_some() {
@@ -134,7 +132,7 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
         .unwrap_or(DEFAULT_MAX_HISTORY);
     let fallback_summary = (!previous_summary.is_empty()).then_some(previous_summary.clone());
     let summary_attempt = maybe_summarize(
-        &provider,
+        &api_client,
         &history,
         previous_summary,
         summary_character.is_some_and(|value| boolean(value, "enableSummary")),
@@ -226,7 +224,7 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
                 }
             } else {
                 request_director(
-                    &provider,
+                    &api_client,
                     situation,
                     &participants,
                     &combined,
@@ -270,7 +268,7 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
                     resolve_model(&payload, "memoryEmbeddingModel", "memoryEmbeddingModel")?;
                 search_memories(
                     &state,
-                    &provider,
+                    &api_client,
                     &payload,
                     &embedding_model,
                     &memory_character_id,
@@ -287,7 +285,7 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
                 relevant.iter().map(|memory| memory.id.clone()),
             );
             let generated_messages = generate_for_character(
-                &provider,
+                &api_client,
                 actor,
                 &actor_history,
                 &room,
@@ -315,7 +313,7 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
                 resolve_model(&payload, "memoryEmbeddingModel", "memoryEmbeddingModel")?;
             search_memories(
                 &state,
-                &provider,
+                &api_client,
                 &payload,
                 &embedding_model,
                 &string(character, "id"),
@@ -332,7 +330,7 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
             relevant.iter().map(|memory| memory.id.clone()),
         );
         generated = generate_for_character(
-            &provider,
+            &api_client,
             character,
             &slice_by_user_history(&active_history, history_limit),
             &room,
@@ -361,7 +359,7 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
             let extraction_model =
                 resolve_model(&payload, "memoryExtractionModel", "memoryExtractionModel")?;
             extract_memory_candidates(
-                &provider,
+                &api_client,
                 &extraction_model,
                 context,
                 &generated,
@@ -394,7 +392,7 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
 
 #[allow(clippy::too_many_arguments)]
 async fn generate_for_character(
-    provider: &Provider,
+    api_client: &AiApiClient,
     character: &Value,
     history: &[Value],
     room: &Value,
@@ -448,7 +446,7 @@ async fn generate_for_character(
     let prompt = serde_json::to_string_pretty(&body["messages"])
         .expect("completion messages must be serializable");
     let started = now_ms();
-    let raw = structured_completion(provider, body, schema, 120).await?;
+    let raw = structured_completion(api_client, body, schema, 120).await?;
     let content = extract_message_text(&raw);
     let envelope = parse_assistant_response(&content, &expression_names, message_mode)?;
     if !secret_mode {
@@ -513,7 +511,7 @@ fn envelope_to_messages(
 
 #[allow(clippy::too_many_arguments)]
 async fn request_director(
-    provider: &Provider,
+    api_client: &AiApiClient,
     situation: &Value,
     actors: &[Value],
     messages: &[Value],
@@ -562,12 +560,12 @@ async fn request_director(
         "temperature": 0.2,
         "stream": false,
     });
-    if provider.is_openrouter() {
+    if api_client.is_openrouter() {
         request["reasoning"] = json!({"effort": "none"});
     }
     let prompt = serde_json::to_string_pretty(&request["messages"])
         .expect("director messages must be serializable");
-    let raw = structured_completion(provider, request, schema, 120).await?;
+    let raw = structured_completion(api_client, request, schema, 120).await?;
     let content = extract_message_text(&raw);
     let mut decision = parse_director_decision(&content, &eligible_ids)?;
     if let Some(banned) = banned_actor_id {
@@ -606,7 +604,7 @@ async fn request_director(
 
 #[allow(clippy::too_many_arguments)]
 async fn maybe_summarize(
-    provider: &Provider,
+    api_client: &AiApiClient,
     history: &[Value],
     previous_summary: String,
     enabled: bool,
@@ -628,7 +626,7 @@ async fn maybe_summarize(
     }
     let model = model.ok_or_else(|| {
         AppError::BadRequest(
-            "summaryModel または aiProviderConfig.modelDefaults.summaryModel が必要です。"
+            "summaryModel または aiApiConfig.modelDefaults.summaryModel が必要です。"
                 .to_owned(),
         )
     })?;
@@ -639,7 +637,7 @@ async fn maybe_summarize(
     };
     let (system, user) = summary_prompts(&named_messages, existing.as_deref(), group);
     let raw = structured_completion(
-        provider,
+        api_client,
         json!({
             "model": model,
             "messages": [
@@ -670,7 +668,7 @@ struct ScoredMemory {
 
 async fn search_memories(
     state: &AppState,
-    provider: &Provider,
+    api_client: &AiApiClient,
     payload: &Value,
     embedding_model: &str,
     character_id: &str,
@@ -713,7 +711,7 @@ async fn search_memories(
         .filter_map(|message| message.get("id").and_then(Value::as_str))
         .collect::<HashSet<_>>();
     let query_embedding =
-        request_embedding(provider, payload, &query, embedding_model, "search_query")
+        request_embedding(api_client, payload, &query, embedding_model, "search_query")
             .await
             .ok()
             .flatten();
@@ -811,7 +809,7 @@ async fn search_memories(
 }
 
 async fn request_embedding(
-    provider: &Provider,
+    api_client: &AiApiClient,
     payload: &Value,
     input: &str,
     model: &str,
@@ -820,15 +818,15 @@ async fn request_embedding(
     if input.trim().is_empty() {
         return Ok(None);
     }
-    if !provider.embeddings_enabled() {
+    if !api_client.embeddings_enabled() {
         return Ok(None);
     }
-    if payload
-        .pointer("/aiProviderConfig/aiProvider")
+    if ai_api_config_value(payload)
+        .and_then(|config| config.get("aiApiType").or_else(|| config.get("aiProvider")))
         .and_then(Value::as_str)
         == Some("openai-compatible")
-        && payload
-            .pointer("/aiProviderConfig/openAiCompatibleEmbeddingsEnabled")
+        && ai_api_config_value(payload)
+            .and_then(|config| config.get("openAiCompatibleEmbeddingsEnabled"))
             .and_then(Value::as_bool)
             != Some(true)
     {
@@ -839,11 +837,11 @@ async fn request_embedding(
         "model": model,
         "encoding_format": "float",
     });
-    if provider.is_openrouter() {
+    if api_client.is_openrouter() {
         body["input_type"] = Value::String(input_type.into());
         body["provider"] = json!({"data_collection": "deny"});
     }
-    let response = provider
+    let response = api_client
         .post("embeddings", Duration::from_secs(12))
         .json(&body)
         .send()
@@ -866,7 +864,7 @@ struct ExtractionContext {
 }
 
 async fn extract_memory_candidates(
-    provider: &Provider,
+    api_client: &AiApiClient,
     model: &str,
     context: ExtractionContext,
     generated: &[Value],
@@ -902,7 +900,7 @@ async fn extract_memory_candidates(
         "temperature": 0.1,
         "stream": false,
     });
-    let raw = structured_completion(provider, body, memory_schema(), 60).await?;
+    let raw = structured_completion(api_client, body, memory_schema(), 60).await?;
     push_usage(usages, &raw, &context.character, "memory-extraction");
     let content = extract_message_text(&raw);
     let setting = character_setting(&context.character);

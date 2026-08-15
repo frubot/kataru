@@ -1,4 +1,4 @@
-import type { AiProviderConfig } from './aiProvider';
+import type { AiApiConfig } from './aiApi';
 
 export interface AvailableModel {
     id: string;
@@ -13,9 +13,9 @@ const modelCache = new Map<string, AvailableModel[]>();
 const pendingRequests = new Map<string, Promise<AvailableModel[]>>();
 let cacheGeneration = 0;
 
-function cacheKey(config: AiProviderConfig): string {
+function cacheKey(config: AiApiConfig): string {
     return JSON.stringify([
-        config.aiProvider,
+        config.aiApiType,
         config.openAiCompatibleBaseUrl,
     ]);
 }
@@ -34,13 +34,13 @@ function isModelsResponse(value: unknown): value is ModelsResponse {
     ));
 }
 
-async function requestAvailableModels(config: AiProviderConfig): Promise<AvailableModel[]> {
+async function requestAvailableModels(config: AiApiConfig): Promise<AvailableModel[]> {
     const response = await fetch('/api/ai/models', {
         method: 'POST',
         cache: 'no-store',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ aiProviderConfig: config }),
+        body: JSON.stringify({ aiApiConfig: config }),
     });
     const body: unknown = await response.json().catch(() => null);
     if (!response.ok) {
@@ -57,7 +57,7 @@ async function requestAvailableModels(config: AiProviderConfig): Promise<Availab
 }
 
 export function getAvailableModels(
-    config: AiProviderConfig,
+    config: AiApiConfig,
     options: { force?: boolean } = {},
 ): Promise<AvailableModel[]> {
     const key = cacheKey(config);

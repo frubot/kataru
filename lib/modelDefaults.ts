@@ -1,4 +1,4 @@
-import type { AiProvider } from './aiProvider';
+import type { AiApiType } from './aiApi';
 
 export const DEFAULT_SUMMARY_MODEL = 'z-ai/glm-5.2';
 export const DEFAULT_CHAT_MODEL = 'z-ai/glm-5.2';
@@ -23,7 +23,7 @@ export interface ModelDefaults {
     memoryEmbeddingModel: string;
 }
 
-export type ModelDefaultsByProvider = Record<AiProvider, ModelDefaults>;
+export type ModelDefaultsByApiType = Record<AiApiType, ModelDefaults>;
 
 export const DEFAULT_MODEL_DEFAULTS: ModelDefaults = {
     summaryModel: DEFAULT_SUMMARY_MODEL,
@@ -37,9 +37,9 @@ export const DEFAULT_MODEL_DEFAULTS: ModelDefaults = {
     memoryEmbeddingModel: DEFAULT_MEMORY_EMBEDDING_MODEL,
 };
 
-const AI_PROVIDERS: readonly AiProvider[] = ['openrouter', 'openai-compatible', 'anthropic'];
+const AI_API_TYPES: readonly AiApiType[] = ['openrouter', 'openai-compatible', 'anthropic'];
 
-export const DEFAULT_MODEL_DEFAULTS_BY_PROVIDER: ModelDefaultsByProvider = {
+export const DEFAULT_MODEL_DEFAULTS_BY_API_TYPE: ModelDefaultsByApiType = {
     openrouter: DEFAULT_MODEL_DEFAULTS,
     'openai-compatible': DEFAULT_MODEL_DEFAULTS,
     anthropic: {
@@ -54,8 +54,8 @@ export const DEFAULT_MODEL_DEFAULTS_BY_PROVIDER: ModelDefaultsByProvider = {
     },
 };
 
-export function getDefaultModelDefaults(provider: AiProvider): ModelDefaults {
-    return DEFAULT_MODEL_DEFAULTS_BY_PROVIDER[provider];
+export function getDefaultModelDefaults(apiType: AiApiType): ModelDefaults {
+    return DEFAULT_MODEL_DEFAULTS_BY_API_TYPE[apiType];
 }
 
 function normalizeModelName(value: unknown, fallback: string): string {
@@ -79,17 +79,17 @@ export function normalizeModelDefaults(value: unknown, fallback: ModelDefaults =
     };
 }
 
-export function normalizeModelDefaultsByProvider(
+export function normalizeModelDefaultsByApiType(
     value: unknown,
     fallback?: ModelDefaults,
-): ModelDefaultsByProvider {
+): ModelDefaultsByApiType {
     const record = value && typeof value === 'object'
-        ? value as Partial<Record<AiProvider, unknown>>
+        ? value as Partial<Record<AiApiType, unknown>>
         : {};
     return Object.fromEntries(
-        AI_PROVIDERS.map((provider) => [
-            provider,
-            normalizeModelDefaults(record[provider], fallback ?? getDefaultModelDefaults(provider)),
+        AI_API_TYPES.map((apiType) => [
+            apiType,
+            normalizeModelDefaults(record[apiType], fallback ?? getDefaultModelDefaults(apiType)),
         ]),
-    ) as ModelDefaultsByProvider;
+    ) as ModelDefaultsByApiType;
 }

@@ -16,8 +16,8 @@ import {
     DEFAULT_ANTHROPIC_BASE_URL,
     DEFAULT_ANTHROPIC_TEXT_MODEL,
     DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
-} from '@/lib/aiProvider';
-import { useStore, type AiProvider } from '@/lib/store';
+} from '@/lib/aiApi';
+import { useStore, type AiApiType } from '@/lib/store';
 
 interface FirstRunGuideProps {
     onOpenSidebar: () => void;
@@ -25,7 +25,7 @@ interface FirstRunGuideProps {
     onSkip: () => void;
 }
 
-type GuideStep = 'provider' | 'connection' | 'character';
+type GuideStep = 'api-type' | 'connection' | 'character';
 type ConnectionState = 'idle' | 'checking' | 'error';
 
 interface ConnectionStatusResponse {
@@ -33,8 +33,8 @@ interface ConnectionStatusResponse {
     message?: string;
 }
 
-const PROVIDER_OPTIONS: readonly {
-    id: AiProvider;
+const API_TYPE_OPTIONS: readonly {
+    id: AiApiType;
     title: string;
 }[] = [
     {
@@ -53,9 +53,9 @@ const PROVIDER_OPTIONS: readonly {
 
 export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: FirstRunGuideProps) {
     const {
-        aiProvider,
-        setAiProvider,
-        getAiProviderConfig,
+        aiApiType,
+        setAiApiType,
+        getAiApiConfig,
         defaultChatModel,
         defaultAutoGenerationModel,
         setDefaultChatModel,
@@ -67,7 +67,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
         createCharacter,
         createRoom,
     } = useStore();
-    const [step, setStep] = useState<GuideStep>('provider');
+    const [step, setStep] = useState<GuideStep>('api-type');
     const [serverConfig, setServerConfig] = useState<ServerAiConfigStatus | null>(null);
     const [configLoading, setConfigLoading] = useState(false);
     const [configLoadAttempt, setConfigLoadAttempt] = useState(0);
@@ -119,10 +119,10 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
         return () => {
             cancelled = true;
         };
-    }, [aiProvider, configLoadAttempt, step]);
+    }, [aiApiType, configLoadAttempt, step]);
 
-    const selectProvider = (provider: AiProvider) => {
-        setAiProvider(provider);
+    const selectApiType = (apiType: AiApiType) => {
+        setAiApiType(apiType);
         setConnectionState('idle');
         setConnectionMessage('');
     };
@@ -139,13 +139,13 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
         const anthropicBaseChanged = trimmedAnthropicBaseUrl !== serverConfig.anthropic.baseUrl;
         const trimmedAnthropicModel = anthropicModel.trim();
 
-        if (aiProvider === 'openrouter' && !serverConfig.openrouter.configured && !trimmedOpenRouterKey) {
+        if (aiApiType === 'openrouter' && !serverConfig.openrouter.configured && !trimmedOpenRouterKey) {
             setConnectionState('error');
             setConnectionMessage('OpenRouter APIキーを入力してください。');
             return;
         }
         if (
-            aiProvider === 'openai-compatible'
+            aiApiType === 'openai-compatible'
             && !trimmedOpenAiBaseUrl
             && serverConfig.openai.baseUrlEditable
         ) {
@@ -154,7 +154,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
             return;
         }
         if (
-            aiProvider === 'anthropic'
+            aiApiType === 'anthropic'
             && !trimmedAnthropicBaseUrl
             && serverConfig.anthropic.baseUrlEditable
         ) {
@@ -162,13 +162,13 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
             setConnectionMessage('エンドポイントを入力してください。');
             return;
         }
-        if (aiProvider === 'anthropic' && !trimmedAnthropicModel) {
+        if (aiApiType === 'anthropic' && !trimmedAnthropicModel) {
             setConnectionState('error');
             setConnectionMessage('Anthropicで使用するモデルIDを入力してください。');
             return;
         }
         if (
-            aiProvider === 'anthropic'
+            aiApiType === 'anthropic'
             && (!serverConfig.anthropic.apiKey.configured || anthropicBaseChanged)
             && !trimmedAnthropicKey
         ) {
@@ -177,7 +177,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
             return;
         }
         if (
-            aiProvider === 'openai-compatible'
+            aiApiType === 'openai-compatible'
             && trimmedOpenAiBaseUrl === DEFAULT_OPENAI_COMPATIBLE_BASE_URL
             && (!serverConfig.openai.apiKey.configured || openAiBaseChanged)
             && !trimmedOpenAiKey
@@ -192,9 +192,9 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
 
         try {
             let nextServerConfig = serverConfig;
-            if (aiProvider === 'openrouter' && serverConfig.openrouter.editable && trimmedOpenRouterKey) {
+            if (aiApiType === 'openrouter' && serverConfig.openrouter.editable && trimmedOpenRouterKey) {
                 nextServerConfig = await setOpenRouterApiKey(trimmedOpenRouterKey);
-            } else if (aiProvider === 'openai-compatible') {
+            } else if (aiApiType === 'openai-compatible') {
                 const update = {
                     ...(serverConfig.openai.baseUrlEditable && openAiBaseChanged
                         ? { baseUrl: trimmedOpenAiBaseUrl }
@@ -206,7 +206,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                 if (Object.keys(update).length > 0) {
                     nextServerConfig = await setOpenAiConfig(update);
                 }
-            } else if (aiProvider === 'anthropic') {
+            } else if (aiApiType === 'anthropic') {
                 const update = {
                     ...(serverConfig.anthropic.baseUrlEditable && anthropicBaseChanged
                         ? { baseUrl: trimmedAnthropicBaseUrl }
@@ -237,7 +237,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                 method: 'POST',
                 credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ aiProviderConfig: getAiProviderConfig() }),
+                body: JSON.stringify({ aiApiConfig: getAiApiConfig() }),
             });
             const data = await response.json().catch(() => ({})) as ConnectionStatusResponse;
             if (!response.ok) {
@@ -269,7 +269,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                 body: JSON.stringify({
                     direction: description.trim(),
                     model: defaultAutoGenerationModel,
-                    aiProviderConfig: getAiProviderConfig(),
+                    aiApiConfig: getAiApiConfig(),
                 }),
             });
             const data = await response.json().catch(() => ({}));
@@ -299,11 +299,11 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
         onComplete();
     };
 
-    const stepNumber = step === 'provider' ? 1 : step === 'connection' ? 2 : 3;
+    const stepNumber = step === 'api-type' ? 1 : step === 'connection' ? 2 : 3;
     const selectedApiKeyStatus = serverConfig
-        ? aiProvider === 'openrouter'
+        ? aiApiType === 'openrouter'
             ? serverConfig.openrouter
-            : aiProvider === 'anthropic'
+            : aiApiType === 'anthropic'
                 ? serverConfig.anthropic.apiKey
                 : serverConfig.openai.apiKey
         : null;
@@ -311,9 +311,9 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
         && openAiBaseUrl.trim().replace(/\/+$/, '') !== serverConfig.openai.baseUrl;
     const anthropicBaseChanged = serverConfig != null
         && anthropicBaseUrl.trim().replace(/\/+$/, '') !== serverConfig.anthropic.baseUrl;
-    const hasConnectionChanges = aiProvider === 'openrouter'
+    const hasConnectionChanges = aiApiType === 'openrouter'
         ? openRouterApiKey.trim().length > 0
-        : aiProvider === 'anthropic'
+        : aiApiType === 'anthropic'
             ? anthropicBaseChanged
                 || anthropicApiKey.trim().length > 0
                 || anthropicModel.trim() !== defaultChatModel
@@ -338,11 +338,11 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
             <div className="onboarding-scroll">
                 <div className={`onboarding-card ${step !== 'character' ? 'is-connection-step' : ''}`}>
                     <div className="onboarding-navigation">
-                        {step !== 'provider' ? (
+                        {step !== 'api-type' ? (
                             <button
                                 type="button"
                                 className="btn btn-ghost onboarding-back"
-                                onClick={() => setStep(step === 'character' ? 'connection' : 'provider')}
+                                onClick={() => setStep(step === 'character' ? 'connection' : 'api-type')}
                                 aria-label="前へ戻る"
                                 title="前へ戻る"
                             >
@@ -364,32 +364,32 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                         <span className="onboarding-back-placeholder" aria-hidden="true" />
                     </div>
 
-                    {step === 'provider' ? (
+                    {step === 'api-type' ? (
                         <>
                             <div className="onboarding-heading">
                                 <div>
-                                    <p className="onboarding-step-label">1 / 3 · プロパイダーを選ぶ</p>
+                                    <p className="onboarding-step-label">1 / 3 · APIの種類を選ぶ</p>
                                     <h1>Kataruへようこそ</h1>
                                 </div>
                             </div>
                             <p className="onboarding-lead">
-                                AIキャラクターと話しましょう。プロパイダーを選んでください。
+                                AIキャラクターと話しましょう。利用するAPIを選んでください。
                             </p>
 
-                            <div className="onboarding-provider-list" role="radiogroup" aria-label="会話に使うAI">
-                                {PROVIDER_OPTIONS.map(({ id, title}) => {
-                                    const selected = aiProvider === id;
+                            <div className="onboarding-api-type-list" role="radiogroup" aria-label="会話に使うAIのAPIの種類">
+                                {API_TYPE_OPTIONS.map(({ id, title}) => {
+                                    const selected = aiApiType === id;
                                     return (
                                         <button
                                             key={id}
                                             type="button"
                                             role="radio"
                                             aria-checked={selected}
-                                            className={`onboarding-provider ${selected ? 'selected' : ''}`}
-                                            onClick={() => selectProvider(id)}
+                                            className={`onboarding-api-type ${selected ? 'selected' : ''}`}
+                                            onClick={() => selectApiType(id)}
                                         >
-                                            <span className="onboarding-provider-copy">
-                                                <span className="onboarding-provider-title">{title}</span>
+                                            <span className="onboarding-api-type-copy">
+                                                <span className="onboarding-api-type-title">{title}</span>
                                             </span>
                                         </button>
                                     );
@@ -419,18 +419,18 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                 <div>
                                     <p className="onboarding-step-label">2 / 3 · 接続設定</p>
                                     <h1>
-                                        {aiProvider === 'openrouter'
+                                        {aiApiType === 'openrouter'
                                             ? 'OpenRouterを設定'
-                                            : aiProvider === 'anthropic'
+                                            : aiApiType === 'anthropic'
                                                 ? 'Claude API'
                                                 : 'OpenAI API'}
                                     </h1>
                                 </div>
                             </div>
                             <p className="onboarding-lead">
-                                {aiProvider === 'openrouter'
+                                {aiApiType === 'openrouter'
                                     ? 'OpenRouterのAPIキーを保存して、会話できるか確認します。'
-                                    : aiProvider === 'anthropic'
+                                    : aiApiType === 'anthropic'
                                         ? 'Claude APIまたは互換APIのエンドポイントとAPIキーを設定します。'
                                         : 'OpenAI APIまたは互換APIのエンドポイントとAPIキーを設定します。'}
                             </p>
@@ -456,7 +456,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                         </p>
                                     )}
 
-                                    {aiProvider === 'openrouter' ? (
+                                    {aiApiType === 'openrouter' ? (
                                         <>
                                             <label className="ai-connection-label" htmlFor="onboarding-openrouter-api-key">
                                                 APIキー
@@ -481,7 +481,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                                 </p>
                                             )}
                                         </>
-                                    ) : aiProvider === 'anthropic' ? (
+                                    ) : aiApiType === 'anthropic' ? (
                                         <>
                                             <label className="ai-connection-label" htmlFor="onboarding-anthropic-base-url">
                                                 エンドポイント

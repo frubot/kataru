@@ -176,7 +176,7 @@ pub fn parse_summary_response(content: &str) -> String {
 
 /// Removes formatting fragments that should never become part of conversation history.
 ///
-/// Some providers occasionally double-escape line breaks inside an otherwise valid JSON
+/// Some upstream APIs occasionally double-escape line breaks inside an otherwise valid JSON
 /// response (leaving a literal `\n` in the parsed message), or return a truncated Markdown
 /// emphasis marker. Normalize both before the message can be persisted or reused as context.
 pub(crate) fn sanitize_message_content(content: &str) -> String {

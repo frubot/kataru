@@ -13,22 +13,23 @@ import {
     DEFAULT_REPLY_SUGGESTION_MODEL,
     DEFAULT_SUMMARY_MODEL,
     DEFAULT_TITLE_GENERATION_MODEL,
+    DEFAULT_MODEL_DEFAULTS_BY_API_TYPE,
     getDefaultModelDefaults,
     normalizeModelDefaults,
-    normalizeModelDefaultsByProvider,
+    normalizeModelDefaultsByApiType,
     type ModelDefaults,
-    type ModelDefaultsByProvider,
+    type ModelDefaultsByApiType,
 } from './modelDefaults';
 import {
-    DEFAULT_AI_PROVIDER,
+    DEFAULT_AI_API_TYPE,
     DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
     DEFAULT_OPENAI_COMPATIBLE_EMBEDDINGS_ENABLED,
     DEFAULT_OPENAI_COMPATIBLE_IMAGE_GENERATION_ENABLED,
-    isAiProvider,
     normalizeOpenAiCompatibleBaseUrl,
-    type AiProvider,
-    type AiProviderConfig,
-} from './aiProvider';
+    type AiApiType,
+    type AiApiConfig,
+} from './aiApi';
+import { resolveAiSettingsMigration } from './aiSettingsMigration';
 
 export {
     DEFAULT_AUTO_GENERATION_MODEL,
@@ -43,15 +44,19 @@ export {
     getDefaultModelDefaults,
 } from './modelDefaults';
 export {
-    DEFAULT_AI_PROVIDER,
+    DEFAULT_AI_API_TYPE,
     DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
     DEFAULT_OPENAI_COMPATIBLE_EMBEDDINGS_ENABLED,
     DEFAULT_OPENAI_COMPATIBLE_IMAGE_GENERATION_ENABLED,
-    type AiProvider,
-    type AiProviderConfig,
-} from './aiProvider';
+    type AiApiType,
+    type AiApiConfig,
+} from './aiApi';
 
 export const CURRENT_ONBOARDING_VERSION = 1;
+// Version 2 records that the canonical AI settings keys have been materialized.
+// The legacy keys remain readable for rollback/older clients, so this version is
+// independent from whether those legacy keys still exist.
+export const CURRENT_AI_SETTINGS_SCHEMA_VERSION = 2;
 
 export interface Expression {
     name: string;
@@ -333,10 +338,10 @@ interface AppState {
     defaultImageModel: string;
     memoryExtractionModel: string;
     memoryEmbeddingModel: string;
-    modelDefaultsByProvider: ModelDefaultsByProvider;
+    modelDefaultsByApiType: ModelDefaultsByApiType;
     generateTitleOnFirstReply: boolean;
     replySuggestionsEnabled: boolean;
-    aiProvider: AiProvider;
+    aiApiType: AiApiType;
     openAiCompatibleBaseUrl: string;
     openAiCompatibleEmbeddingsEnabled: boolean;
     openAiCompatibleImageGenerationEnabled: boolean;
@@ -370,11 +375,11 @@ interface AppState {
     setMemoryEmbeddingModel: (model: string) => void;
     setGenerateTitleOnFirstReply: (enabled: boolean) => void;
     setReplySuggestionsEnabled: (enabled: boolean) => void;
-    setAiProvider: (provider: AiProvider) => void;
+    setAiApiType: (apiType: AiApiType) => void;
     setOpenAiCompatibleBaseUrl: (baseUrl: string) => void;
     setOpenAiCompatibleEmbeddingsEnabled: (enabled: boolean) => void;
     setOpenAiCompatibleImageGenerationEnabled: (enabled: boolean) => void;
-    getAiProviderConfig: () => AiProviderConfig;
+    getAiApiConfig: () => AiApiConfig;
     setFullJsonDebugEnabled: (enabled: boolean) => void;
     setDetailedErrorLoggingEnabled: (enabled: boolean) => void;
 
@@ -559,13 +564,13 @@ async function requestMemoryEmbedding(
     input: string,
     model: string,
     inputType: EmbeddingInputType,
-    aiProviderConfig: AiProviderConfig,
+    aiApiConfig: AiApiConfig,
 ): Promise<{ embedding: number[]; model: string } | null> {
     const trimmed = input.trim();
     if (!trimmed || typeof window === 'undefined') return null;
-    if (aiProviderConfig.aiProvider === 'anthropic'
-        || (aiProviderConfig.aiProvider === 'openai-compatible'
-            && !aiProviderConfig.openAiCompatibleEmbeddingsEnabled)) {
+    if (aiApiConfig.aiApiType === 'anthropic'
+        || (aiApiConfig.aiApiType === 'openai-compatible'
+            && !aiApiConfig.openAiCompatibleEmbeddingsEnabled)) {
         return null;
     }
 
@@ -578,7 +583,7 @@ async function requestMemoryEmbedding(
                 input: trimmed,
                 model,
                 inputType,
-                aiProviderConfig,
+                aiApiConfig,
             }),
             signal: AbortSignal.timeout(EMBEDDING_TIMEOUT_MS),
         });
@@ -601,7 +606,7 @@ async function requestMemoryEmbedding(
 async function persistMemoryWithEmbedding(
     memory: MemoryRecord,
     embeddingModel: string,
-    aiProviderConfig: AiProviderConfig,
+    aiApiConfig: AiApiConfig,
 ): Promise<void> {
     const existing = await db.getMemoriesByCharacter(memory.characterId ?? '');
     const matched = existing.find((record) =>
@@ -621,7 +626,7 @@ async function persistMemoryWithEmbedding(
         };
         await db.putMemory(nextMemory);
         if (!nextMemory.embedding || nextMemory.embeddingModel !== embeddingModel) {
-            const embedded = await requestMemoryEmbedding(nextMemory.content, embeddingModel, 'search_document', aiProviderConfig);
+            const embedded = await requestMemoryEmbedding(nextMemory.content, embeddingModel, 'search_document', aiApiConfig);
             if (embedded) {
                 await db.putMemory({
                     ...nextMemory,
@@ -635,7 +640,7 @@ async function persistMemoryWithEmbedding(
     }
 
     await db.putMemory(memory);
-    const embedded = await requestMemoryEmbedding(memory.content, embeddingModel, 'search_document', aiProviderConfig);
+    const embedded = await requestMemoryEmbedding(memory.content, embeddingModel, 'search_document', aiApiConfig);
     if (!embedded) return;
     await db.putMemory({
         ...memory,
@@ -1012,10 +1017,10 @@ const DEBUG_LOG_LIMIT = 50;
 
 let modelDefaultsWriteQueue: Promise<void> = Promise.resolve();
 
-function persistModelDefaultsByProvider(modelDefaultsByProvider: ModelDefaultsByProvider) {
+function persistModelDefaultsByApiType(modelDefaultsByApiType: ModelDefaultsByApiType) {
     modelDefaultsWriteQueue = modelDefaultsWriteQueue
         .catch(() => undefined)
-        .then(() => db.setMeta('modelDefaultsByProvider', modelDefaultsByProvider));
+        .then(() => db.setMeta('modelDefaultsByApiType', modelDefaultsByApiType));
     fire(modelDefaultsWriteQueue);
 }
 
@@ -1026,20 +1031,20 @@ function updateModelDefault<K extends keyof ModelDefaults>(
     value: ModelDefaults[K],
 ) {
     const state = get();
-    const providerDefaults = {
-        ...state.modelDefaultsByProvider[state.aiProvider],
+    const apiTypeDefaults = {
+        ...state.modelDefaultsByApiType[state.aiApiType],
         [key]: value,
     };
-    const modelDefaultsByProvider = {
-        ...state.modelDefaultsByProvider,
-        [state.aiProvider]: providerDefaults,
+    const modelDefaultsByApiType = {
+        ...state.modelDefaultsByApiType,
+        [state.aiApiType]: apiTypeDefaults,
     };
-    set({ [key]: value, modelDefaultsByProvider });
-    persistModelDefaultsByProvider(modelDefaultsByProvider);
+    set({ [key]: value, modelDefaultsByApiType });
+    persistModelDefaultsByApiType(modelDefaultsByApiType);
 }
 
-function getAiProviderConfigFromState(state: Pick<AppState,
-    'aiProvider' |
+function getAiApiConfigFromState(state: Pick<AppState,
+    'aiApiType' |
     'openAiCompatibleBaseUrl' |
     'openAiCompatibleEmbeddingsEnabled' |
     'openAiCompatibleImageGenerationEnabled' |
@@ -1052,7 +1057,7 @@ function getAiProviderConfigFromState(state: Pick<AppState,
     'defaultImageModel' |
     'memoryExtractionModel' |
     'memoryEmbeddingModel'
->): AiProviderConfig {
+>): AiApiConfig {
     const modelDefaults = normalizeModelDefaults({
         summaryModel: state.summaryModel,
         defaultChatModel: state.defaultChatModel,
@@ -1063,9 +1068,9 @@ function getAiProviderConfigFromState(state: Pick<AppState,
         defaultImageModel: state.defaultImageModel,
         memoryExtractionModel: state.memoryExtractionModel,
         memoryEmbeddingModel: state.memoryEmbeddingModel,
-    }, getDefaultModelDefaults(state.aiProvider));
+    }, getDefaultModelDefaults(state.aiApiType));
     return {
-        aiProvider: state.aiProvider,
+        aiApiType: state.aiApiType,
         openAiCompatibleBaseUrl: normalizeOpenAiCompatibleBaseUrl(state.openAiCompatibleBaseUrl),
         openAiCompatibleEmbeddingsEnabled: state.openAiCompatibleEmbeddingsEnabled,
         openAiCompatibleImageGenerationEnabled: state.openAiCompatibleImageGenerationEnabled,
@@ -1088,10 +1093,10 @@ export const useStore = create<AppState>()((set, get) => ({
     defaultImageModel: DEFAULT_IMAGE_MODEL,
     memoryExtractionModel: DEFAULT_MEMORY_EXTRACTION_MODEL,
     memoryEmbeddingModel: DEFAULT_MEMORY_EMBEDDING_MODEL,
-    modelDefaultsByProvider: normalizeModelDefaultsByProvider(undefined),
+    modelDefaultsByApiType: normalizeModelDefaultsByApiType(undefined),
     generateTitleOnFirstReply: false,
     replySuggestionsEnabled: false,
-    aiProvider: DEFAULT_AI_PROVIDER,
+    aiApiType: DEFAULT_AI_API_TYPE,
     openAiCompatibleBaseUrl: DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
     openAiCompatibleEmbeddingsEnabled: DEFAULT_OPENAI_COMPATIBLE_EMBEDDINGS_ENABLED,
     openAiCompatibleImageGenerationEnabled: DEFAULT_OPENAI_COMPATIBLE_IMAGE_GENERATION_ENABLED,
@@ -1107,7 +1112,7 @@ export const useStore = create<AppState>()((set, get) => ({
     hydrate: async () => {
         if (get().hydrated) return;
         await db.migrateLegacyDatabase();
-        const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, currentRoomId, vnTypingSpeed, fullJsonDebugEnabled, detailedErrorLoggingEnabled, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByProvider, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiProvider, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion] = await Promise.all([
+        const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, currentRoomId, vnTypingSpeed, fullJsonDebugEnabled, detailedErrorLoggingEnabled, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion] = await Promise.all([
             db.getAllCharacters(),
             db.getAllGroups(),
             db.getAllRooms(),
@@ -1126,16 +1131,19 @@ export const useStore = create<AppState>()((set, get) => ({
             db.getMeta<string>('defaultImageModel'),
             db.getMeta<string>('memoryExtractionModel'),
             db.getMeta<string>('memoryEmbeddingModel'),
-            db.getMeta<ModelDefaultsByProvider>('modelDefaultsByProvider'),
+            db.getMeta<ModelDefaultsByApiType>('modelDefaultsByApiType'),
+            db.getMeta<unknown>('modelDefaultsByProvider'),
             db.getMeta<boolean>('generateTitleOnFirstReply'),
             db.getMeta<boolean>('replySuggestionsEnabled'),
-            db.getMeta<AiProvider>('aiProvider'),
+            db.getMeta<AiApiType>('aiApiType'),
+            db.getMeta<unknown>('aiProvider'),
             db.getMeta<string>('openAiCompatibleBaseUrl'),
             db.getMeta<boolean>('openAiCompatibleEmbeddingsEnabled'),
             db.getMeta<boolean>('openAiCompatibleImageGenerationEnabled'),
             // Legacy client-side key; removed for security. Detect presence so we can delete it.
             db.getMeta<string>('openAiCompatibleApiKey'),
             db.getMeta<number>('onboardingVersion'),
+            db.getMeta<number>('aiSettingsSchemaVersion'),
         ]);
         // Drop any previously stored client-side API key from IndexedDB.
         if (legacyOpenAiCompatibleApiKey !== undefined) {
@@ -1181,12 +1189,20 @@ export const useStore = create<AppState>()((set, get) => ({
                 ? storedMemoryEmbeddingModel.trim()
                 : DEFAULT_MEMORY_EMBEDDING_MODEL,
         };
-        const resolvedAiProvider = isAiProvider(storedAiProvider) ? storedAiProvider : DEFAULT_AI_PROVIDER;
-        const modelDefaultsByProvider = normalizeModelDefaultsByProvider(
-            storedModelDefaultsByProvider,
-            hasLegacyModelDefaults ? legacyModelDefaults : undefined,
-        );
-        const activeModelDefaults = modelDefaultsByProvider[resolvedAiProvider];
+        const aiSettingsMigration = resolveAiSettingsMigration({
+            canonicalAiApiType: storedAiApiType,
+            legacyAiProvider: storedLegacyAiProvider,
+            canonicalModelDefaultsByApiType: storedModelDefaultsByApiType,
+            legacyModelDefaultsByProvider: storedLegacyModelDefaultsByProvider,
+            legacyModelDefaults: hasLegacyModelDefaults ? legacyModelDefaults : undefined,
+            defaultAiApiType: DEFAULT_AI_API_TYPE,
+            defaultModelDefaultsByApiType: DEFAULT_MODEL_DEFAULTS_BY_API_TYPE,
+            storedSchemaVersion: storedAiSettingsSchemaVersion,
+            currentSchemaVersion: CURRENT_AI_SETTINGS_SCHEMA_VERSION,
+        });
+        const resolvedAiApiType = aiSettingsMigration.aiApiType;
+        const modelDefaultsByApiType = aiSettingsMigration.modelDefaultsByApiType;
+        const activeModelDefaults = modelDefaultsByApiType[resolvedAiApiType];
         const characters = normalizeCharacters(loadedCharacters, activeModelDefaults.defaultChatModel);
         const changedCharacters = characters.filter((character, index) => character !== loadedCharacters[index]);
         if (changedCharacters.length > 0) {
@@ -1240,16 +1256,21 @@ export const useStore = create<AppState>()((set, get) => ({
         const resolvedOnboardingVersion = hasExistingContent
             ? Math.max(normalizedOnboardingVersion, CURRENT_ONBOARDING_VERSION)
             : normalizedOnboardingVersion;
-        if (JSON.stringify(storedModelDefaultsByProvider) !== JSON.stringify(modelDefaultsByProvider)) {
-            persistModelDefaultsByProvider(modelDefaultsByProvider);
+        if (aiSettingsMigration.shouldPersistModelDefaultsByApiType) {
+            persistModelDefaultsByApiType(modelDefaultsByApiType);
         }
         if (storedGenerateTitleOnFirstReply !== resolvedGenerateTitleOnFirstReply) fire(db.setMeta('generateTitleOnFirstReply', resolvedGenerateTitleOnFirstReply));
         if (storedReplySuggestionsEnabled !== resolvedReplySuggestionsEnabled) fire(db.setMeta('replySuggestionsEnabled', resolvedReplySuggestionsEnabled));
-        if (storedAiProvider !== resolvedAiProvider) fire(db.setMeta('aiProvider', resolvedAiProvider));
+        if (aiSettingsMigration.shouldPersistAiApiType) {
+            fire(db.setMeta('aiApiType', resolvedAiApiType));
+        }
         if (storedOpenAiCompatibleBaseUrl !== resolvedOpenAiCompatibleBaseUrl) fire(db.setMeta('openAiCompatibleBaseUrl', resolvedOpenAiCompatibleBaseUrl));
         if (storedOpenAiCompatibleEmbeddingsEnabled !== resolvedOpenAiCompatibleEmbeddingsEnabled) fire(db.setMeta('openAiCompatibleEmbeddingsEnabled', resolvedOpenAiCompatibleEmbeddingsEnabled));
         if (storedOpenAiCompatibleImageGenerationEnabled !== resolvedOpenAiCompatibleImageGenerationEnabled) fire(db.setMeta('openAiCompatibleImageGenerationEnabled', resolvedOpenAiCompatibleImageGenerationEnabled));
         if (storedOnboardingVersion !== resolvedOnboardingVersion) fire(db.setMeta('onboardingVersion', resolvedOnboardingVersion));
+        if (aiSettingsMigration.shouldPersistSchemaVersion) {
+            fire(db.setMeta('aiSettingsSchemaVersion', aiSettingsMigration.schemaVersion));
+        }
         set({
             hydrated: true,
             onboardingVersion: resolvedOnboardingVersion,
@@ -1261,10 +1282,10 @@ export const useStore = create<AppState>()((set, get) => ({
             themePalette: resolvedTheme.palette,
             vnTypingSpeed: resolvedVnTypingSpeed,
             ...activeModelDefaults,
-            modelDefaultsByProvider,
+            modelDefaultsByApiType,
             generateTitleOnFirstReply: resolvedGenerateTitleOnFirstReply,
             replySuggestionsEnabled: resolvedReplySuggestionsEnabled,
-            aiProvider: resolvedAiProvider,
+            aiApiType: resolvedAiApiType,
             openAiCompatibleBaseUrl: resolvedOpenAiCompatibleBaseUrl,
             openAiCompatibleEmbeddingsEnabled: resolvedOpenAiCompatibleEmbeddingsEnabled,
             openAiCompatibleImageGenerationEnabled: resolvedOpenAiCompatibleImageGenerationEnabled,
@@ -1345,10 +1366,10 @@ export const useStore = create<AppState>()((set, get) => ({
         set({ replySuggestionsEnabled });
         fire(db.setMeta('replySuggestionsEnabled', replySuggestionsEnabled));
     },
-    setAiProvider: (aiProvider) => {
-        const modelDefaults = get().modelDefaultsByProvider[aiProvider] ?? getDefaultModelDefaults(aiProvider);
-        set({ aiProvider, ...modelDefaults });
-        fire(db.setMeta('aiProvider', aiProvider));
+    setAiApiType: (aiApiType) => {
+        const modelDefaults = get().modelDefaultsByApiType[aiApiType] ?? getDefaultModelDefaults(aiApiType);
+        set({ aiApiType, ...modelDefaults });
+        fire(db.setMeta('aiApiType', aiApiType));
     },
     setOpenAiCompatibleBaseUrl: (openAiCompatibleBaseUrl) => {
         const normalized = normalizeOpenAiCompatibleBaseUrl(openAiCompatibleBaseUrl);
@@ -1363,7 +1384,7 @@ export const useStore = create<AppState>()((set, get) => ({
         set({ openAiCompatibleImageGenerationEnabled });
         fire(db.setMeta('openAiCompatibleImageGenerationEnabled', openAiCompatibleImageGenerationEnabled));
     },
-    getAiProviderConfig: () => getAiProviderConfigFromState(get()),
+    getAiApiConfig: () => getAiApiConfigFromState(get()),
     createCharacter: (name, systemPrompt = '', model = get().defaultChatModel, extras) => {
         const id = generateId();
         const now = Date.now();
@@ -1535,7 +1556,7 @@ export const useStore = create<AppState>()((set, get) => ({
         const record = createMemoryRecord(characterId, content, options);
         if (!record) return;
         const state = get();
-        await persistMemoryWithEmbedding(record, state.memoryEmbeddingModel, getAiProviderConfigFromState(state));
+        await persistMemoryWithEmbedding(record, state.memoryEmbeddingModel, getAiApiConfigFromState(state));
         if (record.sourceMessageIds.length > 0 && !await db.doMessagesExist(record.sourceMessageIds)) {
             await db.deleteMemoriesBySourceMessageIds(record.sourceMessageIds);
         }
@@ -1592,7 +1613,7 @@ export const useStore = create<AppState>()((set, get) => ({
             query,
             embeddingModel,
             'search_query',
-            getAiProviderConfigFromState(get()),
+            getAiApiConfigFromState(get()),
         );
         const queryEmbedding = queryEmbeddingResult?.model === embeddingModel
             ? queryEmbeddingResult.embedding
@@ -2300,10 +2321,10 @@ export const useStore = create<AppState>()((set, get) => ({
             defaultImageModel: DEFAULT_IMAGE_MODEL,
             memoryExtractionModel: DEFAULT_MEMORY_EXTRACTION_MODEL,
             memoryEmbeddingModel: DEFAULT_MEMORY_EMBEDDING_MODEL,
-            modelDefaultsByProvider: normalizeModelDefaultsByProvider(undefined),
+            modelDefaultsByApiType: normalizeModelDefaultsByApiType(undefined),
             generateTitleOnFirstReply: false,
             replySuggestionsEnabled: false,
-            aiProvider: DEFAULT_AI_PROVIDER,
+            aiApiType: DEFAULT_AI_API_TYPE,
             openAiCompatibleBaseUrl: DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
             openAiCompatibleEmbeddingsEnabled: DEFAULT_OPENAI_COMPATIBLE_EMBEDDINGS_ENABLED,
             openAiCompatibleImageGenerationEnabled: DEFAULT_OPENAI_COMPATIBLE_IMAGE_GENERATION_ENABLED,

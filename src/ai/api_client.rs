@@ -16,8 +16,14 @@ use super::anthropic;
 const OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
 const LOCAL_API_KEY_FALLBACK: &str = "local";
 
+pub fn ai_api_config_value(body: &Value) -> Option<&Value> {
+    body.get("aiApiConfig")
+        .filter(|value| !value.is_null())
+        .or_else(|| body.get("aiProviderConfig").filter(|value| !value.is_null()))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProviderKind {
+pub enum AiApiKind {
     OpenRouter,
     OpenAiCompatible,
     Anthropic,
@@ -25,17 +31,18 @@ pub enum ProviderKind {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
-pub struct AiProviderConfig {
-    pub ai_provider: Option<String>,
+pub struct AiApiConfig {
+    #[serde(alias = "aiProvider")]
+    pub ai_api_type: Option<String>,
     pub open_ai_compatible_base_url: Option<String>,
     pub open_ai_compatible_embeddings_enabled: bool,
     pub open_ai_compatible_image_generation_enabled: bool,
 }
 
-impl Default for AiProviderConfig {
+impl Default for AiApiConfig {
     fn default() -> Self {
         Self {
-            ai_provider: None,
+            ai_api_type: None,
             open_ai_compatible_base_url: None,
             open_ai_compatible_embeddings_enabled: true,
             open_ai_compatible_image_generation_enabled: false,
@@ -44,9 +51,9 @@ impl Default for AiProviderConfig {
 }
 
 #[derive(Clone)]
-pub struct Provider {
+pub struct AiApiClient {
     client: Client,
-    kind: ProviderKind,
+    kind: AiApiKind,
     base_url: String,
     api_key: Option<String>,
     application_origin: String,
@@ -54,11 +61,11 @@ pub struct Provider {
     image_generation_enabled: bool,
 }
 
-impl Provider {
+impl AiApiClient {
     pub fn from_state(state: &AppState, config: Option<&Value>) -> AppResult<Self> {
         let config = config
             .cloned()
-            .and_then(|value| serde_json::from_value::<AiProviderConfig>(value).ok());
+            .and_then(|value| serde_json::from_value::<AiApiConfig>(value).ok());
         Self::resolve(
             state.http_client.clone(),
             &state.application_origin,
@@ -71,17 +78,17 @@ impl Provider {
         client: Client,
         application_origin: impl AsRef<str>,
         server_config: &EffectiveAiConfig,
-        config: Option<AiProviderConfig>,
+        config: Option<AiApiConfig>,
     ) -> AppResult<Self> {
         let config = config.unwrap_or_default();
-        let kind = match config.ai_provider.as_deref() {
-            Some("openai-compatible") => ProviderKind::OpenAiCompatible,
-            Some("anthropic") => ProviderKind::Anthropic,
-            _ => ProviderKind::OpenRouter,
+        let kind = match config.ai_api_type.as_deref() {
+            Some("openai-compatible") => AiApiKind::OpenAiCompatible,
+            Some("anthropic") => AiApiKind::Anthropic,
+            _ => AiApiKind::OpenRouter,
         };
 
         let (base_url, api_key) = match kind {
-            ProviderKind::OpenRouter => {
+            AiApiKind::OpenRouter => {
                 let api_key = server_config.openrouter_api_key.clone().ok_or_else(|| {
                         AppError::Internal(
                             "OpenRouter APIキーが設定されていません。設定画面または `kataru config set openrouter.api-key` で設定してください。".to_owned(),
@@ -89,7 +96,7 @@ impl Provider {
                     })?;
                 (OPENROUTER_BASE_URL.to_owned(), Some(api_key))
             }
-            ProviderKind::OpenAiCompatible => {
+            AiApiKind::OpenAiCompatible => {
                 // The upstream host and API key are server-owned. In particular, never use
                 // openAiCompatibleBaseUrl supplied in a request, because doing so could send
                 // the server API key to an attacker-controlled host.
@@ -104,7 +111,7 @@ impl Provider {
                 }
                 (base_url, api_key)
             }
-            ProviderKind::Anthropic => {
+            AiApiKind::Anthropic => {
                 let api_key = server_config.anthropic_api_key.clone().ok_or_else(|| {
                     AppError::Internal(
                         "Anthropic APIキーが設定されていません。設定画面または `kataru config set anthropic.api-key` で設定してください。".to_owned(),
@@ -126,15 +133,15 @@ impl Provider {
     }
 
     pub fn is_openrouter(&self) -> bool {
-        self.kind == ProviderKind::OpenRouter
+        self.kind == AiApiKind::OpenRouter
     }
 
     pub fn is_openai_compatible(&self) -> bool {
-        self.kind == ProviderKind::OpenAiCompatible
+        self.kind == AiApiKind::OpenAiCompatible
     }
 
     pub fn is_anthropic(&self) -> bool {
-        self.kind == ProviderKind::Anthropic
+        self.kind == AiApiKind::Anthropic
     }
 
     pub fn embeddings_enabled(&self) -> bool {
@@ -242,8 +249,8 @@ mod tests {
     }
 
     #[test]
-    fn openrouter_remains_the_default_provider() {
-        let provider = Provider::resolve(
+    fn openrouter_remains_the_default_api_type() {
+        let api_client = AiApiClient::resolve(
             Client::new(),
             "http://127.0.0.1:37371",
             &server_config(),
@@ -251,21 +258,21 @@ mod tests {
         )
         .unwrap();
 
-        assert!(provider.is_openrouter());
+        assert!(api_client.is_openrouter());
         assert_eq!(
-            provider.endpoint("models"),
+            api_client.endpoint("models"),
             "https://openrouter.ai/api/v1/models"
         );
     }
 
     #[test]
     fn request_supplied_openai_base_url_is_ignored() {
-        let provider = Provider::resolve(
+        let api_client = AiApiClient::resolve(
             Client::new(),
             "http://127.0.0.1:37371",
             &server_config(),
-            Some(AiProviderConfig {
-                ai_provider: Some("openai-compatible".to_owned()),
+            Some(AiApiConfig {
+                ai_api_type: Some("openai-compatible".to_owned()),
                 open_ai_compatible_base_url: Some("https://attacker.example/v1".to_owned()),
                 open_ai_compatible_embeddings_enabled: true,
                 open_ai_compatible_image_generation_enabled: false,
@@ -273,9 +280,9 @@ mod tests {
         )
         .unwrap();
 
-        assert!(!provider.is_openrouter());
+        assert!(!api_client.is_openrouter());
         assert_eq!(
-            provider.endpoint("chat/completions"),
+            api_client.endpoint("chat/completions"),
             "https://api.openai.com/v1/chat/completions"
         );
     }
@@ -289,17 +296,17 @@ mod tests {
             anthropic_base_url: "https://api.anthropic.com/v1".to_owned(),
             anthropic_api_key: None,
         };
-        let provider = Provider::resolve(
+        let api_client = AiApiClient::resolve(
             Client::new(),
             "http://127.0.0.1:37371",
             &config,
-            Some(AiProviderConfig {
-                ai_provider: Some("openai-compatible".to_owned()),
-                ..AiProviderConfig::default()
+            Some(AiApiConfig {
+                ai_api_type: Some("openai-compatible".to_owned()),
+                ..AiApiConfig::default()
             }),
         )
         .unwrap();
-        let request = provider
+        let request = api_client
             .get("models", Duration::from_secs(1))
             .build()
             .unwrap();
@@ -312,17 +319,17 @@ mod tests {
 
     #[test]
     fn anthropic_uses_native_endpoint_and_headers() {
-        let provider = Provider::resolve(
+        let api_client = AiApiClient::resolve(
             Client::new(),
             "http://127.0.0.1:37371",
             &server_config(),
-            Some(AiProviderConfig {
-                ai_provider: Some("anthropic".to_owned()),
-                ..AiProviderConfig::default()
+            Some(AiApiConfig {
+                ai_api_type: Some("anthropic".to_owned()),
+                ..AiApiConfig::default()
             }),
         )
         .unwrap();
-        let request = provider
+        let request = api_client
             .post_json(
                 "chat/completions",
                 &json!({"model": "claude-sonnet-4-6", "messages": []}),
@@ -331,7 +338,7 @@ mod tests {
             .build()
             .unwrap();
 
-        assert!(provider.is_anthropic());
+        assert!(api_client.is_anthropic());
         assert_eq!(
             request.url().as_str(),
             "https://api.anthropic.com/v1/messages"
@@ -345,5 +352,36 @@ mod tests {
             "2023-06-01"
         );
         assert!(request.headers().get("authorization").is_none());
+    }
+
+    #[test]
+    fn api_config_accepts_canonical_and_legacy_type_names() {
+        let canonical = serde_json::from_value::<AiApiConfig>(json!({
+            "aiApiType": "anthropic"
+        }))
+        .unwrap();
+        let legacy = serde_json::from_value::<AiApiConfig>(json!({
+            "aiProvider": "openai-compatible"
+        }))
+        .unwrap();
+
+        assert_eq!(canonical.ai_api_type.as_deref(), Some("anthropic"));
+        assert_eq!(legacy.ai_api_type.as_deref(), Some("openai-compatible"));
+    }
+
+    #[test]
+    fn request_config_accepts_the_legacy_envelope_without_changing_openrouter_fields() {
+        let body = json!({
+            "aiProviderConfig": {"aiProvider": "openrouter"},
+            "provider": {"ignore": ["some-upstream-provider"]}
+        });
+
+        assert_eq!(
+            ai_api_config_value(&body)
+                .and_then(|value| value.get("aiProvider"))
+                .and_then(Value::as_str),
+            Some("openrouter")
+        );
+        assert_eq!(body["provider"]["ignore"][0], "some-upstream-provider");
     }
 }

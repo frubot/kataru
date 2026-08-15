@@ -22,7 +22,7 @@ interface Props {
 }
 
 export default function CharacterGeneratorModal({ isOpen, onClose, onApply }: Props) {
-    const { defaultAutoGenerationModel, getAiProviderConfig } = useStore();
+    const { defaultAutoGenerationModel, getAiApiConfig } = useStore();
     const [direction, setDirection] = useState('');
     const [model, setModel] = useState(defaultAutoGenerationModel);
     const [generated, setGenerated] = useState<GeneratedCharacterProfile | null>(null);
@@ -73,7 +73,7 @@ export default function CharacterGeneratorModal({ isOpen, onClose, onApply }: Pr
                 body: JSON.stringify({
                     direction: direction.trim(),
                     model: model.trim(),
-                    aiProviderConfig: getAiProviderConfig(),
+                    aiApiConfig: getAiApiConfig(),
                 }),
                 signal: controller.signal,
             });

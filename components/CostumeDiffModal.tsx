@@ -27,8 +27,8 @@ interface Props {
 }
 
 export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes, onUpsert, onRemove }: Props) {
-    const { defaultImageModel, aiProvider, getAiProviderConfig } = useStore();
-    const canGenerateDiffs = aiProvider === 'openrouter';
+    const { defaultImageModel, aiApiType, getAiApiConfig } = useStore();
+    const canGenerateDiffs = aiApiType === 'openrouter';
     const [newName, setNewName] = useState('');
     const [newPromptDetail, setNewPromptDetail] = useState('');
     const [addMode, setAddMode] = useState<AddMode>('generate');
@@ -109,7 +109,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
 
     const generate = async (name: string, busyKey: string, promptDetail?: string) => {
         if (!canGenerateDiffs) {
-            setError('選択中のプロバイダーでは元画像を使う衣装差分生成に対応していません。アップロードを使ってください。');
+            setError('選択中のAPIでは元画像を使う衣装差分生成に対応していません。アップロードを使ってください。');
             return;
         }
         if (!baseImage) {
@@ -131,7 +131,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                     model: model.trim(),
                     ...buildBaseImageRequest(baseImage),
                     aspectRatio: COSTUME_ASPECT_RATIO,
-                    aiProviderConfig: getAiProviderConfig(),
+                    aiApiConfig: getAiApiConfig(),
                 }),
                 signal: controller.signal,
             });
@@ -319,7 +319,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                         {addMode === 'generate' ? (
                             <p style={hintStyle}>
                                 {!canGenerateDiffs
-                                    ? '選択中のプロバイダーでは元画像を使う差分生成に対応していません。アップロードで追加してください。'
+                                    ? '選択中のAPIでは元画像を使う差分生成に対応していません。アップロードで追加してください。'
                                     : baseImage
                                     ? 'デフォルトの立ち絵をベースに、衣装だけを変更して生成します'
                                     : '生成には「アバター画像」から立ち絵の登録が必要です。アップロードなら衣装差分を直接追加できます。'}

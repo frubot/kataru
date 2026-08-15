@@ -676,20 +676,20 @@ fn anthropic_secret_key(base_url: &str) -> String {
 }
 
 pub fn normalize_openai_base_url(value: &str) -> AppResult<String> {
-    normalize_provider_base_url(value, "OpenAI")
+    normalize_api_base_url(value, "OpenAI")
 }
 
 pub fn normalize_anthropic_base_url(value: &str) -> AppResult<String> {
-    normalize_provider_base_url(value, "Anthropic")
+    normalize_api_base_url(value, "Anthropic")
 }
 
-fn normalize_provider_base_url(value: &str, provider: &str) -> AppResult<String> {
+fn normalize_api_base_url(value: &str, api_name: &str) -> AppResult<String> {
     let value = value.trim();
     let mut url = Url::parse(value)
-        .map_err(|_| AppError::BadRequest(format!("{provider} base URLが不正です。")))?;
+        .map_err(|_| AppError::BadRequest(format!("{api_name} base URLが不正です。")))?;
     if !matches!(url.scheme(), "http" | "https") {
         return Err(AppError::BadRequest(format!(
-            "{provider} base URLには http または https を指定してください。"
+            "{api_name} base URLには http または https を指定してください。"
         )));
     }
     if !url.username().is_empty()
@@ -698,12 +698,12 @@ fn normalize_provider_base_url(value: &str, provider: &str) -> AppResult<String>
         || url.fragment().is_some()
     {
         return Err(AppError::BadRequest(format!(
-            "{provider} base URLに認証情報、query、fragmentは指定できません。"
+            "{api_name} base URLに認証情報、query、fragmentは指定できません。"
         )));
     }
     if url.scheme() == "http" && !is_loopback_url(&url) {
         return Err(AppError::BadRequest(format!(
-            "HTTPの{provider} base URLにはloopbackアドレスだけを指定できます。"
+            "HTTPの{api_name} base URLにはloopbackアドレスだけを指定できます。"
         )));
     }
     let normalized_path = url.path().trim_end_matches('/').to_owned();

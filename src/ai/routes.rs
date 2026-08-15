@@ -17,19 +17,19 @@ use crate::{
 
 use super::{
     anthropic,
-    provider::{Provider, map_request_error},
+    api_client::{AiApiClient, ai_api_config_value, map_request_error},
 };
 
-fn provider_for(state: &AppState, body: &Value) -> AppResult<Provider> {
-    Provider::from_state(state, body.get("aiProviderConfig"))
+fn ai_api_client_for(state: &AppState, body: &Value) -> AppResult<AiApiClient> {
+    AiApiClient::from_state(state, ai_api_config_value(body))
 }
 
 pub async fn connection_status(
     State(state): State<AppState>,
     Json(input): Json<Value>,
 ) -> Json<Value> {
-    let provider = match provider_for(&state, &input) {
-        Ok(provider) => provider,
+    let api_client = match ai_api_client_for(&state, &input) {
+        Ok(api_client) => api_client,
         Err(_) => {
             return Json(json!({
                 "ready": false,
@@ -39,7 +39,7 @@ pub async fn connection_status(
         }
     };
 
-    match provider.get("models", Duration::from_secs(8)).send().await {
+    match api_client.get("models", Duration::from_secs(8)).send().await {
         Ok(response) if response.status().is_success() => Json(json!({
             "ready": true,
             "code": "ready",
@@ -113,13 +113,13 @@ pub async fn models(
     State(state): State<AppState>,
     Json(input): Json<Value>,
 ) -> AppResult<Json<Value>> {
-    let provider = provider_for(&state, &input)?;
-    let path = if provider.is_anthropic() {
+    let api_client = ai_api_client_for(&state, &input)?;
+    let path = if api_client.is_anthropic() {
         "models?limit=1000"
     } else {
         "models"
     };
-    let response = provider
+    let response = api_client
         .get(path, Duration::from_secs(15))
         .send()
         .await
@@ -150,7 +150,8 @@ fn optional_trimmed_string(body: &Value, field: &str) -> Option<String> {
 
 pub(crate) fn optional_model(body: &Value, field: &str, default_field: &str) -> Option<String> {
     optional_trimmed_string(body, field).or_else(|| {
-        body.pointer("/aiProviderConfig/modelDefaults")
+        ai_api_config_value(body)
+            .and_then(|config| config.get("modelDefaults"))
             .and_then(|defaults| optional_trimmed_string(defaults, default_field))
     })
 }
@@ -158,7 +159,7 @@ pub(crate) fn optional_model(body: &Value, field: &str, default_field: &str) -> 
 pub(crate) fn resolve_model(body: &Value, field: &str, default_field: &str) -> AppResult<String> {
     optional_model(body, field, default_field).ok_or_else(|| {
         AppError::BadRequest(format!(
-            "{field} または aiProviderConfig.modelDefaults.{default_field} が必要です。"
+            "{field} または aiApiConfig.modelDefaults.{default_field} が必要です。"
         ))
     })
 }
@@ -184,12 +185,12 @@ async fn upstream_error(response: reqwest::Response) -> AppError {
     )
 }
 
-async fn read_upstream_json(provider: &Provider, response: reqwest::Response) -> AppResult<Value> {
+async fn read_upstream_json(api_client: &AiApiClient, response: reqwest::Response) -> AppResult<Value> {
     if !response.status().is_success() {
         return Err(upstream_error(response).await);
     }
     let data = response.json::<Value>().await.map_err(map_request_error)?;
-    Ok(if provider.is_anthropic() {
+    Ok(if api_client.is_anthropic() {
         anthropic::response_to_openai(data)
     } else {
         data
@@ -213,13 +214,13 @@ async fn raw_upstream_response(response: reqwest::Response) -> AppResult<Respons
 }
 
 async fn successful_json_response(
-    provider: &Provider,
+    api_client: &AiApiClient,
     response: reqwest::Response,
 ) -> AppResult<Response> {
     if !response.status().is_success() {
         return Err(upstream_error(response).await);
     }
-    let body = if provider.is_anthropic() {
+    let body = if api_client.is_anthropic() {
         let data = response.json::<Value>().await.map_err(map_request_error)?;
         Body::from(serde_json::to_vec(&anthropic::response_to_openai(data))?)
     } else {
@@ -235,7 +236,7 @@ async fn successful_json_response(
 
 fn build_chat_body(
     input: &Value,
-    provider: &Provider,
+    api_client: &AiApiClient,
     use_required_parameters: bool,
     use_response_format: bool,
     should_stream: bool,
@@ -267,7 +268,7 @@ fn build_chat_body(
         body.insert("response_format".to_owned(), response_format.clone());
     }
 
-    if provider.is_openrouter() {
+    if api_client.is_openrouter() {
         let effort = match input.get("reasoningEffort").and_then(Value::as_str) {
             Some("low") => "low",
             Some("medium") => "medium",
@@ -286,14 +287,14 @@ fn build_chat_body(
             body.insert("provider".to_owned(), json!({ "require_parameters": true }));
         }
     }
-    if provider.is_anthropic() {
+    if api_client.is_anthropic() {
         copy_if_present(&mut body, input, "topK", "top_k");
     }
     Ok(Value::Object(body))
 }
 
 async fn send_chat_attempt(
-    provider: &Provider,
+    api_client: &AiApiClient,
     input: &Value,
     use_required_parameters: bool,
     use_response_format: bool,
@@ -301,16 +302,16 @@ async fn send_chat_attempt(
 ) -> AppResult<reqwest::Response> {
     let body = build_chat_body(
         input,
-        provider,
+        api_client,
         use_required_parameters,
         use_response_format,
         should_stream,
     )?;
-    provider.send_json("chat/completions", &body, 120).await
+    api_client.send_json("chat/completions", &body, 120).await
 }
 
 pub async fn chat(State(state): State<AppState>, Json(input): Json<Value>) -> AppResult<Response> {
-    let provider = provider_for(&state, &input)?;
+    let api_client = ai_api_client_for(&state, &input)?;
     let should_stream = input.get("stream").and_then(Value::as_bool) != Some(false);
     let has_response_format = input
         .get("responseFormat")
@@ -320,7 +321,7 @@ pub async fn chat(State(state): State<AppState>, Json(input): Json<Value>) -> Ap
         && input.get("requireParameters").and_then(Value::as_bool) == Some(true);
 
     let mut upstream = send_chat_attempt(
-        &provider,
+        &api_client,
         &input,
         require_parameters,
         has_response_format,
@@ -330,11 +331,11 @@ pub async fn chat(State(state): State<AppState>, Json(input): Json<Value>) -> Ap
 
     if !upstream.status().is_success() {
         let retry_without_required =
-            provider.is_openrouter() && has_response_format && require_parameters;
-        let retry_without_format = !provider.is_openrouter() && has_response_format;
+            api_client.is_openrouter() && has_response_format && require_parameters;
+        let retry_without_format = !api_client.is_openrouter() && has_response_format;
         if retry_without_required || retry_without_format {
             upstream = send_chat_attempt(
-                &provider,
+                &api_client,
                 &input,
                 false,
                 !retry_without_format,
@@ -342,8 +343,8 @@ pub async fn chat(State(state): State<AppState>, Json(input): Json<Value>) -> Ap
             )
             .await?;
         }
-        if provider.is_openrouter() && has_response_format && !upstream.status().is_success() {
-            upstream = send_chat_attempt(&provider, &input, false, false, should_stream).await?;
+        if api_client.is_openrouter() && has_response_format && !upstream.status().is_success() {
+            upstream = send_chat_attempt(&api_client, &input, false, false, should_stream).await?;
         }
     }
 
@@ -351,10 +352,10 @@ pub async fn chat(State(state): State<AppState>, Json(input): Json<Value>) -> Ap
         return Err(upstream_error(upstream).await);
     }
     if !should_stream {
-        return successful_json_response(&provider, upstream).await;
+        return successful_json_response(&api_client, upstream).await;
     }
 
-    let body = if provider.is_anthropic() {
+    let body = if api_client.is_anthropic() {
         anthropic::stream_body(upstream)
     } else {
         Body::from_stream(upstream.bytes_stream())
@@ -385,7 +386,7 @@ fn response_format_for_schema(schema: Value) -> Value {
 }
 
 async fn structured_attempt(
-    provider: &Provider,
+    api_client: &AiApiClient,
     request: &Value,
     response_format: &Value,
     use_response_format: bool,
@@ -435,7 +436,7 @@ async fn structured_attempt(
     } else {
         body.remove("response_format");
     }
-    if provider.is_openrouter() {
+    if api_client.is_openrouter() {
         let requested_effort = body
             .remove("reasoningEffort")
             .and_then(|value| value.as_str().map(ToOwned::to_owned));
@@ -468,26 +469,26 @@ async fn structured_attempt(
         } else {
             body.insert("provider".to_owned(), Value::Object(provider_options));
         }
-    } else if provider.is_openai_compatible() {
+    } else if api_client.is_openai_compatible() {
         body.remove("reasoningEffort");
         body.remove("top_k");
     } else {
         body.remove("reasoningEffort");
     }
-    provider
+    api_client
         .send_json("chat/completions", &Value::Object(body), timeout_secs)
         .await
 }
 
 pub(crate) async fn structured_completion(
-    provider: &Provider,
+    api_client: &AiApiClient,
     request: Value,
     schema: Value,
     timeout_secs: u64,
 ) -> AppResult<Value> {
     let response_format = response_format_for_schema(schema);
     let first = structured_attempt(
-        provider,
+        api_client,
         &request,
         &response_format,
         true,
@@ -496,12 +497,12 @@ pub(crate) async fn structured_completion(
     )
     .await?;
     if first.status().is_success() {
-        return read_upstream_json(provider, first).await;
+        return read_upstream_json(api_client, first).await;
     }
-    if provider.is_anthropic() && first.status() == StatusCode::BAD_REQUEST {
+    if api_client.is_anthropic() && first.status() == StatusCode::BAD_REQUEST {
         drop(first);
         let fallback = structured_attempt(
-            provider,
+            api_client,
             &request,
             &response_format,
             false,
@@ -510,16 +511,16 @@ pub(crate) async fn structured_completion(
         )
         .await?;
         if fallback.status().is_success() {
-            return read_upstream_json(provider, fallback).await;
+            return read_upstream_json(api_client, fallback).await;
         }
         return Err(upstream_error(fallback).await);
     }
-    if !provider.is_openrouter() {
+    if !api_client.is_openrouter() {
         return Err(upstream_error(first).await);
     }
 
     let second = structured_attempt(
-        provider,
+        api_client,
         &request,
         &response_format,
         true,
@@ -528,7 +529,7 @@ pub(crate) async fn structured_completion(
     )
     .await?;
     if second.status().is_success() {
-        return read_upstream_json(provider, second).await;
+        return read_upstream_json(api_client, second).await;
     }
     Err(upstream_error(second).await)
 }
@@ -557,18 +558,18 @@ pub(crate) fn extract_message_text(data: &Value) -> String {
         .unwrap_or_else(|| extract_content_text(data))
 }
 
-async fn plain_completion(provider: &Provider, body: Value, timeout_secs: u64) -> AppResult<Value> {
-    let response = provider
+async fn plain_completion(api_client: &AiApiClient, body: Value, timeout_secs: u64) -> AppResult<Value> {
+    let response = api_client
         .send_json("chat/completions", &body, timeout_secs)
         .await?;
-    read_upstream_json(provider, response).await
+    read_upstream_json(api_client, response).await
 }
 
 pub async fn summarize(
     State(state): State<AppState>,
     Json(input): Json<Value>,
 ) -> AppResult<Response> {
-    let provider = provider_for(&state, &input)?;
+    let api_client = ai_api_client_for(&state, &input)?;
     let messages = input
         .get("messages")
         .and_then(Value::as_array)
@@ -627,10 +628,10 @@ pub async fn summarize(
         "stream": false,
         "max_tokens": 2048
     });
-    if provider.is_openrouter() {
+    if api_client.is_openrouter() {
         request["reasoning"] = json!({ "effort": "none" });
     }
-    let data = plain_completion(&provider, request, 60).await?;
+    let data = plain_completion(&api_client, request, 60).await?;
     Ok(Json(json!({ "summary": extract_message_text(&data) })).into_response())
 }
 
@@ -638,8 +639,8 @@ pub async fn embeddings(
     State(state): State<AppState>,
     Json(input): Json<Value>,
 ) -> AppResult<Response> {
-    let provider = provider_for(&state, &input)?;
-    if !provider.embeddings_enabled() {
+    let api_client = ai_api_client_for(&state, &input)?;
+    if !api_client.embeddings_enabled() {
         return Ok(Json(json!({ "data": [], "disabled": true })).into_response());
     }
     let embedding_input = input.get("input").cloned().ok_or_else(|| {
@@ -671,7 +672,7 @@ pub async fn embeddings(
     {
         body["dimensions"] = json!(dimensions);
     }
-    if provider.is_openrouter() {
+    if api_client.is_openrouter() {
         if let Some(input_type) = input_type {
             body["input_type"] = json!(input_type);
         }
@@ -681,7 +682,7 @@ pub async fn embeddings(
             .cloned()
             .unwrap_or_else(|| json!({ "data_collection": "deny" }));
     }
-    let upstream = provider.send_json("embeddings", &body, 60).await?;
+    let upstream = api_client.send_json("embeddings", &body, 60).await?;
     raw_upstream_response(upstream).await
 }
 
@@ -697,7 +698,7 @@ pub async fn generate_image(
     State(state): State<AppState>,
     Json(input): Json<Value>,
 ) -> AppResult<Response> {
-    let provider = provider_for(&state, &input)?;
+    let api_client = ai_api_client_for(&state, &input)?;
     let prompt = required_string(&input, "prompt", "prompt は必須です。")?;
     let model = resolve_model(&input, "model", "defaultImageModel")?;
     let inline_base_image = optional_trimmed_string(&input, "baseImage");
@@ -728,9 +729,9 @@ pub async fn generate_image(
     };
     let aspect_ratio = input.get("aspectRatio").and_then(Value::as_str);
 
-    if !provider.is_openrouter() {
-        if !provider.image_generation_enabled() {
-            return Err(AppError::BadRequest(if provider.is_anthropic() {
+    if !api_client.is_openrouter() {
+        if !api_client.image_generation_enabled() {
+            return Err(AppError::BadRequest(if api_client.is_anthropic() {
                 "Anthropic APIでは画像生成を利用できません。".to_owned()
             } else {
                 "OpenAI互換APIでの画像生成は設定で無効化されています。".to_owned()
@@ -743,7 +744,7 @@ pub async fn generate_image(
                 StatusCode::NOT_IMPLEMENTED,
             ));
         }
-        let upstream = provider
+        let upstream = api_client
             .send_json(
                 "images/generations",
                 &json!({
@@ -756,7 +757,7 @@ pub async fn generate_image(
                 180,
             )
             .await?;
-        let data = read_upstream_json(&provider, upstream).await?;
+        let data = read_upstream_json(&api_client, upstream).await?;
         let item = data.pointer("/data/0");
         let image = item
             .and_then(|value| value.get("b64_json"))
@@ -802,8 +803,8 @@ pub async fn generate_image(
         body["image_config"] = json!({ "aspect_ratio": aspect_ratio });
     }
     let data = read_upstream_json(
-        &provider,
-        provider.send_json("chat/completions", &body, 180).await?,
+        &api_client,
+        api_client.send_json("chat/completions", &body, 180).await?,
     )
     .await?;
     let message = data.pointer("/choices/0/message");
@@ -959,7 +960,7 @@ pub async fn generate_character(
     State(state): State<AppState>,
     Json(input): Json<Value>,
 ) -> AppResult<Response> {
-    let provider = provider_for(&state, &input)?;
+    let api_client = ai_api_client_for(&state, &input)?;
     let direction = optional_trimmed_string(&input, "direction").unwrap_or_default();
     let model = resolve_model(&input, "model", "defaultAutoGenerationModel")?;
     let system_prompt = r#"
@@ -982,10 +983,10 @@ detailsのそれぞれのカテゴリは"職業:"のように区切り、一行�
         "temperature": if direction.is_empty() { 1.05 } else { 0.9 },
         "max_tokens": 1200
     });
-    if provider.is_openrouter() {
+    if api_client.is_openrouter() {
         request["reasoning"] = json!({ "effort": "none" });
     }
-    let data = structured_completion(&provider, request, character_schema(), 60).await?;
+    let data = structured_completion(&api_client, request, character_schema(), 60).await?;
     let content = extract_message_text(&data);
     if content.trim().is_empty() {
         return Err(AppError::Upstream(
@@ -1028,7 +1029,7 @@ pub async fn generate_situation_description(
     State(state): State<AppState>,
     Json(input): Json<Value>,
 ) -> AppResult<Response> {
-    let provider = provider_for(&state, &input)?;
+    let api_client = ai_api_client_for(&state, &input)?;
     let direction = optional_trimmed_string(&input, "direction").unwrap_or_default();
     let current_description =
         optional_trimmed_string(&input, "currentDescription").unwrap_or_default();
@@ -1087,11 +1088,11 @@ pub async fn generate_situation_description(
         "temperature": if direction.is_empty() { 1.0 } else { 0.85 },
         "max_tokens": 1000
     });
-    if provider.is_openrouter() {
+    if api_client.is_openrouter() {
         request["reasoning"] = json!({ "effort": "none" });
     }
     let data =
-        structured_completion(&provider, request, situation_description_schema(), 60).await?;
+        structured_completion(&api_client, request, situation_description_schema(), 60).await?;
     let content = extract_message_text(&data);
     if content.trim().is_empty() {
         return Err(AppError::Upstream(
@@ -1297,7 +1298,7 @@ pub async fn generate_reply_suggestions(
     State(state): State<AppState>,
     Json(input): Json<Value>,
 ) -> AppResult<Response> {
-    let provider = provider_for(&state, &input)?;
+    let api_client = ai_api_client_for(&state, &input)?;
     let messages = normalize_reply_suggestion_messages(input.get("messages"));
     if messages.is_empty()
         || messages
@@ -1361,10 +1362,10 @@ pub async fn generate_reply_suggestions(
         "temperature": 0.85,
         "max_tokens": 480
     });
-    if provider.is_openrouter() {
+    if api_client.is_openrouter() {
         request["reasoning"] = json!({ "effort": "none" });
     }
-    let data = structured_completion(&provider, request, reply_suggestion_schema(), 60).await?;
+    let data = structured_completion(&api_client, request, reply_suggestion_schema(), 60).await?;
     let suggestions =
         normalize_reply_suggestions(&extract_message_text(&data)).ok_or_else(|| {
             AppError::Upstream(
@@ -1383,7 +1384,7 @@ pub async fn generate_title(
     State(state): State<AppState>,
     Json(input): Json<Value>,
 ) -> AppResult<Response> {
-    let provider = provider_for(&state, &input)?;
+    let api_client = ai_api_client_for(&state, &input)?;
     let messages = normalize_title_messages(input.get("messages"));
     if messages.is_empty() {
         return Err(AppError::BadRequest(
@@ -1428,10 +1429,10 @@ pub async fn generate_title(
         "temperature": 0.3,
         "max_tokens": 48
     });
-    if provider.is_openrouter() {
+    if api_client.is_openrouter() {
         request["reasoning"] = json!({ "effort": "none" });
     }
-    let data = plain_completion(&provider, request, 60).await?;
+    let data = plain_completion(&api_client, request, 60).await?;
     let title = normalize_generated_title(&extract_message_text(&data)).ok_or_else(|| {
         AppError::Upstream(
             "タイトル生成結果が空でした。".to_owned(),
@@ -1672,7 +1673,7 @@ pub async fn extract_memories(
     State(state): State<AppState>,
     Json(input): Json<Value>,
 ) -> AppResult<Response> {
-    let provider = provider_for(&state, &input)?;
+    let api_client = ai_api_client_for(&state, &input)?;
     let recent_messages = normalize_recent_messages(&input);
     if recent_messages.is_empty() {
         return Ok(Json(json!({ "updates": [] })).into_response());
@@ -1698,11 +1699,11 @@ pub async fn extract_memories(
         ],
         "temperature": 0.1
     });
-    if provider.is_openrouter() {
+    if api_client.is_openrouter() {
         request["reasoning"] = json!({ "effort": "medium" });
         request["provider"] = json!({ "data_collection": "deny" });
     }
-    let data = structured_completion(&provider, request, memory_schema(), 60).await?;
+    let data = structured_completion(&api_client, request, memory_schema(), 60).await?;
     let updates = parse_memory_updates(&extract_message_text(&data));
     Ok(Json(json!({
         "updates": updates,
@@ -1716,19 +1717,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn model_resolution_uses_the_active_provider_default() {
+    fn model_resolution_uses_the_active_api_type_default() {
         let input = json!({
             "model": "   ",
-            "aiProviderConfig": {
+            "aiApiConfig": {
                 "modelDefaults": {
-                    "summaryModel": "provider-default-model"
+                    "summaryModel": "api-type-default-model"
                 }
             }
         });
 
         assert_eq!(
             resolve_model(&input, "model", "summaryModel").unwrap(),
-            "provider-default-model"
+            "api-type-default-model"
         );
     }
 
@@ -1738,7 +1739,7 @@ mod tests {
             "model": "explicit-model",
             "aiProviderConfig": {
                 "modelDefaults": {
-                    "summaryModel": "provider-default-model"
+                    "summaryModel": "api-type-default-model"
                 }
             }
         });

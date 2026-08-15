@@ -1045,7 +1045,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         clearFullJsonDebugLogs,
         listMemoriesForCharacter,
         markMemoriesUsed,
-        getAiProviderConfig,
+        getAiApiConfig,
     } = useStore();
     const isGroupRoom = situation != null || (groupCharacters != null && groupCharacters.length > 1);
     const rawRoomViewMode = resolveRoomViewMode(room);
@@ -1220,7 +1220,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 body: JSON.stringify({
                     messages: titleMessages,
                     model: titleGenerationModel.trim(),
-                    aiProviderConfig: getAiProviderConfig(),
+                    aiApiConfig: getAiApiConfig(),
                 }),
                 signal: controller.signal,
             });
@@ -1240,7 +1240,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         } finally {
             clearTimeout(timeoutId);
         }
-    }, [getAiProviderConfig, getCurrentRoom, groupCharacters, titleGenerationModel, updateRoomName]);
+    }, [getAiApiConfig, getCurrentRoom, groupCharacters, titleGenerationModel, updateRoomName]);
 
     const setGenerationRoomActive = useCallback((roomId: string, active: boolean) => {
         setActiveGenerationRoomIds((current) => {
@@ -1524,7 +1524,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 model: replySuggestionModel.trim(),
                 protagonistPrompt: protagonistPromptForSuggestions,
                 situationPrompt: situation?.situationPrompt,
-                aiProviderConfig: getAiProviderConfig(),
+                aiApiConfig: getAiApiConfig(),
             }),
             signal: controller.signal,
         })
@@ -1579,7 +1579,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             }
         };
     }, [
-        getAiProviderConfig,
+        getAiApiConfig,
         isLoading,
         isSummarizing,
         isTypewriterActive,
@@ -1948,7 +1948,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     summaryModel: globalSummaryModel,
                     memoryExtractionModel,
                     memoryEmbeddingModel,
-                    aiProviderConfig: getAiProviderConfig(),
+                    aiApiConfig: getAiApiConfig(),
                 }),
                 signal: controller.signal,
             });

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { RefreshCw, Save, Trash2 } from 'lucide-react';
 
-import type { AiProvider } from '@/lib/aiProvider';
+import type { AiApiType } from '@/lib/aiApi';
 import { clearAvailableModelsCache } from '@/lib/availableModels';
 import {
     deleteAnthropicApiKey,
@@ -15,11 +15,11 @@ import {
 } from '@/lib/serverAiConfig';
 
 interface AiConnectionSettingsProps {
-    provider: AiProvider;
+    apiType: AiApiType;
 }
 
 
-export default function AiConnectionSettings({ provider }: AiConnectionSettingsProps) {
+export default function AiConnectionSettings({ apiType }: AiConnectionSettingsProps) {
     const [status, setStatus] = useState<ServerAiConfigStatus | null>(null);
     const [openRouterApiKey, setOpenRouterApiKeyInput] = useState('');
     const [openAiBaseUrl, setOpenAiBaseUrl] = useState('');
@@ -96,9 +96,9 @@ export default function AiConnectionSettings({ provider }: AiConnectionSettingsP
         );
     }
 
-    const selectedApiKeyStatus = provider === 'openrouter'
+    const selectedApiKeyStatus = apiType === 'openrouter'
         ? status.openrouter
-        : provider === 'anthropic'
+        : apiType === 'anthropic'
             ? status.anthropic.apiKey
             : status.openai.apiKey;
     const openAiBaseChanged = openAiBaseUrl.trim() !== status.openai.baseUrl;
@@ -117,7 +117,7 @@ export default function AiConnectionSettings({ provider }: AiConnectionSettingsP
                 </p>
             )}
 
-            {provider === 'openrouter' ? (
+            {apiType === 'openrouter' ? (
                 <>
                     <label className="ai-connection-label" htmlFor="openrouter-api-key-input">
                         APIキー
@@ -165,7 +165,7 @@ export default function AiConnectionSettings({ provider }: AiConnectionSettingsP
                         )}
                     </div>
                 </>
-            ) : provider === 'anthropic' ? (
+            ) : apiType === 'anthropic' ? (
                 <>
                     <label className="ai-connection-label" htmlFor="anthropic-base-url-input">
                         エンドポイント

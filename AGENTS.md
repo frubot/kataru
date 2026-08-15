@@ -20,7 +20,7 @@ Windowsのサンドボックス内ではVite buildやRust release buildが権限
 - `App.tsx`, `components/`, `lib/`: React UI。永続化は`lib/db.ts`から`/api/storage`を使用します。
 - `src/main.rs`: Axumの起動、routing、loopback/Origin保護。
 - `src/db/`: SQLiteとストレージcommand。
-- `src/ai/`: OpenRouter/OpenAI互換providerと生成API。
+- `src/ai/`: OpenRouter/OpenAI互換APIクライアントと生成API。
 - `src/conversation/`: 会話、要約、指揮役、記憶検索・抽出。
 - `migrations/`: SQLite migration。
 - `out/`: Viteの静的出力。Rustバイナリへ埋め込みます。

@@ -901,6 +901,45 @@ body {
   flex: 0 1 auto;
 }
 
+.global-settings-model-selector-control {
+  width: fit-content;
+  max-width: min(60%, 24rem);
+}
+
+.global-settings-model-selector-control .model-selector,
+.global-settings-model-selector-control .model-selector-trigger {
+  width: fit-content;
+  max-width: 100%;
+}
+
+.global-settings-model-selector-control .model-selector-trigger {
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.global-settings-model-selector-control .model-selector-menu {
+  right: 0;
+  left: auto;
+}
+
+.global-settings-selector-control .provider-selector .model-selector-trigger {
+  width: fit-content;
+  max-width: 100%;
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.global-settings-selector-control .provider-selector {
+  width: fit-content;
+  max-width: 100%;
+  margin-left: auto;
+}
+
+.global-settings-selector-control .provider-selector-menu {
+  right: 0;
+  left: auto;
+}
+
 .global-settings-selector-control .model-selector-trigger {
   border-color: transparent;
   background: transparent;

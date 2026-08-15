@@ -1168,7 +1168,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     >
                                         会話
                                     </label>
-                                    <div className="global-settings-selector-control">
+                                    <div className="global-settings-selector-control global-settings-model-selector-control">
                                         <ModelSelector
                                             id="default-chat-model-input"
                                             value={defaultChatModel}
@@ -1187,7 +1187,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     >
                                         シチュエーション管理
                                     </label>
-                                    <div className="global-settings-selector-control">
+                                    <div className="global-settings-selector-control global-settings-model-selector-control">
                                         <ModelSelector
                                             id="default-director-model-input"
                                             value={defaultDirectorModel}
@@ -1206,7 +1206,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     >
                                         設定の自動生成
                                     </label>
-                                    <div className="global-settings-selector-control">
+                                    <div className="global-settings-selector-control global-settings-model-selector-control">
                                         <ModelSelector
                                             id="default-auto-generation-model-input"
                                             value={defaultAutoGenerationModel}
@@ -1225,7 +1225,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     >
                                         タイトル生成
                                     </label>
-                                    <div className="global-settings-selector-control">
+                                    <div className="global-settings-selector-control global-settings-model-selector-control">
                                         <ModelSelector
                                             id="title-generation-model-input"
                                             value={titleGenerationModel}
@@ -1244,7 +1244,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     >
                                         返答の提案
                                     </label>
-                                    <div className="global-settings-selector-control">
+                                    <div className="global-settings-selector-control global-settings-model-selector-control">
                                         <ModelSelector
                                             id="reply-suggestion-model-input"
                                             value={replySuggestionModel}
@@ -1263,7 +1263,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     >
                                         コンテキスト圧縮
                                     </label>
-                                    <div className="global-settings-selector-control">
+                                    <div className="global-settings-selector-control global-settings-model-selector-control">
                                         <ModelSelector
                                             id="summary-model-input"
                                             value={summaryModel}
@@ -1283,7 +1283,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         >
                                             画像生成
                                         </label>
-                                        <div className="global-settings-selector-control">
+                                        <div className="global-settings-selector-control global-settings-model-selector-control">
                                             <ModelSelector
                                                 id="default-image-model-input"
                                                 value={defaultImageModel}
@@ -1303,7 +1303,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     >
                                         メモリ保存
                                     </label>
-                                    <div className="global-settings-selector-control">
+                                    <div className="global-settings-selector-control global-settings-model-selector-control">
                                         <ModelSelector
                                             id="memory-extraction-model-input"
                                             value={memoryExtractionModel}
@@ -1323,7 +1323,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         >
                                             メモリ検索
                                         </label>
-                                        <div className="global-settings-selector-control">
+                                        <div className="global-settings-selector-control global-settings-model-selector-control">
                                             <ModelSelector
                                                 id="memory-embedding-model-input"
                                                 value={memoryEmbeddingModel}

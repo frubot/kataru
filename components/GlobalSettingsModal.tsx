@@ -1128,7 +1128,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         >
                                             使用しないプロバイダー
                                         </label>
-                                        <div className="global-settings-selector-control">
+                                        <div className="global-settings-selector-control global-settings-model-selector-control">
                                             <ProviderSelector
                                                 id="openrouter-ignored-providers"
                                                 value={openRouterIgnoredProviders}

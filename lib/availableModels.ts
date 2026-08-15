@@ -5,6 +5,8 @@ export interface AvailableModel {
     name: string;
 }
 
+export type ModelOutputModality = 'text' | 'image' | 'embeddings';
+
 interface ModelsResponse {
     data: AvailableModel[];
 }
@@ -13,10 +15,11 @@ const modelCache = new Map<string, AvailableModel[]>();
 const pendingRequests = new Map<string, Promise<AvailableModel[]>>();
 let cacheGeneration = 0;
 
-function cacheKey(config: AiApiConfig): string {
+function cacheKey(config: AiApiConfig, outputModality: ModelOutputModality): string {
     return JSON.stringify([
         config.aiApiType,
         config.openAiCompatibleBaseUrl,
+        outputModality,
     ]);
 }
 
@@ -34,13 +37,16 @@ function isModelsResponse(value: unknown): value is ModelsResponse {
     ));
 }
 
-async function requestAvailableModels(config: AiApiConfig): Promise<AvailableModel[]> {
+async function requestAvailableModels(
+    config: AiApiConfig,
+    outputModality: ModelOutputModality,
+): Promise<AvailableModel[]> {
     const response = await fetch('/api/ai/models', {
         method: 'POST',
         cache: 'no-store',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ aiApiConfig: config }),
+        body: JSON.stringify({ aiApiConfig: config, outputModality }),
     });
     const body: unknown = await response.json().catch(() => null);
     if (!response.ok) {
@@ -58,9 +64,10 @@ async function requestAvailableModels(config: AiApiConfig): Promise<AvailableMod
 
 export function getAvailableModels(
     config: AiApiConfig,
+    outputModality: ModelOutputModality,
     options: { force?: boolean } = {},
 ): Promise<AvailableModel[]> {
-    const key = cacheKey(config);
+    const key = cacheKey(config, outputModality);
     if (options.force) {
         cacheGeneration += 1;
         modelCache.delete(key);
@@ -72,7 +79,7 @@ export function getAvailableModels(
     if (pending) return pending;
 
     const requestGeneration = cacheGeneration;
-    const request = requestAvailableModels(config)
+    const request = requestAvailableModels(config, outputModality)
         .then((models) => {
             if (requestGeneration === cacheGeneration) {
                 modelCache.set(key, models);

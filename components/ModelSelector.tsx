@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Check, ChevronDown, RefreshCw, Search } from 'lucide-react';
 
-import { getAvailableModels, type AvailableModel } from '@/lib/availableModels';
+import {
+    getAvailableModels,
+    type AvailableModel,
+    type ModelOutputModality,
+} from '@/lib/availableModels';
 import { useStore } from '@/lib/store';
 
 interface ModelSelectorProps {
     value: string;
     onChange: (model: string) => void;
+    outputModality: ModelOutputModality;
     id?: string;
     disabled?: boolean;
     placeholder?: string;
@@ -17,6 +22,7 @@ interface ModelSelectorProps {
 export default function ModelSelector({
     value,
     onChange,
+    outputModality,
     id,
     disabled = false,
     placeholder = 'モデルを選択',
@@ -43,7 +49,7 @@ export default function ModelSelector({
         setLoading(true);
         setError(null);
         try {
-            const nextModels = await getAvailableModels(getAiApiConfig(), { force });
+            const nextModels = await getAvailableModels(getAiApiConfig(), outputModality, { force });
             if (requestId === requestIdRef.current) setModels(nextModels);
         } catch (caught) {
             if (requestId === requestIdRef.current) {
@@ -53,7 +59,7 @@ export default function ModelSelector({
         } finally {
             if (requestId === requestIdRef.current) setLoading(false);
         }
-    }, [getAiApiConfig]);
+    }, [getAiApiConfig, outputModality]);
 
     useEffect(() => {
         requestIdRef.current += 1;

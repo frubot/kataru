@@ -657,6 +657,7 @@ function TemporaryActorSettingsModal({
                                 id={`temporary-actor-model-${actor.id}`}
                                 value={draft.model}
                                 onChange={(model) => updateDraft({ model })}
+                                outputModality="text"
                                 placeholder={`例: ${defaultChatModel}`}
                             />
                         </div>

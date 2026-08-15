@@ -285,6 +285,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                 <ModelSelector
                                     value={model}
                                     onChange={setModel}
+                                    outputModality="image"
                                     disabled={!!busy || !canGenerateDiffs}
                                     placeholder={`例: ${defaultImageModel}`}
                                 />

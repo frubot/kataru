@@ -152,6 +152,7 @@ export default function CharacterGeneratorModal({ isOpen, onClose, onApply }: Pr
                         <ModelSelector
                             value={model}
                             onChange={setModel}
+                            outputModality="text"
                             disabled={generating}
                             placeholder={`例: ${defaultAutoGenerationModel}`}
                         />

@@ -618,6 +618,7 @@ function CharacterSettingsModalContent({ isOpen, onClose, character, isNew = fal
                         <ModelSelector
                             value={model}
                             onChange={setModel}
+                            outputModality="text"
                             placeholder={`例: ${defaultChatModel}`}
                         />
                     </div>

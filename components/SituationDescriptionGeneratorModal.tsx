@@ -160,6 +160,7 @@ export default function SituationDescriptionGeneratorModal({
                         <ModelSelector
                             value={model}
                             onChange={setModel}
+                            outputModality="text"
                             disabled={generating}
                             placeholder={`例: ${initialModel}`}
                         />

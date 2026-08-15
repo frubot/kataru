@@ -109,6 +109,17 @@ fn normalize_models_response(input: &Value) -> Vec<Value> {
     models
 }
 
+fn openrouter_models_path(input: &Value) -> AppResult<&'static str> {
+    match input.get("outputModality").and_then(Value::as_str) {
+        None | Some("text") => Ok("models?output_modalities=text"),
+        Some("image") => Ok("models?output_modalities=image"),
+        Some("embeddings") => Ok("models?output_modalities=embeddings"),
+        Some(_) => Err(AppError::BadRequest(
+            "outputModality が不正です。".to_owned(),
+        )),
+    }
+}
+
 fn normalize_providers_response(input: &Value) -> Vec<Value> {
     let entries = input
         .get("data")
@@ -155,6 +166,8 @@ pub async fn models(
     let api_client = ai_api_client_for(&state, &input)?;
     let path = if api_client.is_anthropic() {
         "models?limit=1000"
+    } else if api_client.is_openrouter() {
+        openrouter_models_path(&input)?
     } else {
         "models"
     };
@@ -1843,6 +1856,31 @@ mod tests {
         }));
 
         assert_eq!(models, vec![json!({ "id": "model-b", "name": "model-b" })]);
+    }
+
+    #[test]
+    fn openrouter_model_list_path_filters_by_output_modality() {
+        assert_eq!(
+            openrouter_models_path(&json!({})).unwrap(),
+            "models?output_modalities=text"
+        );
+        assert_eq!(
+            openrouter_models_path(&json!({ "outputModality": "text" })).unwrap(),
+            "models?output_modalities=text"
+        );
+        assert_eq!(
+            openrouter_models_path(&json!({ "outputModality": "image" })).unwrap(),
+            "models?output_modalities=image"
+        );
+        assert_eq!(
+            openrouter_models_path(&json!({ "outputModality": "embeddings" })).unwrap(),
+            "models?output_modalities=embeddings"
+        );
+    }
+
+    #[test]
+    fn openrouter_model_list_path_rejects_unknown_output_modality() {
+        assert!(openrouter_models_path(&json!({ "outputModality": "audio" })).is_err());
     }
 
     #[test]

@@ -336,6 +336,7 @@ export default function ExpressionDiffModal({ isOpen, onClose, expressions, cost
                                 <ModelSelector
                                     value={model}
                                     onChange={setModel}
+                                    outputModality="image"
                                     disabled={!!busy || !canGenerateDiffs}
                                     placeholder={`例: ${defaultImageModel}`}
                                 />

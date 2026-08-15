@@ -1170,6 +1170,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         id="default-chat-model-input"
                                         value={defaultChatModel}
                                         onChange={setDefaultChatModel}
+                                        outputModality="text"
                                         placeholder={`例: ${apiTypeDefaults.defaultChatModel}`}
                                     />
                                 </div>
@@ -1186,6 +1187,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         id="default-director-model-input"
                                         value={defaultDirectorModel}
                                         onChange={setDefaultDirectorModel}
+                                        outputModality="text"
                                         placeholder={`例: ${apiTypeDefaults.defaultDirectorModel}`}
                                     />
                                 </div>
@@ -1202,6 +1204,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         id="default-auto-generation-model-input"
                                         value={defaultAutoGenerationModel}
                                         onChange={setDefaultAutoGenerationModel}
+                                        outputModality="text"
                                         placeholder={`例: ${apiTypeDefaults.defaultAutoGenerationModel}`}
                                     />
                                 </div>
@@ -1218,6 +1221,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         id="title-generation-model-input"
                                         value={titleGenerationModel}
                                         onChange={setTitleGenerationModel}
+                                        outputModality="text"
                                         placeholder={`例: ${apiTypeDefaults.titleGenerationModel}`}
                                     />
                                 </div>
@@ -1234,6 +1238,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         id="reply-suggestion-model-input"
                                         value={replySuggestionModel}
                                         onChange={setReplySuggestionModel}
+                                        outputModality="text"
                                         placeholder={`例: ${apiTypeDefaults.replySuggestionModel}`}
                                     />
                                 </div>
@@ -1250,6 +1255,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         id="summary-model-input"
                                         value={summaryModel}
                                         onChange={setSummaryModel}
+                                        outputModality="text"
                                         placeholder={`例: ${apiTypeDefaults.summaryModel}`}
                                     />
                                 </div>
@@ -1267,6 +1273,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                             id="default-image-model-input"
                                             value={defaultImageModel}
                                             onChange={setDefaultImageModel}
+                                            outputModality="image"
                                             placeholder={`例: ${apiTypeDefaults.defaultImageModel}`}
                                         />
                                     </div>
@@ -1284,6 +1291,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         id="memory-extraction-model-input"
                                         value={memoryExtractionModel}
                                         onChange={setMemoryExtractionModel}
+                                        outputModality="text"
                                         placeholder={`例: ${apiTypeDefaults.memoryExtractionModel}`}
                                     />
                                 </div>
@@ -1301,6 +1309,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                             id="memory-embedding-model-input"
                                             value={memoryEmbeddingModel}
                                             onChange={setMemoryEmbeddingModel}
+                                            outputModality="embeddings"
                                             placeholder={`例: ${apiTypeDefaults.memoryEmbeddingModel}`}
                                         />
                                     </div>

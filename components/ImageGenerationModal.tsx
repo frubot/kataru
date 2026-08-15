@@ -210,6 +210,7 @@ export default function ImageGenerationModal({ isOpen, onClose, onComplete }: Pr
                                 <ModelSelector
                                     value={model}
                                     onChange={setModel}
+                                    outputModality="image"
                                     disabled={generating || !canGenerateImages}
                                 />
                             </div>

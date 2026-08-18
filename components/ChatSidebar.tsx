@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Plus, MessageSquare, Settings, Trash2, ChevronDown, ChevronRight, User, Users, Copy, EllipsisVertical, PanelLeftClose, PanelLeftOpen, Search, SquarePen, Star, X } from 'lucide-react';
+import { Plus, Settings, Trash2, ChevronDown, ChevronRight, User, Users, Copy, EllipsisVertical, PanelLeftClose, PanelLeftOpen, Search, SquarePen, Star, X } from 'lucide-react';
 import { useStore, Character, Situation, resolveSituationParticipants } from '@/lib/store';
 import StoredImage from './StoredImage';
 import SituationSettingsModal from './SituationSettingsModal';
@@ -450,7 +450,6 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
                                     onContextMenu={(event) => openContextMenu(event, { type: 'room', roomId: room.id })}
                                     style={{ paddingLeft: '2rem' }}
                                 >
-                                    <MessageSquare size={16} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
                                     <div style={{ flex: 1, minWidth: 0 }}>
                                         <div style={{ fontWeight: 500, fontSize: '0.8125rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                             {room.name}
@@ -565,7 +564,6 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
                                     onContextMenu={(event) => openContextMenu(event, { type: 'room', roomId: room.id })}
                                     style={{ paddingLeft: '2rem' }}
                                 >
-                                    <MessageSquare size={16} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
                                     <div style={{ flex: 1, minWidth: 0 }}>
                                         <div
                                             style={{

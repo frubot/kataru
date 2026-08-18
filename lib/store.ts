@@ -3,6 +3,7 @@ import type { ParsedBackup } from './importExport';
 import * as db from './db';
 import { normalizeCharactersForCostumeDiffs } from './visualDiffMigration';
 import { generateId } from './id';
+import { buildConversationBranch } from './conversationBranch';
 import {
     DEFAULT_AUTO_GENERATION_MODEL,
     DEFAULT_CHAT_MODEL,
@@ -411,6 +412,7 @@ interface AppState {
     createRoom: (characterId: string, name?: string, options?: { viewMode?: Room['viewMode'] }) => string;
     createSituationRoom: (input: CreateSituationInput) => string;
     createRoomForSituation: (situationId: string, name?: string, options?: { viewMode?: Room['viewMode'] }) => string;
+    branchRoomFromMessage: (roomId: string, messageId: string) => Promise<string>;
     deleteRoom: (id: string) => void;
     deleteSituation: (id: string) => void;
     duplicateSituation: (id: string) => string;
@@ -1761,6 +1763,47 @@ export const useStore = create<AppState>()((set, get) => ({
             currentRoomId: id,
         }));
         fire(db.putGroup(updatedGroup));
+        return id;
+    },
+
+    branchRoomFromMessage: async (roomId, messageId) => {
+        const state = get();
+        const sourceRoom = state.rooms.find((room) => room.id === roomId);
+        if (!sourceRoom) {
+            throw new Error('分岐元のルームが見つかりませんでした。');
+        }
+        if (sourceRoom.secretMode === true) {
+            throw new Error('シークレットモードの会話は分岐できません。');
+        }
+
+        const now = Date.now();
+        const branchedRoom = buildConversationBranch(
+            sourceRoom,
+            state.rooms.map((room) => room.name),
+            messageId,
+            now,
+            generateId,
+        );
+        const id = branchedRoom.id;
+        const messages = branchedRoom.messages;
+        branchedRoom.lastMessagePreview = toPreview(messages[messages.length - 1].content);
+
+        await db.bulkWrite({
+            rooms: [toStoredRoom(branchedRoom)],
+            messages: messages.map((message) => ({ ...message, roomId: id })),
+        });
+
+        currentRoomLoadSeq++;
+        set((current) => ({
+            rooms: [
+                ...current.rooms.map((room) => (
+                    room.id === roomId ? { ...room, messages: [] } : room
+                )),
+                branchedRoom,
+            ],
+            currentRoomId: id,
+        }));
+        fire(db.setMeta('currentRoomId', id));
         return id;
     },
 

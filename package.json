@@ -8,6 +8,7 @@
     "check:release-version": "node scripts/check-release-version.mjs",
     "check:rust": "cargo test",
     "test:migration": "node --experimental-strip-types --test tests/aiSettingsMigration.test.mjs",
+    "test:branch": "node --experimental-strip-types --test tests/conversationBranch.test.mjs",
     "dev": "node --env-file=.env.local scripts/dev.mjs",
     "dev:server": "cargo run -- --dev-origin http://127.0.0.1:3000",
     "dev:ui": "vite",

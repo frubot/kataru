@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
-import { ArrowUp, Sparkles, MessageSquare, MessagesSquare, Menu, Brain, Bug, Square, SquarePen, Gamepad2, Copy, Check, RefreshCw, ChevronsDown, Shirt, AlertTriangle, X, ChevronDown, HatGlasses, Undo2, Trash2 } from 'lucide-react';
+import { ArrowUp, Sparkles, MessageSquare, MessagesSquare, Menu, Brain, Bug, Square, SquarePen, Gamepad2, Copy, Check, GitBranch, RefreshCw, ChevronsDown, Shirt, AlertTriangle, X, ChevronDown, HatGlasses, Undo2, Trash2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import {
     useStore,
@@ -12,6 +12,7 @@ import {
 import type { MemoryKind, MemoryRecord, MemoryScope, SituationPriorMessage } from '@/lib/store';
 import type { VnTypingSpeed } from '@/lib/store';
 import { getMessageMemories } from '@/lib/chatAssistantResponse';
+import { isConversationResponseEnd } from '@/lib/conversationBranch';
 import { formatAssistantMarkdown } from '@/lib/markdownUtils';
 import { generateId } from '@/lib/id';
 import MessageBubble from './MessageBubble';
@@ -244,6 +245,7 @@ function SituationPriorMessageBubble({
             formatAssistantActions={formatAssistantActions}
             isAssistantContinuation={isAssistantContinuation}
             showAssistantActions={false}
+            showBranchAction={false}
             showMemoryIndicator={false}
             showArchiveDivider={false}
             characterIcon={character?.icon}
@@ -258,6 +260,7 @@ function SituationPriorMessageBubble({
             onSubmitEdit={NOOP}
             onCopy={NOOP}
             onRegenerate={NOOP}
+            onBranch={NOOP}
             onOpenMemoryList={NOOP}
         />
     );
@@ -1030,6 +1033,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         setRoomSecretMode,
         createRoom,
         createRoomForSituation,
+        branchRoomFromMessage,
         vnTypingSpeed,
         summaryModel: globalSummaryModel,
         memoryExtractionModel,
@@ -1069,6 +1073,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const [selectedMentionIdx, setSelectedMentionIdx] = useState(0);
     const [touchedMessageId, setTouchedMessageId] = useState<string | null>(null);
     const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+    const [branchingMessageId, setBranchingMessageId] = useState<string | null>(null);
     const [editingMessage, setEditingMessage] = useState<EditingMessageDraft | null>(null);
     const [vnBounceActive, setVnBounceActive] = useState(false);
     const [typingMessageId, setTypingMessageId] = useState<string | null>(null);
@@ -1885,6 +1890,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 messageCharacterKey === nextCharacterKey &&
                 !nextMessage.archived;
             const showAssistantActions = !hasNextAssistantContinuation;
+            const showBranchAction = !isSecretMode && isConversationResponseEnd(room.messages, index);
             const memories = message.role === 'assistant' ? getMessageMemories(message) : [];
             const displayContent = message.role === 'assistant' && message.id === typingMessageId
                 ? typedContent
@@ -1902,13 +1908,14 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 isArchived,
                 isAssistantContinuation,
                 showAssistantActions,
+                showBranchAction,
                 showArchiveDivider,
                 showMemoryIndicator: memories.length > 0,
                 msgCharacterIcon: msgCharacter?.icon ?? (isGroupRoom ? undefined : character?.icon),
                 msgCharacterName: msgCharacter?.name ?? (isGroupRoom ? undefined : character?.name),
             };
         });
-    }, [room, characterMap, character, isGroupRoom, typingMessageId, typedContent]);
+    }, [room, characterMap, character, isGroupRoom, isSecretMode, typingMessageId, typedContent]);
 
     const handleStop = () => {
         if (stopTypewriter(true)) {
@@ -2266,6 +2273,20 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 finishGenerationSession(session);
                 setIsSummarizing(false);
             }
+        }
+    };
+
+    const handleBranch = async (messageId: string) => {
+        if (!room || isLoading || isSummarizing || branchingMessageId) return;
+        setBranchingMessageId(messageId);
+        setReplySuggestionState(null);
+        try {
+            await branchRoomFromMessage(room.id, messageId);
+        } catch (error) {
+            console.error('[branch-room]', error);
+            showChatNotice(error instanceof Error ? error.message : '会話を分岐できませんでした。');
+        } finally {
+            setBranchingMessageId(null);
         }
     };
 
@@ -2906,6 +2927,15 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                                 >
                                     <RefreshCw size={15} />
                                 </button>
+                                <button
+                                    type="button"
+                                    className="btn btn-ghost"
+                                    onClick={() => latestAssistantMessage && handleBranch(latestAssistantMessage.id)}
+                                    disabled={!latestAssistantMessage || isLoading || isSummarizing || !!branchingMessageId || isSecretMode}
+                                    title="ここから会話を分岐"
+                                >
+                                    <GitBranch size={15} />
+                                </button>
                             </div>
                         </div>
                         <div className="vn-dialogue-rule" aria-hidden="true" />
@@ -2968,13 +2998,14 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                                     index={index}
                                     isArchived={message.isArchived}
                                     isLastMessage={index === processedMessages.length - 1}
-                                    isLoading={isLoading}
+                                    isLoading={isLoading || isSummarizing || !!branchingMessageId}
                                     isHovered={hoveredMessageId === message.id || touchedMessageId === message.id}
                                     isCopied={copiedMessageId === message.id}
                                     isTypewriterActive={isTypewriterActive && message.id === typingMessageId}
                                     formatAssistantActions={!isMessageMode}
                                     isAssistantContinuation={message.isAssistantContinuation}
                                     showAssistantActions={message.showAssistantActions}
+                                    showBranchAction={message.showBranchAction}
                                     showMemoryIndicator={message.showMemoryIndicator}
                                     showArchiveDivider={message.showArchiveDivider}
                                     memoryCharacterId={message.characterId}
@@ -2992,6 +3023,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                                     onSubmitEdit={handleSubmitEditMessage}
                                     onCopy={handleCopyMessage}
                                     onRegenerate={handleRegenerate}
+                                    onBranch={() => handleBranch(message.id)}
                                     onOpenMemoryList={handleOpenMessageMemoryList}
                                     onRevealTypewriter={() => stopTypewriter(true)}
                                 />

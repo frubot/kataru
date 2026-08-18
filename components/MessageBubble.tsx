@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef } from 'react';
-import { ArrowUp, Brain, Pencil, Copy, Check, RefreshCw, X } from 'lucide-react';
+import { ArrowUp, Brain, Pencil, Copy, Check, GitBranch, RefreshCw, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { formatAssistantMarkdown, splitAssistantMarkdownActions } from '@/lib/markdownUtils';
 import StoredImage from './StoredImage';
@@ -19,6 +19,7 @@ interface MessageBubbleProps {
     formatAssistantActions?: boolean;
     isAssistantContinuation?: boolean;
     showAssistantActions?: boolean;
+    showBranchAction?: boolean;
     showMemoryIndicator: boolean;
     showArchiveDivider: boolean;
     memoryCharacterId?: string;
@@ -36,6 +37,7 @@ interface MessageBubbleProps {
     onSubmitEdit: () => void;
     onCopy: (id: string, content: string) => void;
     onRegenerate: () => void;
+    onBranch: () => void;
     onOpenMemoryList: (characterId?: string) => void;
     onRevealTypewriter?: () => void;
 }
@@ -55,6 +57,7 @@ export default memo(function MessageBubble({
     formatAssistantActions = true,
     isAssistantContinuation = false,
     showAssistantActions = true,
+    showBranchAction = false,
     showMemoryIndicator,
     showArchiveDivider,
     memoryCharacterId,
@@ -72,6 +75,7 @@ export default memo(function MessageBubble({
     onSubmitEdit,
     onCopy,
     onRegenerate,
+    onBranch,
     onOpenMemoryList,
     onRevealTypewriter,
 }: MessageBubbleProps) {
@@ -349,6 +353,24 @@ export default memo(function MessageBubble({
                             >
                                 <RefreshCw size={14} />
                                 再生成
+                            </button>
+                            <button
+                                type="button"
+                                className="btn btn-ghost"
+                                onClick={onBranch}
+                                style={{
+                                    fontSize: '0.75rem',
+                                    padding: '0.25rem 0.625rem',
+                                    height: 'auto',
+                                    color: 'var(--text-muted)',
+                                    gap: '0.25rem',
+                                    borderRadius: '0.75rem',
+                                    display: showBranchAction && !isLoading ? undefined : 'none',
+                                }}
+                                title="ここから会話を分岐"
+                            >
+                                <GitBranch size={14} />
+                                分岐
                             </button>
                         </div>
                     )}

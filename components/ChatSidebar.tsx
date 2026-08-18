@@ -380,7 +380,6 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
             .filter((room) => room.groupId === group.id)
             .sort((a, b) => b.updatedAt - a.updatedAt);
         const roomChars = resolveSituationParticipants(group, characters, defaultChatModel);
-        const charNames = roomChars.map((character) => character.name).join(', ');
         const isExpanded = !collapsedGroups.has(group.id);
 
         return (
@@ -453,11 +452,6 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
                                     <div style={{ flex: 1, minWidth: 0 }}>
                                         <div style={{ fontWeight: 500, fontSize: '0.8125rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                             {room.name}
-                                        </div>
-                                        <div style={{ fontSize: '0.6875rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                            {room.lastMessagePreview
-                                                ? room.lastMessagePreview.substring(0, 25) + (room.lastMessagePreview.length > 25 ? '...' : '')
-                                                : charNames || 'メッセージなし'}
                                         </div>
                                     </div>
                                     <button
@@ -575,19 +569,6 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
                                             }}
                                         >
                                             {room.name}
-                                        </div>
-                                        <div
-                                            style={{
-                                                fontSize: '0.6875rem',
-                                                color: 'var(--text-muted)',
-                                                overflow: 'hidden',
-                                                textOverflow: 'ellipsis',
-                                                whiteSpace: 'nowrap',
-                                            }}
-                                        >
-                                            {room.lastMessagePreview
-                                                ? room.lastMessagePreview.substring(0, 25) + (room.lastMessagePreview.length > 25 ? '...' : '')
-                                                : 'メッセージなし'}
                                         </div>
                                     </div>
                                     <button

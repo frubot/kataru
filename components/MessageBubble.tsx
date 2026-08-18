@@ -15,6 +15,7 @@ interface MessageBubbleProps {
     isLoading: boolean;
     isHovered: boolean;
     isCopied: boolean;
+    disableEntranceAnimation?: boolean;
     isTypewriterActive?: boolean;
     formatAssistantActions?: boolean;
     isAssistantContinuation?: boolean;
@@ -53,6 +54,7 @@ export default memo(function MessageBubble({
     isLoading,
     isHovered,
     isCopied,
+    disableEntranceAnimation = false,
     isTypewriterActive,
     formatAssistantActions = true,
     isAssistantContinuation = false,
@@ -278,7 +280,7 @@ export default memo(function MessageBubble({
                         segment.type === 'action' ? (
                             <div
                                 key={`${messageId}-segment-${segmentIndex}`}
-                                className="assistant-action-description animate-slide-up"
+                                className={`assistant-action-description${disableEntranceAnimation ? '' : ' animate-slide-up'}`}
                                 onClick={isTypewriterActive ? onRevealTypewriter : undefined}
                                 title={isTypewriterActive ? '全文表示' : undefined}
                                 style={{ cursor: isTypewriterActive ? 'pointer' : undefined }}
@@ -288,7 +290,7 @@ export default memo(function MessageBubble({
                         ) : (
                             <div
                                 key={`${messageId}-segment-${segmentIndex}`}
-                                className={`message-bubble assistant animate-slide-up assistant-segment-bubble ${segmentIndex > 0 ? 'assistant-segment-continuation' : ''}`}
+                                className={`message-bubble assistant assistant-segment-bubble${disableEntranceAnimation ? '' : ' animate-slide-up'} ${segmentIndex > 0 ? 'assistant-segment-continuation' : ''}`}
                                 onClick={isTypewriterActive ? onRevealTypewriter : undefined}
                                 title={isTypewriterActive ? '全文表示' : undefined}
                                 style={{ cursor: isTypewriterActive ? 'pointer' : undefined }}

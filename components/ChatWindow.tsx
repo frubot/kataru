@@ -1103,6 +1103,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const [chatNotice, setChatNotice] = useState<ChatNotice | null>(null);
     const [replySuggestionState, setReplySuggestionState] = useState<ReplySuggestionState | null>(null);
     const [streamingPreview, setStreamingPreview] = useState<StreamingPreview | null>(null);
+    const [streamedFinalMessageIds, setStreamedFinalMessageIds] = useState<Set<string>>(() => new Set());
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const vnDialogueBodyRef = useRef<HTMLDivElement>(null);
     const chatModeMenuRef = useRef<HTMLDivElement>(null);
@@ -1362,6 +1363,19 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         setStreamingPreview((current) => current?.jobId === jobId ? null : current);
     }, []);
 
+    const rememberStreamedFinalMessageIds = useCallback((messageIds: string[]) => {
+        if (messageIds.length === 0) return;
+        setStreamedFinalMessageIds((current) => {
+            const remembered = new Set(current);
+            let changed = false;
+            for (const messageId of messageIds) {
+                if (!remembered.has(messageId)) changed = true;
+                remembered.add(messageId);
+            }
+            return changed ? remembered : current;
+        });
+    }, []);
+
     const pollConversationJob = useCallback(async (
         session: ChatGenerationSession,
         controller: AbortController,
@@ -1419,6 +1433,14 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         try {
             const completed = await pollConversationJob(session, controller);
             if (completed.status === 'completed') {
+                if (vnTypingSpeedRef.current === 'streaming') {
+                    rememberStreamedFinalMessageIds(
+                        completed.result?.messages
+                            ?.map((message) => message.id)
+                            .filter(Boolean)
+                        ?? [],
+                    );
+                }
                 await refreshConversationRoom(job.roomId);
             } else if (completed.status === 'failed' && getCurrentRoom()?.id === job.roomId) {
                 const error = completed.error || 'バックグラウンド生成に失敗しました。';
@@ -1447,6 +1469,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         logChatError,
         pollConversationJob,
         refreshConversationRoom,
+        rememberStreamedFinalMessageIds,
         showChatNotice,
         startGenerationSession,
     ]);
@@ -1960,18 +1983,42 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         });
     }, [room, characterMap, character, isGroupRoom, isSecretMode, typingMessageId, typedContent]);
 
+    const currentReplyAssistantMessages = useMemo(() => {
+        if (!room) return [];
+        let latestUserIndex = -1;
+        for (let index = room.messages.length - 1; index >= 0; index--) {
+            if (room.messages[index].role === 'user') {
+                latestUserIndex = index;
+                break;
+            }
+        }
+        return room.messages
+            .slice(latestUserIndex + 1)
+            .filter((message) => message.role === 'assistant');
+    }, [room]);
+    const availableFormattedStreamingMessages = streamingPreview?.formattedMessages
+        ?.filter((content) => content.trim())
+        ?? [];
+    const streamingPreviewAlreadyPersisted = availableFormattedStreamingMessages.length > 0
+        && availableFormattedStreamingMessages.every((content) =>
+            currentReplyAssistantMessages.some((message) =>
+                message.content === content
+                && (!streamingPreview?.characterId || message.characterId === streamingPreview.characterId)
+            )
+        );
     const activeStreamingPreview = streamingPreview
         && streamingPreview.roomId === room?.id
         && isLoading
         && streamingPreview.content.trim()
+        && !streamingPreviewAlreadyPersisted
         ? streamingPreview
         : null;
     const streamingPreviewCharacter = activeStreamingPreview?.characterId && characterMap
         ? characterMap.get(activeStreamingPreview.characterId)
         : character;
-    const formattedStreamingPreviewMessages = activeStreamingPreview?.formattedMessages
-        ?.filter((content) => content.trim())
-        ?? [];
+    const formattedStreamingPreviewMessages = activeStreamingPreview
+        ? availableFormattedStreamingMessages
+        : [];
 
     const handleStop = () => {
         if (stopTypewriter(true)) {
@@ -2062,13 +2109,13 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 for (let index = 0; index < assistantMessages.length; index++) {
                     const message = assistantMessages[index];
                     if (!message?.content?.trim()) continue;
-                    if (isMessageMode && index > 0) {
+                    if (isMessageMode && index > 0 && !shouldStreamPreview) {
                         await waitForMessageModeBubbleDelay();
                     }
                     if (!isGenerationSessionActive(session) || controller.signal.aborted) {
                         throw new DOMException('Generation stopped', 'AbortError');
                     }
-                    assistantMessageIds.push(addMessage(
+                    const assistantMessageId = addMessage(
                         sourceRoom.id,
                         'assistant',
                         message.content,
@@ -2077,9 +2124,12 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                             expression: message.expression,
                             toCharacterIds: message.toCharacterIds ?? [],
                         },
-                    ));
+                    );
+                    assistantMessageIds.push(assistantMessageId);
+                    if (shouldStreamPreview) rememberStreamedFinalMessageIds([assistantMessageId]);
                 }
             } else {
+                if (shouldStreamPreview) rememberStreamedFinalMessageIds(assistantMessageIds);
                 await refreshConversationRoom(sourceRoom.id);
             }
             clearStreamingPreview(session.jobId);
@@ -3082,6 +3132,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                                     isLoading={isLoading || isSummarizing || !!branchingMessageId}
                                     isHovered={hoveredMessageId === message.id || touchedMessageId === message.id}
                                     isCopied={copiedMessageId === message.id}
+                                    disableEntranceAnimation={streamedFinalMessageIds.has(message.id)}
                                     isTypewriterActive={isTypewriterActive && message.id === typingMessageId}
                                     formatAssistantActions={!isMessageMode}
                                     isAssistantContinuation={message.isAssistantContinuation}

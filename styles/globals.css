@@ -1977,6 +1977,7 @@ body {
 
 /* Chat area styles */
 .chat-container {
+  --chat-content-max-width: 960px;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -2090,9 +2091,27 @@ body {
   background: var(--bg-primary);
 }
 
+.chat-container:not(.vn-mode) .chat-messages {
+  padding-inline: max(1.5rem, calc((100% - var(--chat-content-max-width)) / 2));
+}
+
 .chat-input-area {
   padding: 0 1.5rem 1rem;
   background: var(--bg-primary);
+}
+
+.chat-container:not(.vn-mode) .chat-input-area {
+  padding-inline: max(1.5rem, calc((100% - var(--chat-content-max-width)) / 2));
+}
+
+.chat-mention-menu {
+  left: 0;
+  right: 0;
+}
+
+.chat-container:not(.vn-mode) .chat-mention-menu {
+  left: max(1.5rem, calc((100% - var(--chat-content-max-width)) / 2));
+  right: max(1.5rem, calc((100% - var(--chat-content-max-width)) / 2));
 }
 
 .chat-notice {
@@ -3129,6 +3148,19 @@ body {
 
   .chat-input-area {
     padding: 0 1rem 0.75rem;
+  }
+
+  .chat-container:not(.vn-mode) .chat-messages {
+    padding-inline: 1rem;
+  }
+
+  .chat-container:not(.vn-mode) .chat-input-area {
+    padding-inline: 1rem;
+  }
+
+  .chat-container:not(.vn-mode) .chat-mention-menu {
+    left: 1rem;
+    right: 1rem;
   }
 
   .reply-suggestions-list {

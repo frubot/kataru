@@ -205,40 +205,30 @@ export default memo(function MessageBubble({
                     >
                         <button
                             type="button"
-                            className="btn btn-ghost edit-btn"
+                            className="btn btn-ghost edit-btn message-action-button"
                             onClick={() => onCopy(messageId, content)}
                             style={{
-                                fontSize: '0.75rem',
-                                padding: '0.25rem 0.625rem',
-                                height: 'auto',
-                                gap: '0.25rem',
                                 color: isCopied ? 'var(--accent-primary)' : 'var(--text-muted)',
-                                borderRadius: '0.75rem',
                                 transition: 'color 0.15s ease',
                             }}
-                            title="コピー"
+                            title={isCopied ? 'コピー済み' : 'コピー'}
+                            aria-label={isCopied ? 'コピー済み' : 'コピー'}
                         >
                             {isCopied ? <Check size={12} /> : <Copy size={12} />}
-                            {isCopied ? 'コピー済' : 'コピー'}
                         </button>
                         <button
                             type="button"
-                            className="btn btn-ghost edit-btn"
+                            className="btn btn-ghost edit-btn message-action-button"
                             onClick={() => onEdit(messageId, index, content)}
                             style={{
-                                fontSize: '0.75rem',
-                                padding: '0.25rem 0.625rem',
-                                height: 'auto',
-                                gap: '0.25rem',
                                 color: 'var(--text-muted)',
-                                borderRadius: '0.75rem',
                                 display: isArchived ? 'none' : undefined,
                             }}
                             title="メッセージを編集"
+                            aria-label="メッセージを編集"
                             disabled={isLoading}
                         >
                             <Pencil size={12} />
-                            編集
                         </button>
                     </div>
                 </div>
@@ -320,57 +310,42 @@ export default memo(function MessageBubble({
                         }}>
                             <button
                                 type="button"
-                                className="btn btn-ghost"
+                                className="btn btn-ghost message-action-button"
                                 onClick={() => onCopy(messageId, displayContent)}
                                 style={{
-                                    fontSize: '0.75rem',
-                                    padding: '0.25rem 0.625rem',
-                                    height: 'auto',
                                     color: isCopied ? 'var(--accent-primary)' : 'var(--text-muted)',
-                                    gap: '0.25rem',
-                                    borderRadius: '0.75rem',
                                     transition: 'color 0.15s ease',
                                 }}
-                                title="コピー"
+                                title={isCopied ? 'コピー済み' : 'コピー'}
+                                aria-label={isCopied ? 'コピー済み' : 'コピー'}
                             >
                                 {isCopied ? <Check size={12} /> : <Copy size={12} />}
-                                {isCopied ? 'コピー済' : 'コピー'}
                             </button>
                             <button
                                 type="button"
-                                className="btn btn-ghost"
+                                className="btn btn-ghost message-action-button"
                                 onClick={onRegenerate}
                                 style={{
-                                    fontSize: '0.75rem',
-                                    padding: '0.25rem 0.625rem',
-                                    height: 'auto',
                                     color: 'var(--text-muted)',
-                                    gap: '0.25rem',
-                                    borderRadius: '0.75rem',
                                     display: showRegenerateBtn ? undefined : 'none',
                                 }}
                                 title="回答を再生成"
+                                aria-label="回答を再生成"
                             >
                                 <RefreshCw size={14} />
-                                再生成
                             </button>
                             <button
                                 type="button"
-                                className="btn btn-ghost"
+                                className="btn btn-ghost message-action-button"
                                 onClick={onBranch}
                                 style={{
-                                    fontSize: '0.75rem',
-                                    padding: '0.25rem 0.625rem',
-                                    height: 'auto',
                                     color: 'var(--text-muted)',
-                                    gap: '0.25rem',
-                                    borderRadius: '0.75rem',
                                     display: showBranchAction && !isLoading ? undefined : 'none',
                                 }}
                                 title="ここから会話を分岐"
+                                aria-label="ここから会話を分岐"
                             >
                                 <GitBranch size={14} />
-                                分岐
                             </button>
                         </div>
                     )}

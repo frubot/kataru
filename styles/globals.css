@@ -1443,6 +1443,15 @@ body {
   margin-top: 0;
 }
 
+.message-action-button {
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  gap: 0;
+  border-radius: 0.5rem;
+  flex-shrink: 0;
+}
+
 .assistant-message-content .assistant-segment-continuation {
   border-radius: 1rem;
 }

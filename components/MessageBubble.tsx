@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef } from 'react';
-import { Brain, Pencil, Copy, Check, RefreshCw, Send, X } from 'lucide-react';
+import { ArrowUp, Brain, Pencil, Copy, Check, RefreshCw, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { formatAssistantMarkdown, splitAssistantMarkdownActions } from '@/lib/markdownUtils';
 import StoredImage from './StoredImage';
@@ -176,7 +176,7 @@ export default memo(function MessageBubble({
                                     className="btn btn-primary"
                                     disabled={isLoading || !editContent.trim()}
                                 >
-                                    <Send size={14} />
+                                    <ArrowUp size={14} />
                                     送信
                                 </button>
                             </div>

@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
-import { Send, Sparkles, MessageSquare, MessagesSquare, Menu, Brain, Bug, Square, SquarePen, Gamepad2, Copy, Check, RefreshCw, ChevronsDown, Shirt, AlertTriangle, X, ChevronDown, HatGlasses, Undo2, Trash2 } from 'lucide-react';
+import { ArrowUp, Sparkles, MessageSquare, MessagesSquare, Menu, Brain, Bug, Square, SquarePen, Gamepad2, Copy, Check, RefreshCw, ChevronsDown, Shirt, AlertTriangle, X, ChevronDown, HatGlasses, Undo2, Trash2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import {
     useStore,
@@ -2550,7 +2550,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         ? '直前の入力を編集中'
         : isEditingMessage
             ? '編集中のメッセージで送信してください'
-            : '返信';
+            : '返信を入力';
     const chatInputDisabled = isLoading || isSummarizing || (isEditingMessage && !isInlineVnEditing);
     const chatInputSubmitDisabled = isInlineVnEditing
         ? !editingMessage?.content.trim()
@@ -3142,7 +3142,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                                 disabled={chatInputSubmitDisabled}
                                 title={isInlineVnEditing ? '編集して送信' : '送信'}
                             >
-                                <Send size={16} />
+                                <ArrowUp size={16} />
                             </button>
                         </>
                     )}

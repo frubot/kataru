@@ -33,6 +33,7 @@ const DEFAULT_COSTUME_NAME = 'default';
 const NEUTRAL_EXPRESSION_NAME = 'neutral';
 const MESSAGE_MODE_BUBBLE_DELAY_MS = 420;
 const CONVERSATION_JOB_POLL_INTERVAL_MS = 750;
+const CONVERSATION_STREAMING_POLL_INTERVAL_MS = 120;
 
 type RoomViewMode = NonNullable<Room['viewMode']>;
 type EditingMessageDraft = {
@@ -929,9 +930,26 @@ type ConversationJobStatus = {
     status: 'running' | 'completed' | 'failed' | 'cancelled';
     result?: RustTurnResponse;
     error?: string;
+    preview?: {
+        content: string;
+        characterId?: string;
+        characterName?: string;
+        formattedMessages?: string[];
+        expression?: string;
+    };
 };
 
-function waitForConversationJobPoll(signal: AbortSignal): Promise<void> {
+type StreamingPreview = {
+    roomId: string;
+    jobId: string;
+    content: string;
+    characterId?: string;
+    characterName?: string;
+    formattedMessages?: string[];
+    expression?: string;
+};
+
+function waitForConversationJobPoll(signal: AbortSignal, intervalMs: number): Promise<void> {
     return new Promise((resolve, reject) => {
         if (signal.aborted) {
             reject(new DOMException('Generation stopped', 'AbortError'));
@@ -944,7 +962,7 @@ function waitForConversationJobPoll(signal: AbortSignal): Promise<void> {
         const timeout = setTimeout(() => {
             signal.removeEventListener('abort', handleAbort);
             resolve();
-        }, CONVERSATION_JOB_POLL_INTERVAL_MS);
+        }, intervalMs);
         signal.addEventListener('abort', handleAbort, { once: true });
     });
 }
@@ -1084,6 +1102,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const [debugLogOpen, setDebugLogOpen] = useState(false);
     const [chatNotice, setChatNotice] = useState<ChatNotice | null>(null);
     const [replySuggestionState, setReplySuggestionState] = useState<ReplySuggestionState | null>(null);
+    const [streamingPreview, setStreamingPreview] = useState<StreamingPreview | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const vnDialogueBodyRef = useRef<HTMLDivElement>(null);
     const chatModeMenuRef = useRef<HTMLDivElement>(null);
@@ -1339,12 +1358,19 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         session.controller = null;
     }, [setGenerationRoomActive]);
 
+    const clearStreamingPreview = useCallback((jobId: string) => {
+        setStreamingPreview((current) => current?.jobId === jobId ? null : current);
+    }, []);
+
     const pollConversationJob = useCallback(async (
         session: ChatGenerationSession,
         controller: AbortController,
     ): Promise<ConversationJobStatus> => {
         while (isGenerationSessionActive(session) && !controller.signal.aborted) {
-            await waitForConversationJobPoll(controller.signal);
+            const pollInterval = vnTypingSpeedRef.current === 'streaming'
+                ? CONVERSATION_STREAMING_POLL_INTERVAL_MS
+                : CONVERSATION_JOB_POLL_INTERVAL_MS;
+            await waitForConversationJobPoll(controller.signal, pollInterval);
             const response = await fetch(
                 `/api/conversation/jobs/${encodeURIComponent(session.jobId)}`,
                 {
@@ -1356,10 +1382,25 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 await throwChatRequestError(response, 0);
             }
             const job = await response.json() as ConversationJobStatus;
+            if (
+                vnTypingSpeedRef.current === 'streaming'
+                && job.preview?.content?.trim()
+                && getCurrentRoom()?.id === job.roomId
+            ) {
+                setStreamingPreview({
+                    roomId: job.roomId,
+                    jobId: job.jobId,
+                    content: job.preview.content,
+                    characterId: job.preview.characterId,
+                    characterName: job.preview.characterName,
+                    formattedMessages: job.preview.formattedMessages,
+                    expression: job.preview.expression,
+                });
+            }
             if (job.status !== 'running') return job;
         }
         throw new DOMException('Generation stopped', 'AbortError');
-    }, [isGenerationSessionActive]);
+    }, [getCurrentRoom, isGenerationSessionActive]);
 
     const resumeConversationJob = useCallback(async (job: ConversationJobStatus) => {
         if (resumedJobsRef.current.has(job.jobId) || generationSessionsRef.current.has(job.roomId)) {
@@ -1392,11 +1433,13 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 }
             }
         } finally {
+            clearStreamingPreview(session.jobId);
             clearGenerationController(session, controller);
             finishGenerationSession(session);
         }
     }, [
         attachGenerationController,
+        clearStreamingPreview,
         clearGenerationController,
         finishGenerationSession,
         getCurrentRoom,
@@ -1917,6 +1960,19 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         });
     }, [room, characterMap, character, isGroupRoom, isSecretMode, typingMessageId, typedContent]);
 
+    const activeStreamingPreview = streamingPreview
+        && streamingPreview.roomId === room?.id
+        && isLoading
+        && streamingPreview.content.trim()
+        ? streamingPreview
+        : null;
+    const streamingPreviewCharacter = activeStreamingPreview?.characterId && characterMap
+        ? characterMap.get(activeStreamingPreview.characterId)
+        : character;
+    const formattedStreamingPreviewMessages = activeStreamingPreview?.formattedMessages
+        ?.filter((content) => content.trim())
+        ?? [];
+
     const handleStop = () => {
         if (stopTypewriter(true)) {
             return;
@@ -1933,6 +1989,10 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         sourceRoom: Room,
     ): Promise<ChatGenerationResult> => {
         if (!isGenerationSessionActive(session)) return { status: 'aborted' };
+        const shouldStreamPreview = vnTypingSpeedRef.current === 'streaming';
+        if (shouldStreamPreview) {
+            setStreamingPreview((current) => current?.roomId === sourceRoom.id ? null : current);
+        }
 
         const controller = new AbortController();
         if (!attachGenerationController(session, controller)) {
@@ -1956,6 +2016,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     memoryExtractionModel,
                     memoryEmbeddingModel,
                     aiApiConfig: getAiApiConfig(),
+                    streamingPreview: shouldStreamPreview,
                 }),
                 signal: controller.signal,
             });
@@ -2021,6 +2082,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             } else {
                 await refreshConversationRoom(sourceRoom.id);
             }
+            clearStreamingPreview(session.jobId);
 
             if (!isSecretMode) {
                 if (fullJsonDebugEnabled) {
@@ -2117,6 +2179,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             }
             return { status: 'error' };
         } finally {
+            clearStreamingPreview(session.jobId);
             clearGenerationController(session, controller);
         }
     };
@@ -2477,8 +2540,12 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     }, [vnCharacter]);
 
     const vnExpressionImage = useMemo(
-        () => resolveExpressionImage(vnCharacter, latestAssistantMessage?.emotion ?? latestResolvedAssistantEmotion, vnSelectedCostumeName),
-        [vnCharacter, latestAssistantMessage, latestResolvedAssistantEmotion, vnSelectedCostumeName],
+        () => resolveExpressionImage(
+            vnCharacter,
+            activeStreamingPreview?.expression ?? latestAssistantMessage?.emotion ?? latestResolvedAssistantEmotion,
+            vnSelectedCostumeName,
+        ),
+        [activeStreamingPreview?.expression, vnCharacter, latestAssistantMessage, latestResolvedAssistantEmotion, vnSelectedCostumeName],
     );
     const latestAssistantMessageId = latestAssistantMessage?.id;
     const latestAssistantEmotion = latestAssistantMessage?.emotion;
@@ -2490,11 +2557,14 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     }, [isVisualNovelMode, latestAssistantMessageId, latestAssistantEmotion, latestAssistantHasText, triggerVnBounce]);
 
     const lastRoomMessage = room ? room.messages[room.messages.length - 1] : undefined;
-    const isWaitingForAssistant = isLoading && lastRoomMessage?.role !== 'assistant';
+    const isWaitingForAssistant = isLoading
+        && lastRoomMessage?.role !== 'assistant'
+        && !activeStreamingPreview;
     const isTypingLatestMessage = latestAssistantMessage?.id === typingMessageId;
-    const vnDialogueContent = isTypingLatestMessage
-        ? typedContent
-        : latestAssistantMessage?.displayContent || (isWaitingForAssistant ? '...' : '...（話しかけてみましょう）');
+    const vnDialogueContent = activeStreamingPreview?.content
+        ?? (isTypingLatestMessage
+            ? typedContent
+            : latestAssistantMessage?.displayContent || (isWaitingForAssistant ? '...' : '...（話しかけてみましょう）'));
     const vnProcessedDialogueContent = useMemo(() => formatAssistantMarkdown(vnDialogueContent), [vnDialogueContent]);
     const canRegenerateVN = !!latestAssistantMessage && lastRoomMessage?.id === latestAssistantMessage.id && !isLoading && !isInlineVnEditing;
     const canEditLatestUserMessageInVn = !!latestEditableUserMessage && !isLoading && !isSummarizing && !isInlineVnEditing;
@@ -2948,6 +3018,17 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                         >
                             {isWaitingForAssistant ? (
                                 <WaitingEllipsis className="vn-waiting-ellipsis" />
+                            ) : formattedStreamingPreviewMessages.length > 0 ? (
+                                <ReactMarkdown>{vnProcessedDialogueContent}</ReactMarkdown>
+                            ) : activeStreamingPreview ? (
+                                <div
+                                    className="vn-streaming-preview"
+                                    role="status"
+                                    aria-live="polite"
+                                    style={{ whiteSpace: 'pre-wrap' }}
+                                >
+                                    {activeStreamingPreview.content}
+                                </div>
                             ) : (
                                 <ReactMarkdown>{vnProcessedDialogueContent}</ReactMarkdown>
                             )}
@@ -3030,7 +3111,78 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                             ))}
                         </>
                     )}
-                    {isLoading && room.messages[room.messages.length - 1]?.role !== 'assistant' && (
+                    {formattedStreamingPreviewMessages.length > 0 && activeStreamingPreview ? (
+                        <>
+                            {formattedStreamingPreviewMessages.map((content, index) => (
+                                <MessageBubble
+                                    key={`${activeStreamingPreview.jobId}-preview-${index}`}
+                                    messageId={`${activeStreamingPreview.jobId}-preview-${index}`}
+                                    role="assistant"
+                                    content={content}
+                                    displayContent={content}
+                                    index={processedMessages.length + index}
+                                    isArchived={false}
+                                    isLastMessage={index === formattedStreamingPreviewMessages.length - 1}
+                                    isLoading={true}
+                                    isHovered={false}
+                                    isCopied={false}
+                                    formatAssistantActions={!isMessageMode}
+                                    isAssistantContinuation={index > 0}
+                                    showAssistantActions={false}
+                                    showBranchAction={false}
+                                    showMemoryIndicator={false}
+                                    showArchiveDivider={false}
+                                    memoryCharacterId={activeStreamingPreview.characterId}
+                                    characterIcon={streamingPreviewCharacter?.icon}
+                                    characterName={activeStreamingPreview.characterName ?? streamingPreviewCharacter?.name}
+                                    isGroupRoom={isGroupRoom}
+                                    onMouseEnter={NOOP}
+                                    onMouseLeave={NOOP}
+                                    onTouchStart={NOOP}
+                                    onEdit={NOOP}
+                                    onEditChange={NOOP}
+                                    onCancelEdit={NOOP}
+                                    onSubmitEdit={NOOP}
+                                    onCopy={NOOP}
+                                    onRegenerate={NOOP}
+                                    onBranch={NOOP}
+                                    onOpenMemoryList={NOOP}
+                                />
+                            ))}
+                        </>
+                    ) : activeStreamingPreview ? (
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+                            <div style={{ flexShrink: 0, width: '2rem', height: '2rem', borderRadius: '50%', overflow: 'hidden', marginTop: '0.25rem', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
+                                {streamingPreviewCharacter?.icon ? (
+                                    <StoredImage
+                                        src={streamingPreviewCharacter.icon}
+                                        alt={activeStreamingPreview.characterName ?? streamingPreviewCharacter.name}
+                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                    />
+                                ) : (
+                                    <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                                        {(activeStreamingPreview.characterName ?? streamingPreviewCharacter?.name ?? '?').charAt(0)}
+                                    </div>
+                                )}
+                            </div>
+                            <div className="assistant-message-content">
+                                {isGroupRoom && activeStreamingPreview.characterName && (
+                                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.125rem', marginLeft: '0.25rem', fontWeight: 500 }}>
+                                        {activeStreamingPreview.characterName}
+                                    </div>
+                                )}
+                                <div
+                                    className="message-bubble assistant animate-slide-up streaming-preview-bubble"
+                                    role="status"
+                                    aria-live="polite"
+                                    style={{ whiteSpace: 'pre-wrap' }}
+                                >
+                                    {activeStreamingPreview.content}
+                                </div>
+                            </div>
+                        </div>
+                    ) : null}
+                    {isLoading && !activeStreamingPreview && room.messages[room.messages.length - 1]?.role !== 'assistant' && (
                         <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
                             <div style={{ flexShrink: 0, width: '2rem', height: '2rem', borderRadius: '50%', overflow: 'hidden', marginTop: '0.25rem', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
                                 {!isGroupRoom && character?.icon ? (

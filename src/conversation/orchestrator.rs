@@ -13,20 +13,23 @@ use crate::{
         routes::{
             extract_message_text, memory_extraction_prompt, memory_schema, optional_model,
             parse_memory_updates, resolve_model, structured_completion,
+            structured_completion_streaming,
         },
     },
     error::{AppError, AppResult},
 };
 
 use super::{
+    jobs::ConversationJobs,
     prompts::{
         DIRECTOR_TRANSCRIPT_USER_HISTORY, SUMMARY_RECENT_USER_TURNS_TO_KEEP, actor_id,
         assistant_schema, boolean, character_setting, character_system_prompt, director_prompts,
         director_schema, string, summary_prompts, summary_schema,
     },
     response::{
-        AssistantEnvelope, DirectorDecision, parse_assistant_response, parse_director_decision,
-        parse_summary_response, sanitize_assistant_reply_content, sanitize_message_content,
+        AssistantEnvelope, DirectorDecision, assistant_response_preview, parse_assistant_response,
+        parse_director_decision, parse_summary_response, sanitize_assistant_reply_content,
+        sanitize_message_content,
     },
 };
 
@@ -169,6 +172,14 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
 
     let room_id = string(&room, "id");
     let use_message_mode = string(&room, "viewMode") == "message";
+    let preview_job_id = payload
+        .get("streamingPreview")
+        .and_then(Value::as_bool)
+        .filter(|enabled| *enabled)
+        .and_then(|_| payload.get("jobId"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty());
+    let streaming_preview = preview_job_id.map(|job_id| (&state.conversation_jobs, job_id));
     let latest_user_message = active_history
         .iter()
         .rev()
@@ -298,6 +309,7 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
                 &mut usages,
                 &mut full_json_logs,
                 generated.len(),
+                streaming_preview,
             )
             .await?;
             generated.extend(generated_messages);
@@ -343,6 +355,7 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
             &mut usages,
             &mut full_json_logs,
             0,
+            streaming_preview,
         )
         .await?;
         if memory_allowed {
@@ -405,6 +418,7 @@ async fn generate_for_character(
     usages: &mut Vec<Value>,
     full_json_logs: &mut Vec<Value>,
     id_offset: usize,
+    streaming_preview: Option<(&ConversationJobs, &str)>,
 ) -> AppResult<Vec<Value>> {
     let expression_names = expression_names(character, room, situation.is_none());
     let schema = assistant_schema(
@@ -446,9 +460,33 @@ async fn generate_for_character(
     let prompt = serde_json::to_string_pretty(&body["messages"])
         .expect("completion messages must be serializable");
     let started = now_ms();
-    let raw = structured_completion(api_client, body, schema, 120).await?;
+    let raw = if let Some((jobs, job_id)) = streaming_preview {
+        structured_completion_streaming(api_client, body, schema, 120, |partial| {
+            let preview = assistant_response_preview(partial, message_mode);
+            jobs.update_preview(
+                job_id,
+                &preview,
+                &actor_id(character),
+                &string(character, "name"),
+            );
+        })
+        .await?
+    } else {
+        structured_completion(api_client, body, schema, 120).await?
+    };
     let content = extract_message_text(&raw);
     let envelope = parse_assistant_response(&content, &expression_names, message_mode)?;
+    if let Some((jobs, job_id)) = streaming_preview {
+        jobs.finalize_preview(
+            job_id,
+            &envelope.message,
+            &actor_id(character),
+            &string(character, "name"),
+            &envelope.messages,
+            envelope.expression.as_deref(),
+        )
+        .await;
+    }
     if !secret_mode {
         push_usage(usages, &raw, character, "chat");
         full_json_logs.push(json!({

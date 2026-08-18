@@ -104,6 +104,114 @@ pub fn parse_assistant_response(
     })
 }
 
+fn json_string_at(content: &str, start: usize) -> (String, usize, bool) {
+    let bytes = content.as_bytes();
+    let mut index = start + 1;
+    let mut escaped = false;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'"' if !escaped => {
+                let parsed =
+                    serde_json::from_str::<String>(&content[start..=index]).unwrap_or_default();
+                return (parsed, index + 1, true);
+            }
+            b'\\' if !escaped => escaped = true,
+            _ => escaped = false,
+        }
+        index += 1;
+    }
+
+    let mut candidate_end = content.len();
+    while candidate_end > start {
+        let candidate = format!("{}\"", &content[start..candidate_end]);
+        if let Ok(parsed) = serde_json::from_str::<String>(&candidate) {
+            return (parsed, content.len(), false);
+        }
+        candidate_end -= 1;
+        while candidate_end > start && !content.is_char_boundary(candidate_end) {
+            candidate_end -= 1;
+        }
+    }
+    (String::new(), content.len(), false)
+}
+
+fn json_property_value_start(content: &str, keys: &[&str]) -> Option<usize> {
+    let bytes = content.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] != b'"' {
+            index += 1;
+            continue;
+        }
+        let (token, end, complete) = json_string_at(content, index);
+        if !complete {
+            return None;
+        }
+        let mut cursor = end;
+        while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+            cursor += 1;
+        }
+        if keys.contains(&token.as_str()) && bytes.get(cursor) == Some(&b':') {
+            cursor += 1;
+            while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+                cursor += 1;
+            }
+            return Some(cursor);
+        }
+        index = end;
+    }
+    None
+}
+
+/// Extracts only user-visible reply text from an in-progress structured JSON response.
+/// Incomplete JSON string escape sequences are held back until they can be decoded safely.
+pub(crate) fn assistant_response_preview(content: &str, message_mode: bool) -> String {
+    if message_mode {
+        let Some(mut cursor) = json_property_value_start(content, &["messages"]) else {
+            return String::new();
+        };
+        let bytes = content.as_bytes();
+        if bytes.get(cursor) != Some(&b'[') {
+            return String::new();
+        }
+        cursor += 1;
+        let mut messages = Vec::new();
+        while cursor < bytes.len() {
+            while cursor < bytes.len()
+                && (bytes[cursor].is_ascii_whitespace() || bytes[cursor] == b',')
+            {
+                cursor += 1;
+            }
+            if bytes.get(cursor) == Some(&b']') {
+                break;
+            }
+            if bytes.get(cursor) != Some(&b'"') {
+                break;
+            }
+            let (message, end, complete) = json_string_at(content, cursor);
+            if !message.is_empty() {
+                messages.push(message);
+            }
+            if !complete {
+                break;
+            }
+            cursor = end;
+        }
+        return messages.join("\n\n");
+    }
+
+    let Some(cursor) = json_property_value_start(
+        content,
+        &["message", "dialogue", "content", "text", "reply", "answer"],
+    ) else {
+        return String::new();
+    };
+    if content.as_bytes().get(cursor) != Some(&b'"') {
+        return String::new();
+    }
+    json_string_at(content, cursor).0
+}
+
 pub fn parse_director_decision(
     content: &str,
     valid_actor_ids: &[String],
@@ -535,6 +643,29 @@ mod tests {
         let response =
             parse_assistant_response("Here: {\"message\":\"hello\"} done", &[], false).unwrap();
         assert_eq!(response.message, "hello");
+    }
+
+    #[test]
+    fn previews_incomplete_structured_reply_without_exposing_thought() {
+        assert_eq!(
+            assistant_response_preview(
+                r#"{"thought":"hidden","expression":"happy","message":"こんにちは\n世"#,
+                false,
+            ),
+            "こんにちは\n世"
+        );
+        assert_eq!(
+            assistant_response_preview(r#"{"thought":"still hidden"#, false),
+            ""
+        );
+    }
+
+    #[test]
+    fn previews_message_array_as_one_temporary_block() {
+        assert_eq!(
+            assistant_response_preview(r#"{"messages":["一つ目","二つ"#, true),
+            "一つ目\n\n二つ"
+        );
     }
 
     #[test]

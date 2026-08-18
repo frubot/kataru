@@ -38,6 +38,7 @@ struct ConversationJob {
     status: JobStatus,
     result: Option<Value>,
     error: Option<String>,
+    preview: Option<Value>,
     created_at: u64,
     updated_at: u64,
     recoverable: bool,
@@ -82,6 +83,9 @@ impl ConversationJob {
         if include_result && let Some(result) = &self.result {
             value.insert("result".to_owned(), result.clone());
         }
+        if let Some(preview) = &self.preview {
+            value.insert("preview".to_owned(), preview.clone());
+        }
         if let Some(error) = &self.error {
             value.insert("error".to_owned(), Value::String(error.clone()));
         }
@@ -116,6 +120,7 @@ impl ConversationJobs {
             status: JobStatus::Running,
             result: None,
             error: None,
+            preview: None,
             created_at: now,
             updated_at: now,
             recoverable,
@@ -168,6 +173,65 @@ impl ConversationJobs {
         }
     }
 
+    pub(crate) fn update_preview(
+        &self,
+        job_id: &str,
+        content: &str,
+        character_id: &str,
+        character_name: &str,
+    ) {
+        if content.trim().is_empty() {
+            return;
+        }
+        let Ok(mut jobs) = self.inner.try_lock() else {
+            return;
+        };
+        let Some(job) = jobs.get_mut(job_id) else {
+            return;
+        };
+        if job.status != JobStatus::Running {
+            return;
+        }
+        job.preview = Some(json!({
+            "content": content,
+            "characterId": character_id,
+            "characterName": character_name,
+        }));
+        job.updated_at = now_millis();
+    }
+
+    pub(crate) async fn finalize_preview(
+        &self,
+        job_id: &str,
+        content: &str,
+        character_id: &str,
+        character_name: &str,
+        formatted_messages: &[String],
+        expression: Option<&str>,
+    ) {
+        if content.trim().is_empty() {
+            return;
+        }
+        let mut jobs = self.inner.lock().await;
+        let Some(job) = jobs.get_mut(job_id) else {
+            return;
+        };
+        if job.status != JobStatus::Running {
+            return;
+        }
+        let mut preview = json!({
+            "content": content,
+            "characterId": character_id,
+            "characterName": character_name,
+            "formattedMessages": formatted_messages,
+        });
+        if let Some(expression) = expression {
+            preview["expression"] = Value::String(expression.to_owned());
+        }
+        job.preview = Some(preview);
+        job.updated_at = now_millis();
+    }
+
     async fn get(&self, job_id: &str) -> Option<Value> {
         let mut jobs = self.inner.lock().await;
         prune_jobs(&mut jobs);
@@ -194,6 +258,7 @@ impl ConversationJobs {
                 status: JobStatus::Cancelled,
                 result: None,
                 error: None,
+                preview: None,
                 created_at: now,
                 updated_at: now,
                 recoverable: false,

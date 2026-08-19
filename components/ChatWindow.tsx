@@ -39,8 +39,11 @@ import { applyConversationResult } from './chat/applyConversationResult';
 import { useChatGenerationSessions } from './chat/useChatGenerationSessions';
 import type { ChatGenerationSession } from './chat/useChatGenerationSessions';
 import { useChatComposerKeyboard, useChatInputRedirect, useTypewriterAdvance } from './chat/useChatKeyboard';
+import { useChatMentions } from './chat/useChatMentions';
 import { useChatNotice } from './chat/useChatNotice';
 import type { ChatNoticeAction } from './chat/useChatNotice';
+import { useReplySuggestions } from './chat/useReplySuggestions';
+import { useRoomTitleGeneration } from './chat/useRoomTitleGeneration';
 
 interface ChatWindowProps {
     room: Room | null;
@@ -65,17 +68,6 @@ type EditingMessageDraft = {
     roomId: string;
     messageId: string;
     content: string;
-};
-type TitleGenerationRequestMessage = {
-    role: 'user' | 'assistant';
-    content: string;
-    name?: string;
-};
-type ReplySuggestionState = {
-    roomId: string;
-    sourceMessageId: string;
-    suggestions: string[];
-    loading: boolean;
 };
 type ConversationCharacter = {
     id: string;
@@ -194,31 +186,6 @@ function resolveRoomViewMode(room: Room | null | undefined): RoomViewMode {
 
 function getRoomViewModeLabel(viewMode: RoomViewMode): string {
     return CHAT_MODE_OPTIONS.find((option) => option.value === viewMode)?.label ?? 'ベーシック';
-}
-
-function buildTitleGenerationMessages(
-    messages: Message[],
-    groupCharacters?: SituationParticipant[] | null,
-): TitleGenerationRequestMessage[] {
-    const characterNameById = new Map(
-        (groupCharacters ?? []).map((groupCharacter) => [groupCharacter.id, groupCharacter.name])
-    );
-
-    return messages
-        .filter((message) => !message.archived)
-        .map((message): TitleGenerationRequestMessage | null => {
-            const content = message.content.trim();
-            if (!content) return null;
-            const name = message.role === 'assistant' && message.characterId
-                ? characterNameById.get(message.characterId)
-                : undefined;
-            return {
-                role: message.role,
-                content,
-                ...(name ? { name } : {}),
-            };
-        })
-        .filter((message): message is TitleGenerationRequestMessage => message != null);
 }
 
 function renderRoomViewModeIcon(viewMode: RoomViewMode, size = 18) {
@@ -517,9 +484,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const [isSummarizing, setIsSummarizing] = useState(false);
     const [isMobile, setIsMobile] = useState(false);
     const [hoveredMessageId, setHoveredMessageId] = useState<string | null>(null);
-    const [mentionQuery, setMentionQuery] = useState<string | null>(null);
-    const [mentionStartIndex, setMentionStartIndex] = useState(0);
-    const [selectedMentionIdx, setSelectedMentionIdx] = useState(0);
     const [touchedMessageId, setTouchedMessageId] = useState<string | null>(null);
     const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
     const [branchingMessageId, setBranchingMessageId] = useState<string | null>(null);
@@ -531,7 +495,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const [chatModeMenuOpen, setChatModeMenuOpen] = useState(false);
     const [vnCostumeMenuOpen, setVnCostumeMenuOpen] = useState(false);
     const [debugLogOpen, setDebugLogOpen] = useState(false);
-    const [replySuggestionState, setReplySuggestionState] = useState<ReplySuggestionState | null>(null);
     const [streamingPreview, setStreamingPreview] = useState<StreamingPreview | null>(null);
     const [streamedFinalMessageIds, setStreamedFinalMessageIds] = useState<Set<string>>(() => new Set());
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -547,10 +510,23 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const vnTypeDelayRef = useRef<{ timeout: ReturnType<typeof setTimeout>; resolve: () => void } | null>(null);
     const retrySubmissionRef = useRef<ChatRetryRequest | null>(null);
     const chatNoticeActionRunningRef = useRef(false);
-    const replySuggestionRequestKeyRef = useRef<string | null>(null);
-    const replySuggestionControllerRef = useRef<AbortController | null>(null);
     const vnTypingSpeedRef = useRef(vnTypingSpeed);
     const messagePointerDragRef = useRef(false);
+    const {
+        query: mentionQuery,
+        candidates: mentionCandidates,
+        selectedIndex: selectedMentionIdx,
+        setSelectedIndex: setSelectedMentionIdx,
+        apply: applyMention,
+        close: closeMention,
+        handleInputChange,
+    } = useChatMentions({
+        enabled: isGroupRoom,
+        candidates: groupCharacters,
+        input,
+        setInput,
+        inputRef: textareaRef,
+    });
     const {
         notice: chatNotice,
         showNotice: showChatNotice,
@@ -584,52 +560,23 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const isInlineVnEditing = isVisualNovelMode && isEditingMessage;
     const debugPanelEnabled = fullJsonDebugEnabled;
     const visibleDebugLogCount = fullJsonDebugLogs.length;
-    const replySuggestionRoomId = room?.id;
-    const replySuggestionMessages = room?.messages;
-    const savedReplySuggestions = room?.replySuggestions;
-    const latestReplySuggestionMessage = useMemo(() => {
-        const visibleMessages = replySuggestionMessages?.filter((message) => !message.archived) ?? [];
-        return visibleMessages[visibleMessages.length - 1];
-    }, [replySuggestionMessages]);
-    const savedReplySuggestionState = useMemo<ReplySuggestionState | null>(() => {
-        const saved = savedReplySuggestions;
-        if (
-            !saved
-            || !replySuggestionRoomId
-            || latestReplySuggestionMessage?.role !== 'assistant'
-            || saved.sourceMessageId !== latestReplySuggestionMessage.id
-            || !Array.isArray(saved.suggestions)
-        ) return null;
-        const suggestions = saved.suggestions
-            .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-            .map((value) => value.trim());
-        if (suggestions.length !== 3) return null;
-        return {
-            roomId: replySuggestionRoomId,
-            sourceMessageId: saved.sourceMessageId,
-            suggestions,
-            loading: false,
-        };
-    }, [latestReplySuggestionMessage, replySuggestionRoomId, savedReplySuggestions]);
-    const replySuggestionMessagesJson = useMemo(
-        () => JSON.stringify(
-            buildTitleGenerationMessages(replySuggestionMessages ?? [], groupCharacters).slice(-20)
-        ),
-        [groupCharacters, replySuggestionMessages],
-    );
-    const protagonistPromptForSuggestions = useMemo(() => {
-        const participants = isGroupRoom ? groupCharacters ?? [] : character ? [character] : [];
-        const seen = new Set<string>();
-        return participants
-            .flatMap((participant) => {
-                const prompt = participant.protagonistPrompt?.trim();
-                if (!prompt || seen.has(prompt)) return [];
-                seen.add(prompt);
-                return [`${participant.name}から見た主人公:\n${prompt}`];
-            })
-            .join('\n\n');
-    }, [character, groupCharacters, isGroupRoom]);
-
+    const {
+        state: replySuggestionState,
+        setState: setReplySuggestionState,
+    } = useReplySuggestions({
+        room,
+        character,
+        groupCharacters,
+        isGroupRoom,
+        enabled: replySuggestionsEnabled,
+        model: replySuggestionModel,
+        situationPrompt: situation?.situationPrompt,
+        isLoading,
+        isSummarizing,
+        isTypewriterActive,
+        getAiApiConfig,
+        setRoomReplySuggestions,
+    });
     const scrollToBottom = useCallback(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, []);
@@ -651,44 +598,13 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         console.error(context, getChatErrorMessage(error));
     }, [detailedErrorLoggingEnabled]);
 
-    const generateInitialRoomTitle = useCallback(async (roomId: string, originalRoomName: string) => {
-        const latestRoom = getCurrentRoom();
-        if (latestRoom?.id !== roomId || latestRoom.secretMode === true || latestRoom.name !== originalRoomName) return;
-
-        const titleMessages = buildTitleGenerationMessages(latestRoom.messages, groupCharacters);
-        if (!titleMessages.some((message) => message.role === 'assistant')) return;
-
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 60_000);
-        try {
-            const response = await fetch('/api/generate-title', {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    messages: titleMessages,
-                    model: titleGenerationModel.trim(),
-                    aiApiConfig: getAiApiConfig(),
-                }),
-                signal: controller.signal,
-            });
-            if (!response.ok) return;
-
-            const data = await response.json();
-            const title = typeof data?.title === 'string' ? data.title.trim() : '';
-            if (!title || title === originalRoomName) return;
-
-            const roomBeforeUpdate = getCurrentRoom();
-            if (roomBeforeUpdate?.id !== roomId || roomBeforeUpdate.secretMode === true || roomBeforeUpdate.name !== originalRoomName) return;
-            updateRoomName(roomId, title);
-        } catch (error) {
-            if (!(error instanceof Error && error.name === 'AbortError')) {
-                console.warn('Room title generation failed:', error);
-            }
-        } finally {
-            clearTimeout(timeoutId);
-        }
-    }, [getAiApiConfig, getCurrentRoom, groupCharacters, titleGenerationModel, updateRoomName]);
+    const generateInitialRoomTitle = useRoomTitleGeneration({
+        groupCharacters,
+        model: titleGenerationModel,
+        getAiApiConfig,
+        getCurrentRoom,
+        updateRoomName,
+    });
 
     const clearStreamingPreview = useCallback((jobId: string) => {
         setStreamingPreview((current) => current?.jobId === jobId ? null : current);
@@ -827,141 +743,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     useEffect(() => {
         setEditingMessage(null);
     }, [currentRoomId]);
-
-    useEffect(() => {
-        const canGenerate = replySuggestionsEnabled
-            && replySuggestionRoomId != null
-            && latestReplySuggestionMessage?.role === 'assistant'
-            && !isLoading
-            && !isSummarizing
-            && !isTypewriterActive;
-
-        if (!canGenerate || !replySuggestionRoomId || !latestReplySuggestionMessage) {
-            if (!replySuggestionsEnabled || latestReplySuggestionMessage?.role !== 'assistant') {
-                replySuggestionRequestKeyRef.current = null;
-                setReplySuggestionState((current) => current ? null : current);
-            }
-            return;
-        }
-
-        const sourceMessageId = latestReplySuggestionMessage.id;
-        const requestKey = `${replySuggestionRoomId}:${sourceMessageId}`;
-        if (savedReplySuggestionState) {
-            replySuggestionRequestKeyRef.current = requestKey;
-            setReplySuggestionState((current) => {
-                if (
-                    current?.roomId === savedReplySuggestionState.roomId
-                    && current.sourceMessageId === savedReplySuggestionState.sourceMessageId
-                    && !current.loading
-                    && current.suggestions.length === savedReplySuggestionState.suggestions.length
-                    && current.suggestions.every((suggestion, index) =>
-                        suggestion === savedReplySuggestionState.suggestions[index]
-                    )
-                ) return current;
-                return savedReplySuggestionState;
-            });
-            return;
-        }
-        if (replySuggestionRequestKeyRef.current === requestKey) return;
-        replySuggestionRequestKeyRef.current = requestKey;
-        const controller = new AbortController();
-        replySuggestionControllerRef.current = controller;
-        const timeoutId = setTimeout(() => {
-            controller.abort();
-            if (replySuggestionControllerRef.current === controller) {
-                setReplySuggestionState((current) =>
-                    current?.roomId === replySuggestionRoomId && current.sourceMessageId === sourceMessageId
-                        ? null
-                        : current
-                );
-            }
-        }, 60_000);
-        let settled = false;
-        setReplySuggestionState({
-            roomId: replySuggestionRoomId,
-            sourceMessageId,
-            suggestions: [],
-            loading: true,
-        });
-
-        void fetch('/api/generate-reply-suggestions', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                messages: JSON.parse(replySuggestionMessagesJson),
-                model: replySuggestionModel.trim(),
-                protagonistPrompt: protagonistPromptForSuggestions,
-                situationPrompt: situation?.situationPrompt,
-                aiApiConfig: getAiApiConfig(),
-            }),
-            signal: controller.signal,
-        })
-            .then(async (response) => {
-                if (!response.ok) throw new Error(`Reply suggestion request failed (${response.status})`);
-                return response.json();
-            })
-            .then((data) => {
-                const suggestions = Array.isArray(data?.suggestions)
-                    ? data.suggestions
-                        .filter((value: unknown): value is string => typeof value === 'string' && value.trim().length > 0)
-                        .map((value: string) => value.trim())
-                    : [];
-                if (
-                    controller.signal.aborted
-                    || replySuggestionControllerRef.current !== controller
-                    || suggestions.length !== 3
-                ) return;
-                setRoomReplySuggestions(replySuggestionRoomId, { sourceMessageId, suggestions });
-                setReplySuggestionState((current) =>
-                    current?.roomId === replySuggestionRoomId && current.sourceMessageId === sourceMessageId
-                        ? { ...current, suggestions, loading: false }
-                        : current
-                );
-            })
-            .catch((error) => {
-                if (error instanceof Error && error.name === 'AbortError') return;
-                if (replySuggestionControllerRef.current !== controller) return;
-                console.warn('Reply suggestion generation failed:', error);
-                setReplySuggestionState((current) =>
-                    current?.roomId === replySuggestionRoomId && current.sourceMessageId === sourceMessageId
-                        ? null
-                        : current
-                );
-            })
-            .finally(() => {
-                settled = true;
-                clearTimeout(timeoutId);
-                if (replySuggestionControllerRef.current === controller) {
-                    replySuggestionControllerRef.current = null;
-                }
-            });
-
-        return () => {
-            clearTimeout(timeoutId);
-            controller.abort();
-            if (replySuggestionControllerRef.current === controller) {
-                replySuggestionControllerRef.current = null;
-            }
-            if (!settled && replySuggestionRequestKeyRef.current === requestKey) {
-                replySuggestionRequestKeyRef.current = null;
-            }
-        };
-    }, [
-        getAiApiConfig,
-        isLoading,
-        isSummarizing,
-        isTypewriterActive,
-        latestReplySuggestionMessage,
-        protagonistPromptForSuggestions,
-        replySuggestionModel,
-        replySuggestionMessagesJson,
-        replySuggestionsEnabled,
-        replySuggestionRoomId,
-        savedReplySuggestionState,
-        setRoomReplySuggestions,
-        situation?.situationPrompt,
-    ]);
 
     useEffect(() => {
         const checkMobile = () => {
@@ -1198,14 +979,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         for (const c of groupCharacters) map.set(c.id, c);
         return map;
     }, [isGroupRoom, groupCharacters]);
-
-    // @mention candidates filtered by current query
-    const mentionCandidates = useMemo(() => {
-        if (!isGroupRoom || !groupCharacters || mentionQuery === null) return [];
-        const q = mentionQuery.toLowerCase();
-        if (q === '') return groupCharacters;
-        return groupCharacters.filter((c) => c.name.toLowerCase().startsWith(q));
-    }, [isGroupRoom, groupCharacters, mentionQuery]);
 
     const priorMessagesForDisplay = useMemo(() => {
         const messages = situation?.priorMessages ?? [];
@@ -1623,9 +1396,9 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             messageId,
             content: latestMessage?.content ?? messageContent,
         });
-        setMentionQuery(null);
+        closeMention();
         setTouchedMessageId(null);
-    }, [getCurrentRoom, isLoading, isSummarizing, room]);
+    }, [closeMention, getCurrentRoom, isLoading, isSummarizing, room]);
 
     const handleEditMessageChange = useCallback((content: string) => {
         setEditingMessage((draft) => draft ? { ...draft, content } : draft);
@@ -1679,45 +1452,13 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         onOpenMemoryList(targetCharacter);
     }, [character, groupCharacters, onOpenMemoryList]);
 
-    const applyMention = (character: Character) => {
-        const before = input.slice(0, mentionStartIndex);
-        const after = input.slice(mentionStartIndex + 1 + (mentionQuery?.length ?? 0));
-        const newInput = `${before}@${character.name} ${after}`;
-        setInput(newInput);
-        setMentionQuery(null);
-        // Restore focus and move cursor after inserted name
-        setTimeout(() => {
-            const el = textareaRef.current;
-            if (!el) return;
-            el.focus();
-            const pos = before.length + character.name.length + 2; // @name + space
-            el.setSelectionRange(pos, pos);
-        }, 0);
-    };
-
-    const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-        const value = e.target.value;
-        setInput(value);
-        if (!isGroupRoom) return;
-        const cursorPos = e.target.selectionStart ?? value.length;
-        const textBeforeCursor = value.slice(0, cursorPos);
-        const match = textBeforeCursor.match(/@([\w\u3000-\u9FFF\u30A0-\u30FF\u3040-\u309F\uFF65-\uFF9F]*)$/);
-        if (match) {
-            setMentionQuery(match[1]);
-            setMentionStartIndex(match.index!);
-            setSelectedMentionIdx(0);
-        } else {
-            setMentionQuery(null);
-        }
-    };
-
     const handleKeyDown = useChatComposerKeyboard({
         mentionOpen: mentionQuery !== null,
         mentionCandidates,
         selectedMentionIndex: selectedMentionIdx,
         setSelectedMentionIndex: setSelectedMentionIdx,
         onApplyMention: applyMention,
-        onCloseMention: () => setMentionQuery(null),
+        onCloseMention: closeMention,
         isMobile,
         isInlineEditing: isInlineVnEditing,
         onSubmit: () => {
@@ -1816,10 +1557,10 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             messageId: latestEditableUserMessage.id,
             content: latestEditableUserMessage.content,
         });
-        setMentionQuery(null);
+        closeMention();
         setTouchedMessageId(null);
         setTimeout(() => textareaRef.current?.focus(), 0);
-    }, [isLoading, isSummarizing, latestEditableUserMessage, room]);
+    }, [closeMention, isLoading, isSummarizing, latestEditableUserMessage, room]);
 
     const handleSelectVnCostume = (costumeName: string) => {
         if (!room || !vnCharacter) return;

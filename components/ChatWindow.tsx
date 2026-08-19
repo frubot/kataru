@@ -1,5 +1,4 @@
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
-import { ArrowUp, Square, ChevronsDown, X } from 'lucide-react';
 import {
     useStore,
     Room,
@@ -41,17 +40,15 @@ import {
     resolveVisualNovelCostumeName,
     resolveVisualNovelExpressionImage,
 } from '@/lib/visualNovelPresentation';
-import StoredImage from './StoredImage';
+import ChatComposer from './chat/ChatComposer';
 import ChatHeader from './chat/ChatHeader';
 import ChatMessagesView from './chat/ChatMessagesView';
-import ChatNoticeBanner from './chat/ChatNoticeBanner';
 import ChatWelcome from './chat/ChatWelcome';
 import DebugLogModal from './chat/DebugLogModal';
 import ReplySuggestions from './chat/ReplySuggestions';
 import { applyConversationResult } from './chat/applyConversationResult';
 import { useChatGenerationSessions } from './chat/useChatGenerationSessions';
 import type { ChatGenerationSession } from './chat/useChatGenerationSessions';
-import { useChatComposerKeyboard, useChatInputRedirect } from './chat/useChatKeyboard';
 import { useChatMentions } from './chat/useChatMentions';
 import { useChatNotice } from './chat/useChatNotice';
 import type { ChatNoticeAction } from './chat/useChatNotice';
@@ -577,19 +574,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         };
     }, []);
 
-    useEffect(() => {
-        if (textareaRef.current) {
-            textareaRef.current.style.height = 'auto';
-            textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 150) + 'px';
-        }
-    }, [input, editingMessage?.content, isInlineVnEditing]);
-
-    useEffect(() => {
-        if (room?.id && window.innerWidth > 768) {
-            textareaRef.current?.focus();
-        }
-    }, [room?.id]);
-
     // Room switches only stop room-local presentation. Server-side generation continues.
     useEffect(() => {
         return () => {
@@ -609,13 +593,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             stopTypewriter(true);
         }
     }, [isMessageMode, stopTypewriter]);
-
-    // キーボード入力を常にテキストエリアにリダイレクト（モーダル等は除外）
-    useChatInputRedirect({
-        inputRef: textareaRef,
-        disabled: isLoading || (isEditingMessage && !isInlineVnEditing),
-        isMobile,
-    });
 
     const characterMap = useMemo(
         () => buildChatCharacterMap(isGroupRoom, groupCharacters),
@@ -1023,21 +1000,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         onOpenMemoryList(targetCharacter);
     }, [character, groupCharacters, onOpenMemoryList]);
 
-    const handleKeyDown = useChatComposerKeyboard({
-        mentionOpen: mentionQuery !== null,
-        mentionCandidates,
-        selectedMentionIndex: selectedMentionIdx,
-        setSelectedMentionIndex: setSelectedMentionIdx,
-        onApplyMention: applyMention,
-        onCloseMention: closeMention,
-        isMobile,
-        isInlineEditing: isInlineVnEditing,
-        onSubmit: () => {
-            void handleSubmit();
-        },
-        onSubmitEdit: handleSubmitEditMessage,
-    });
-
     const latestAssistantMessage = useMemo(() => {
         for (let i = processedMessages.length - 1; i >= 0; i--) {
             const message = processedMessages[i];
@@ -1167,15 +1129,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             handleInputChange(e);
         }
     };
-    const handleChatInputSubmit = (e: React.FormEvent) => {
-        if (isInlineVnEditing) {
-            e.preventDefault();
-            handleSubmitEditMessage();
-            return;
-        }
-        void handleSubmit(e);
-    };
-
     if (!room) {
         return (
             <ChatWelcome
@@ -1343,107 +1296,42 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 />
             )}
 
-            <div className="chat-input-area" style={{ position: 'relative' }}>
-                {chatNotice && (
-                    <ChatNoticeBanner
-                        key={chatNotice.id}
-                        notice={chatNotice}
-                        retryDisabled={isLoading || isSummarizing}
-                        onAction={handleChatNoticeAction}
-                        onDismiss={dismissChatNotice}
-                        onInteractionStart={handleChatNoticeMouseEnter}
-                        onInteractionEnd={handleChatNoticeMouseLeave}
-                    />
-                )}
-                {!isVisualNovelMode && replySuggestions}
-                {mentionQuery !== null && mentionCandidates.length > 0 && (
-                    <div className="chat-mention-menu" style={{
-                        position: 'absolute',
-                        bottom: '100%',
-                        background: 'var(--bg-primary)',
-                        border: '1px solid var(--border-color)',
-                        borderRadius: '0.5rem',
-                        overflow: 'hidden',
-                        boxShadow: '0 -4px 12px rgba(0,0,0,0.15)',
-                        zIndex: 50,
-                    }}>
-                        {mentionCandidates.map((c, i) => (
-                            <button
-                                key={c.id}
-                                type="button"
-                                onMouseDown={(e) => { e.preventDefault(); applyMention(c); }}
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '0.5rem',
-                                    width: '100%',
-                                    padding: '0.5rem 0.75rem',
-                                    background: i === selectedMentionIdx ? 'var(--bg-hover)' : 'transparent',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    textAlign: 'left',
-                                    color: 'var(--text-primary)',
-                                    fontSize: '0.875rem',
-                                }}
-                                onMouseEnter={() => setSelectedMentionIdx(i)}
-                            >
-                                <div style={{ flexShrink: 0, width: '1.5rem', height: '1.5rem', borderRadius: '50%', overflow: 'hidden', background: 'var(--bg-primary)', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>
-                                    {c.icon
-                                        ? <StoredImage src={c.icon} alt={c.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                        : c.name.charAt(0)
-                                    }
-                                </div>
-                                <span>{c.name}</span>
-                            </button>
-                        ))}
-                    </div>
-                )}
-                <form onSubmit={handleChatInputSubmit} className={`chat-input-wrapper ${isInlineVnEditing ? 'editing' : ''}`}>
-                    <textarea
-                        ref={textareaRef}
-                        className="input chat-input"
-                        value={chatInputValue}
-                        onChange={handleChatInputChange}
-                        onKeyDown={handleKeyDown}
-                        placeholder={chatInputPlaceholder}
-                        disabled={chatInputDisabled}
-                        rows={1}
-                    />
-                    {isLoading || isSummarizing ? (
-                        <button
-                            type="button"
-                            className="btn btn-primary chat-input-send"
-                            onClick={handleStop}
-                            style={isTypewriterActive ? undefined : { backgroundColor: '#ef4444' }}
-                            title={isTypewriterActive ? '全文表示' : '生成を中断'}
-                        >
-                            {isTypewriterActive ? <ChevronsDown size={16} /> : <Square size={16} fill="currentColor" />}
-                        </button>
-                    ) : (
-                        <>
-                            {isInlineVnEditing && (
-                                <button
-                                    type="button"
-                                    className="btn btn-ghost chat-input-cancel"
-                                    onClick={handleCancelEditMessage}
-                                    title="編集をキャンセル"
-                                    aria-label="編集をキャンセル"
-                                >
-                                    <X size={15} />
-                                </button>
-                            )}
-                            <button
-                                type="submit"
-                                className="btn btn-primary chat-input-send"
-                                disabled={chatInputSubmitDisabled}
-                                title={isInlineVnEditing ? '編集して送信' : '送信'}
-                            >
-                                <ArrowUp size={16} />
-                            </button>
-                        </>
-                    )}
-                </form>
-            </div>
+            <ChatComposer
+                inputRef={textareaRef}
+                focusKey={room.id}
+                value={chatInputValue}
+                onChange={handleChatInputChange}
+                placeholder={chatInputPlaceholder}
+                disabled={chatInputDisabled}
+                redirectDisabled={
+                    isLoading || (isEditingMessage && !isInlineVnEditing)
+                }
+                submitDisabled={chatInputSubmitDisabled}
+                isMobile={isMobile}
+                isInlineEditing={isInlineVnEditing}
+                isBusy={isLoading || isSummarizing}
+                isTypewriterActive={isTypewriterActive}
+                onSubmit={() => {
+                    void handleSubmit();
+                }}
+                onSubmitEdit={handleSubmitEditMessage}
+                onCancelEdit={handleCancelEditMessage}
+                onStop={handleStop}
+                notice={chatNotice}
+                noticeActionDisabled={isLoading || isSummarizing}
+                onNoticeAction={handleChatNoticeAction}
+                onDismissNotice={dismissChatNotice}
+                onNoticeInteractionStart={handleChatNoticeMouseEnter}
+                onNoticeInteractionEnd={handleChatNoticeMouseLeave}
+                replySuggestions={replySuggestions}
+                visualNovelMode={isVisualNovelMode}
+                mentionOpen={mentionQuery !== null}
+                mentionCandidates={mentionCandidates}
+                selectedMentionIndex={selectedMentionIdx}
+                setSelectedMentionIndex={setSelectedMentionIdx}
+                onApplyMention={applyMention}
+                onCloseMention={closeMention}
+            />
             {debugLogOpen && debugPanelEnabled && (
                 <DebugLogModal
                     logs={fullJsonDebugLogs}

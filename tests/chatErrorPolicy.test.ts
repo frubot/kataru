@@ -6,10 +6,11 @@ import {
     isContextLengthError,
     isRateLimitError,
     shouldAutoHideChatNotice,
+    type ChatErrorPolicyInput,
 } from '../lib/chatErrorPolicy';
 
 test('classifies TPM wording at 429 as rate limiting, not context overflow', () => {
-    const input = {
+    const input: ChatErrorPolicyInput = {
         status: 429,
         detail: 'Request too large for this endpoint: 120000 tokens per min (TPM): Limit 100000',
         source: 'request',
@@ -57,7 +58,7 @@ test('HTTP 401 and 403 keep authentication priority over rate-limit wording', ()
 });
 
 test('HTTP 413 keeps context priority over TPM rate-limit wording', () => {
-    const input = {
+    const input: ChatErrorPolicyInput = {
         status: 413,
         detail: 'Request too large: TPM rate limit metadata unavailable',
         source: 'request',

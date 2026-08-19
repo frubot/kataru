@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
-import { ArrowUp, MessageSquare, Square, ChevronsDown, X, HatGlasses } from 'lucide-react';
+import { ArrowUp, Square, ChevronsDown, X } from 'lucide-react';
 import {
     useStore,
     Room,
@@ -8,8 +8,7 @@ import {
     Situation,
     SituationParticipant,
 } from '@/lib/store';
-import type { MemoryRecord, SituationPriorMessage } from '@/lib/store';
-import { getMessageMemories } from '@/lib/chatAssistantResponse';
+import type { MemoryRecord } from '@/lib/store';
 import {
     ChatGenerationJobError,
     getChatErrorDebugInfo,
@@ -20,7 +19,13 @@ import {
 } from '@/lib/chatErrors';
 import { getChatRegenerationCutIndex } from '@/lib/chatRegeneration';
 import { removeSubmittedUserMessage, rollbackRestorableMessages } from '@/lib/chatTurnRollback';
-import { isConversationResponseEnd } from '@/lib/conversationBranch';
+import {
+    buildChatCharacterMap,
+    buildChatMessagePresentations,
+    buildPriorMessagePresentations,
+    resolveChatStreamingPresentation,
+} from '@/lib/chatMessagePresentation';
+import type { ChatStreamingPreview } from '@/lib/chatMessagePresentation';
 import {
     cancelConversationJob,
     getConversationJob,
@@ -36,9 +41,9 @@ import {
     resolveVisualNovelCostumeName,
     resolveVisualNovelExpressionImage,
 } from '@/lib/visualNovelPresentation';
-import MessageBubble from './MessageBubble';
 import StoredImage from './StoredImage';
 import ChatHeader from './chat/ChatHeader';
+import ChatMessagesView from './chat/ChatMessagesView';
 import ChatNoticeBanner from './chat/ChatNoticeBanner';
 import ChatWelcome from './chat/ChatWelcome';
 import DebugLogModal from './chat/DebugLogModal';
@@ -54,7 +59,6 @@ import { useReplySuggestions } from './chat/useReplySuggestions';
 import { useRoomTitleGeneration } from './chat/useRoomTitleGeneration';
 import { useVisualNovelPresentation } from './chat/useVisualNovelPresentation';
 import VisualNovelView from './chat/VisualNovelView';
-import WaitingEllipsis from './chat/WaitingEllipsis';
 
 interface ChatWindowProps {
     room: Room | null;
@@ -187,57 +191,6 @@ function resolveRoomViewMode(room: Room | null | undefined): RoomViewMode {
     return 'chat';
 }
 
-const NOOP = () => undefined;
-
-function SituationPriorMessageBubble({
-    message,
-    index,
-    character,
-    isAssistantContinuation,
-    formatAssistantActions,
-}: {
-    message: SituationPriorMessage;
-    index: number;
-    character?: Pick<Character, 'name' | 'icon'>;
-    isAssistantContinuation: boolean;
-    formatAssistantActions: boolean;
-}) {
-    return (
-        <MessageBubble
-            messageId={`prior-display:${message.id}`}
-            role={message.role}
-            content={message.content}
-            displayContent={message.content}
-            index={index}
-            isArchived={false}
-            isLastMessage={false}
-            isLoading={false}
-            isHovered={false}
-            isCopied={false}
-            formatAssistantActions={formatAssistantActions}
-            isAssistantContinuation={isAssistantContinuation}
-            showAssistantActions={false}
-            showBranchAction={false}
-            showMemoryIndicator={false}
-            showArchiveDivider={false}
-            characterIcon={character?.icon}
-            characterName={character?.name}
-            isGroupRoom
-            onMouseEnter={NOOP}
-            onMouseLeave={NOOP}
-            onTouchStart={NOOP}
-            onEdit={NOOP}
-            onEditChange={NOOP}
-            onCancelEdit={NOOP}
-            onSubmitEdit={NOOP}
-            onCopy={NOOP}
-            onRegenerate={NOOP}
-            onBranch={NOOP}
-            onOpenMemoryList={NOOP}
-        />
-    );
-}
-
 function waitForMessageModeBubbleDelay(): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, MESSAGE_MODE_BUBBLE_DELAY_MS));
 }
@@ -257,16 +210,6 @@ type ChatGenerationResult = {
 };
 
 type ChatConversationJobStatus = ConversationJobStatus<RustTurnResponse>;
-
-type StreamingPreview = {
-    roomId: string;
-    jobId: string;
-    content: string;
-    characterId?: string;
-    characterName?: string;
-    formattedMessages?: string[];
-    expression?: string;
-};
 
 function waitForConversationJobPoll(signal: AbortSignal, intervalMs: number): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -338,9 +281,8 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const [branchingMessageId, setBranchingMessageId] = useState<string | null>(null);
     const [editingMessage, setEditingMessage] = useState<EditingMessageDraft | null>(null);
     const [debugLogOpen, setDebugLogOpen] = useState(false);
-    const [streamingPreview, setStreamingPreview] = useState<StreamingPreview | null>(null);
+    const [streamingPreview, setStreamingPreview] = useState<ChatStreamingPreview | null>(null);
     const [streamedFinalMessageIds, setStreamedFinalMessageIds] = useState<Set<string>>(() => new Set());
-    const messagesEndRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const resumedJobsRef = useRef<Set<string>>(new Set());
     const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -422,10 +364,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         getAiApiConfig,
         setRoomReplySuggestions,
     });
-    const scrollToBottom = useCallback(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, []);
-
     const showChatErrorNotice = useCallback((error: unknown, action?: ChatNoticeAction) => {
         const inferredAction = action ?? (
             onOpenSettings && shouldOpenSettingsForChatError(error)
@@ -640,10 +578,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     }, []);
 
     useEffect(() => {
-        scrollToBottom();
-    }, [room?.messages, typedContent, scrollToBottom]);
-
-    useEffect(() => {
         if (textareaRef.current) {
             textareaRef.current.style.height = 'auto';
             textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 150) + 'px';
@@ -683,114 +617,40 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         isMobile,
     });
 
-    // Build a map of characterId -> Character for group rooms
-    const characterMap = useMemo(() => {
-        if (!isGroupRoom || !groupCharacters) return null;
-        const map = new Map<string, Character>();
-        for (const c of groupCharacters) map.set(c.id, c);
-        return map;
-    }, [isGroupRoom, groupCharacters]);
-
-    const priorMessagesForDisplay = useMemo(() => {
-        const messages = situation?.priorMessages ?? [];
-        return messages.map((message, index) => {
-            const previousMessage = messages[index - 1];
-            const isAssistantContinuation = message.role === 'assistant' &&
-                previousMessage?.role === 'assistant' &&
-                previousMessage.actorId === message.actorId;
-            return {
-                message,
-                character: message.role === 'assistant' ? characterMap?.get(message.actorId) : undefined,
-                isAssistantContinuation,
-            };
-        });
-    }, [characterMap, situation?.priorMessages]);
-
-    // Memoize processed messages for rendering
-    const processedMessages = useMemo(() => {
-        if (!room) return [];
-        return room.messages.map((message, index) => {
-            const isArchived = !!message.archived;
-            const showArchiveDivider = isArchived && (index === 0 || !room.messages[index - 1].archived)
-                ? false
-                : !isArchived && index > 0 && !!room.messages[index - 1].archived;
-            const previousMessage = room.messages[index - 1];
-            const nextMessage = room.messages[index + 1];
-            const messageCharacterKey = message.characterId ?? (!isGroupRoom ? character?.id : undefined);
-            const previousCharacterKey = previousMessage?.characterId ?? (!isGroupRoom ? character?.id : undefined);
-            const nextCharacterKey = nextMessage?.characterId ?? (!isGroupRoom ? character?.id : undefined);
-            const isAssistantContinuation = message.role === 'assistant' &&
-                previousMessage?.role === 'assistant' &&
-                messageCharacterKey === previousCharacterKey &&
-                !showArchiveDivider;
-            const hasNextAssistantContinuation = message.role === 'assistant' &&
-                nextMessage?.role === 'assistant' &&
-                messageCharacterKey === nextCharacterKey &&
-                !nextMessage.archived;
-            const showAssistantActions = !hasNextAssistantContinuation;
-            const showBranchAction = !isSecretMode && isConversationResponseEnd(room.messages, index);
-            const memories = message.role === 'assistant' ? getMessageMemories(message) : [];
-            const displayContent = message.role === 'assistant' && message.id === typingMessageId
-                ? typedContent
-                : message.content;
-
-            // Resolve per-message character for group rooms
-            const msgCharacter = message.characterId && characterMap
-                ? characterMap.get(message.characterId)
-                : null;
-
-            return {
-                ...message,
-                displayContent,
-                emotion: message.expression,
-                isArchived,
-                isAssistantContinuation,
-                showAssistantActions,
-                showBranchAction,
-                showArchiveDivider,
-                showMemoryIndicator: memories.length > 0,
-                msgCharacterIcon: msgCharacter?.icon ?? (isGroupRoom ? undefined : character?.icon),
-                msgCharacterName: msgCharacter?.name ?? (isGroupRoom ? undefined : character?.name),
-            };
-        });
-    }, [room, characterMap, character, isGroupRoom, isSecretMode, typingMessageId, typedContent]);
-
-    const currentReplyAssistantMessages = useMemo(() => {
-        if (!room) return [];
-        let latestUserIndex = -1;
-        for (let index = room.messages.length - 1; index >= 0; index--) {
-            if (room.messages[index].role === 'user') {
-                latestUserIndex = index;
-                break;
-            }
-        }
-        return room.messages
-            .slice(latestUserIndex + 1)
-            .filter((message) => message.role === 'assistant');
-    }, [room]);
-    const availableFormattedStreamingMessages = streamingPreview?.formattedMessages
-        ?.filter((content) => content.trim())
-        ?? [];
-    const streamingPreviewAlreadyPersisted = availableFormattedStreamingMessages.length > 0
-        && availableFormattedStreamingMessages.every((content) =>
-            currentReplyAssistantMessages.some((message) =>
-                message.content === content
-                && (!streamingPreview?.characterId || message.characterId === streamingPreview.characterId)
-            )
-        );
-    const activeStreamingPreview = streamingPreview
-        && streamingPreview.roomId === room?.id
-        && isLoading
-        && streamingPreview.content.trim()
-        && !streamingPreviewAlreadyPersisted
-        ? streamingPreview
-        : null;
-    const streamingPreviewCharacter = activeStreamingPreview?.characterId && characterMap
-        ? characterMap.get(activeStreamingPreview.characterId)
-        : character;
-    const formattedStreamingPreviewMessages = activeStreamingPreview
-        ? availableFormattedStreamingMessages
-        : [];
+    const characterMap = useMemo(
+        () => buildChatCharacterMap(isGroupRoom, groupCharacters),
+        [groupCharacters, isGroupRoom],
+    );
+    const priorMessagesForDisplay = useMemo(
+        () => buildPriorMessagePresentations(situation?.priorMessages ?? [], characterMap),
+        [characterMap, situation?.priorMessages],
+    );
+    const processedMessages = useMemo(
+        () => buildChatMessagePresentations({
+            room,
+            characterMap,
+            character,
+            isGroupRoom,
+            isSecretMode,
+            typingMessageId,
+            typedContent,
+        }),
+        [character, characterMap, isGroupRoom, isSecretMode, room, typedContent, typingMessageId],
+    );
+    const {
+        activePreview: activeStreamingPreview,
+        previewCharacter: streamingPreviewCharacter,
+        formattedMessages: formattedStreamingPreviewMessages,
+    } = useMemo(
+        () => resolveChatStreamingPresentation({
+            streamingPreview,
+            room,
+            isLoading,
+            characterMap,
+            character,
+        }),
+        [character, characterMap, isLoading, room, streamingPreview],
+    );
 
     const handleStop = () => {
         if (stopTypewriter(true)) {
@@ -1441,189 +1301,46 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     onRevealTypewriter={() => stopTypewriter(true)}
                 />
             ) : (
-                <div className="chat-messages">
-                    {priorMessagesForDisplay.length === 0 && processedMessages.length === 0 ? (
-                        <div className="empty-state" style={{ opacity: 0.7 }}>
-                            {isSecretMode ? (
-                                <>
-                                    <HatGlasses size={48} style={{ marginBottom: '0.75rem', opacity: 0.72 }} />
-                                    <h2 className="empty-state-title">シークレットモード</h2>
-                                    <p className="empty-state-description">
-                                        メモリ機能は無効になり、会話は保存されません
-                                    </p>
-                                </>
-                            ) : (
-                                <>
-                                    <MessageSquare size={48} style={{ marginBottom: '0.5rem', opacity: 0.5 }} />
-                                    <h2 className="empty-state-title">まずは一言、話しかけてみましょう</h2>
-                                    <p className="empty-state-description">
-                                        例：「こんにちは。今日は何をしていたの？」
-                                    </p>
-                                </>
-                            )}
-                        </div>
-                    ) : (
-                        <>
-                            {priorMessagesForDisplay.map(({ message, character: priorCharacter, isAssistantContinuation }, index) => (
-                                <SituationPriorMessageBubble
-                                    key={`prior-display:${message.id}`}
-                                    message={message}
-                                    index={index}
-                                    character={priorCharacter}
-                                    isAssistantContinuation={isAssistantContinuation}
-                                    formatAssistantActions={!isMessageMode}
-                                />
-                            ))}
-                            {processedMessages.map((message, index) => (
-                                <MessageBubble
-                                    key={message.id}
-                                    messageId={message.id}
-                                    role={message.role}
-                                    content={message.content}
-                                    displayContent={message.displayContent}
-                                    index={index}
-                                    isArchived={message.isArchived}
-                                    isLastMessage={index === processedMessages.length - 1}
-                                    isLoading={isLoading || isSummarizing || !!branchingMessageId}
-                                    isHovered={hoveredMessageId === message.id || touchedMessageId === message.id}
-                                    isCopied={copiedMessageId === message.id}
-                                    disableEntranceAnimation={streamedFinalMessageIds.has(message.id)}
-                                    isTypewriterActive={isTypewriterActive && message.id === typingMessageId}
-                                    formatAssistantActions={!isMessageMode}
-                                    isAssistantContinuation={message.isAssistantContinuation}
-                                    showAssistantActions={message.showAssistantActions}
-                                    showBranchAction={message.showBranchAction}
-                                    showMemoryIndicator={message.showMemoryIndicator}
-                                    showArchiveDivider={message.showArchiveDivider}
-                                    memoryCharacterId={message.characterId}
-                                    characterIcon={message.msgCharacterIcon}
-                                    characterName={message.msgCharacterName}
-                                    isGroupRoom={isGroupRoom}
-                                    onMouseEnter={handleMouseEnter}
-                                    onMouseLeave={handleMouseLeave}
-                                    onTouchStart={handleTouchStart}
-                                    onEdit={handleEditMessage}
-                                    isEditing={editingMessage?.roomId === room.id && editingMessage.messageId === message.id}
-                                    editContent={editingMessage?.roomId === room.id && editingMessage.messageId === message.id ? editingMessage.content : ''}
-                                    onEditChange={handleEditMessageChange}
-                                    onCancelEdit={handleCancelEditMessage}
-                                    onSubmitEdit={handleSubmitEditMessage}
-                                    onCopy={handleCopyMessage}
-                                    onRegenerate={handleRegenerate}
-                                    onBranch={() => handleBranch(message.id)}
-                                    onOpenMemoryList={handleOpenMessageMemoryList}
-                                    onRevealTypewriter={() => stopTypewriter(true)}
-                                />
-                            ))}
-                        </>
-                    )}
-                    {formattedStreamingPreviewMessages.length > 0 && activeStreamingPreview ? (
-                        <>
-                            {formattedStreamingPreviewMessages.map((content, index) => (
-                                <MessageBubble
-                                    key={`${activeStreamingPreview.jobId}-preview-${index}`}
-                                    messageId={`${activeStreamingPreview.jobId}-preview-${index}`}
-                                    role="assistant"
-                                    content={content}
-                                    displayContent={content}
-                                    index={processedMessages.length + index}
-                                    isArchived={false}
-                                    isLastMessage={index === formattedStreamingPreviewMessages.length - 1}
-                                    isLoading={true}
-                                    isHovered={false}
-                                    isCopied={false}
-                                    formatAssistantActions={!isMessageMode}
-                                    isAssistantContinuation={index > 0}
-                                    showAssistantActions={false}
-                                    showBranchAction={false}
-                                    showMemoryIndicator={false}
-                                    showArchiveDivider={false}
-                                    memoryCharacterId={activeStreamingPreview.characterId}
-                                    characterIcon={streamingPreviewCharacter?.icon}
-                                    characterName={activeStreamingPreview.characterName ?? streamingPreviewCharacter?.name}
-                                    isGroupRoom={isGroupRoom}
-                                    onMouseEnter={NOOP}
-                                    onMouseLeave={NOOP}
-                                    onTouchStart={NOOP}
-                                    onEdit={NOOP}
-                                    onEditChange={NOOP}
-                                    onCancelEdit={NOOP}
-                                    onSubmitEdit={NOOP}
-                                    onCopy={NOOP}
-                                    onRegenerate={NOOP}
-                                    onBranch={NOOP}
-                                    onOpenMemoryList={NOOP}
-                                />
-                            ))}
-                        </>
-                    ) : activeStreamingPreview ? (
-                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
-                            <div style={{ flexShrink: 0, width: '2rem', height: '2rem', borderRadius: '50%', overflow: 'hidden', marginTop: '0.25rem', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
-                                {streamingPreviewCharacter?.icon ? (
-                                    <StoredImage
-                                        src={streamingPreviewCharacter.icon}
-                                        alt={activeStreamingPreview.characterName ?? streamingPreviewCharacter.name}
-                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                    />
-                                ) : (
-                                    <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600 }}>
-                                        {(activeStreamingPreview.characterName ?? streamingPreviewCharacter?.name ?? '?').charAt(0)}
-                                    </div>
-                                )}
-                            </div>
-                            <div className="assistant-message-content">
-                                {isGroupRoom && activeStreamingPreview.characterName && (
-                                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.125rem', marginLeft: '0.25rem', fontWeight: 500 }}>
-                                        {activeStreamingPreview.characterName}
-                                    </div>
-                                )}
-                                <div
-                                    className="message-bubble assistant animate-slide-up streaming-preview-bubble"
-                                    role="status"
-                                    aria-live="polite"
-                                    style={{ whiteSpace: 'pre-wrap' }}
-                                >
-                                    {activeStreamingPreview.content}
-                                </div>
-                            </div>
-                        </div>
-                    ) : null}
-                    {isLoading && !activeStreamingPreview && room.messages[room.messages.length - 1]?.role !== 'assistant' && (
-                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
-                            <div style={{ flexShrink: 0, width: '2rem', height: '2rem', borderRadius: '50%', overflow: 'hidden', marginTop: '0.25rem', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
-                                {!isGroupRoom && character?.icon ? (
-                                    <StoredImage src={character.icon} alt={character.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                ) : (
-                                    <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600 }}>
-                                        {!isGroupRoom && character?.name ? character.name.charAt(0) : '?'}
-                                    </div>
-                                )}
-                            </div>
-                            <div className="message-bubble assistant animate-slide-up waiting-bubble">
-                                <WaitingEllipsis />
-                            </div>
-                        </div>
-                    )}
-                    {isSummarizing && (
-                        <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.5rem',
-                            padding: '0.5rem 0.75rem',
-                            marginBottom: '0.5rem',
-                            background: 'rgba(var(--accent-primary-rgb), 0.1)',
-                            border: '1px solid rgba(var(--accent-primary-rgb), 0.25)',
-                            borderRadius: '1rem',
-                            fontSize: '0.75rem',
-                            color: 'var(--accent-primary)',
-                            alignSelf: 'flex-start',
-                        }}>
-                            <div className="spinner" style={{ width: '12px', height: '12px', borderWidth: '2px' }} />
-                            古い会話を要約中...
-                        </div>
-                    )}
-                    <div ref={messagesEndRef} />
-                </div>
+                <ChatMessagesView
+                    priorMessages={priorMessagesForDisplay}
+                    messages={processedMessages}
+                    isSecretMode={isSecretMode}
+                    isMessageMode={isMessageMode}
+                    isGroupRoom={isGroupRoom}
+                    character={character}
+                    activeStreamingPreview={activeStreamingPreview}
+                    streamingPreviewCharacter={streamingPreviewCharacter}
+                    formattedStreamingPreviewMessages={formattedStreamingPreviewMessages}
+                    isLoading={isLoading}
+                    isSummarizing={isSummarizing}
+                    branchingMessageId={branchingMessageId}
+                    hoveredMessageId={hoveredMessageId}
+                    touchedMessageId={touchedMessageId}
+                    copiedMessageId={copiedMessageId}
+                    streamedFinalMessageIds={streamedFinalMessageIds}
+                    typingMessageId={typingMessageId}
+                    isTypewriterActive={isTypewriterActive}
+                    editingMessage={
+                        editingMessage?.roomId === room.id
+                            ? {
+                                messageId: editingMessage.messageId,
+                                content: editingMessage.content,
+                            }
+                            : null
+                    }
+                    onMouseEnter={handleMouseEnter}
+                    onMouseLeave={handleMouseLeave}
+                    onTouchStart={handleTouchStart}
+                    onEdit={handleEditMessage}
+                    onEditChange={handleEditMessageChange}
+                    onCancelEdit={handleCancelEditMessage}
+                    onSubmitEdit={handleSubmitEditMessage}
+                    onCopy={handleCopyMessage}
+                    onRegenerate={handleRegenerate}
+                    onBranch={handleBranch}
+                    onOpenMemoryList={handleOpenMessageMemoryList}
+                    onRevealTypewriter={() => stopTypewriter(true)}
+                />
             )}
 
             <div className="chat-input-area" style={{ position: 'relative' }}>

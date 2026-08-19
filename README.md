@@ -217,6 +217,8 @@ npm run check:release-version -- vX.Y.Z
 
 シークレットモードのルームとその会話、要約、メモリ、使用量はSQLiteやバックアップへ保存されません。ページを閉じると復元できないためご注意ください。
 
+起動時には、既存のSQLiteデータベースをSQLiteのオンラインバックアップ方式でスナップショットします。バックアップはデータディレクトリ内の`kataru-backups/`に`kataru-auto-*.db`として最大5世代保存されます。復元するにはKataruを終了し、現在の`kataru.db`（存在する`kataru.db-wal`と`kataru.db-shm`も含む）を別名へ退避してから、選んだ`kataru-backups/kataru-auto-*.db`を`kataru.db`としてコピーして起動してください。バックアップファイル単体が復元用のSQLiteデータベースです。
+
 ## セキュリティ
 
 - 待受先は`--host`で指定できます。

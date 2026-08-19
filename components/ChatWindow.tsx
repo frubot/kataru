@@ -12,14 +12,24 @@ import {
 import type { MemoryKind, MemoryRecord, MemoryScope, SituationPriorMessage } from '@/lib/store';
 import type { VnTypingSpeed } from '@/lib/store';
 import { getMessageMemories } from '@/lib/chatAssistantResponse';
+import {
+    ChatGenerationJobError,
+    getChatErrorDebugInfo,
+    getChatErrorMessage,
+    getChatErrorNotice,
+    isRetryableGenerationError,
+    shouldOpenSettingsForChatError,
+} from '@/lib/chatErrors';
 import { getChatRegenerationCutIndex } from '@/lib/chatRegeneration';
 import { removeSubmittedUserMessage, rollbackRestorableMessages } from '@/lib/chatTurnRollback';
 import { isConversationResponseEnd } from '@/lib/conversationBranch';
 import {
-    getChatErrorPolicy,
-    isRetryableGenerationError as isRetryableGenerationErrorPolicy,
-} from '@/lib/chatErrorPolicy';
-import type { ChatErrorPolicyInput } from '@/lib/chatErrorPolicy';
+    cancelConversationJob,
+    getConversationJob,
+    listConversationJobs,
+    submitConversationJob,
+} from '@/lib/conversationJobClient';
+import type { ConversationJobStatus } from '@/lib/conversationJobClient';
 import { formatAssistantMarkdown } from '@/lib/markdownUtils';
 import MessageBubble from './MessageBubble';
 import StoredImage from './StoredImage';
@@ -410,533 +420,6 @@ function waitForMessageModeBubbleDelay(): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, MESSAGE_MODE_BUBBLE_DELAY_MS));
 }
 
-class ChatRequestError extends Error {
-    status: number;
-    detail?: string;
-    elapsedMs?: number;
-    bodyText?: string;
-    contentType?: string;
-    phase?: ChatErrorPolicyInput['phase'];
-
-    constructor(status: number, detail?: string, elapsedMs?: number, bodyText?: string, contentType?: string, phase?: ChatRequestError['phase']) {
-        super(detail ? `Chat request failed (${status}): ${detail}` : `Chat request failed (${status})`);
-        this.name = 'ChatRequestError';
-        this.status = status;
-        this.detail = detail;
-        this.elapsedMs = elapsedMs;
-        this.bodyText = bodyText;
-        this.contentType = contentType;
-        this.phase = phase;
-    }
-}
-
-class ChatNetworkError extends Error {
-    elapsedMs: number;
-    originalName?: string;
-    originalMessage?: string;
-
-    constructor(error: unknown, elapsedMs: number) {
-        const original = toErrorInfo(error);
-        super(`Chat fetch failed after ${elapsedMs}ms: ${original.message ?? original.name ?? 'unknown error'}`);
-        this.name = 'ChatNetworkError';
-        this.elapsedMs = elapsedMs;
-        this.originalName = original.name;
-        this.originalMessage = original.message;
-    }
-}
-
-class ChatStreamError extends Error {
-    detail?: string;
-    elapsedMs: number;
-    chunk?: unknown;
-
-    constructor(detail: string | undefined, elapsedMs: number, chunk?: unknown) {
-        super(detail ? `Chat stream failed: ${detail}` : 'Chat stream failed');
-        this.name = 'ChatStreamError';
-        this.detail = detail;
-        this.elapsedMs = elapsedMs;
-        this.chunk = chunk;
-    }
-}
-
-class ChatResponseReadError extends Error {
-    status: number;
-    contentType?: string;
-    elapsedMs: number;
-    phase: 'success-body' | 'error-body';
-    originalName?: string;
-    originalMessage?: string;
-
-    constructor(params: {
-        status: number;
-        contentType?: string;
-        elapsedMs: number;
-        phase: ChatResponseReadError['phase'];
-        error: unknown;
-    }) {
-        const original = toErrorInfo(params.error);
-        super(`Failed to read chat response body (${params.phase}) after ${params.elapsedMs}ms`);
-        this.name = 'ChatResponseReadError';
-        this.status = params.status;
-        this.contentType = params.contentType;
-        this.elapsedMs = params.elapsedMs;
-        this.phase = params.phase;
-        this.originalName = original.name;
-        this.originalMessage = original.message;
-    }
-}
-
-type ResponseBodyInfo = {
-    length: number;
-    firstChar: string;
-    looksLikeHtml: boolean;
-    looksLikeJson: boolean;
-};
-
-class ChatResponseJsonError extends Error {
-    status: number;
-    contentType?: string;
-    elapsedMs: number;
-    bodyText: string;
-    bodyInfo: ResponseBodyInfo;
-    originalName?: string;
-    originalMessage?: string;
-
-    constructor(params: {
-        status: number;
-        contentType?: string;
-        elapsedMs: number;
-        bodyText: string;
-        error: unknown;
-    }) {
-        const original = toErrorInfo(params.error);
-        super(`Failed to parse chat response JSON after ${params.elapsedMs}ms`);
-        this.name = 'ChatResponseJsonError';
-        this.status = params.status;
-        this.contentType = params.contentType;
-        this.elapsedMs = params.elapsedMs;
-        this.bodyText = params.bodyText;
-        this.bodyInfo = describeResponseBody(params.bodyText);
-        this.originalName = original.name;
-        this.originalMessage = original.message;
-    }
-}
-
-class ChatResponseFormatError extends Error {
-    detail: string;
-    elapsedMs: number;
-
-    constructor(detail: string, elapsedMs: number) {
-        super(`Unexpected chat response format: ${detail}`);
-        this.name = 'ChatResponseFormatError';
-        this.detail = detail;
-        this.elapsedMs = elapsedMs;
-    }
-}
-
-type ChatClientProcessingStage = 'assistant-response-parse' | 'message-save' | 'message-display';
-
-class ChatClientProcessingError extends Error {
-    stage: ChatClientProcessingStage;
-    originalName?: string;
-    originalMessage?: string;
-
-    constructor(stage: ChatClientProcessingStage, error: unknown) {
-        const original = toErrorInfo(error);
-        super(`Client chat processing failed at ${stage}: ${original.message ?? original.name ?? 'unknown error'}`);
-        this.name = 'ChatClientProcessingError';
-        this.stage = stage;
-        this.originalName = original.name;
-        this.originalMessage = original.message;
-    }
-}
-
-class ChatGenerationJobError extends Error {
-    detail?: string;
-
-    constructor(detail?: string) {
-        super(detail || 'バックグラウンド生成に失敗しました。');
-        this.name = 'ChatGenerationJobError';
-        this.detail = detail;
-    }
-}
-
-function toErrorInfo(error: unknown): { name?: string; message?: string } {
-    if (error instanceof Error) return { name: error.name, message: error.message };
-    if (typeof error === 'string') return { message: error };
-    return { message: String(error) };
-}
-
-function describeResponseBody(bodyText: string): ResponseBodyInfo {
-    const trimmed = bodyText.trimStart();
-    return {
-        length: bodyText.length,
-        firstChar: trimmed.slice(0, 1),
-        looksLikeHtml: /^<!doctype html|^<html/i.test(trimmed),
-        looksLikeJson: /^[{\[]/.test(trimmed),
-    };
-}
-
-function extractErrorDetail(value: unknown, depth = 0): string | undefined {
-    if (depth > 2) return undefined;
-
-    if (typeof value === 'string') {
-        const trimmed = value.trim();
-        if (!trimmed) return undefined;
-
-        try {
-            const parsed = JSON.parse(trimmed) as unknown;
-            return extractErrorDetail(parsed, depth + 1) ?? trimmed;
-        } catch {
-            return trimmed;
-        }
-    }
-
-    if (!value || typeof value !== 'object') return undefined;
-
-    const record = value as Record<string, unknown>;
-    return extractErrorDetail(record.error, depth + 1)
-        ?? extractErrorDetail(record.message, depth + 1)
-        ?? extractErrorDetail(record.detail, depth + 1);
-}
-
-function shortenErrorDetail(detail: string | undefined): string | undefined {
-    if (!detail) return undefined;
-    const compact = detail.replace(/\s+/g, ' ').trim();
-    return compact.length > 180 ? `${compact.slice(0, 180)}...` : compact;
-}
-
-async function throwChatRequestError(response: Response, elapsedMs: number, phase?: ChatRequestError['phase']): Promise<never> {
-    let errorText = '';
-    const contentType = response.headers.get('content-type') ?? undefined;
-    try {
-        errorText = await response.text();
-    } catch (error) {
-        if (error instanceof Error && error.name === 'AbortError') throw error;
-        throw new ChatResponseReadError({
-            status: response.status,
-            contentType,
-            elapsedMs,
-            phase: 'error-body',
-            error,
-        });
-    }
-
-    throw new ChatRequestError(response.status, shortenErrorDetail(extractErrorDetail(errorText)), elapsedMs, errorText, contentType, phase);
-}
-
-function getChatErrorStatus(error: unknown): number | undefined {
-    if (error instanceof ChatRequestError || error instanceof ChatResponseReadError || error instanceof ChatResponseJsonError) {
-        return error.status;
-    }
-    return undefined;
-}
-
-function getChatErrorClassificationText(error: unknown): string {
-    const parts: string[] = [];
-    if (error instanceof ChatRequestError) {
-        parts.push(error.detail ?? '', error.bodyText ?? '', error.message);
-    } else if (error instanceof ChatStreamError) {
-        parts.push(error.detail ?? '', error.message);
-    } else if (error instanceof ChatResponseReadError) {
-        parts.push(error.originalMessage ?? '', error.message);
-    } else if (error instanceof ChatResponseJsonError) {
-        parts.push(error.bodyText, error.originalMessage ?? '', error.message);
-    } else if (error instanceof ChatResponseFormatError) {
-        parts.push(error.detail, error.message);
-    } else if (error instanceof ChatClientProcessingError) {
-        parts.push(error.originalMessage ?? '', error.message);
-    } else if (error instanceof ChatGenerationJobError) {
-        parts.push(error.detail ?? '', error.message);
-    } else if (error instanceof Error) {
-        parts.push(error.message);
-    } else if (typeof error === 'string') {
-        parts.push(error);
-    } else if (error != null) {
-        parts.push(String(error));
-    }
-    return parts.join(' ').slice(0, 4000);
-}
-
-function getChatErrorPolicyInput(error: unknown): ChatErrorPolicyInput {
-    return {
-        status: getChatErrorStatus(error),
-        detail: getChatErrorClassificationText(error),
-        phase: error instanceof ChatRequestError ? error.phase : undefined,
-        source: error instanceof ChatRequestError
-            ? 'request'
-            : error instanceof ChatGenerationJobError
-                ? 'job'
-                : 'other',
-    };
-}
-
-function getChatErrorPolicyForError(error: unknown) {
-    return getChatErrorPolicy(getChatErrorPolicyInput(error));
-}
-
-function isRetryableGenerationError(error: unknown): boolean {
-    return isRetryableGenerationErrorPolicy(getChatErrorPolicyInput(error));
-}
-
-function getChatErrorMessage(error: unknown): string {
-    const policy = getChatErrorPolicyForError(error);
-
-    if (policy.classification === 'rate-limit') {
-        return 'リクエスト数または利用上限に達しました。少し時間を置いてからもう一度お試しください。';
-    }
-
-    if (policy.classification === 'context-length') {
-        return '会話履歴がモデルのコンテキスト上限を超えました。自動要約を有効にするか、キャラクター／シチュエーション設定の最大履歴を小さくしてから、もう一度送信してください。';
-    }
-
-    if (policy.classification === 'authentication') {
-        return 'API認証でエラーが発生しました。接続先のAPI設定を確認してください。';
-    }
-
-    if ((error instanceof ChatRequestError || error instanceof ChatGenerationJobError) && policy.classification === 'timeout') {
-        return '生成が時間切れ、または通信が中断されました。';
-    }
-
-    if (error instanceof ChatGenerationJobError) {
-        return 'バックグラウンド生成に失敗しました。少し時間を置いてからもう一度お試しください。';
-    }
-
-    if (error instanceof ChatNetworkError) {
-        return 'リクエスト送信中に通信が失敗しました。';
-    }
-
-    if (error instanceof ChatRequestError) {
-        const { status } = error;
-        if (status >= 500) {
-            return 'サーバー側または接続先API側でエラーが発生しました。少し時間を置いてからもう一度お試しください。';
-        }
-        if (status >= 400) {
-            return 'リクエスト内容でエラーが発生しました。';
-        }
-    }
-
-    if (error instanceof ChatStreamError) {
-        return 'ストリーミング応答の途中でエラーが発生しました。通信状態やモデル設定を確認してからもう一度お試しください。';
-    }
-
-    if (error instanceof ChatResponseReadError) {
-        return 'サーバーは応答しましたが、レスポンス本文の読み取りに失敗しました。通信が途中で切れた可能性があります。';
-    }
-
-    if (error instanceof ChatResponseJsonError) {
-        return 'サーバー応答をJSONとして解析できませんでした。';
-    }
-
-    if (error instanceof ChatResponseFormatError) {
-        return 'サーバー応答の形式が想定外でした。モデル設定や接続先APIの応答を確認してください。';
-    }
-
-    if (error instanceof ChatClientProcessingError) {
-        if (error.stage === 'message-save') {
-            return '返信の保存処理でエラーが発生しました。ブラウザのストレージ容量や設定を確認してください。';
-        }
-        if (error.stage === 'message-display') {
-            return '返信の表示処理でエラーが発生しました。ページを再読み込みしてからもう一度お試しください。';
-        }
-        return 'AI応答の整形処理でエラーが発生しました。';
-    }
-
-    if (error instanceof TypeError) {
-        return 'クライアント側で未分類のTypeErrorが発生しました。詳細はブラウザのコンソールを確認してください。';
-    }
-
-    return '予期しないエラーが発生しました。もう一度お試しください。';
-}
-
-function formatOriginalError(name?: string, message?: string): string | undefined {
-    const detail = [name, message]
-        .filter((value): value is string => !!value?.trim())
-        .join(': ');
-    return shortenErrorDetail(detail);
-}
-
-function getChatErrorDetail(error: unknown, detailed: boolean): string | undefined {
-    if (error instanceof ChatNetworkError) {
-        const original = formatOriginalError(error.originalName, error.originalMessage);
-        return original ? `通信エラー: ${original}` : '通信エラーの原因を取得できませんでした。';
-    }
-
-    if (error instanceof ChatRequestError) {
-        const detail = [`HTTP ${error.status}`, error.detail].filter(Boolean).join(': ');
-        if (!detailed) return detail;
-        return [
-            detail,
-            error.contentType ? `Content-Type ${error.contentType}` : undefined,
-            error.elapsedMs != null ? `応答まで ${error.elapsedMs}ms` : undefined,
-        ].filter(Boolean).join(' / ');
-    }
-
-    if (error instanceof ChatStreamError) {
-        const detail = error.detail ? `ストリーミング応答: ${error.detail}` : 'ストリーミング応答の詳細を取得できませんでした。';
-        return detailed ? `${detail} / 経過 ${error.elapsedMs}ms` : detail;
-    }
-
-    if (error instanceof ChatResponseReadError) {
-        const original = formatOriginalError(error.originalName, error.originalMessage);
-        if (!detailed) return original ? `応答本文の読み取り: ${original}` : undefined;
-        return [
-            `HTTP ${error.status}`,
-            `読み取り段階: ${error.phase}`,
-            error.contentType ? `Content-Type ${error.contentType}` : undefined,
-            `経過 ${error.elapsedMs}ms`,
-            original ? `原因: ${original}` : undefined,
-        ].filter(Boolean).join(' / ');
-    }
-
-    if (error instanceof ChatResponseJsonError) {
-        const bodyType = error.bodyInfo.looksLikeHtml
-            ? 'HTML'
-            : error.bodyInfo.looksLikeJson
-                ? 'JSONらしき形式'
-                : error.bodyInfo.firstChar
-                    ? 'テキスト'
-                    : '空';
-        const original = formatOriginalError(error.originalName, error.originalMessage);
-        const basic = `応答本文 ${bodyType}、${error.bodyInfo.length}文字`;
-        if (!detailed) return basic;
-        return [
-            `HTTP ${error.status}`,
-            error.contentType ? `Content-Type ${error.contentType}` : undefined,
-            basic,
-            `経過 ${error.elapsedMs}ms`,
-            original ? `解析エラー: ${original}` : undefined,
-        ].filter(Boolean).join(' / ');
-    }
-
-    if (error instanceof ChatResponseFormatError) {
-        return `応答形式: ${shortenErrorDetail(error.detail) ?? '想定外の形式'}`;
-    }
-
-    if (error instanceof ChatGenerationJobError) {
-        return error.detail ? `生成ジョブ: ${shortenErrorDetail(error.detail)}` : '生成ジョブの詳細を取得できませんでした。';
-    }
-
-    if (error instanceof ChatClientProcessingError) {
-        const stageLabels: Record<ChatClientProcessingStage, string> = {
-            'assistant-response-parse': 'AI応答の解析',
-            'message-save': '返信の保存',
-            'message-display': '返信の表示',
-        };
-        const original = formatOriginalError(error.originalName, error.originalMessage);
-        return [
-            `処理段階: ${stageLabels[error.stage]}`,
-            original ? `原因: ${original}` : undefined,
-        ].filter(Boolean).join(' / ');
-    }
-
-    if (error instanceof Error) {
-        return formatOriginalError(error.name, error.message);
-    }
-
-    if (typeof error === 'string') {
-        return shortenErrorDetail(error);
-    }
-
-    return error == null ? undefined : shortenErrorDetail(String(error));
-}
-
-function getChatErrorAction(error: unknown): ChatNoticeAction | undefined {
-    return getChatErrorPolicyForError(error).action === 'open-settings'
-        ? { type: 'open-settings', label: '設定を確認' }
-        : undefined;
-}
-
-function getChatErrorNotice(error: unknown, detailed: boolean): string {
-    const message = getChatErrorMessage(error);
-    const detail = getChatErrorDetail(error, detailed);
-    if (!detail) return message;
-    return detailed ? `${message}\n詳細: ${detail}` : `${message}（${detail}）`;
-}
-
-function getChatErrorDebugInfo(error: unknown): Record<string, unknown> {
-    if (error instanceof ChatNetworkError) {
-        return {
-            stage: 'fetch',
-            name: error.name,
-            elapsedMs: error.elapsedMs,
-            originalName: error.originalName,
-            originalMessage: error.originalMessage,
-        };
-    }
-    if (error instanceof ChatRequestError) {
-        return {
-            stage: 'http-status',
-            name: error.name,
-            status: error.status,
-            detail: error.detail,
-            contentType: error.contentType,
-            elapsedMs: error.elapsedMs,
-            phase: error.phase,
-        };
-    }
-    if (error instanceof ChatStreamError) {
-        return {
-            stage: 'stream',
-            name: error.name,
-            detail: error.detail,
-            elapsedMs: error.elapsedMs,
-            chunk: error.chunk,
-        };
-    }
-    if (error instanceof ChatResponseReadError) {
-        return {
-            stage: 'response-body-read',
-            name: error.name,
-            status: error.status,
-            contentType: error.contentType,
-            phase: error.phase,
-            elapsedMs: error.elapsedMs,
-            originalName: error.originalName,
-            originalMessage: error.originalMessage,
-        };
-    }
-    if (error instanceof ChatResponseJsonError) {
-        return {
-            stage: 'response-json-parse',
-            name: error.name,
-            status: error.status,
-            contentType: error.contentType,
-            elapsedMs: error.elapsedMs,
-            bodyInfo: error.bodyInfo,
-            originalName: error.originalName,
-            originalMessage: error.originalMessage,
-        };
-    }
-    if (error instanceof ChatResponseFormatError) {
-        return {
-            stage: 'response-format',
-            name: error.name,
-            detail: error.detail,
-            elapsedMs: error.elapsedMs,
-        };
-    }
-    if (error instanceof ChatGenerationJobError) {
-        return {
-            stage: 'generation-job',
-            name: error.name,
-            detail: error.detail,
-        };
-    }
-    if (error instanceof ChatClientProcessingError) {
-        return {
-            stage: error.stage,
-            name: error.name,
-            originalName: error.originalName,
-            originalMessage: error.originalMessage,
-        };
-    }
-    if (error instanceof Error) {
-        return { stage: 'unclassified', name: error.name, message: error.message };
-    }
-    return { stage: 'unclassified', value: String(error) };
-}
-
 function getFullJsonDebugSourceLabel(source: string): string {
     switch (source) {
         case 'assistant-json':
@@ -1010,20 +493,7 @@ type RustTurnResponse = {
     usedMemoryIds?: string[];
 };
 
-type ConversationJobStatus = {
-    jobId: string;
-    roomId: string;
-    status: 'running' | 'completed' | 'failed' | 'cancelled';
-    result?: RustTurnResponse;
-    error?: string;
-    preview?: {
-        content: string;
-        characterId?: string;
-        characterName?: string;
-        formattedMessages?: string[];
-        expression?: string;
-    };
-};
+type ChatConversationJobStatus = ConversationJobStatus<RustTurnResponse>;
 
 type StreamingPreview = {
     roomId: string;
@@ -1051,22 +521,6 @@ function waitForConversationJobPoll(signal: AbortSignal, intervalMs: number): Pr
         }, intervalMs);
         signal.addEventListener('abort', handleAbort, { once: true });
     });
-}
-
-async function cancelConversationJob(jobId: string): Promise<'completed' | 'cancelled'> {
-    const response = await fetch(
-        `/api/conversation/jobs/${encodeURIComponent(jobId)}`,
-        {
-            method: 'DELETE',
-            credentials: 'same-origin',
-            keepalive: true,
-        },
-    );
-    if (!response.ok) {
-        await throwChatRequestError(response, 0, 'cancel');
-    }
-    const job = await response.json() as ConversationJobStatus;
-    return job.status === 'completed' ? 'completed' : 'cancelled';
 }
 
 const MEMORY_SAVE_MIN_IMPORTANCE = 0.4;
@@ -1305,7 +759,11 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     }, []);
 
     const showChatErrorNotice = useCallback((error: unknown, action?: ChatNoticeAction) => {
-        const inferredAction = action ?? (onOpenSettings ? getChatErrorAction(error) : undefined);
+        const inferredAction = action ?? (
+            onOpenSettings && shouldOpenSettingsForChatError(error)
+                ? { type: 'open-settings' as const, label: '設定を確認' as const }
+                : undefined
+        );
         showChatNotice(getChatErrorNotice(error, detailedErrorLoggingEnabled), inferredAction);
     }, [detailedErrorLoggingEnabled, onOpenSettings, showChatNotice]);
 
@@ -1376,23 +834,13 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const pollConversationJob = useCallback(async (
         session: ChatGenerationSession,
         controller: AbortController,
-    ): Promise<ConversationJobStatus> => {
+    ): Promise<ChatConversationJobStatus> => {
         while (isGenerationSessionActive(session) && !controller.signal.aborted) {
             const pollInterval = vnTypingSpeedRef.current === 'streaming'
                 ? CONVERSATION_STREAMING_POLL_INTERVAL_MS
                 : CONVERSATION_JOB_POLL_INTERVAL_MS;
             await waitForConversationJobPoll(controller.signal, pollInterval);
-            const response = await fetch(
-                `/api/conversation/jobs/${encodeURIComponent(session.jobId)}`,
-                {
-                    credentials: 'same-origin',
-                    signal: controller.signal,
-                },
-            );
-            if (!response.ok) {
-                await throwChatRequestError(response, 0, 'poll');
-            }
-            const job = await response.json() as ConversationJobStatus;
+            const job = await getConversationJob<RustTurnResponse>(session.jobId, controller.signal);
             if (
                 vnTypingSpeedRef.current === 'streaming'
                 && job.preview?.content?.trim()
@@ -1413,7 +861,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         throw new DOMException('Generation stopped', 'AbortError');
     }, [getCurrentRoom, isGenerationSessionActive]);
 
-    const resumeConversationJob = useCallback(async (job: ConversationJobStatus) => {
+    const resumeConversationJob = useCallback(async (job: ChatConversationJobStatus) => {
         if (resumedJobsRef.current.has(job.jobId) || hasGenerationSession(job.roomId)) {
             return;
         }
@@ -1473,16 +921,10 @@ export default function ChatWindow({ room, character, situation, groupName, grou
 
     useEffect(() => {
         let disposed = false;
-        void fetch('/api/conversation/jobs', { credentials: 'same-origin' })
-            .then(async (response) => {
-                if (!response.ok) {
-                    await throwChatRequestError(response, 0, 'list');
-                }
-                return response.json() as Promise<{ jobs?: ConversationJobStatus[] }>;
-            })
-            .then((data) => {
+        void listConversationJobs<RustTurnResponse>()
+            .then((jobs) => {
                 if (disposed) return;
-                for (const job of data.jobs ?? []) {
+                for (const job of jobs) {
                     void resumeConversationJob(job).catch((error) => {
                         console.warn('Conversation job synchronization failed:', error);
                     });
@@ -2017,11 +1459,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         }
 
         try {
-            const response = await fetch('/api/conversation/jobs', {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
+            const accepted = await submitConversationJob<RustTurnResponse>({
                     jobId: session.jobId,
                     room: toConversationRoom(sourceRoom),
                     character: toConversationCharacter(character),
@@ -2034,17 +1472,10 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     memoryEmbeddingModel,
                     aiApiConfig: getAiApiConfig(),
                     streamingPreview: shouldStreamPreview,
-                }),
-                signal: controller.signal,
-            });
+                }, controller.signal);
             if (!isGenerationSessionActive(session) || controller.signal.aborted) {
                 throw new DOMException('Generation stopped', 'AbortError');
             }
-            if (!response.ok) {
-                await throwChatRequestError(response, 0, 'submit');
-            }
-
-            const accepted = await response.json() as ConversationJobStatus;
             session.jobId = accepted.jobId;
             const job = accepted.status === 'running'
                 ? await pollConversationJob(session, controller)

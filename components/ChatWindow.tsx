@@ -9,7 +9,7 @@ import {
     Situation,
     SituationParticipant,
 } from '@/lib/store';
-import type { MemoryKind, MemoryRecord, MemoryScope, SituationPriorMessage } from '@/lib/store';
+import type { MemoryRecord, SituationPriorMessage } from '@/lib/store';
 import type { VnTypingSpeed } from '@/lib/store';
 import { getMessageMemories } from '@/lib/chatAssistantResponse';
 import {
@@ -30,10 +30,12 @@ import {
     submitConversationJob,
 } from '@/lib/conversationJobClient';
 import type { ConversationJobStatus } from '@/lib/conversationJobClient';
+import type { RustTurnResponse } from '@/lib/conversationResult';
 import { formatAssistantMarkdown } from '@/lib/markdownUtils';
 import MessageBubble from './MessageBubble';
 import StoredImage from './StoredImage';
 import ChatNoticeBanner from './chat/ChatNoticeBanner';
+import { applyConversationResult } from './chat/applyConversationResult';
 import { useChatGenerationSessions } from './chat/useChatGenerationSessions';
 import type { ChatGenerationSession } from './chat/useChatGenerationSessions';
 import { useChatComposerKeyboard, useChatInputRedirect, useTypewriterAdvance } from './chat/useChatKeyboard';
@@ -306,27 +308,6 @@ function resolveSelectedCostumeName(room: Room | null | undefined, character: Ch
     return findCostume(character, selectedName) ? selectedName : DEFAULT_COSTUME_NAME;
 }
 
-function buildProtagonistSection(character: Pick<Character, 'protagonistPrompt'>): string {
-    const protagonistPrompt = character.protagonistPrompt?.trim();
-    return protagonistPrompt ? `# 主人公の概要\n${protagonistPrompt}` : '';
-}
-
-function buildUserConstraintsSection(character: Pick<Character, 'userConstraints'>): string {
-    const userConstraints = character.userConstraints?.trim();
-    return userConstraints ? `# 追加の制約\n${userConstraints}` : '';
-}
-
-function buildSpeechStyleSection(character: Pick<Character, 'speechStyle'>): string {
-    const speechStyle = character.speechStyle?.trim();
-    return speechStyle ? `# 口調\n${speechStyle}` : '';
-}
-
-function buildCharacterSettingPrompt(character: Pick<Character, 'systemPrompt' | 'speechStyle' | 'protagonistPrompt' | 'userConstraints'>): string {
-    return [character.systemPrompt, buildSpeechStyleSection(character), buildProtagonistSection(character), buildUserConstraintsSection(character)]
-        .filter((part) => part.trim())
-        .join('\n\n');
-}
-
 function resolveExpressionImage(character: Character | null | undefined, emotion: string | null, costumeName = DEFAULT_COSTUME_NAME): string | null {
     if (!character) return null;
     const selectedCostume = findCostume(character, costumeName);
@@ -455,44 +436,6 @@ type ChatGenerationResult = {
     error?: unknown;
 };
 
-type RustTurnResponse = {
-    messages?: Array<{
-        id: string;
-        role: 'assistant';
-        content: string;
-        characterId: string;
-        expression?: string;
-        toCharacterIds?: string[];
-        timestamp: number;
-    }>;
-    usages?: Array<{
-        characterId: string;
-        promptTokens: number;
-        completionTokens: number;
-        totalTokens: number;
-        cost: number;
-    }>;
-    fullJsonLogs?: Array<{
-        characterId: string;
-        characterName: string;
-        model?: string;
-        status: 'success' | 'error';
-        source: string;
-        prompt?: string;
-        json: string;
-        httpStatus?: number;
-        elapsedMs?: number;
-        errorName?: string;
-    }>;
-    summary?: {
-        text: string;
-        checkpointUserMessageId?: string;
-        keepCount: number;
-    } | null;
-    memoryCandidates?: ExtractedMemoryUpdate[];
-    usedMemoryIds?: string[];
-};
-
 type ChatConversationJobStatus = ConversationJobStatus<RustTurnResponse>;
 
 type StreamingPreview = {
@@ -521,73 +464,6 @@ function waitForConversationJobPoll(signal: AbortSignal, intervalMs: number): Pr
         }, intervalMs);
         signal.addEventListener('abort', handleAbort, { once: true });
     });
-}
-
-const MEMORY_SAVE_MIN_IMPORTANCE = 0.4;
-const MEMORY_SAVE_MIN_CONFIDENCE = 0.75;
-const MEMORY_SAVE_MAX_UPDATES = 5;
-const MEMORY_TURN_DEDUP_SIMILARITY_THRESHOLD = 0.68;
-const MEMORY_EXISTING_DEDUP_SIMILARITY_THRESHOLD = 0.78;
-
-type ExtractedMemoryUpdate = {
-    content: string;
-    kind: MemoryKind;
-    scope: MemoryScope;
-    importance: number;
-    confidence: number;
-};
-
-function normalizeMemoryTextForDedup(value: string): string {
-    return value
-        .replace(/\s+/g, ' ')
-        .trim()
-        .toLocaleLowerCase()
-        .replace(/[「」『』（）()[\]{}.,，。!！?？:：;；、・\s]/g, '');
-}
-
-function getMemoryDedupSignals(value: string): Set<string> {
-    const signals = new Set<string>();
-    const normalized = value.replace(/\s+/g, ' ').trim().toLocaleLowerCase();
-    for (const token of normalized.split(/[\s、。,.!?！？「」『』（）()[\]{}:;・/\\|]+/)) {
-        if (token.length >= 2) signals.add(token);
-    }
-
-    const compact = normalizeMemoryTextForDedup(value);
-    for (let i = 0; i < compact.length - 1; i++) {
-        signals.add(compact.slice(i, i + 2));
-    }
-    return signals;
-}
-
-function memoryDedupSimilarity(a: string, b: string): number {
-    const keyA = normalizeMemoryTextForDedup(a);
-    const keyB = normalizeMemoryTextForDedup(b);
-    if (!keyA || !keyB) return 0;
-    if (keyA === keyB) return 1;
-    if (keyA.includes(keyB) || keyB.includes(keyA)) {
-        return Math.min(keyA.length, keyB.length) / Math.max(keyA.length, keyB.length);
-    }
-
-    const signalsA = getMemoryDedupSignals(a);
-    const signalsB = getMemoryDedupSignals(b);
-    if (signalsA.size === 0 || signalsB.size === 0) return 0;
-    let overlap = 0;
-    for (const signal of signalsA) {
-        if (signalsB.has(signal)) overlap++;
-    }
-    return overlap / Math.min(signalsA.size, signalsB.size);
-}
-
-function isSimilarMemoryContent(content: string, others: { content: string }[], threshold: number): boolean {
-    return others.some((other) =>
-        memoryDedupSimilarity(content, other.content) >= threshold
-    );
-}
-
-function isCoveredByCharacterSetting(content: string, systemPrompt: string): boolean {
-    const normalizedPrompt = systemPrompt.trim();
-    if (!normalizedPrompt) return false;
-    return memoryDedupSimilarity(content, normalizedPrompt) >= 0.28;
 }
 
 export default function ChatWindow({ room, character, situation, groupName, groupCharacters, onOpenSidebar, onOpenMemoryList, onCreateCharacter, onOpenSettings }: ChatWindowProps) {
@@ -1489,136 +1365,40 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             if (job.status !== 'completed' || !job.result) {
                 throw new ChatGenerationJobError('バックグラウンド生成の結果を取得できませんでした。');
             }
-            const data = job.result;
-            if (isSecretMode && data.summary?.text) {
-                updateRoomSummary(
-                    sourceRoom.id,
-                    data.summary.text,
-                    data.summary.checkpointUserMessageId,
-                );
-                if (Number.isInteger(data.summary.keepCount) && data.summary.keepCount > 0) {
-                    compressRoomHistory(sourceRoom.id, data.summary.keepCount);
-                }
-            }
-
-            const assistantMessages = Array.isArray(data.messages) ? data.messages : [];
-            let assistantMessageIds = assistantMessages
-                .filter((message) => message?.content?.trim() && message.id)
-                .map((message) => message.id);
-            if (isSecretMode) {
-                assistantMessageIds = [];
-                for (let index = 0; index < assistantMessages.length; index++) {
-                    const message = assistantMessages[index];
-                    if (!message?.content?.trim()) continue;
-                    if (isMessageMode && index > 0 && !shouldStreamPreview) {
-                        await waitForMessageModeBubbleDelay();
-                    }
-                    if (!isGenerationSessionActive(session) || controller.signal.aborted) {
-                        throw new DOMException('Generation stopped', 'AbortError');
-                    }
-                    const assistantMessageId = addMessage(
-                        sourceRoom.id,
-                        'assistant',
-                        message.content,
-                        message.characterId,
-                        {
-                            expression: message.expression,
-                            toCharacterIds: message.toCharacterIds ?? [],
-                        },
-                    );
-                    assistantMessageIds.push(assistantMessageId);
-                    if (shouldStreamPreview) rememberStreamedFinalMessageIds([assistantMessageId]);
-                }
-            } else {
-                if (shouldStreamPreview) rememberStreamedFinalMessageIds(assistantMessageIds);
-                await refreshConversationRoom(sourceRoom.id);
-            }
-            clearStreamingPreview(session.jobId);
-
-            if (!isSecretMode) {
-                if (fullJsonDebugEnabled) {
-                    for (const log of data.fullJsonLogs ?? []) {
-                        if (!log.json?.trim()) continue;
-                        addFullJsonDebugLog({
-                            roomId: sourceRoom.id,
-                            roomName: getCurrentRoom()?.name ?? sourceRoom.name,
-                            characterId: log.characterId,
-                            characterName: log.characterName,
-                            model: log.model,
-                            status: log.status,
-                            source: log.source,
-                            prompt: log.prompt,
-                            json: log.json,
-                            httpStatus: log.httpStatus,
-                            elapsedMs: log.elapsedMs,
-                            errorName: log.errorName,
-                        });
-                    }
-                }
-                markMemoriesUsed(data.usedMemoryIds ?? []);
-            }
-
-            if (
-                !isSecretMode &&
-                character &&
-                assistantMessageIds.length > 0 &&
-                Array.isArray(data.memoryCandidates) &&
-                data.memoryCandidates.length > 0
-            ) {
-                const existingMemories = await listMemoriesForCharacter(character.id);
-                const savedThisTurn: ExtractedMemoryUpdate[] = [];
-                const candidates = data.memoryCandidates
-                    .filter((update) =>
-                        update &&
-                        typeof update.content === 'string' &&
-                        ['fact', 'preference', 'event', 'relationship', 'instruction'].includes(update.kind) &&
-                        ['character', 'relationship', 'world'].includes(update.scope) &&
-                        update.importance >= MEMORY_SAVE_MIN_IMPORTANCE &&
-                        update.confidence >= MEMORY_SAVE_MIN_CONFIDENCE
-                    )
-                    .sort((a, b) =>
-                        (b.importance * b.confidence) - (a.importance * a.confidence)
-                    )
-                    .filter((update) => {
-                        const setting = buildCharacterSettingPrompt(character);
-                        if (isCoveredByCharacterSetting(update.content, setting)) return false;
-                        if (isSimilarMemoryContent(update.content, existingMemories, MEMORY_EXISTING_DEDUP_SIMILARITY_THRESHOLD)) return false;
-                        if (isSimilarMemoryContent(update.content, savedThisTurn, MEMORY_TURN_DEDUP_SIMILARITY_THRESHOLD)) return false;
-                        savedThisTurn.push(update);
-                        return true;
-                    })
-                    .slice(0, MEMORY_SAVE_MAX_UPDATES);
-
-                await Promise.all(candidates.map((update) =>
-                    addMemory(character.id, update.content, {
-                        scope: update.scope,
-                        kind: update.kind,
-                        importance: update.importance,
-                        confidence: update.confidence,
-                        sourceRoomId: sourceRoom.id,
-                        sourceMessageIds: assistantMessageIds,
-                    })
-                ));
-                attachMemoriesToMessage(
-                    sourceRoom.id,
-                    assistantMessageIds[0],
-                    candidates.map((update) => update.content),
-                );
-            }
-
-            if (
-                !isMessageMode &&
-                vnTypingSpeed !== 'streaming' &&
-                getCurrentRoom()?.id === sourceRoom.id &&
-                assistantMessageIds[0] &&
-                assistantMessages[0]?.content
-            ) {
-                await playTypewriter(assistantMessageIds[0], assistantMessages[0].content);
-            }
-
+            const appliedResult = await applyConversationResult(
+                {
+                    data: job.result,
+                    sourceRoom,
+                    jobId: session.jobId,
+                    character,
+                    isSecretMode,
+                    isMessageMode,
+                    shouldStreamPreview,
+                    typingSpeed: vnTypingSpeed,
+                    debugEnabled: fullJsonDebugEnabled,
+                },
+                {
+                    updateRoomSummary,
+                    compressRoomHistory,
+                    isGenerationActive: () =>
+                        isGenerationSessionActive(session) && !controller.signal.aborted,
+                    waitForMessageModeBubbleDelay,
+                    addMessage,
+                    rememberStreamedFinalMessageIds,
+                    refreshConversationRoom,
+                    clearStreamingPreview,
+                    addFullJsonDebugLog,
+                    getCurrentRoom,
+                    markMemoriesUsed,
+                    listMemoriesForCharacter,
+                    addMemory,
+                    attachMemoriesToMessage,
+                    playTypewriter,
+                },
+            );
             return {
                 status: 'success',
-                message: assistantMessages.map((message) => message.content).join('\n\n'),
+                message: appliedResult.message,
             };
         } catch (error) {
             if (error instanceof Error && error.name === 'AbortError') {

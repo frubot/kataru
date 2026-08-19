@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
-import { ArrowUp, Sparkles, MessageSquare, MessagesSquare, Menu, Brain, Bug, Square, SquarePen, Gamepad2, Copy, Check, GitBranch, RefreshCw, ChevronsDown, Shirt, AlertTriangle, X, ChevronDown, HatGlasses, Undo2, Trash2, Settings2 } from 'lucide-react';
+import { ArrowUp, Sparkles, MessageSquare, MessagesSquare, Menu, Brain, Bug, Square, SquarePen, Gamepad2, Copy, Check, GitBranch, RefreshCw, ChevronsDown, Shirt, X, ChevronDown, HatGlasses, Undo2, Trash2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import {
     useStore,
@@ -12,17 +12,21 @@ import {
 import type { MemoryKind, MemoryRecord, MemoryScope, SituationPriorMessage } from '@/lib/store';
 import type { VnTypingSpeed } from '@/lib/store';
 import { getMessageMemories } from '@/lib/chatAssistantResponse';
+import { getChatRegenerationCutIndex } from '@/lib/chatRegeneration';
 import { isConversationResponseEnd } from '@/lib/conversationBranch';
 import {
     getChatErrorPolicy,
     isRetryableGenerationError as isRetryableGenerationErrorPolicy,
-    shouldAutoHideChatNotice as shouldAutoHideChatNoticePolicy,
 } from '@/lib/chatErrorPolicy';
 import type { ChatErrorPolicyInput } from '@/lib/chatErrorPolicy';
 import { formatAssistantMarkdown } from '@/lib/markdownUtils';
 import { generateId } from '@/lib/id';
 import MessageBubble from './MessageBubble';
 import StoredImage from './StoredImage';
+import ChatNoticeBanner from './chat/ChatNoticeBanner';
+import { useChatComposerKeyboard, useChatInputRedirect, useTypewriterAdvance } from './chat/useChatKeyboard';
+import { useChatNotice } from './chat/useChatNotice';
+import type { ChatNoticeAction } from './chat/useChatNotice';
 
 interface ChatWindowProps {
     room: Room | null;
@@ -309,13 +313,6 @@ function buildCharacterSettingPrompt(character: Pick<Character, 'systemPrompt' |
     return [character.systemPrompt, buildSpeechStyleSection(character), buildProtagonistSection(character), buildUserConstraintsSection(character)]
         .filter((part) => part.trim())
         .join('\n\n');
-}
-
-function getLastReplyRoundStartIndex(messages: Message[]): number {
-    for (let i = messages.length - 1; i >= 0; i--) {
-        if (messages[i].role === 'user') return i + 1;
-    }
-    return -1;
 }
 
 function resolveExpressionImage(character: Character | null | undefined, emotion: string | null, costumeName = DEFAULT_COSTUME_NAME): string | null {
@@ -959,19 +956,6 @@ function getFullJsonDebugSourceLabel(source: string): string {
     }
 }
 
-const CHAT_NOTICE_AUTO_HIDE_MS = 5000;
-
-type ChatNoticeAction =
-    | { type: 'retry'; label: '再試行' }
-    | { type: 'open-settings'; label: '設定を確認' };
-
-type ChatNotice = {
-    id: number;
-    message: string;
-    tone: 'error';
-    action?: ChatNoticeAction;
-};
-
 type ChatRetryRequest = {
     roomId: string;
     input: string;
@@ -1209,7 +1193,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const [chatModeMenuOpen, setChatModeMenuOpen] = useState(false);
     const [vnCostumeMenuOpen, setVnCostumeMenuOpen] = useState(false);
     const [debugLogOpen, setDebugLogOpen] = useState(false);
-    const [chatNotice, setChatNotice] = useState<ChatNotice | null>(null);
     const [replySuggestionState, setReplySuggestionState] = useState<ReplySuggestionState | null>(null);
     const [streamingPreview, setStreamingPreview] = useState<StreamingPreview | null>(null);
     const [streamedFinalMessageIds, setStreamedFinalMessageIds] = useState<Set<string>>(() => new Set());
@@ -1226,14 +1209,23 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const vnBounceStopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const vnTypewriterRef = useRef<{ messageId: string; fullContent: string } | null>(null);
     const vnTypeDelayRef = useRef<{ timeout: ReturnType<typeof setTimeout>; resolve: () => void } | null>(null);
-    const chatNoticeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const chatNoticeHoveredRef = useRef(false);
     const retrySubmissionRef = useRef<ChatRetryRequest | null>(null);
     const chatNoticeActionRunningRef = useRef(false);
     const replySuggestionRequestKeyRef = useRef<string | null>(null);
     const replySuggestionControllerRef = useRef<AbortController | null>(null);
     const vnTypingSpeedRef = useRef(vnTypingSpeed);
     const messagePointerDragRef = useRef(false);
+    const {
+        notice: chatNotice,
+        showNotice: showChatNotice,
+        dismissNotice: dismissChatNotice,
+        handleMouseEnter: handleChatNoticeMouseEnter,
+        handleMouseLeave: handleChatNoticeMouseLeave,
+    } = useChatNotice({
+        onClearAction: () => {
+            retrySubmissionRef.current = null;
+        },
+    });
     const currentRoomId = room?.id;
     const isLoading = currentRoomId ? activeGenerationRoomIds.has(currentRoomId) : false;
     const isEditingMessage = editingMessage?.roomId === currentRoomId;
@@ -1290,61 +1282,10 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, []);
 
-    const clearChatNoticeTimer = useCallback(() => {
-        if (!chatNoticeTimeoutRef.current) return;
-        clearTimeout(chatNoticeTimeoutRef.current);
-        chatNoticeTimeoutRef.current = null;
-    }, []);
-
-    const scheduleChatNoticeAutoHide = useCallback(() => {
-        if (chatNoticeHoveredRef.current) return;
-        clearChatNoticeTimer();
-        chatNoticeTimeoutRef.current = setTimeout(() => {
-            chatNoticeTimeoutRef.current = null;
-            retrySubmissionRef.current = null;
-            setChatNotice(null);
-        }, CHAT_NOTICE_AUTO_HIDE_MS);
-    }, [clearChatNoticeTimer]);
-
-    const dismissChatNotice = useCallback(() => {
-        clearChatNoticeTimer();
-        chatNoticeHoveredRef.current = false;
-        retrySubmissionRef.current = null;
-        setChatNotice(null);
-    }, [clearChatNoticeTimer]);
-
-    const showChatNotice = useCallback((message: string, action?: ChatNoticeAction) => {
-        clearChatNoticeTimer();
-        if (action?.type !== 'retry') {
-            retrySubmissionRef.current = null;
-        }
-        setChatNotice({
-            id: Date.now(),
-            message,
-            tone: 'error',
-            action,
-        });
-        if (shouldAutoHideChatNoticePolicy(action?.type)) {
-            scheduleChatNoticeAutoHide();
-        }
-    }, [clearChatNoticeTimer, scheduleChatNoticeAutoHide]);
-
     const showChatErrorNotice = useCallback((error: unknown, action?: ChatNoticeAction) => {
         const inferredAction = action ?? (onOpenSettings ? getChatErrorAction(error) : undefined);
         showChatNotice(getChatErrorNotice(error, detailedErrorLoggingEnabled), inferredAction);
     }, [detailedErrorLoggingEnabled, onOpenSettings, showChatNotice]);
-
-    const handleChatNoticeMouseEnter = useCallback(() => {
-        chatNoticeHoveredRef.current = true;
-        clearChatNoticeTimer();
-    }, [clearChatNoticeTimer]);
-
-    const handleChatNoticeMouseLeave = useCallback(() => {
-        chatNoticeHoveredRef.current = false;
-        if (shouldAutoHideChatNoticePolicy(chatNotice?.action?.type)) {
-            scheduleChatNoticeAutoHide();
-        }
-    }, [chatNotice?.action?.type, scheduleChatNoticeAutoHide]);
 
     const logChatError = useCallback((context: string, error: unknown) => {
         if (detailedErrorLoggingEnabled) {
@@ -1629,10 +1570,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     useEffect(() => {
         vnTypingSpeedRef.current = vnTypingSpeed;
     }, [vnTypingSpeed]);
-
-    useEffect(() => {
-        return () => clearChatNoticeTimer();
-    }, [clearChatNoticeTimer]);
 
     useEffect(() => {
         const generationSessions = generationSessionsRef.current;
@@ -2012,21 +1949,11 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     }, [room?.id, character?.id]);
 
     // キーボード入力を常にテキストエリアにリダイレクト（モーダル等は除外）
-    useEffect(() => {
-        if (isMobile) return;
-        const handleKeyDown = (e: KeyboardEvent) => {
-            const target = e.target as Element;
-            const tag = target.tagName;
-            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-            if ((target as HTMLElement).isContentEditable) return;
-            if (e.key.length !== 1 && e.key !== 'Backspace') return;
-            if (e.metaKey || e.ctrlKey || e.altKey) return;
-            if (!textareaRef.current || isLoading || (isEditingMessage && !isInlineVnEditing)) return;
-            textareaRef.current.focus();
-        };
-        document.addEventListener('keydown', handleKeyDown);
-        return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [isMobile, isLoading, isEditingMessage, isInlineVnEditing]);
+    useChatInputRedirect({
+        inputRef: textareaRef,
+        disabled: isLoading || (isEditingMessage && !isInlineVnEditing),
+        isMobile,
+    });
 
     // Build a map of characterId -> Character for group rooms
     const characterMap = useMemo(() => {
@@ -2504,62 +2431,35 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         if (!room || isLoading) return;
         setReplySuggestionState(null);
 
-        if (isGroupRoom && groupCharacters) {
-            // Remove all assistant messages from the last round (after the last user message)
-            const lastUserIndex = [...room.messages].reverse().findIndex((m) => m.role === 'user');
-            if (lastUserIndex === -1) return;
-            const cutFrom = room.messages.length - lastUserIndex;
-            const messagesToDelete = room.messages.slice(cutFrom);
-            const removedMemoryRecords = await deleteMessagesFrom(room.id, cutFrom);
-            const session = startGenerationSession(room.id);
-            try {
-                const latestRoom = getCurrentRoom();
-                const result = latestRoom
-                    ? await generateRustTurn(session, latestRoom)
-                    : { status: 'aborted' as const };
-                if (result.status === 'error' || result.status === 'aborted') {
-                    const latestRoom = getCurrentRoom();
-                    if (latestRoom?.id === room.id && latestRoom.messages.length > cutFrom) {
-                        await deleteMessagesFrom(room.id, cutFrom);
-                    }
-                    await restoreMessagesAt(room.id, cutFrom, messagesToDelete, removedMemoryRecords);
-                    if (result.status === 'error' && result.error && getCurrentRoom()?.id === room.id) {
-                        showChatErrorNotice(result.error);
-                    }
-                }
-            } finally {
-                finishGenerationSession(session);
-                setIsSummarizing(false);
-            }
-        } else {
-            if (!character) return;
-            const cutFrom = getLastReplyRoundStartIndex(room.messages);
-            if (cutFrom < 0 || cutFrom >= room.messages.length) return;
-            const messagesToDelete = room.messages.slice(cutFrom);
-            if (!messagesToDelete.some((msg) => msg.role === 'assistant')) return;
+        const regenerateAsGroup = isGroupRoom && groupCharacters != null;
+        if (!regenerateAsGroup && !character) return;
 
-            const removedMemoryRecords = await deleteMessagesFrom(room.id, cutFrom);
+        const cutFrom = getChatRegenerationCutIndex(room.messages, {
+            allowEmptyReplyRound: regenerateAsGroup,
+        });
+        if (cutFrom == null) return;
+        const messagesToDelete = room.messages.slice(cutFrom);
 
-            const session = startGenerationSession(room.id);
-            try {
-                const latestRoom = getCurrentRoom();
-                const result = latestRoom
-                    ? await generateRustTurn(session, latestRoom)
-                    : { status: 'aborted' as const };
-                if (result.status === 'error' || result.status === 'aborted') {
-                    const latestRoom = getCurrentRoom();
-                    if (latestRoom?.id === room.id && latestRoom.messages.length > cutFrom) {
-                        await deleteMessagesFrom(room.id, cutFrom);
-                    }
-                    await restoreMessagesAt(room.id, cutFrom, messagesToDelete, removedMemoryRecords);
-                    if (result.status === 'error' && result.error && getCurrentRoom()?.id === room.id) {
-                        showChatErrorNotice(result.error);
-                    }
+        const removedMemoryRecords = await deleteMessagesFrom(room.id, cutFrom);
+        const session = startGenerationSession(room.id);
+        try {
+            const latestRoom = getCurrentRoom();
+            const result = latestRoom
+                ? await generateRustTurn(session, latestRoom)
+                : { status: 'aborted' as const };
+            if (result.status === 'error' || result.status === 'aborted') {
+                const currentRoom = getCurrentRoom();
+                if (currentRoom?.id === room.id && currentRoom.messages.length > cutFrom) {
+                    await deleteMessagesFrom(room.id, cutFrom);
                 }
-            } finally {
-                finishGenerationSession(session);
-                setIsSummarizing(false);
+                await restoreMessagesAt(room.id, cutFrom, messagesToDelete, removedMemoryRecords);
+                if (result.status === 'error' && result.error && getCurrentRoom()?.id === room.id) {
+                    showChatErrorNotice(result.error);
+                }
             }
+        } finally {
+            finishGenerationSession(session);
+            setIsSummarizing(false);
         }
     };
 
@@ -2676,39 +2576,20 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         }
     };
 
-    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-        // Handle mention navigation
-        if (mentionQuery !== null && mentionCandidates.length > 0) {
-            if (e.key === 'ArrowDown') {
-                e.preventDefault();
-                setSelectedMentionIdx((i) => (i + 1) % mentionCandidates.length);
-                return;
-            }
-            if (e.key === 'ArrowUp') {
-                e.preventDefault();
-                setSelectedMentionIdx((i) => (i - 1 + mentionCandidates.length) % mentionCandidates.length);
-                return;
-            }
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                applyMention(mentionCandidates[selectedMentionIdx]);
-                return;
-            }
-            if (e.key === 'Escape') {
-                setMentionQuery(null);
-                return;
-            }
-        }
-        if (isMobile) return;
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            if (isInlineVnEditing) {
-                handleSubmitEditMessage();
-            } else {
-                handleSubmit();
-            }
-        }
-    };
+    const handleKeyDown = useChatComposerKeyboard({
+        mentionOpen: mentionQuery !== null,
+        mentionCandidates,
+        selectedMentionIndex: selectedMentionIdx,
+        setSelectedMentionIndex: setSelectedMentionIdx,
+        onApplyMention: applyMention,
+        onCloseMention: () => setMentionQuery(null),
+        isMobile,
+        isInlineEditing: isInlineVnEditing,
+        onSubmit: () => {
+            void handleSubmit();
+        },
+        onSubmitEdit: handleSubmitEditMessage,
+    });
 
     const latestAssistantMessage = useMemo(() => {
         for (let i = processedMessages.length - 1; i >= 0; i--) {
@@ -2835,26 +2716,10 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         return () => cancelAnimationFrame(frameId);
     }, [isVisualNovelMode, vnDialogueContent]);
 
-    useEffect(() => {
-        const handleAdvanceKey = (e: KeyboardEvent) => {
-            if (!vnTypewriterRef.current) return;
-            const target = e.target as HTMLElement | null;
-            const tag = target?.tagName;
-            const isEditableTarget = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable;
-            const isDisabledFormTarget = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement
-                ? target.disabled
-                : false;
-            if (isEditableTarget && !isDisabledFormTarget) return;
-
-            if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                stopTypewriter(true);
-            }
-        };
-
-        document.addEventListener('keydown', handleAdvanceKey);
-        return () => document.removeEventListener('keydown', handleAdvanceKey);
-    }, [stopTypewriter]);
+    useTypewriterAdvance({
+        activeRef: vnTypewriterRef,
+        onAdvance: () => stopTypewriter(true),
+    });
 
     const handleClearActiveDebugLogs = () => {
         clearFullJsonDebugLogs();
@@ -3447,45 +3312,15 @@ export default function ChatWindow({ room, character, situation, groupName, grou
 
             <div className="chat-input-area" style={{ position: 'relative' }}>
                 {chatNotice && (
-                    <div
+                    <ChatNoticeBanner
                         key={chatNotice.id}
-                        className={`chat-notice ${chatNotice.tone}`}
-                        role="alert"
-                        aria-live="polite"
-                        aria-atomic="true"
-                        onMouseEnter={handleChatNoticeMouseEnter}
-                        onMouseLeave={handleChatNoticeMouseLeave}
-                        onFocus={handleChatNoticeMouseEnter}
-                        onBlur={handleChatNoticeMouseLeave}
-                    >
-                        <AlertTriangle size={16} className="chat-notice-icon" />
-                        <div className="chat-notice-body">
-                            <span className="chat-notice-message">{chatNotice.message}</span>
-                            {chatNotice.action && (
-                                <button
-                                    type="button"
-                                    className="chat-notice-action"
-                                    onClick={handleChatNoticeAction}
-                                    disabled={chatNotice.action.type === 'retry' && (isLoading || isSummarizing)}
-                                    title={chatNotice.action.label}
-                                >
-                                    {chatNotice.action.type === 'retry'
-                                        ? <RefreshCw size={14} aria-hidden="true" />
-                                        : <Settings2 size={14} aria-hidden="true" />}
-                                    {chatNotice.action.label}
-                                </button>
-                            )}
-                        </div>
-                        <button
-                            type="button"
-                            className="chat-notice-close"
-                            onClick={dismissChatNotice}
-                            title="閉じる"
-                            aria-label="通知を閉じる"
-                        >
-                            <X size={14} />
-                        </button>
-                    </div>
+                        notice={chatNotice}
+                        retryDisabled={isLoading || isSummarizing}
+                        onAction={handleChatNoticeAction}
+                        onDismiss={dismissChatNotice}
+                        onInteractionStart={handleChatNoticeMouseEnter}
+                        onInteractionEnd={handleChatNoticeMouseLeave}
+                    />
                 )}
                 {!isVisualNovelMode && replySuggestions}
                 {mentionQuery !== null && mentionCandidates.length > 0 && (

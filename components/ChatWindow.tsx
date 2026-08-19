@@ -1,6 +1,5 @@
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
-import { ArrowUp, Sparkles, MessageSquare, MessagesSquare, Menu, Brain, Bug, Square, SquarePen, Gamepad2, Copy, Check, GitBranch, RefreshCw, ChevronsDown, Shirt, X, ChevronDown, HatGlasses, Undo2, Trash2 } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
+import { ArrowUp, Sparkles, MessageSquare, MessagesSquare, Menu, Brain, Bug, Square, SquarePen, Gamepad2, Check, ChevronsDown, X, ChevronDown, HatGlasses, Trash2 } from 'lucide-react';
 import {
     useStore,
     Room,
@@ -10,7 +9,6 @@ import {
     SituationParticipant,
 } from '@/lib/store';
 import type { MemoryRecord, SituationPriorMessage } from '@/lib/store';
-import type { VnTypingSpeed } from '@/lib/store';
 import { getMessageMemories } from '@/lib/chatAssistantResponse';
 import {
     ChatGenerationJobError,
@@ -32,18 +30,27 @@ import {
 import type { ConversationJobStatus } from '@/lib/conversationJobClient';
 import type { RustTurnResponse } from '@/lib/conversationResult';
 import { formatAssistantMarkdown } from '@/lib/markdownUtils';
+import {
+    DEFAULT_COSTUME_NAME,
+    getVisualNovelCostumeOptions,
+    resolveVisualNovelCostumeName,
+    resolveVisualNovelExpressionImage,
+} from '@/lib/visualNovelPresentation';
 import MessageBubble from './MessageBubble';
 import StoredImage from './StoredImage';
 import ChatNoticeBanner from './chat/ChatNoticeBanner';
 import { applyConversationResult } from './chat/applyConversationResult';
 import { useChatGenerationSessions } from './chat/useChatGenerationSessions';
 import type { ChatGenerationSession } from './chat/useChatGenerationSessions';
-import { useChatComposerKeyboard, useChatInputRedirect, useTypewriterAdvance } from './chat/useChatKeyboard';
+import { useChatComposerKeyboard, useChatInputRedirect } from './chat/useChatKeyboard';
 import { useChatMentions } from './chat/useChatMentions';
 import { useChatNotice } from './chat/useChatNotice';
 import type { ChatNoticeAction } from './chat/useChatNotice';
 import { useReplySuggestions } from './chat/useReplySuggestions';
 import { useRoomTitleGeneration } from './chat/useRoomTitleGeneration';
+import { useVisualNovelPresentation } from './chat/useVisualNovelPresentation';
+import VisualNovelView from './chat/VisualNovelView';
+import WaitingEllipsis from './chat/WaitingEllipsis';
 
 interface ChatWindowProps {
     room: Room | null;
@@ -57,8 +64,6 @@ interface ChatWindowProps {
     onOpenSettings?: () => void;
 }
 
-const DEFAULT_COSTUME_NAME = 'default';
-const NEUTRAL_EXPRESSION_NAME = 'neutral';
 const MESSAGE_MODE_BUBBLE_DELAY_MS = 420;
 const CONVERSATION_JOB_POLL_INTERVAL_MS = 750;
 const CONVERSATION_STREAMING_POLL_INTERVAL_MS = 120;
@@ -194,20 +199,6 @@ function renderRoomViewModeIcon(viewMode: RoomViewMode, size = 18) {
     return <MessageSquare size={size} />;
 }
 
-function WaitingEllipsis({ className }: { className?: string }) {
-    const classes = className ? `waiting-ellipsis ${className}` : 'waiting-ellipsis';
-
-    return (
-        <span className={classes} role="status" aria-live="polite" aria-label="返答中…">
-            <span className="waiting-ellipsis-dots" aria-hidden="true">
-                <span className="waiting-ellipsis-dot">.</span>
-                <span className="waiting-ellipsis-dot">.</span>
-                <span className="waiting-ellipsis-dot">.</span>
-            </span>
-        </span>
-    );
-}
-
 const NOOP = () => undefined;
 
 function SituationPriorMessageBubble({
@@ -257,111 +248,6 @@ function SituationPriorMessageBubble({
             onOpenMemoryList={NOOP}
         />
     );
-}
-
-function findCostume(character: Character | null | undefined, costumeName: string | null | undefined) {
-    if (!character || !costumeName || costumeName === DEFAULT_COSTUME_NAME) return null;
-    return (character.costumes ?? []).find((costume) => costume.name === costumeName) ?? null;
-}
-
-function findDefaultCostume(character: Character | null | undefined) {
-    return (character?.costumes ?? []).find((costume) => costume.name.toLowerCase() === DEFAULT_COSTUME_NAME) ?? null;
-}
-
-function resolveSelectedCostumeName(room: Room | null | undefined, character: Character | null | undefined): string {
-    if (!room || !character) return DEFAULT_COSTUME_NAME;
-    const selectedName = room.costumeSelections?.[character.id];
-    if (!selectedName || selectedName === DEFAULT_COSTUME_NAME) return DEFAULT_COSTUME_NAME;
-    return findCostume(character, selectedName) ? selectedName : DEFAULT_COSTUME_NAME;
-}
-
-function resolveExpressionImage(character: Character | null | undefined, emotion: string | null, costumeName = DEFAULT_COSTUME_NAME): string | null {
-    if (!character) return null;
-    const selectedCostume = findCostume(character, costumeName);
-    if (selectedCostume) {
-        const costumeExpressions = selectedCostume.expressions ?? [];
-        const requested = emotion && emotion.toLowerCase() !== NEUTRAL_EXPRESSION_NAME
-            ? costumeExpressions.find((e) => e.name.toLowerCase() === emotion.toLowerCase())
-            : undefined;
-        return requested?.image ?? selectedCostume.image ?? character.icon ?? null;
-    }
-
-    const expressions = character.expressions ?? [];
-    const findExpression = (name: string) => expressions.find((e) => e.name.toLowerCase() === name.toLowerCase());
-    const requested = emotion ? findExpression(emotion) : undefined;
-    const neutral = findExpression(NEUTRAL_EXPRESSION_NAME);
-    return requested?.image ?? neutral?.image ?? expressions[0]?.image ?? character.icon ?? null;
-}
-
-const VN_TYPING_DEFAULT_DELAY_MS = 24;
-const VN_TYPING_COMMA_DELAY_MS = 70;
-const VN_TYPING_SENTENCE_DELAY_MS = 160;
-const VN_TYPING_ITALIC_DELAY_MS = 90;
-const VN_TYPING_SPEED_MULTIPLIER: Record<VnTypingSpeed, number> = {
-    slow: 1.55,
-    default: 1,
-    fast: 0.55,
-    streaming: 1,
-};
-
-function isEscapedMarker(content: string, index: number): boolean {
-    let slashCount = 0;
-    for (let i = index - 1; i >= 0 && content[i] === '\\'; i--) {
-        slashCount++;
-    }
-    return slashCount % 2 === 1;
-}
-
-function isSingleItalicMarker(content: string, index: number): boolean {
-    return content[index] === '*'
-        && content[index - 1] !== '*'
-        && content[index + 1] !== '*'
-        && !isEscapedMarker(content, index);
-}
-
-function findClosingItalicMarker(content: string, start: number): number {
-    for (let i = start + 1; i < content.length; i++) {
-        if (isSingleItalicMarker(content, i)) return i;
-    }
-    return -1;
-}
-
-function buildVnTypingSegments(content: string): string[] {
-    const segments: string[] = [];
-    let i = 0;
-    while (i < content.length) {
-        if (isSingleItalicMarker(content, i)) {
-            const closing = findClosingItalicMarker(content, i);
-            if (closing > i + 1) {
-                segments.push(content.slice(i, closing + 1));
-                i = closing + 1;
-                continue;
-            }
-        }
-
-        const char = Array.from(content.slice(i))[0] ?? '';
-        if (!char) break;
-        segments.push(char);
-        i += char.length;
-    }
-    return segments;
-}
-
-function getBaseVnTypingDelay(segment: string): number {
-    if (segment === '\n') return VN_TYPING_SENTENCE_DELAY_MS;
-
-    const isItalicSegment = segment.startsWith('*') && segment.endsWith('*') && segment.length > 2;
-    const visibleSegment = isItalicSegment ? segment.slice(1, -1) : segment;
-    const lastChar = Array.from(visibleSegment.trimEnd()).at(-1);
-
-    if (lastChar && '。.!！？!?…'.includes(lastChar)) return VN_TYPING_SENTENCE_DELAY_MS;
-    if (lastChar && '、,'.includes(lastChar)) return VN_TYPING_COMMA_DELAY_MS;
-    if (isItalicSegment) return VN_TYPING_ITALIC_DELAY_MS;
-    return VN_TYPING_DEFAULT_DELAY_MS;
-}
-
-function getVnTypingDelay(segment: string, speed: VnTypingSpeed): number {
-    return Math.max(1, Math.round(getBaseVnTypingDelay(segment) * VN_TYPING_SPEED_MULTIPLIER[speed]));
 }
 
 function waitForMessageModeBubbleDelay(): Promise<void> {
@@ -488,30 +374,28 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
     const [branchingMessageId, setBranchingMessageId] = useState<string | null>(null);
     const [editingMessage, setEditingMessage] = useState<EditingMessageDraft | null>(null);
-    const [vnBounceActive, setVnBounceActive] = useState(false);
-    const [typingMessageId, setTypingMessageId] = useState<string | null>(null);
-    const [typedContent, setTypedContent] = useState('');
-    const [isTypewriterActive, setIsTypewriterActive] = useState(false);
     const [chatModeMenuOpen, setChatModeMenuOpen] = useState(false);
-    const [vnCostumeMenuOpen, setVnCostumeMenuOpen] = useState(false);
     const [debugLogOpen, setDebugLogOpen] = useState(false);
     const [streamingPreview, setStreamingPreview] = useState<StreamingPreview | null>(null);
     const [streamedFinalMessageIds, setStreamedFinalMessageIds] = useState<Set<string>>(() => new Set());
     const messagesEndRef = useRef<HTMLDivElement>(null);
-    const vnDialogueBodyRef = useRef<HTMLDivElement>(null);
     const chatModeMenuRef = useRef<HTMLDivElement>(null);
-    const vnCostumeMenuRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const resumedJobsRef = useRef<Set<string>>(new Set());
     const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const vnBounceStartRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const vnBounceStopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const vnTypewriterRef = useRef<{ messageId: string; fullContent: string } | null>(null);
-    const vnTypeDelayRef = useRef<{ timeout: ReturnType<typeof setTimeout>; resolve: () => void } | null>(null);
     const retrySubmissionRef = useRef<ChatRetryRequest | null>(null);
     const chatNoticeActionRunningRef = useRef(false);
-    const vnTypingSpeedRef = useRef(vnTypingSpeed);
     const messagePointerDragRef = useRef(false);
+    const {
+        bounceActive: vnBounceActive,
+        typingMessageId,
+        typedContent,
+        isTypewriterActive,
+        typingSpeedRef: vnTypingSpeedRef,
+        triggerBounce: triggerVnBounce,
+        stopTypewriter,
+        playTypewriter,
+    } = useVisualNovelPresentation({ typingSpeed: vnTypingSpeed });
     const {
         query: mentionQuery,
         candidates: mentionCandidates,
@@ -651,7 +535,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             if (job.status !== 'running') return job;
         }
         throw new DOMException('Generation stopped', 'AbortError');
-    }, [getCurrentRoom, isGenerationSessionActive]);
+    }, [getCurrentRoom, isGenerationSessionActive, vnTypingSpeedRef]);
 
     const resumeConversationJob = useCallback(async (job: ChatConversationJobStatus) => {
         if (resumedJobsRef.current.has(job.jobId) || hasGenerationSession(job.roomId)) {
@@ -709,6 +593,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         rememberStreamedFinalMessageIds,
         showChatErrorNotice,
         startGenerationSession,
+        vnTypingSpeedRef,
     ]);
 
     useEffect(() => {
@@ -731,10 +616,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             disposed = true;
         };
     }, [resumeConversationJob]);
-
-    useEffect(() => {
-        vnTypingSpeedRef.current = vnTypingSpeed;
-    }, [vnTypingSpeed]);
 
     useEffect(() => {
         dismissChatNotice();
@@ -814,95 +695,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         }
     }, [room?.id]);
 
-    const triggerVnBounce = useCallback(() => {
-        if (vnBounceStartRef.current) {
-            clearTimeout(vnBounceStartRef.current);
-            vnBounceStartRef.current = null;
-        }
-        if (vnBounceStopRef.current) {
-            clearTimeout(vnBounceStopRef.current);
-            vnBounceStopRef.current = null;
-        }
-        setVnBounceActive(false);
-        vnBounceStartRef.current = setTimeout(() => {
-            setVnBounceActive(true);
-            vnBounceStopRef.current = setTimeout(() => {
-                setVnBounceActive(false);
-                vnBounceStopRef.current = null;
-            }, 620);
-            vnBounceStartRef.current = null;
-        }, 20);
-    }, []);
-
-    const releaseVnTypeDelay = useCallback(() => {
-        const pendingDelay = vnTypeDelayRef.current;
-        if (!pendingDelay) return;
-        clearTimeout(pendingDelay.timeout);
-        vnTypeDelayRef.current = null;
-        pendingDelay.resolve();
-    }, []);
-
-    const stopTypewriter = useCallback((revealFull: boolean) => {
-        const activeRun = vnTypewriterRef.current;
-        if (!activeRun) return false;
-
-        vnTypewriterRef.current = null;
-        releaseVnTypeDelay();
-        setTypedContent(revealFull ? activeRun.fullContent : '');
-        setTypingMessageId(null);
-        setIsTypewriterActive(false);
-        return true;
-    }, [releaseVnTypeDelay]);
-
-    const playTypewriter = useCallback(async (messageId: string, fullContent: string) => {
-        stopTypewriter(false);
-
-        const segments = buildVnTypingSegments(fullContent);
-        if (segments.length === 0) {
-            setTypingMessageId(null);
-            setTypedContent('');
-            setIsTypewriterActive(false);
-            return;
-        }
-
-        const run = { messageId, fullContent };
-        vnTypewriterRef.current = run;
-        setTypingMessageId(messageId);
-        setTypedContent('');
-        setIsTypewriterActive(true);
-
-        let typedContent = '';
-        for (const segment of segments) {
-            if (vnTypewriterRef.current !== run) return;
-
-            typedContent += segment;
-            setTypedContent(typedContent);
-
-            await new Promise<void>((resolve) => {
-                const timeout = setTimeout(() => {
-                    if (vnTypeDelayRef.current?.timeout === timeout) {
-                        vnTypeDelayRef.current = null;
-                    }
-                    resolve();
-                }, getVnTypingDelay(segment, vnTypingSpeedRef.current));
-                vnTypeDelayRef.current = { timeout, resolve };
-            });
-        }
-
-        if (vnTypewriterRef.current !== run) return;
-        vnTypewriterRef.current = null;
-        setTypedContent(fullContent);
-        setTypingMessageId(null);
-        setIsTypewriterActive(false);
-    }, [stopTypewriter]);
-
-    useEffect(() => {
-        return () => {
-            if (vnBounceStartRef.current) clearTimeout(vnBounceStartRef.current);
-            if (vnBounceStopRef.current) clearTimeout(vnBounceStopRef.current);
-        };
-    }, []);
-
     // Room switches only stop room-local presentation. Server-side generation continues.
     useEffect(() => {
         return () => {
@@ -910,12 +702,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             setIsSummarizing(false);
         };
     }, [room?.id, stopTypewriter]);
-
-    useEffect(() => {
-        if (!isVisualNovelMode) {
-            setVnCostumeMenuOpen(false);
-        }
-    }, [isVisualNovelMode]);
 
     useEffect(() => {
         if (!debugPanelEnabled) {
@@ -949,21 +735,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         document.addEventListener('pointerdown', handlePointerDown);
         return () => document.removeEventListener('pointerdown', handlePointerDown);
     }, [chatModeMenuOpen]);
-
-    useEffect(() => {
-        if (!vnCostumeMenuOpen) return;
-        const handlePointerDown = (e: PointerEvent) => {
-            const target = e.target as Node | null;
-            if (target && vnCostumeMenuRef.current?.contains(target)) return;
-            setVnCostumeMenuOpen(false);
-        };
-        document.addEventListener('pointerdown', handlePointerDown);
-        return () => document.removeEventListener('pointerdown', handlePointerDown);
-    }, [vnCostumeMenuOpen]);
-
-    useEffect(() => {
-        setVnCostumeMenuOpen(false);
-    }, [room?.id, character?.id]);
 
     // キーボード入力を常にテキストエリアにリダイレクト（モーダル等は除外）
     useChatInputRedirect({
@@ -1501,27 +1272,16 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     }, [latestAssistantMessage, characterMap, character]);
 
     const vnSelectedCostumeName = useMemo(
-        () => resolveSelectedCostumeName(room, vnCharacter),
+        () => resolveVisualNovelCostumeName(room, vnCharacter),
         [room, vnCharacter],
     );
-    const vnCostumeOptions = useMemo(() => {
-        if (!vnCharacter) return [];
-        const defaultImage = findDefaultCostume(vnCharacter)?.image
-            ?? resolveExpressionImage(vnCharacter, null, DEFAULT_COSTUME_NAME);
-        return [
-            { name: DEFAULT_COSTUME_NAME, image: defaultImage, expressionCount: vnCharacter.expressions?.length ?? 0 },
-            ...(vnCharacter.costumes ?? [])
-                .filter((costume) => costume.name.toLowerCase() !== DEFAULT_COSTUME_NAME)
-                .map((costume) => ({
-                    name: costume.name,
-                    image: costume.image,
-                    expressionCount: costume.expressions?.length ?? 0,
-                })),
-        ];
-    }, [vnCharacter]);
+    const vnCostumeOptions = useMemo(
+        () => getVisualNovelCostumeOptions(vnCharacter),
+        [vnCharacter],
+    );
 
     const vnExpressionImage = useMemo(
-        () => resolveExpressionImage(
+        () => resolveVisualNovelExpressionImage(
             vnCharacter,
             activeStreamingPreview?.expression ?? latestAssistantMessage?.emotion ?? latestResolvedAssistantEmotion,
             vnSelectedCostumeName,
@@ -1573,29 +1333,12 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         updateRoomSettings(room.id, {
             costumeSelections: Object.keys(nextSelections).length > 0 ? nextSelections : undefined,
         });
-        setVnCostumeMenuOpen(false);
     };
 
     const handleToggleSecretMode = () => {
         if (!room || !isRoomEmpty || isLoading || isSummarizing) return;
         setRoomSecretMode(room.id, !isSecretMode);
     };
-
-    useEffect(() => {
-        if (!isVisualNovelMode) return;
-        const dialogueBody = vnDialogueBodyRef.current;
-        if (!dialogueBody) return;
-
-        const frameId = requestAnimationFrame(() => {
-            dialogueBody.scrollTop = dialogueBody.scrollHeight;
-        });
-        return () => cancelAnimationFrame(frameId);
-    }, [isVisualNovelMode, vnDialogueContent]);
-
-    useTypewriterAdvance({
-        activeRef: vnTypewriterRef,
-        onAdvance: () => stopTypewriter(true),
-    });
 
     const handleClearActiveDebugLogs = () => {
         clearFullJsonDebugLogs();
@@ -1816,190 +1559,57 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             </div>
 
             {isVisualNovelMode ? (
-                <div className={`vn-stage${showReplySuggestions ? ' has-reply-suggestions' : ''}`}>
-                    <div className="vn-scene">
-                        <div className={`vn-character-wrap ${vnBounceActive ? 'vn-character-bounce' : ''}`}>
-                            {vnExpressionImage ? (
-                                <StoredImage
-                                    src={vnExpressionImage}
-                                    alt={vnCharacter?.name ?? 'character'}
-                                    className="vn-character-image"
-                                    onLoad={isVisualNovelMode ? triggerVnBounce : undefined}
-                                />
-                            ) : (
-                                <div className="vn-character-placeholder">
-                                    {vnCharacter?.icon ? (
-                                        <StoredImage src={vnCharacter.icon} alt={vnCharacter.name} />
-                                    ) : (
-                                        <span>{vnCharacter?.name?.charAt(0) ?? '?'}</span>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
-                    {isVisualNovelMode && replySuggestions}
-                    <div className="vn-dialogue">
-                        <div className="vn-dialogue-topline">
-                            <div className="vn-speaker">
-                                {vnCharacter?.name ?? character?.name ?? 'Character'}
-                            </div>
-                            <div className="vn-actions">
-                                {isSummarizing && (
-                                    <div className="vn-status" title="古い会話を要約中">
-                                        <div className="spinner" />
-                                    </div>
-                                )}
-                                {vnCharacter && (
-                                    <div ref={vnCostumeMenuRef} style={{ position: 'relative' }}>
-                                        <button
-                                            type="button"
-                                            className="btn btn-ghost"
-                                            onClick={() => setVnCostumeMenuOpen((v) => !v)}
-                                            title={`衣装変更: ${vnSelectedCostumeName}`}
-                                            style={{ color: vnSelectedCostumeName !== DEFAULT_COSTUME_NAME ? 'var(--accent-primary)' : undefined }}
-                                        >
-                                            <Shirt size={15} />
-                                        </button>
-                                        {vnCostumeMenuOpen && (
-                                            <div
-                                                role="menu"
-                                                style={{
-                                                    position: 'absolute',
-                                                    right: 0,
-                                                    bottom: 'calc(100% + 0.5rem)',
-                                                    width: 240,
-                                                    maxHeight: 320,
-                                                    overflowY: 'auto',
-                                                    padding: 6,
-                                                    border: '1px solid var(--border-color)',
-                                                    borderRadius: 8,
-                                                    background: 'var(--bg-primary)',
-                                                    boxShadow: '0 12px 28px rgba(0,0,0,0.28)',
-                                                    zIndex: 20,
-                                                }}
-                                            >
-                                                {vnCostumeOptions.map((option) => {
-                                                    const active = option.name === vnSelectedCostumeName;
-                                                    return (
-                                                        <button
-                                                            key={option.name}
-                                                            type="button"
-                                                            role="menuitem"
-                                                            onClick={() => handleSelectVnCostume(option.name)}
-                                                            style={{
-                                                                width: '100%',
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                gap: 8,
-                                                                padding: '6px 8px',
-                                                                border: 'none',
-                                                                borderRadius: 6,
-                                                                background: active ? 'var(--bg-tertiary)' : 'transparent',
-                                                                color: 'var(--text-primary)',
-                                                                cursor: 'pointer',
-                                                                textAlign: 'left',
-                                                            }}
-                                                        >
-                                                            <span style={{
-                                                                width: 30,
-                                                                height: 42,
-                                                                flexShrink: 0,
-                                                                overflow: 'hidden',
-                                                                borderRadius: 4,
-                                                                border: '1px solid var(--border-color)',
-                                                                background: 'var(--bg-secondary)',
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                justifyContent: 'center',
-                                                            }}>
-                                                                {option.image ? (
-                                                                    <StoredImage src={option.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                                                ) : (
-                                                                    <Shirt size={14} style={{ color: 'var(--text-muted)' }} />
-                                                                )}
-                                                            </span>
-                                                            <span style={{ minWidth: 0, flex: 1 }}>
-                                                                <span style={{ display: 'block', fontSize: '0.8125rem', fontWeight: active ? 600 : 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                                    {option.name}
-                                                                </span>
-                                                                <span style={{ display: 'block', fontSize: '0.6875rem', color: 'var(--text-muted)' }}>
-                                                                    表情 {option.expressionCount}件
-                                                                </span>
-                                                            </span>
-                                                            {active && <Check size={14} style={{ flexShrink: 0, color: 'var(--accent-primary)' }} />}
-                                                        </button>
-                                                    );
-                                                })}
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-                                <button
-                                    type="button"
-                                    className="btn btn-ghost"
-                                    onClick={handleEditLatestUserMessageInVn}
-                                    disabled={!canEditLatestUserMessageInVn}
-                                    title="直前の入力を編集"
-                                >
-                                    <Undo2 size={15} />
-                                </button>
-                                <button
-                                    type="button"
-                                    className="btn btn-ghost"
-                                    onClick={() => latestAssistantMessage && handleCopyMessage(latestAssistantMessage.id, latestAssistantMessage.displayContent)}
-                                    disabled={!latestAssistantMessage}
-                                    title="コピー"
-                                >
-                                    {latestAssistantMessage && copiedMessageId === latestAssistantMessage.id ? <Check size={15} /> : <Copy size={15} />}
-                                </button>
-                                <button
-                                    type="button"
-                                    className="btn btn-ghost"
-                                    onClick={handleRegenerate}
-                                    disabled={!canRegenerateVN}
-                                    title="回答を再生成"
-                                >
-                                    <RefreshCw size={15} />
-                                </button>
-                                <button
-                                    type="button"
-                                    className="btn btn-ghost"
-                                    onClick={() => latestAssistantMessage && handleBranch(latestAssistantMessage.id)}
-                                    disabled={!latestAssistantMessage || isLoading || isSummarizing || !!branchingMessageId || isSecretMode}
-                                    title="ここから会話を分岐"
-                                >
-                                    <GitBranch size={15} />
-                                </button>
-                            </div>
-                        </div>
-                        <div className="vn-dialogue-rule" aria-hidden="true" />
-                        <div
-                            ref={vnDialogueBodyRef}
-                            className="vn-dialogue-body"
-                            onClick={isTypewriterActive ? () => stopTypewriter(true) : undefined}
-                            title={isTypewriterActive ? '全文表示' : undefined}
-                            style={{ cursor: isTypewriterActive ? 'pointer' : undefined }}
-                        >
-                            {isWaitingForAssistant ? (
-                                <WaitingEllipsis className="vn-waiting-ellipsis" />
-                            ) : formattedStreamingPreviewMessages.length > 0 ? (
-                                <ReactMarkdown>{vnProcessedDialogueContent}</ReactMarkdown>
-                            ) : activeStreamingPreview ? (
-                                <div
-                                    className="vn-streaming-preview"
-                                    role="status"
-                                    aria-live="polite"
-                                    style={{ whiteSpace: 'pre-wrap' }}
-                                >
-                                    {activeStreamingPreview.content}
-                                </div>
-                            ) : (
-                                <ReactMarkdown>{vnProcessedDialogueContent}</ReactMarkdown>
-                            )}
-                        </div>
-                    </div>
-                </div>
+                <VisualNovelView
+                    character={vnCharacter}
+                    fallbackCharacterName={character?.name}
+                    expressionImage={vnExpressionImage}
+                    bounceActive={vnBounceActive}
+                    onCharacterImageLoad={triggerVnBounce}
+                    replySuggestions={replySuggestions}
+                    hasReplySuggestions={showReplySuggestions}
+                    isSummarizing={isSummarizing}
+                    selectedCostumeName={vnSelectedCostumeName}
+                    costumeOptions={vnCostumeOptions}
+                    onSelectCostume={handleSelectVnCostume}
+                    canEditLatestUserMessage={canEditLatestUserMessageInVn}
+                    onEditLatestUserMessage={handleEditLatestUserMessageInVn}
+                    latestAssistantMessageId={latestAssistantMessage?.id}
+                    latestAssistantContent={latestAssistantMessage?.displayContent}
+                    isLatestAssistantCopied={
+                        !!latestAssistantMessage && copiedMessageId === latestAssistantMessage.id
+                    }
+                    onCopyLatestAssistant={() => {
+                        if (latestAssistantMessage) {
+                            void handleCopyMessage(
+                                latestAssistantMessage.id,
+                                latestAssistantMessage.displayContent,
+                            );
+                        }
+                    }}
+                    canRegenerate={canRegenerateVN}
+                    onRegenerate={handleRegenerate}
+                    canBranch={
+                        !!latestAssistantMessage
+                        && !isLoading
+                        && !isSummarizing
+                        && !branchingMessageId
+                        && !isSecretMode
+                    }
+                    onBranch={() => {
+                        if (latestAssistantMessage) {
+                            void handleBranch(latestAssistantMessage.id);
+                        }
+                    }}
+                    isWaitingForAssistant={isWaitingForAssistant}
+                    dialogueContent={vnProcessedDialogueContent}
+                    plainStreamingContent={
+                        activeStreamingPreview && formattedStreamingPreviewMessages.length === 0
+                            ? activeStreamingPreview.content
+                            : undefined
+                    }
+                    isTypewriterActive={isTypewriterActive}
+                    onRevealTypewriter={() => stopTypewriter(true)}
+                />
             ) : (
                 <div className="chat-messages">
                     {priorMessagesForDisplay.length === 0 && processedMessages.length === 0 ? (

@@ -36,24 +36,17 @@ pub fn parse_assistant_response(
     }
     let record = parsed.as_ref().and_then(unwrap_record);
     let mut messages = if let Some(record) = record {
+        let singular = unique_nonempty(parse_strings(get(
+            record,
+            &["message", "dialogue", "content", "text", "reply", "answer"],
+        )));
+        let plural = unique_nonempty(parse_strings(get(record, &["messages"])));
         if message_mode {
-            parse_strings(get(record, &["messages"]))
-                .into_iter()
-                .chain(parse_strings(get(
-                    record,
-                    &["message", "dialogue", "content", "text", "reply", "answer"],
-                )))
-                .collect()
+            if plural.is_empty() { singular } else { plural }
+        } else if singular.is_empty() {
+            plural
         } else {
-            let singular = parse_strings(get(
-                record,
-                &["message", "dialogue", "content", "text", "reply", "answer"],
-            ));
-            if singular.is_empty() {
-                parse_strings(get(record, &["messages"]))
-            } else {
-                singular
-            }
+            singular
         }
     } else if let Some(Value::Array(values)) = parsed.as_ref() {
         parse_strings(Some(&Value::Array(values.clone())))
@@ -513,9 +506,9 @@ fn remove_unmatched_asterisk_runs(content: &str) -> String {
 
 fn parse_json_from_text(content: &str) -> Option<Value> {
     let source = strip_json_code_fence(content);
-    if let Ok(value) = serde_json::from_str::<Value>(source) {
+    if let Some(value) = parse_json_value(source) {
         if let Value::String(nested) = value {
-            return serde_json::from_str(strip_json_code_fence(&nested)).ok();
+            return parse_json_value(strip_json_code_fence(&nested));
         }
         return Some(value);
     }
@@ -524,12 +517,59 @@ fn parse_json_from_text(content: &str) -> Option<Value> {
             continue;
         }
         if let Some(end) = balanced_json_end(source, start)
-            && let Ok(value) = serde_json::from_str(&source[start..end])
+            && let Some(value) = parse_json_value(&source[start..end])
         {
             return Some(value);
         }
     }
     None
+}
+
+fn parse_json_value(source: &str) -> Option<Value> {
+    serde_json::from_str(source).ok().or_else(|| {
+        let normalized = remove_trailing_json_commas(source);
+        serde_json::from_str(&normalized).ok()
+    })
+}
+
+fn remove_trailing_json_commas(source: &str) -> String {
+    let mut result = String::with_capacity(source.len());
+    let mut characters = source.char_indices().peekable();
+    let mut in_string = false;
+    let mut escaped = false;
+
+    while let Some((_, character)) = characters.next() {
+        if in_string {
+            result.push(character);
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+
+        if character == '"' {
+            in_string = true;
+            result.push(character);
+            continue;
+        }
+
+        if character == ',' {
+            let mut lookahead = characters.clone();
+            let next_non_whitespace =
+                lookahead.find_map(|(_, next)| (!next.is_whitespace()).then_some(next));
+            if matches!(next_non_whitespace, Some('}' | ']')) {
+                continue;
+            }
+        }
+
+        result.push(character);
+    }
+
+    result
 }
 
 fn balanced_json_end(source: &str, start: usize) -> Option<usize> {
@@ -643,6 +683,75 @@ mod tests {
         let response =
             parse_assistant_response("Here: {\"message\":\"hello\"} done", &[], false).unwrap();
         assert_eq!(response.message, "hello");
+    }
+
+    #[test]
+    fn normalizes_trailing_commas_and_message_metadata() {
+        let response = parse_assistant_response(
+            r#"{"message":"  hello  ","expression":" HAPPY ","to":[" Bob ","Bob",42,""],}"#,
+            &["neutral".into(), "Happy".into()],
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(response.messages, ["hello"]);
+        assert_eq!(response.expression.as_deref(), Some("Happy"));
+        assert_eq!(response.to, ["Bob"]);
+    }
+
+    #[test]
+    fn preserves_commas_and_escapes_inside_json_strings_when_normalizing() {
+        let response = parse_assistant_response(
+            r#"{"message":"literal ,} and ,] plus \"quoted\" and \\path",}"#,
+            &[],
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(
+            response.message,
+            r#"literal ,} and ,] plus "quoted" and \path"#
+        );
+    }
+
+    #[test]
+    fn selects_message_or_messages_for_response_mode() {
+        let both = r#"{"message":"single","messages":["first","second"]}"#;
+        let single = parse_assistant_response(both, &[], false).unwrap();
+        assert_eq!(single.messages, ["single"]);
+
+        let multiple = parse_assistant_response(both, &[], true).unwrap();
+        assert_eq!(multiple.messages, ["first", "second"]);
+
+        let fallback = parse_assistant_response(r#"{"message":"fallback"}"#, &[], true).unwrap();
+        assert_eq!(fallback.messages, ["fallback"]);
+    }
+
+    #[test]
+    fn falls_back_to_neutral_or_the_first_expression_for_unknown_names() {
+        let with_neutral = parse_assistant_response(
+            r#"{"message":"hello","expression":"unknown"}"#,
+            &["neutral".into(), "happy".into()],
+            false,
+        )
+        .unwrap();
+        assert_eq!(with_neutral.expression.as_deref(), Some("neutral"));
+
+        let without_neutral = parse_assistant_response(
+            r#"{"message":"hello","expression":"unknown"}"#,
+            &["happy".into(), "sad".into()],
+            false,
+        )
+        .unwrap();
+        assert_eq!(without_neutral.expression.as_deref(), Some("happy"));
+    }
+
+    #[test]
+    fn treats_an_object_without_reply_fields_as_structured_with_ellipsis_fallback() {
+        let response = parse_assistant_response(r#"{"unexpected":true}"#, &[], false).unwrap();
+
+        assert_eq!(response.messages, ["..."]);
+        assert_eq!(response.message, "...");
     }
 
     #[test]

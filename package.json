@@ -7,6 +7,8 @@
     "build:binary": "npm run build && cargo build --release",
     "check:release-version": "node scripts/check-release-version.mjs",
     "check:rust": "cargo test",
+    "test": "npm run test:unit && npm run test:migration && npm run test:branch",
+    "test:unit": "vitest run",
     "test:migration": "node --experimental-strip-types --test tests/aiSettingsMigration.test.mjs",
     "test:branch": "node --experimental-strip-types --test tests/conversationBranch.test.mjs",
     "dev": "node --env-file=.env.local scripts/dev.mjs",
@@ -40,6 +42,7 @@
     "tailwindcss": "^4",
     "typescript": "^6",
     "typescript-eslint": "^8.64.0",
-    "vite": "^8.1.5"
+    "vite": "^8.1.5",
+    "vitest": "^4.1.11"
   }
 }

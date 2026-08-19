@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
-import { ArrowUp, Sparkles, MessageSquare, MessagesSquare, Menu, Brain, Bug, Square, SquarePen, Gamepad2, Check, ChevronsDown, X, ChevronDown, HatGlasses, Trash2 } from 'lucide-react';
+import { ArrowUp, MessageSquare, Square, ChevronsDown, X, HatGlasses } from 'lucide-react';
 import {
     useStore,
     Room,
@@ -38,7 +38,11 @@ import {
 } from '@/lib/visualNovelPresentation';
 import MessageBubble from './MessageBubble';
 import StoredImage from './StoredImage';
+import ChatHeader from './chat/ChatHeader';
 import ChatNoticeBanner from './chat/ChatNoticeBanner';
+import ChatWelcome from './chat/ChatWelcome';
+import DebugLogModal from './chat/DebugLogModal';
+import ReplySuggestions from './chat/ReplySuggestions';
 import { applyConversationResult } from './chat/applyConversationResult';
 import { useChatGenerationSessions } from './chat/useChatGenerationSessions';
 import type { ChatGenerationSession } from './chat/useChatGenerationSessions';
@@ -178,25 +182,9 @@ function toConversationRoom(room: Room) {
     };
 }
 
-const CHAT_MODE_OPTIONS: { value: RoomViewMode; label: string; description: string }[] = [
-    { value: 'chat', label: 'ベーシック', description: 'キャラクターと話す' },
-    { value: 'message', label: 'メッセージ', description: 'メッセージアプリのような会話' },
-    { value: 'vn', label: 'ゲーム', description: 'ノベルゲームのような体験' },
-];
-
 function resolveRoomViewMode(room: Room | null | undefined): RoomViewMode {
     if (room?.viewMode === 'message' || room?.viewMode === 'vn') return room.viewMode;
     return 'chat';
-}
-
-function getRoomViewModeLabel(viewMode: RoomViewMode): string {
-    return CHAT_MODE_OPTIONS.find((option) => option.value === viewMode)?.label ?? 'ベーシック';
-}
-
-function renderRoomViewModeIcon(viewMode: RoomViewMode, size = 18) {
-    if (viewMode === 'message') return <MessagesSquare size={size} />;
-    if (viewMode === 'vn') return <Gamepad2 size={size} />;
-    return <MessageSquare size={size} />;
 }
 
 const NOOP = () => undefined;
@@ -252,27 +240,6 @@ function SituationPriorMessageBubble({
 
 function waitForMessageModeBubbleDelay(): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, MESSAGE_MODE_BUBBLE_DELAY_MS));
-}
-
-function getFullJsonDebugSourceLabel(source: string): string {
-    switch (source) {
-        case 'assistant-json':
-            return '出力されたJSON';
-        case 'chat-response-json':
-            return '出力されたJSON';
-        case 'chat-http-error':
-            return 'HTTPエラー';
-        case 'chat-response-parse-error':
-            return '応答解析エラー';
-        case 'chat-error':
-            return '生成エラー';
-        case 'director-json':
-            return 'キャラクタールーターによる出力';
-        case 'director-error':
-            return 'キャラクタールーターのエラー';
-        default:
-            return source;
-    }
 }
 
 type ChatRetryRequest = {
@@ -356,13 +323,9 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     } = useStore();
     const isGroupRoom = situation != null || (groupCharacters != null && groupCharacters.length > 1);
     const rawRoomViewMode = resolveRoomViewMode(room);
-    const availableChatModeOptions = isGroupRoom
-        ? CHAT_MODE_OPTIONS.filter((option) => option.value !== 'vn')
-        : CHAT_MODE_OPTIONS;
     const currentRoomViewMode = isGroupRoom && rawRoomViewMode === 'vn' ? 'chat' : rawRoomViewMode;
     const isMessageMode = currentRoomViewMode === 'message';
     const isVisualNovelMode = currentRoomViewMode === 'vn' && !isGroupRoom;
-    const currentRoomViewModeLabel = getRoomViewModeLabel(currentRoomViewMode);
     const isRoomEmpty = (room?.messages.length ?? 0) === 0;
     const isSecretMode = room?.secretMode === true;
     const showHeaderMemoryButton = !isSecretMode && !isGroupRoom && character != null && character.enableMemory !== false;
@@ -374,12 +337,10 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
     const [branchingMessageId, setBranchingMessageId] = useState<string | null>(null);
     const [editingMessage, setEditingMessage] = useState<EditingMessageDraft | null>(null);
-    const [chatModeMenuOpen, setChatModeMenuOpen] = useState(false);
     const [debugLogOpen, setDebugLogOpen] = useState(false);
     const [streamingPreview, setStreamingPreview] = useState<StreamingPreview | null>(null);
     const [streamedFinalMessageIds, setStreamedFinalMessageIds] = useState<Set<string>>(() => new Set());
     const messagesEndRef = useRef<HTMLDivElement>(null);
-    const chatModeMenuRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const resumedJobsRef = useRef<Set<string>>(new Set());
     const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -714,27 +675,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             stopTypewriter(true);
         }
     }, [isMessageMode, stopTypewriter]);
-
-    useEffect(() => {
-        if (isGroupRoom) {
-            setChatModeMenuOpen(false);
-        }
-    }, [isGroupRoom]);
-
-    useEffect(() => {
-        setChatModeMenuOpen(false);
-    }, [room?.id]);
-
-    useEffect(() => {
-        if (!chatModeMenuOpen) return;
-        const handlePointerDown = (e: PointerEvent) => {
-            const target = e.target as Node | null;
-            if (target && chatModeMenuRef.current?.contains(target)) return;
-            setChatModeMenuOpen(false);
-        };
-        document.addEventListener('pointerdown', handlePointerDown);
-        return () => document.removeEventListener('pointerdown', handlePointerDown);
-    }, [chatModeMenuOpen]);
 
     // キーボード入力を常にテキストエリアにリダイレクト（モーダル等は除外）
     useChatInputRedirect({
@@ -1378,185 +1318,75 @@ export default function ChatWindow({ room, character, situation, groupName, grou
 
     if (!room) {
         return (
-            <div className="chat-container">
-                <div className="chat-header mobile-only">
-                    {isMobile && (
-                        <button type="button" className="btn btn-ghost mobile-sidebar-trigger" onClick={onOpenSidebar} title="サイドバーを開く" aria-label="サイドバーを開く">
-                            <Menu size={20} />
-                        </button>
-                    )}
-                    <span style={{ fontWeight: 500 }}>Kataru</span>
-                    <div style={{ width: 36 }} />
-                </div>
-                <div className="empty-state">
-                    <Sparkles size={64} className="empty-state-icon" />
-                    <h2 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '0.5rem' }}>
-                        Kataruで会話をはじめましょう
-                    </h2>
-                    <p className="empty-state-description" style={{ marginBottom: '1rem' }}>
-                        まずは、話す相手を作ります。
-                    </p>
-                    <button type="button" className="btn btn-primary" onClick={onCreateCharacter}>
-                        話す相手を作る
-                    </button>
-                </div>
-            </div>
+            <ChatWelcome
+                isMobile={isMobile}
+                onOpenSidebar={onOpenSidebar}
+                onCreateCharacter={onCreateCharacter}
+            />
         );
     }
 
     const displayedRoomName = room.isDraft ? '' : room.name;
     const replySuggestions = showReplySuggestions && replySuggestionState && (
-        <div
-            className={`reply-suggestions${isVisualNovelMode ? ' vn-reply-suggestions' : ''}`}
-            aria-label="主人公の返答候補"
-        >
-            {replySuggestionState.loading && (
-                <div className="reply-suggestions-heading">
-                    <Sparkles size={14} aria-hidden="true" />
-                    <span>返答を考えています…</span>
-                </div>
-            )}
-            {!replySuggestionState.loading && (
-                <div className="reply-suggestions-list">
-                    {replySuggestionState.suggestions.map((suggestion, index) => (
-                        <button
-                            key={`${index}:${suggestion}`}
-                            type="button"
-                            className="reply-suggestion-button"
-                            onClick={() => handleReplySuggestionSelect(suggestion)}
-                            disabled={chatInputDisabled}
-                            title={`${suggestion}（選択して送信）`}
-                        >
-                            <span className="reply-suggestion-text">{suggestion}</span>
-                        </button>
-                    ))}
-                </div>
-            )}
-        </div>
+        <ReplySuggestions
+            state={replySuggestionState}
+            visualNovelMode={isVisualNovelMode}
+            disabled={chatInputDisabled}
+            onSelect={handleReplySuggestionSelect}
+        />
     );
 
     return (
         <div className={`chat-container ${isVisualNovelMode ? 'vn-mode' : ''} ${isMessageMode ? 'message-mode' : ''}`}>
-            <div className="chat-header">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: '1 1 auto', minWidth: 0, overflow: 'hidden' }}>
-                    {isMobile && (
-                        <button type="button" className="btn btn-ghost mobile-sidebar-trigger" onClick={onOpenSidebar} style={{ padding: '0.5rem', flexShrink: 0 }} title="サイドバーを開く" aria-label="サイドバーを開く">
-                            <Menu size={20} />
-                        </button>
-                    )}
-                    <div style={{ flex: '1 1 auto', minWidth: 0, overflow: 'hidden' }}>
-                        <h2 style={{ fontSize: '1rem', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{displayedRoomName}</h2>
-                        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {isGroupRoom && groupCharacters
-                                ? `${groupName ?? 'シチュエーション'}`
-                                : `${character?.name}`}
-                        </p>
-                    </div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', flexShrink: 0 }}>
-                    {debugPanelEnabled && (
-                        <button type="button" className="btn btn-ghost" onClick={() => setDebugLogOpen(true)} title="デバッグログを表示">
-                            <Bug size={18} />
-                            <span className="desktop-only" style={{ fontSize: '0.75rem' }}>
-                                {visibleDebugLogCount}
-                            </span>
-                        </button>
-                    )}
-                    {showHeaderMemoryButton && (
-                        <button type="button" className="btn btn-ghost" onClick={() => onOpenMemoryList(character)} title="メモリを表示">
-                            <Brain size={18} />
-                        </button>
-                    )}
-                    {(character || isGroupRoom) && (isRoomEmpty || isSecretMode) && (
-                        <button
-                            type="button"
-                            className={`btn btn-ghost secret-mode-button ${isSecretMode ? 'active' : ''}`}
-                            onClick={handleToggleSecretMode}
-                            disabled={isLoading || isSummarizing}
-                            aria-pressed={isSecretMode}
-                            title={
-                                isSecretMode
-                                    ? (isRoomEmpty ? 'シークレットモードを解除' : 'シークレットモードで会話中です。会話履歴とメモリには保存されません')
-                                    : 'シークレットモードでチャットを開始'
-                            }
-                            aria-label={
-                                isSecretMode
-                                    ? (isRoomEmpty ? 'シークレットモードを解除' : 'シークレットモードで会話中')
-                                    : 'シークレットモードでチャットを開始'
-                            }
-                        >
-                            <HatGlasses size={18} />
-                        </button>
-                    )}
-                    {!isGroupRoom && character && !isRoomEmpty && (
-                        <button
-                            type="button"
-                            className="btn btn-ghost mobile-only"
-                            onClick={() => createRoom(character.id, undefined, { viewMode: currentRoomViewMode })}
-                            disabled={isLoading || isSummarizing}
-                            title={`${currentRoomViewModeLabel}モードで新しいチャットを開始`}
-                        >
-                            <SquarePen size={18} />
-                        </button>
-                    )}
-                    {isGroupRoom && room.groupId && !isRoomEmpty && (
-                        <button
-                            type="button"
-                            className="btn btn-ghost mobile-only"
-                            onClick={() => createRoomForSituation(room.groupId!, undefined, { viewMode: currentRoomViewMode })}
-                            disabled={isLoading || isSummarizing}
-                            title={`${groupName ?? 'シチュエーション'}の新しいチャットを開始`}
-                        >
-                            <SquarePen size={18} />
-                        </button>
-                    )}
-                    {(character || isGroupRoom) && (
-                        <div ref={chatModeMenuRef} className="chat-mode-selector">
-                            <button
-                                type="button"
-                                className="btn btn-ghost chat-mode-trigger"
-                                onClick={() => setChatModeMenuOpen((v) => !v)}
-                                disabled={isLoading || isSummarizing}
-                                title={`表示モード: ${currentRoomViewModeLabel}`}
-                                aria-haspopup="menu"
-                                aria-expanded={chatModeMenuOpen}
-                                style={{ color: currentRoomViewMode !== 'chat' ? 'var(--accent-primary)' : undefined }}
-                            >
-                                {renderRoomViewModeIcon(currentRoomViewMode)}
-                                <span className="desktop-only">{currentRoomViewModeLabel}</span>
-                                <ChevronDown size={14} />
-                            </button>
-                            {chatModeMenuOpen && (
-                                <div className="chat-mode-menu" role="menu" aria-label="表示モード">
-                                    {availableChatModeOptions.map((option) => {
-                                        const active = option.value === currentRoomViewMode;
-                                        return (
-                                            <button
-                                                key={option.value}
-                                                type="button"
-                                                role="menuitemradio"
-                                                aria-checked={active}
-                                                className={`chat-mode-menu-item ${active ? 'active' : ''}`}
-                                                onClick={() => {
-                                                    updateRoomSettings(room.id, { viewMode: option.value });
-                                                    setChatModeMenuOpen(false);
-                                                }}
-                                            >
-                                                {renderRoomViewModeIcon(option.value, 16)}
-                                                <span className="chat-mode-menu-copy">
-                                                    <span className="chat-mode-menu-label">{option.label}</span>
-                                                    <span className="chat-mode-menu-description">{option.description}</span>
-                                                </span>
-                                                {active && <Check size={14} className="chat-mode-menu-check" />}
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            )}
-                        </div>
-                    )}
-                </div>
-            </div>
+            <ChatHeader
+                roomId={room.id}
+                roomName={displayedRoomName}
+                subtitle={
+                    isGroupRoom && groupCharacters
+                        ? groupName ?? 'シチュエーション'
+                        : character?.name
+                }
+                isMobile={isMobile}
+                onOpenSidebar={onOpenSidebar}
+                debugEnabled={debugPanelEnabled}
+                debugLogCount={visibleDebugLogCount}
+                onOpenDebug={() => setDebugLogOpen(true)}
+                showMemoryButton={showHeaderMemoryButton}
+                onOpenMemory={() => onOpenMemoryList(character)}
+                showSecretModeButton={
+                    !!(character || isGroupRoom) && (isRoomEmpty || isSecretMode)
+                }
+                isSecretMode={isSecretMode}
+                isRoomEmpty={isRoomEmpty}
+                onToggleSecretMode={handleToggleSecretMode}
+                onStartNewChat={
+                    !isRoomEmpty && !isGroupRoom && character
+                        ? () => createRoom(
+                            character.id,
+                            undefined,
+                            { viewMode: currentRoomViewMode },
+                        )
+                        : !isRoomEmpty && isGroupRoom && room.groupId
+                            ? () => createRoomForSituation(
+                                room.groupId!,
+                                undefined,
+                                { viewMode: currentRoomViewMode },
+                            )
+                            : undefined
+                }
+                newChatTitle={
+                    isGroupRoom
+                        ? `${groupName ?? 'シチュエーション'}の新しいチャットを開始`
+                        : undefined
+                }
+                showViewModeSelector={!!(character || isGroupRoom)}
+                allowVisualNovelMode={!isGroupRoom}
+                currentViewMode={currentRoomViewMode}
+                onChangeViewMode={(viewMode) => {
+                    updateRoomSettings(room.id, { viewMode });
+                }}
+                disabled={isLoading || isSummarizing}
+            />
 
             {isVisualNovelMode ? (
                 <VisualNovelView
@@ -1898,122 +1728,11 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 </form>
             </div>
             {debugLogOpen && debugPanelEnabled && (
-                <div
-                    className="modal-overlay"
-                    onPointerDown={(e) => {
-                        if (e.target === e.currentTarget) setDebugLogOpen(false);
-                    }}
-                >
-                    <div
-                        className="modal-content settings-form-modal"
-                        onClick={(e) => e.stopPropagation()}
-                        style={{ maxWidth: 820 }}
-                        role="dialog"
-                        aria-modal="true"
-                        aria-label="デバッグログ"
-                    >
-                        <div className="settings-form-modal-actions">
-                            <button
-                                className="btn btn-ghost"
-                                onClick={() => setDebugLogOpen(false)}
-                                aria-label="閉じる"
-                                title="閉じる"
-                            >
-                                <X size={20} />
-                            </button>
-                        </div>
-                        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                            {fullJsonDebugLogs.length === 0 ? (
-                                <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
-                                    まだJSONログはありません。
-                                </p>
-                            ) : (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                                        {fullJsonDebugLogs.map((log) => (
-                                            <div
-                                                key={log.id}
-                                                style={{
-                                                    padding: '0.875rem',
-                                                    borderRadius: '0.5rem',
-                                                    border: '1px solid var(--border-color)',
-                                                    background: 'var(--bg-secondary)',
-                                                }}
-                                            >
-                                                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.75rem', marginBottom: '0.5rem' }}>
-                                                    <div style={{ minWidth: 0 }}>
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
-                                                            <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                                {log.characterName}
-                                                            </div>
-                                                            <span style={{
-                                                                flexShrink: 0,
-                                                                fontSize: '0.6875rem',
-                                                                fontWeight: 600,
-                                                                color: log.status === 'error' ? 'var(--error)' : 'var(--success)',
-                                                                border: `1px solid ${log.status === 'error' ? 'var(--error)' : 'var(--success)'}`,
-                                                                borderRadius: '999px',
-                                                                padding: '0.125rem 0.375rem',
-                                                            }}>
-                                                                {log.status === 'error' ? 'エラー' : '成功'}
-                                                            </span>
-                                                        </div>
-                                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: '0.125rem' }}>
-                                                            {log.roomName} / {getFullJsonDebugSourceLabel(log.source)}
-                                                            {log.httpStatus ? ` / HTTP ${log.httpStatus}` : ''}
-                                                            {log.elapsedMs != null ? ` / ${log.elapsedMs}ms` : ''}
-                                                        </div>
-                                                    </div>
-                                                    <time style={{ flexShrink: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                                        {new Date(log.createdAt).toLocaleString()}
-                                                    </time>
-                                                </div>
-                                                {log.prompt && (
-                                                    <div style={{ marginBottom: '0.75rem' }}>
-                                                        <div style={{ marginBottom: '0.375rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>
-                                                            プロンプト
-                                                        </div>
-                                                        <pre style={{
-                                                            margin: 0,
-                                                            maxHeight: '420px',
-                                                            overflow: 'auto',
-                                                            whiteSpace: 'pre-wrap',
-                                                            wordBreak: 'break-word',
-                                                            fontFamily: 'ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace',
-                                                            fontSize: '0.8125rem',
-                                                            lineHeight: 1.55,
-                                                            color: 'var(--text-secondary)',
-                                                        }}>{log.prompt}</pre>
-                                                    </div>
-                                                )}
-                                                <div style={{ marginBottom: '0.375rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>
-                                                    出力
-                                                </div>
-                                                <pre style={{
-                                                    margin: 0,
-                                                    maxHeight: '420px',
-                                                    overflow: 'auto',
-                                                    whiteSpace: 'pre-wrap',
-                                                    wordBreak: 'break-word',
-                                                    fontFamily: 'ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace',
-                                                    fontSize: '0.8125rem',
-                                                    lineHeight: 1.55,
-                                                    color: 'var(--text-secondary)',
-                                                }}>{log.json}</pre>
-                                            </div>
-                                        ))}
-                                </div>
-                            )}
-                        </div>
-                        {fullJsonDebugLogs.length > 0 && (
-                            <div className="modal-footer">
-                                <button className="btn btn-secondary" onClick={handleClearActiveDebugLogs}>
-                                    <Trash2 size={15} />
-                                    ログを消去
-                                </button>
-                            </div>
-                        )}
-                    </div>
-                </div>
+                <DebugLogModal
+                    logs={fullJsonDebugLogs}
+                    onClose={() => setDebugLogOpen(false)}
+                    onClear={handleClearActiveDebugLogs}
+                />
             )}
         </div>
     );

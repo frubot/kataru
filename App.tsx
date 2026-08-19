@@ -238,6 +238,7 @@ export default function Home() {
                         onOpenSidebar={() => setMobileSidebarOpen(true)}
                         onOpenMemoryList={handleOpenMemoryList}
                         onCreateCharacter={() => handleOpenCharacterSettings(null, true)}
+                        onOpenSettings={() => setShowSettings(true)}
                     />
                 )}
             </ErrorBoundary>

@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
-import { ArrowUp, Sparkles, MessageSquare, MessagesSquare, Menu, Brain, Bug, Square, SquarePen, Gamepad2, Copy, Check, GitBranch, RefreshCw, ChevronsDown, Shirt, AlertTriangle, X, ChevronDown, HatGlasses, Undo2, Trash2 } from 'lucide-react';
+import { ArrowUp, Sparkles, MessageSquare, MessagesSquare, Menu, Brain, Bug, Square, SquarePen, Gamepad2, Copy, Check, GitBranch, RefreshCw, ChevronsDown, Shirt, AlertTriangle, X, ChevronDown, HatGlasses, Undo2, Trash2, Settings2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import {
     useStore,
@@ -13,6 +13,12 @@ import type { MemoryKind, MemoryRecord, MemoryScope, SituationPriorMessage } fro
 import type { VnTypingSpeed } from '@/lib/store';
 import { getMessageMemories } from '@/lib/chatAssistantResponse';
 import { isConversationResponseEnd } from '@/lib/conversationBranch';
+import {
+    getChatErrorPolicy,
+    isRetryableGenerationError as isRetryableGenerationErrorPolicy,
+    shouldAutoHideChatNotice as shouldAutoHideChatNoticePolicy,
+} from '@/lib/chatErrorPolicy';
+import type { ChatErrorPolicyInput } from '@/lib/chatErrorPolicy';
 import { formatAssistantMarkdown } from '@/lib/markdownUtils';
 import { generateId } from '@/lib/id';
 import MessageBubble from './MessageBubble';
@@ -27,6 +33,7 @@ interface ChatWindowProps {
     onOpenSidebar: () => void;
     onOpenMemoryList: (character?: Character | null) => void;
     onCreateCharacter: () => void;
+    onOpenSettings?: () => void;
 }
 
 const DEFAULT_COSTUME_NAME = 'default';
@@ -410,8 +417,9 @@ class ChatRequestError extends Error {
     elapsedMs?: number;
     bodyText?: string;
     contentType?: string;
+    phase?: ChatErrorPolicyInput['phase'];
 
-    constructor(status: number, detail?: string, elapsedMs?: number, bodyText?: string, contentType?: string) {
+    constructor(status: number, detail?: string, elapsedMs?: number, bodyText?: string, contentType?: string, phase?: ChatRequestError['phase']) {
         super(detail ? `Chat request failed (${status}): ${detail}` : `Chat request failed (${status})`);
         this.name = 'ChatRequestError';
         this.status = status;
@@ -419,6 +427,7 @@ class ChatRequestError extends Error {
         this.elapsedMs = elapsedMs;
         this.bodyText = bodyText;
         this.contentType = contentType;
+        this.phase = phase;
     }
 }
 
@@ -543,6 +552,16 @@ class ChatClientProcessingError extends Error {
     }
 }
 
+class ChatGenerationJobError extends Error {
+    detail?: string;
+
+    constructor(detail?: string) {
+        super(detail || 'バックグラウンド生成に失敗しました。');
+        this.name = 'ChatGenerationJobError';
+        this.detail = detail;
+    }
+}
+
 function toErrorInfo(error: unknown): { name?: string; message?: string } {
     if (error instanceof Error) return { name: error.name, message: error.message };
     if (typeof error === 'string') return { message: error };
@@ -588,7 +607,7 @@ function shortenErrorDetail(detail: string | undefined): string | undefined {
     return compact.length > 180 ? `${compact.slice(0, 180)}...` : compact;
 }
 
-async function throwChatRequestError(response: Response, elapsedMs: number): Promise<never> {
+async function throwChatRequestError(response: Response, elapsedMs: number, phase?: ChatRequestError['phase']): Promise<never> {
     let errorText = '';
     const contentType = response.headers.get('content-type') ?? undefined;
     try {
@@ -604,33 +623,92 @@ async function throwChatRequestError(response: Response, elapsedMs: number): Pro
         });
     }
 
-    throw new ChatRequestError(response.status, shortenErrorDetail(extractErrorDetail(errorText)), elapsedMs, errorText, contentType);
+    throw new ChatRequestError(response.status, shortenErrorDetail(extractErrorDetail(errorText)), elapsedMs, errorText, contentType, phase);
 }
 
-function isTimeoutOrAbortStatus(status: number): boolean {
-    return status === 408 || status === 499 || status === 504;
+function getChatErrorStatus(error: unknown): number | undefined {
+    if (error instanceof ChatRequestError || error instanceof ChatResponseReadError || error instanceof ChatResponseJsonError) {
+        return error.status;
+    }
+    return undefined;
 }
 
-function isTimeoutOrAbortDetail(detail: string | undefined): boolean {
-    return !!detail && /aborted|abort|timeout|timed out|network connection was lost|cancel/i.test(detail);
+function getChatErrorClassificationText(error: unknown): string {
+    const parts: string[] = [];
+    if (error instanceof ChatRequestError) {
+        parts.push(error.detail ?? '', error.bodyText ?? '', error.message);
+    } else if (error instanceof ChatStreamError) {
+        parts.push(error.detail ?? '', error.message);
+    } else if (error instanceof ChatResponseReadError) {
+        parts.push(error.originalMessage ?? '', error.message);
+    } else if (error instanceof ChatResponseJsonError) {
+        parts.push(error.bodyText, error.originalMessage ?? '', error.message);
+    } else if (error instanceof ChatResponseFormatError) {
+        parts.push(error.detail, error.message);
+    } else if (error instanceof ChatClientProcessingError) {
+        parts.push(error.originalMessage ?? '', error.message);
+    } else if (error instanceof ChatGenerationJobError) {
+        parts.push(error.detail ?? '', error.message);
+    } else if (error instanceof Error) {
+        parts.push(error.message);
+    } else if (typeof error === 'string') {
+        parts.push(error);
+    } else if (error != null) {
+        parts.push(String(error));
+    }
+    return parts.join(' ').slice(0, 4000);
+}
+
+function getChatErrorPolicyInput(error: unknown): ChatErrorPolicyInput {
+    return {
+        status: getChatErrorStatus(error),
+        detail: getChatErrorClassificationText(error),
+        phase: error instanceof ChatRequestError ? error.phase : undefined,
+        source: error instanceof ChatRequestError
+            ? 'request'
+            : error instanceof ChatGenerationJobError
+                ? 'job'
+                : 'other',
+    };
+}
+
+function getChatErrorPolicyForError(error: unknown) {
+    return getChatErrorPolicy(getChatErrorPolicyInput(error));
+}
+
+function isRetryableGenerationError(error: unknown): boolean {
+    return isRetryableGenerationErrorPolicy(getChatErrorPolicyInput(error));
 }
 
 function getChatErrorMessage(error: unknown): string {
+    const policy = getChatErrorPolicyForError(error);
+
+    if (policy.classification === 'rate-limit') {
+        return 'リクエスト数または利用上限に達しました。少し時間を置いてからもう一度お試しください。';
+    }
+
+    if (policy.classification === 'context-length') {
+        return '会話履歴がモデルのコンテキスト上限を超えました。自動要約を有効にするか、キャラクター／シチュエーション設定の最大履歴を小さくしてから、もう一度送信してください。';
+    }
+
+    if (policy.classification === 'authentication') {
+        return 'API認証でエラーが発生しました。接続先のAPI設定を確認してください。';
+    }
+
+    if ((error instanceof ChatRequestError || error instanceof ChatGenerationJobError) && policy.classification === 'timeout') {
+        return '生成が時間切れ、または通信が中断されました。';
+    }
+
+    if (error instanceof ChatGenerationJobError) {
+        return 'バックグラウンド生成に失敗しました。少し時間を置いてからもう一度お試しください。';
+    }
+
     if (error instanceof ChatNetworkError) {
         return 'リクエスト送信中に通信が失敗しました。';
     }
 
     if (error instanceof ChatRequestError) {
-        const { status, detail } = error;
-        if (isTimeoutOrAbortStatus(status) || isTimeoutOrAbortDetail(detail)) {
-            return '生成が時間切れ、または通信が中断されました。';
-        }
-        if (status === 401 || status === 403) {
-            return 'API認証でエラーが発生しました。接続先のAPI設定を確認してください。';
-        }
-        if (status === 429) {
-            return 'リクエスト数または利用上限に達しました。少し時間を置いてからもう一度お試しください。';
-        }
+        const { status } = error;
         if (status >= 500) {
             return 'サーバー側または接続先API側でエラーが発生しました。少し時間を置いてからもう一度お試しください。';
         }
@@ -736,6 +814,10 @@ function getChatErrorDetail(error: unknown, detailed: boolean): string | undefin
         return `応答形式: ${shortenErrorDetail(error.detail) ?? '想定外の形式'}`;
     }
 
+    if (error instanceof ChatGenerationJobError) {
+        return error.detail ? `生成ジョブ: ${shortenErrorDetail(error.detail)}` : '生成ジョブの詳細を取得できませんでした。';
+    }
+
     if (error instanceof ChatClientProcessingError) {
         const stageLabels: Record<ChatClientProcessingStage, string> = {
             'assistant-response-parse': 'AI応答の解析',
@@ -758,6 +840,12 @@ function getChatErrorDetail(error: unknown, detailed: boolean): string | undefin
     }
 
     return error == null ? undefined : shortenErrorDetail(String(error));
+}
+
+function getChatErrorAction(error: unknown): ChatNoticeAction | undefined {
+    return getChatErrorPolicyForError(error).action === 'open-settings'
+        ? { type: 'open-settings', label: '設定を確認' }
+        : undefined;
 }
 
 function getChatErrorNotice(error: unknown, detailed: boolean): string {
@@ -785,6 +873,7 @@ function getChatErrorDebugInfo(error: unknown): Record<string, unknown> {
             detail: error.detail,
             contentType: error.contentType,
             elapsedMs: error.elapsedMs,
+            phase: error.phase,
         };
     }
     if (error instanceof ChatStreamError) {
@@ -828,6 +917,13 @@ function getChatErrorDebugInfo(error: unknown): Record<string, unknown> {
             elapsedMs: error.elapsedMs,
         };
     }
+    if (error instanceof ChatGenerationJobError) {
+        return {
+            stage: 'generation-job',
+            name: error.name,
+            detail: error.detail,
+        };
+    }
     if (error instanceof ChatClientProcessingError) {
         return {
             stage: error.stage,
@@ -865,16 +961,29 @@ function getFullJsonDebugSourceLabel(source: string): string {
 
 const CHAT_NOTICE_AUTO_HIDE_MS = 5000;
 
+type ChatNoticeAction =
+    | { type: 'retry'; label: '再試行' }
+    | { type: 'open-settings'; label: '設定を確認' };
+
 type ChatNotice = {
     id: number;
     message: string;
     tone: 'error';
+    action?: ChatNoticeAction;
+};
+
+type ChatRetryRequest = {
+    roomId: string;
+    input: string;
+    editDraft?: EditingMessageDraft;
+    suggestedReply?: string;
 };
 
 type ChatGenerationResult = {
     status: 'success' | 'aborted' | 'detached' | 'error';
     message?: string;
     toCharacterIds?: string[];
+    error?: unknown;
 };
 
 type RustTurnResponse = {
@@ -1034,7 +1143,7 @@ function isCoveredByCharacterSetting(content: string, systemPrompt: string): boo
     return memoryDedupSimilarity(content, normalizedPrompt) >= 0.28;
 }
 
-export default function ChatWindow({ room, character, situation, groupName, groupCharacters, onOpenSidebar, onOpenMemoryList, onCreateCharacter }: ChatWindowProps) {
+export default function ChatWindow({ room, character, situation, groupName, groupCharacters, onOpenSidebar, onOpenMemoryList, onCreateCharacter, onOpenSettings }: ChatWindowProps) {
     const {
         addMessage,
         addMemory,
@@ -1119,6 +1228,8 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const vnTypeDelayRef = useRef<{ timeout: ReturnType<typeof setTimeout>; resolve: () => void } | null>(null);
     const chatNoticeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const chatNoticeHoveredRef = useRef(false);
+    const retrySubmissionRef = useRef<ChatRetryRequest | null>(null);
+    const chatNoticeActionRunningRef = useRef(false);
     const replySuggestionRequestKeyRef = useRef<string | null>(null);
     const replySuggestionControllerRef = useRef<AbortController | null>(null);
     const vnTypingSpeedRef = useRef(vnTypingSpeed);
@@ -1190,6 +1301,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         clearChatNoticeTimer();
         chatNoticeTimeoutRef.current = setTimeout(() => {
             chatNoticeTimeoutRef.current = null;
+            retrySubmissionRef.current = null;
             setChatNotice(null);
         }, CHAT_NOTICE_AUTO_HIDE_MS);
     }, [clearChatNoticeTimer]);
@@ -1197,18 +1309,30 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const dismissChatNotice = useCallback(() => {
         clearChatNoticeTimer();
         chatNoticeHoveredRef.current = false;
+        retrySubmissionRef.current = null;
         setChatNotice(null);
     }, [clearChatNoticeTimer]);
 
-    const showChatNotice = useCallback((message: string) => {
+    const showChatNotice = useCallback((message: string, action?: ChatNoticeAction) => {
         clearChatNoticeTimer();
+        if (action?.type !== 'retry') {
+            retrySubmissionRef.current = null;
+        }
         setChatNotice({
             id: Date.now(),
             message,
             tone: 'error',
+            action,
         });
-        scheduleChatNoticeAutoHide();
+        if (shouldAutoHideChatNoticePolicy(action?.type)) {
+            scheduleChatNoticeAutoHide();
+        }
     }, [clearChatNoticeTimer, scheduleChatNoticeAutoHide]);
+
+    const showChatErrorNotice = useCallback((error: unknown, action?: ChatNoticeAction) => {
+        const inferredAction = action ?? (onOpenSettings ? getChatErrorAction(error) : undefined);
+        showChatNotice(getChatErrorNotice(error, detailedErrorLoggingEnabled), inferredAction);
+    }, [detailedErrorLoggingEnabled, onOpenSettings, showChatNotice]);
 
     const handleChatNoticeMouseEnter = useCallback(() => {
         chatNoticeHoveredRef.current = true;
@@ -1217,8 +1341,10 @@ export default function ChatWindow({ room, character, situation, groupName, grou
 
     const handleChatNoticeMouseLeave = useCallback(() => {
         chatNoticeHoveredRef.current = false;
-        scheduleChatNoticeAutoHide();
-    }, [scheduleChatNoticeAutoHide]);
+        if (shouldAutoHideChatNoticePolicy(chatNotice?.action?.type)) {
+            scheduleChatNoticeAutoHide();
+        }
+    }, [chatNotice?.action?.type, scheduleChatNoticeAutoHide]);
 
     const logChatError = useCallback((context: string, error: unknown) => {
         if (detailedErrorLoggingEnabled) {
@@ -1333,7 +1459,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     },
                 );
                 if (!response.ok) {
-                    await throwChatRequestError(response, 0);
+                    await throwChatRequestError(response, 0, 'cancel');
                 }
                 const job = await response.json() as ConversationJobStatus;
                 if (job.status === 'completed') return;
@@ -1393,7 +1519,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 },
             );
             if (!response.ok) {
-                await throwChatRequestError(response, 0);
+                await throwChatRequestError(response, 0, 'poll');
             }
             const job = await response.json() as ConversationJobStatus;
             if (
@@ -1445,13 +1571,13 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             } else if (completed.status === 'failed' && getCurrentRoom()?.id === job.roomId) {
                 const error = completed.error || 'バックグラウンド生成に失敗しました。';
                 logChatError('Conversation job failed:', error);
-                showChatNotice(getChatErrorNotice(error, detailedErrorLoggingEnabled));
+                showChatErrorNotice(error);
             }
         } catch (error) {
             if (!(error instanceof Error && error.name === 'AbortError')) {
                 logChatError('Conversation job recovery failed:', error);
                 if (getCurrentRoom()?.id === job.roomId) {
-                    showChatNotice(getChatErrorNotice(error, detailedErrorLoggingEnabled));
+                    showChatErrorNotice(error);
                 }
             }
         } finally {
@@ -1465,12 +1591,11 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         clearGenerationController,
         finishGenerationSession,
         getCurrentRoom,
-        detailedErrorLoggingEnabled,
         logChatError,
         pollConversationJob,
         refreshConversationRoom,
         rememberStreamedFinalMessageIds,
-        showChatNotice,
+        showChatErrorNotice,
         startGenerationSession,
     ]);
 
@@ -1479,7 +1604,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         void fetch('/api/conversation/jobs', { credentials: 'same-origin' })
             .then(async (response) => {
                 if (!response.ok) {
-                    await throwChatRequestError(response, 0);
+                    await throwChatRequestError(response, 0, 'list');
                 }
                 return response.json() as Promise<{ jobs?: ConversationJobStatus[] }>;
             })
@@ -2071,7 +2196,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 throw new DOMException('Generation stopped', 'AbortError');
             }
             if (!response.ok) {
-                await throwChatRequestError(response, 0);
+                await throwChatRequestError(response, 0, 'submit');
             }
 
             const accepted = await response.json() as ConversationJobStatus;
@@ -2083,10 +2208,10 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 return { status: 'aborted' };
             }
             if (job.status === 'failed') {
-                throw new Error(job.error || 'バックグラウンド生成に失敗しました。');
+                throw new ChatGenerationJobError(job.error);
             }
             if (job.status !== 'completed' || !job.result) {
-                throw new Error('バックグラウンド生成の結果を取得できませんでした。');
+                throw new ChatGenerationJobError('バックグラウンド生成の結果を取得できませんでした。');
             }
             const data = job.result;
             if (isSecretMode && data.summary?.text) {
@@ -2224,10 +2349,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 return { status: session.detached ? 'detached' : 'aborted' };
             }
             logChatError('Rust conversation turn failed:', error);
-            if (getCurrentRoom()?.id === sourceRoom.id) {
-                showChatNotice(getChatErrorNotice(error, detailedErrorLoggingEnabled));
-            }
-            return { status: 'error' };
+            return { status: 'error', error };
         } finally {
             clearStreamingPreview(session.jobId);
             clearGenerationController(session, controller);
@@ -2238,9 +2360,10 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         e?: React.FormEvent,
         editDraft?: EditingMessageDraft,
         suggestedReply?: string,
+        inputOverride?: string,
     ) => {
         e?.preventDefault();
-        const submittedInput = suggestedReply ?? editDraft?.content ?? input;
+        const submittedInput = suggestedReply ?? editDraft?.content ?? inputOverride ?? input;
         if (!submittedInput.trim() || !room || isLoading || isSummarizing) return;
         if (!isGroupRoom && !character) return;
         if (isGroupRoom && (!groupCharacters || groupCharacters.length === 0)) return;
@@ -2325,11 +2448,56 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             if (!editDraft) {
                 setTimeout(() => textareaRef.current?.focus(), 50);
             }
+
+            finishGenerationSession(session);
+            setIsSummarizing(false);
+
+            if (generationResult.status === 'error' && generationResult.error && getCurrentRoom()?.id === room.id) {
+                if (isRetryableGenerationError(generationResult.error)) {
+                    retrySubmissionRef.current = {
+                        roomId: room.id,
+                        input: userMessage,
+                        editDraft: editDraft ? { ...editDraft, content: submittedInput } : undefined,
+                        suggestedReply,
+                    };
+                    showChatErrorNotice(generationResult.error, { type: 'retry', label: '再試行' });
+                } else {
+                    showChatErrorNotice(generationResult.error);
+                }
+            }
+            return;
         } else if (generationResult.status === 'success' && shouldGenerateTitleAfterFirstReply) {
             void generateInitialRoomTitle(room.id, originalRoomName);
         }
         finishGenerationSession(session);
         setIsSummarizing(false);
+    };
+
+    const handleChatNoticeAction = () => {
+        const action = chatNotice?.action;
+        if (!action) return;
+
+        if (action.type === 'open-settings') {
+            dismissChatNotice();
+            onOpenSettings?.();
+            return;
+        }
+
+        if (isLoading || isSummarizing || chatNoticeActionRunningRef.current) return;
+        const retry = retrySubmissionRef.current;
+        if (!retry || retry.roomId !== currentRoomId) return;
+
+        chatNoticeActionRunningRef.current = true;
+        retrySubmissionRef.current = null;
+        dismissChatNotice();
+        void handleSubmit(undefined, retry.editDraft, retry.suggestedReply, retry.input)
+            .catch((error) => {
+                logChatError('Chat retry failed:', error);
+                showChatNotice('再試行の準備中にエラーが発生しました。');
+            })
+            .finally(() => {
+                chatNoticeActionRunningRef.current = false;
+            });
     };
 
     const handleRegenerate = async () => {
@@ -2355,6 +2523,9 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                         await deleteMessagesFrom(room.id, cutFrom);
                     }
                     await restoreMessagesAt(room.id, cutFrom, messagesToDelete, removedMemoryRecords);
+                    if (result.status === 'error' && result.error && getCurrentRoom()?.id === room.id) {
+                        showChatErrorNotice(result.error);
+                    }
                 }
             } finally {
                 finishGenerationSession(session);
@@ -2381,6 +2552,9 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                         await deleteMessagesFrom(room.id, cutFrom);
                     }
                     await restoreMessagesAt(room.id, cutFrom, messagesToDelete, removedMemoryRecords);
+                    if (result.status === 'error' && result.error && getCurrentRoom()?.id === room.id) {
+                        showChatErrorNotice(result.error);
+                    }
                 }
             } finally {
                 finishGenerationSession(session);
@@ -3278,11 +3452,30 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                         className={`chat-notice ${chatNotice.tone}`}
                         role="alert"
                         aria-live="polite"
+                        aria-atomic="true"
                         onMouseEnter={handleChatNoticeMouseEnter}
                         onMouseLeave={handleChatNoticeMouseLeave}
+                        onFocus={handleChatNoticeMouseEnter}
+                        onBlur={handleChatNoticeMouseLeave}
                     >
                         <AlertTriangle size={16} className="chat-notice-icon" />
-                        <span className="chat-notice-message">{chatNotice.message}</span>
+                        <div className="chat-notice-body">
+                            <span className="chat-notice-message">{chatNotice.message}</span>
+                            {chatNotice.action && (
+                                <button
+                                    type="button"
+                                    className="chat-notice-action"
+                                    onClick={handleChatNoticeAction}
+                                    disabled={chatNotice.action.type === 'retry' && (isLoading || isSummarizing)}
+                                    title={chatNotice.action.label}
+                                >
+                                    {chatNotice.action.type === 'retry'
+                                        ? <RefreshCw size={14} aria-hidden="true" />
+                                        : <Settings2 size={14} aria-hidden="true" />}
+                                    {chatNotice.action.label}
+                                </button>
+                            )}
+                        </div>
                         <button
                             type="button"
                             className="chat-notice-close"

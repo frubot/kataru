@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { CircleHelp, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { useModalKeyboard } from '../useModalKeyboard';
 
 type ShortcutContext = {
@@ -8,33 +8,24 @@ type ShortcutContext = {
     metaKey: boolean;
     altKey: boolean;
     isComposing: boolean;
-    editableTarget: boolean;
     modalOpen: boolean;
 };
 
 export function shouldOpenKeyboardShortcutsHelp(context: ShortcutContext): boolean {
-    return context.key === '?'
-        && !context.ctrlKey
+    return context.key === '/'
+        && context.ctrlKey
         && !context.metaKey
         && !context.altKey
         && !context.isComposing
-        && !context.editableTarget
         && !context.modalOpen;
 }
 
-function isEditableTarget(target: EventTarget | null): boolean {
-    if (!(target instanceof HTMLElement)) return false;
-    return target.matches('input, textarea, select, [contenteditable="true"]')
-        || target.closest('[contenteditable="true"]') != null;
-}
-
 const shortcuts = [
-    { keys: ['Enter'], description: 'メッセージを送信（デスクトップ）' },
-    { keys: ['Shift', 'Enter'], description: '入力欄で改行' },
-    { keys: ['文字入力'], description: 'チャット入力欄へフォーカス（デスクトップ）' },
-    { keys: ['Enter / Space'], description: 'ゲームモードの文字送りを完了' },
-    { keys: ['Esc'], description: '最前面のメニューやダイアログを閉じる' },
-    { keys: ['?'], description: 'このショートカット一覧を表示' },
+    { keys: ['Enter'], description: 'メッセージを送信' },
+    { keys: ['Shift', 'Enter'], description: 'メッセージを改行' },
+    { keys: ['Enter / Space'], description: 'ゲームモードの文字送りをスキップ' },
+    { keys: ['Esc'], description: '最前面のダイアログを閉じる' },
+    { keys: ['Ctrl', '/'], description: 'ショートカット一覧を表示' },
 ];
 
 export default function KeyboardShortcutsHelp() {
@@ -55,7 +46,6 @@ export default function KeyboardShortcutsHelp() {
                 metaKey: event.metaKey,
                 altKey: event.altKey,
                 isComposing: event.isComposing,
-                editableTarget: isEditableTarget(event.target),
                 modalOpen: document.querySelector('[aria-modal="true"]') != null,
             })) return;
             event.preventDefault();
@@ -67,17 +57,6 @@ export default function KeyboardShortcutsHelp() {
 
     return (
         <>
-            <button
-                type="button"
-                className="btn btn-ghost"
-                onClick={() => setOpen(true)}
-                title="キーボードショートカット (?)"
-                aria-label="キーボードショートカットを表示"
-                aria-haspopup="dialog"
-                aria-expanded={open}
-            >
-                <CircleHelp size={18} />
-            </button>
             {open && (
                 <div
                     className="modal-overlay"

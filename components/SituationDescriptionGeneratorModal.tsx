@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Loader2, Sparkles, X } from 'lucide-react';
 import { useStore } from '@/lib/store';
 import ModelSelector from './ModelSelector';
+import { useModalKeyboard } from './useModalKeyboard';
 
 interface Props {
     isOpen: boolean;
@@ -32,6 +33,7 @@ export default function SituationDescriptionGeneratorModal({
     const [generating, setGenerating] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const abortRef = useRef<AbortController | null>(null);
+    const modalRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         if (isOpen) {
@@ -52,14 +54,12 @@ export default function SituationDescriptionGeneratorModal({
         onClose();
     };
 
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') attemptClose();
-        };
-        document.addEventListener('keydown', handleKeyDown);
-        return () => document.removeEventListener('keydown', handleKeyDown);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [generating, onClose]);
+    useModalKeyboard({
+        isOpen,
+        containerRef: modalRef,
+        onClose: attemptClose,
+        canClose: !generating,
+    });
 
     if (!isOpen) return null;
 
@@ -131,13 +131,21 @@ export default function SituationDescriptionGeneratorModal({
                 if (e.target === e.currentTarget) attemptClose();
             }}
         >
-            <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 640 }}>
+            <div
+                ref={modalRef}
+                className="modal-content"
+                onClick={(e) => e.stopPropagation()}
+                style={{ maxWidth: 640 }}
+                role="dialog"
+                aria-modal="true"
+                aria-label="シチュエーション説明生成"
+            >
                 <div className="modal-header">
                     <h2 style={{ fontSize: '1.125rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
                         <Sparkles size={18} />
                         シチュエーション説明生成
                     </h2>
-                    <button className="btn btn-ghost" onClick={handleCancel} style={{ padding: '0.5rem' }} title="閉じる">
+                    <button className="btn btn-ghost" onClick={handleCancel} style={{ padding: '0.5rem' }} title="閉じる" aria-label="閉じる">
                         <X size={20} />
                     </button>
                 </div>

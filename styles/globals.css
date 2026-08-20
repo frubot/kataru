@@ -3003,6 +3003,12 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .modal-overlay,
+  .modal-content,
+  .vn-character-bounce {
+    animation: none;
+  }
+
   .waiting-ellipsis-dot {
     animation: none;
     opacity: 0.8;

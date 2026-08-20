@@ -7,6 +7,7 @@ import { cropRectToPng, loadImage, resizeToMaxEdge } from '@/lib/imageUtils';
 import { CropArea, createInitialCrop, type CropBox } from './ImageCropArea';
 import StoredImage from './StoredImage';
 import ModelSelector from './ModelSelector';
+import { useModalKeyboard } from './useModalKeyboard';
 
 const MAX_EDGE = 1024;
 const COSTUME_ASPECT_RATIO = '2:3';
@@ -38,6 +39,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
     const abortRef = useRef<AbortController | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const uploadImgRef = useRef<HTMLImageElement>(null);
+    const modalRef = useRef<HTMLDivElement>(null);
     const [uploadImage, setUploadImage] = useState<string | null>(null);
     const [uploadNatural, setUploadNatural] = useState<{ w: number; h: number } | null>(null);
     const [uploadCrop, setUploadCrop] = useState<CropBox | null>(null);
@@ -64,14 +66,6 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
             setAddMode('upload');
         }
     }, [addMode, canGenerateDiffs]);
-
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Escape' && !busy) onClose();
-        };
-        document.addEventListener('keydown', handleKeyDown);
-        return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [onClose, busy]);
 
     const clearUploadDraft = () => {
         setUploadImage(null);
@@ -234,6 +228,14 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
         setBusy(null);
     };
 
+    useModalKeyboard({
+        isOpen,
+        containerRef: modalRef,
+        onClose,
+        canClose: !busy,
+        onEnter: addMode === 'generate' ? handleAdd : undefined,
+    });
+
     if (!isOpen) return null;
 
     return (
@@ -243,12 +245,20 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                 if (e.target === e.currentTarget && !busy) onClose();
             }}
         >
-            <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 640 }}>
+            <div
+                ref={modalRef}
+                className="modal-content"
+                onClick={(e) => e.stopPropagation()}
+                style={{ maxWidth: 640 }}
+                role="dialog"
+                aria-modal="true"
+                aria-label="衣装差分"
+            >
                 <div className="modal-header">
                     <h2 style={{ fontSize: '1.125rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
                         <Shirt size={18} /> 衣装差分
                     </h2>
-                    <button className="btn btn-ghost" onClick={() => !busy && onClose()} style={{ padding: '0.5rem' }}>
+                    <button className="btn btn-ghost" onClick={() => !busy && onClose()} style={{ padding: '0.5rem' }} title="閉じる" aria-label="閉じる">
                         <X size={20} />
                     </button>
                 </div>
@@ -300,7 +310,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                 onChange={(e) => setNewName(e.target.value)}
                                 placeholder="例: casual, school_uniform, dress"
                                 disabled={!!busy}
-                                onKeyDown={(e) => { if (e.key === 'Enter' && addMode === 'generate') handleAdd(); }}
+                                data-modal-enter-submit={addMode === 'generate' ? 'true' : undefined}
                             />
                         </div>
                         {addMode === 'generate' && (

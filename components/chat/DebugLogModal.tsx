@@ -1,5 +1,7 @@
+import { useRef } from 'react';
 import { Trash2, X } from 'lucide-react';
 import type { FullJsonDebugLog } from '@/lib/store';
+import { useModalKeyboard } from '../useModalKeyboard';
 
 function getDebugSourceLabel(source: string): string {
     switch (source) {
@@ -28,6 +30,9 @@ type DebugLogModalProps = {
 };
 
 export default function DebugLogModal({ logs, onClose, onClear }: DebugLogModalProps) {
+    const modalRef = useRef<HTMLDivElement>(null);
+    useModalKeyboard({ isOpen: true, containerRef: modalRef, onClose });
+
     return (
         <div
             className="modal-overlay"
@@ -36,6 +41,7 @@ export default function DebugLogModal({ logs, onClose, onClear }: DebugLogModalP
             }}
         >
             <div
+                ref={modalRef}
                 className="modal-content settings-form-modal"
                 onClick={(event) => event.stopPropagation()}
                 style={{ maxWidth: 820 }}

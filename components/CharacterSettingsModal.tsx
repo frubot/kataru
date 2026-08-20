@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { X, Brain, ChevronDown, ChevronRight, RotateCcw, User, Smile, Shirt, Info, Sparkles, FileText, LayoutList } from 'lucide-react';
 import {
     useStore,
@@ -18,6 +18,7 @@ import CharacterGeneratorModal from './CharacterGeneratorModal';
 import PromptBlockEditor from './PromptBlockEditor';
 import StoredImage from './StoredImage';
 import ModelSelector from './ModelSelector';
+import { useModalKeyboard } from './useModalKeyboard';
 
 const NEUTRAL_NAME = 'neutral';
 const DEFAULT_COSTUME_NAME = 'default';
@@ -347,6 +348,7 @@ function CharacterSettingsModalContent({ isOpen, onClose, character, isNew = fal
     const [characterGeneratorOpen, setCharacterGeneratorOpen] = useState(false);
     const [expressionsOpen, setExpressionsOpen] = useState(false);
     const [costumesOpen, setCostumesOpen] = useState(false);
+    const modalRef = useRef<HTMLDivElement>(null);
 
     const saveAndClose = useCallback(() => {
         const currentDraft = {
@@ -410,20 +412,13 @@ function CharacterSettingsModalContent({ isOpen, onClose, character, isNew = fal
         onClose();
     }, [character, costumes, createCharacter, defaultChatModel, enableMemory, enableSummary, enableThinking, expressions, icon, initialDraft, isNew, maxHistory, maxTokens, model, name, onClose, protagonistPrompt, speechStyle, systemPrompt, temperature, topK, topP, updateCharacter, userConstraints]);
 
-    useEffect(() => {
-        const childModalOpen = imageGenOpen || characterGeneratorOpen || expressionsOpen || costumesOpen;
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (isOpen && e.key === 'Escape' && !childModalOpen) {
-                if (isNew || !character) {
-                    onClose();
-                } else {
-                    saveAndClose();
-                }
-            }
-        };
-        document.addEventListener('keydown', handleKeyDown);
-        return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [character, characterGeneratorOpen, costumesOpen, expressionsOpen, imageGenOpen, isNew, isOpen, onClose, saveAndClose]);
+    const childModalOpen = imageGenOpen || characterGeneratorOpen || expressionsOpen || costumesOpen;
+    useModalKeyboard({
+        isOpen,
+        containerRef: modalRef,
+        onClose: isNew || !character ? onClose : saveAndClose,
+        canClose: !childModalOpen,
+    });
 
     const handleOpenMemory = () => {
         if (onOpenMemoryList && character) {
@@ -496,6 +491,7 @@ function CharacterSettingsModalContent({ isOpen, onClose, character, isNew = fal
             }}
         >
             <div
+                ref={modalRef}
                 className="modal-content settings-form-modal"
                 onClick={(e) => e.stopPropagation()}
                 role="dialog"

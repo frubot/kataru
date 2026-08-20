@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { ChevronDown, ChevronRight, ChevronUp, MessagesSquare, Plus, RotateCcw, Sparkles, Trash2, User, Users, X } from 'lucide-react';
 import {
     Character,
@@ -19,6 +19,7 @@ import ImageGenerationModal from './ImageGenerationModal';
 import SituationDescriptionGeneratorModal from './SituationDescriptionGeneratorModal';
 import StoredImage from './StoredImage';
 import ModelSelector from './ModelSelector';
+import { useModalKeyboard } from './useModalKeyboard';
 
 type TemporaryActorDraft = {
     id: string;
@@ -487,6 +488,7 @@ function TemporaryActorSettingsModal({
     const [parametersOpen, setParametersOpen] = useState(false);
     const [generatorOpen, setGeneratorOpen] = useState(false);
     const [imageGenOpen, setImageGenOpen] = useState(false);
+    const modalRef = useRef<HTMLDivElement>(null);
     const hasCustomParams = draft.temperature !== null || draft.topP !== null || draft.topK !== null;
 
     const updateDraft = (updates: Partial<TemporaryActorDraft>) => {
@@ -505,18 +507,12 @@ function TemporaryActorSettingsModal({
         });
     }, [actor.name, draft, isNew, onClose, onSave]);
 
-    useEffect(() => {
-        const handleKeyDown = (event: KeyboardEvent) => {
-            if (event.key !== 'Escape' || generatorOpen || imageGenOpen) return;
-            if (isNew) {
-                onClose();
-            } else {
-                saveAndClose();
-            }
-        };
-        document.addEventListener('keydown', handleKeyDown);
-        return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [generatorOpen, imageGenOpen, isNew, onClose, saveAndClose]);
+    useModalKeyboard({
+        isOpen: true,
+        containerRef: modalRef,
+        onClose: isNew ? onClose : saveAndClose,
+        canClose: !generatorOpen && !imageGenOpen,
+    });
 
     const labelStyle: CSSProperties = {
         display: 'block',
@@ -541,6 +537,7 @@ function TemporaryActorSettingsModal({
                 }}
             >
                 <div
+                    ref={modalRef}
                     className="modal-content settings-form-modal"
                     onClick={(event) => event.stopPropagation()}
                     role="dialog"
@@ -1102,20 +1099,13 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
         onClose();
     }, [actorCount, buildActors, characterActorMeta, createSituationRoom, defaultDirectorModel, effectiveMaxTurns, isEditing, maxAutoTurns, maxHistory, memoryReadOnly, name, onClose, onCreated, parsedMaxHistory, priorMessages, room, selectedCharacterIds, situation, situationPrompt, temporaryActors, updateRoomSettings, updateSituation]);
 
-    useEffect(() => {
-        const childModalOpen = descriptionGeneratorOpen || temporaryActorModal !== null;
-        const handleKeyDown = (event: KeyboardEvent) => {
-            if (event.key === 'Escape' && !childModalOpen) {
-                if (isEditing) {
-                    saveAndClose();
-                } else {
-                    onClose();
-                }
-            }
-        };
-        document.addEventListener('keydown', handleKeyDown);
-        return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [descriptionGeneratorOpen, isEditing, onClose, saveAndClose, temporaryActorModal]);
+    const modalRef = useRef<HTMLDivElement>(null);
+    useModalKeyboard({
+        isOpen: true,
+        containerRef: modalRef,
+        onClose: isEditing ? saveAndClose : onClose,
+        canClose: !descriptionGeneratorOpen && temporaryActorModal === null,
+    });
 
     return (
         <>
@@ -1132,6 +1122,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                 }}
             >
                 <div
+                    ref={modalRef}
                     className="modal-content settings-form-modal"
                     onClick={(e) => e.stopPropagation()}
                     style={{ maxWidth: 720 }}

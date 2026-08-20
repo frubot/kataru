@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { X, Trash2, Brain } from 'lucide-react';
 import { useStore, Character, MemoryRecord } from '@/lib/store';
+import { useModalKeyboard } from './useModalKeyboard';
 
 interface MemoryListModalProps {
     isOpen: boolean;
@@ -13,6 +14,7 @@ export default function MemoryListModal({ isOpen, onClose, character }: MemoryLi
     const liveCharacter = useStore((s) => (character ? s.characters.find((c) => c.id === character.id) : undefined)) ?? character;
     const [memories, setMemories] = useState<MemoryRecord[]>([]);
     const [isLoading, setIsLoading] = useState(false);
+    const modalRef = useRef<HTMLDivElement>(null);
 
     const reloadMemories = useCallback(async () => {
         if (!liveCharacter) return;
@@ -24,11 +26,11 @@ export default function MemoryListModal({ isOpen, onClose, character }: MemoryLi
         }
     }, [listMemoriesForCharacter, liveCharacter]);
 
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-        document.addEventListener('keydown', handleKeyDown);
-        return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [onClose]);
+    useModalKeyboard({
+        isOpen: isOpen && !!liveCharacter,
+        containerRef: modalRef,
+        onClose,
+    });
 
     useEffect(() => {
         if (!isOpen || !liveCharacter) {
@@ -75,6 +77,7 @@ export default function MemoryListModal({ isOpen, onClose, character }: MemoryLi
             }}
         >
             <div
+                ref={modalRef}
                 className="modal-content settings-form-modal"
                 onClick={(e) => e.stopPropagation()}
                 role="dialog"

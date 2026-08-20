@@ -13,6 +13,7 @@ describe('chat keyboard shortcuts', () => {
     });
 
     test('does not redirect navigation or modified shortcuts', () => {
+        expect(shouldRedirectChatInput({ key: '?', metaKey: false, ctrlKey: false, altKey: false })).toBe(false);
         expect(shouldRedirectChatInput({ key: 'Enter', metaKey: false, ctrlKey: false, altKey: false })).toBe(false);
         expect(shouldRedirectChatInput({ key: 'ArrowDown', metaKey: false, ctrlKey: false, altKey: false })).toBe(false);
         expect(shouldRedirectChatInput({ key: 'a', metaKey: false, ctrlKey: true, altKey: false })).toBe(false);

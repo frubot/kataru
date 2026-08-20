@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { MessageSquare, Search, User, Users, X } from 'lucide-react';
 import type { Character, Room, Situation } from '@/lib/store';
+import { useModalKeyboard } from './useModalKeyboard';
 
 export type SidebarSearchResult =
     | { type: 'character'; item: Character }
@@ -27,6 +28,8 @@ export default function SidebarSearchDialog({
     onSelect,
 }: SidebarSearchDialogProps) {
     const [query, setQuery] = useState('');
+    const dialogRef = useRef<HTMLDivElement>(null);
+    useModalKeyboard({ isOpen: true, containerRef: dialogRef, onClose });
     const normalizedQuery = normalizeSearchText(query.trim());
     const characterNames = useMemo(
         () => new Map(characters.map((character) => [character.id, character.name])),
@@ -121,11 +124,9 @@ export default function SidebarSearchDialog({
             onPointerDown={(event) => {
                 if (event.target === event.currentTarget) onClose();
             }}
-            onKeyDown={(event) => {
-                if (event.key === 'Escape') onClose();
-            }}
         >
             <div
+                ref={dialogRef}
                 className="sidebar-search-dialog"
                 role="dialog"
                 aria-modal="true"

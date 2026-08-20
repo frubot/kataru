@@ -4,6 +4,7 @@ import { resizeToMaxEdge, cropSquareToJpeg, cropRectToPng, loadImage } from '@/l
 import { CropArea, createInitialCrop, type CropBox } from './ImageCropArea';
 import { useStore } from '@/lib/store';
 import ModelSelector from './ModelSelector';
+import { useModalKeyboard } from './useModalKeyboard';
 const MAX_EDGE = 1024;
 const AVATAR_SIZE = 128;
 const IMAGE_ASPECT_RATIO = '2:3';
@@ -32,6 +33,7 @@ export default function ImageGenerationModal({ isOpen, onClose, onComplete }: Pr
     const [neutralCrop, setNeutralCrop] = useState<CropBox | null>(null);
     const [cropTarget, setCropTarget] = useState<CropTarget>('avatar');
     const abortRef = useRef<AbortController | null>(null);
+    const modalRef = useRef<HTMLDivElement>(null);
     const imgRef = useRef<HTMLImageElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const canGenerateImages = aiApiType === 'openrouter'
@@ -68,14 +70,12 @@ export default function ImageGenerationModal({ isOpen, onClose, onComplete }: Pr
         onClose();
     };
 
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') attemptClose();
-        };
-        document.addEventListener('keydown', handleKeyDown);
-        return () => document.removeEventListener('keydown', handleKeyDown);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [onClose, generating, fullBody]);
+    useModalKeyboard({
+        isOpen,
+        containerRef: modalRef,
+        onClose: attemptClose,
+        canClose: !generating,
+    });
 
     const handleGenerate = async () => {
         if (!canGenerateImages || !prompt.trim() || !model.trim() || generating) return;
@@ -180,12 +180,20 @@ export default function ImageGenerationModal({ isOpen, onClose, onComplete }: Pr
                 if (e.target === e.currentTarget) attemptClose();
             }}
         >
-            <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 640 }}>
+            <div
+                ref={modalRef}
+                className="modal-content"
+                onClick={(e) => e.stopPropagation()}
+                style={{ maxWidth: 640 }}
+                role="dialog"
+                aria-modal="true"
+                aria-label="アバターの変更"
+            >
                 <div className="modal-header">
                     <h2 style={{ fontSize: '1.125rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
                         <Sparkles size={18} /> アバターの変更
                     </h2>
-                    <button className="btn btn-ghost" onClick={handleCancel} style={{ padding: '0.5rem' }}>
+                    <button className="btn btn-ghost" onClick={handleCancel} style={{ padding: '0.5rem' }} title="閉じる" aria-label="閉じる">
                         <X size={20} />
                     </button>
                 </div>

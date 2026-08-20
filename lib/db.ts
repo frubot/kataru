@@ -1,4 +1,4 @@
-import type { Character, MemoryRecord, Message, Room, Situation, UsageRecord } from './store';
+import type { Character, MemoryRecord, Message, Room, Situation, UsageRecord } from './store/types';
 
 export type StoredRoom = Omit<Room, 'messages' | 'secretMode'>;
 export type StoredMessage = Message & { roomId: string };

@@ -1,4 +1,4 @@
-import type { Character, Room, VnTypingSpeed } from './store';
+import type { Character, Room, VnTypingSpeed } from './store/types';
 
 export const DEFAULT_COSTUME_NAME = 'default';
 const NEUTRAL_EXPRESSION_NAME = 'neutral';

@@ -1,4 +1,4 @@
-import type { Character, MemoryKind, MemoryRecord, MemoryScope } from './store';
+import type { Character, MemoryKind, MemoryRecord, MemoryScope } from './store/types';
 
 const MEMORY_SAVE_MIN_IMPORTANCE = 0.4;
 const MEMORY_SAVE_MIN_CONFIDENCE = 0.75;

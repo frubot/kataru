@@ -6,7 +6,7 @@ import type {
     Room,
     SituationParticipant,
     SituationPriorMessage,
-} from './store';
+} from './store/types';
 
 export type ChatStreamingPreview = {
     roomId: string;

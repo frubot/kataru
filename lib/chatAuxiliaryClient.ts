@@ -1,5 +1,5 @@
 import type { AiApiConfig } from './aiApi';
-import type { Message, SituationParticipant } from './store';
+import type { Message, SituationParticipant } from './store/types';
 
 export type PromptRequestMessage = {
     role: 'user' | 'assistant';

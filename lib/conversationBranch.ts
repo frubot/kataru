@@ -1,4 +1,4 @@
-import type { Message, Room } from './store';
+import type { Message, Room } from './store/types';
 
 type IdGenerator = () => string;
 

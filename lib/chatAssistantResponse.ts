@@ -1,4 +1,4 @@
-import type { Message } from './store';
+import type { Message } from './store/types';
 
 type AssistantEnvelope = {
     message: string;

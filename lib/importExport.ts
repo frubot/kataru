@@ -1,7 +1,17 @@
-import type { Character, MemoryRecord, Message, Room, Situation, UsageRecord } from './store';
+import type {
+    Character,
+    MemoryRecord,
+    Message,
+    ParsedBackup,
+    Room,
+    Situation,
+    UsageRecord,
+} from './store/types';
 import * as db from './db';
 import { normalizeCharactersForCostumeDiffs } from './visualDiffMigration';
 import { generateId } from './id';
+
+export type { ParsedBackup } from './store/types';
 
 type StoredRoom = Omit<Room, 'messages'>;
 type StoredMessage = Message & { roomId: string };
@@ -18,14 +28,6 @@ export interface FullBackup {
         memories: MemoryRecord[];
         usageRecords: UsageRecord[];
     };
-}
-
-export interface ParsedBackup {
-    characters: Character[];
-    groups: Situation[];
-    rooms: Room[];
-    memories: MemoryRecord[];
-    usageRecords: UsageRecord[];
 }
 
 function getSituationActorIds(situation: Situation): string[] {

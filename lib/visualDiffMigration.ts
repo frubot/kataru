@@ -1,4 +1,4 @@
-import type { Character, Costume } from './store';
+import type { Character, Costume } from './store/types';
 
 const DEFAULT_COSTUME_NAME = 'default';
 const NEUTRAL_EXPRESSION_NAME = 'neutral';

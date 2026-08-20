@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type ReactNode } from 'react';
+import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
 import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Check, ChevronDown, RefreshCw, ExternalLink, type LucideIcon } from 'lucide-react';
 import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, getDefaultModelDefaults, type AiApiType } from '@/lib/store';
 import { createFullBackup, downloadJson, parseFullBackup, reassignIds, ParsedBackup } from '@/lib/importExport';
@@ -6,6 +6,7 @@ import StatisticsPanel from '@/components/StatisticsPanel';
 import AiConnectionSettings from '@/components/AiConnectionSettings';
 import ModelSelector from '@/components/ModelSelector';
 import ProviderSelector from '@/components/ProviderSelector';
+import { useModalKeyboard } from '@/components/useModalKeyboard';
 
 interface GlobalSettingsModalProps {
     isOpen: boolean;
@@ -336,8 +337,10 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         aiApiType, setAiApiType,
         openRouterIgnoredProviders, setOpenRouterIgnoredProviders,
         fullJsonDebugEnabled, detailedErrorLoggingEnabled, fullJsonDebugLogs,
+        memoryInspectorEnabled, summaryInspectorEnabled, promptInspectorEnabled,
         setThemeMode, setThemePalette, setVnTypingSpeed,
         setFullJsonDebugEnabled, setDetailedErrorLoggingEnabled, clearFullJsonDebugLogs,
+        setMemoryInspectorEnabled, setSummaryInspectorEnabled, setPromptInspectorEnabled,
         clearAllHistory, resetApplication, mergeBackup, restoreBackup,
     } = useStore();
     const apiTypeDefaults = getDefaultModelDefaults(aiApiType);
@@ -363,12 +366,45 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
     const themeModeMenuRef = useRef<HTMLDivElement>(null);
     const paletteMenuRef = useRef<HTMLDivElement>(null);
     const aiApiTypeMenuRef = useRef<HTMLDivElement>(null);
+    const modalRef = useRef<HTMLDivElement>(null);
+    const handleKeyboardClose = useCallback(() => {
+        if (showClearConfirm) {
+            setShowClearConfirm(false);
+            return;
+        }
+        if (showResetConfirm) {
+            setShowResetConfirm(false);
+            return;
+        }
+        if (showRestoreConfirm) {
+            setShowRestoreConfirm(false);
+            return;
+        }
+        if (isThemeModeMenuOpen || isPaletteMenuOpen || isAiApiTypeMenuOpen) {
+            setThemeModeMenuOpen(false);
+            setPaletteMenuOpen(false);
+            setAiApiTypeMenuOpen(false);
+            return;
+        }
+        onClose();
+    }, [
+        isAiApiTypeMenuOpen,
+        isPaletteMenuOpen,
+        isThemeModeMenuOpen,
+        onClose,
+        showClearConfirm,
+        showResetConfirm,
+        showRestoreConfirm,
+    ]);
 
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-        document.addEventListener('keydown', handleKeyDown);
-        return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [onClose]);
+    useModalKeyboard({
+        isOpen,
+        containerRef: modalRef,
+        onClose: handleKeyboardClose,
+        canClose: !isImporting
+            && !isClearingHistory
+            && !isResetting,
+    });
 
     useEffect(() => {
         if (!isOpen) {
@@ -648,6 +684,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                         flexShrink: 0,
                     }}
                     aria-label={ariaLabel}
+                    aria-pressed={enabled}
                 >
                     <span style={{
                         position: 'absolute',
@@ -672,7 +709,14 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                 if (e.target === e.currentTarget) onClose();
             }}
         >
-            <div className="modal-content settings-modal" onClick={(e) => e.stopPropagation()}>
+            <div
+                ref={modalRef}
+                className="modal-content settings-modal"
+                onClick={(e) => e.stopPropagation()}
+                role="dialog"
+                aria-modal="true"
+                aria-label="グローバル設定"
+            >
                 <button className="btn btn-ghost settings-modal-close" onClick={onClose} aria-label="設定を閉じる">
                     <X size={20} />
                 </button>
@@ -1373,6 +1417,39 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         onToggle: () => setDetailedErrorLoggingEnabled(!detailedErrorLoggingEnabled),
                                         ariaLabel: '詳細なエラー表示を有効化',
                                     })}
+                                </div>
+                                <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color)' }}>
+                                    {renderDebugToggle({
+                                        label: 'メモリインスペクター',
+                                        enabled: memoryInspectorEnabled,
+                                        onToggle: () => setMemoryInspectorEnabled(!memoryInspectorEnabled),
+                                        ariaLabel: 'メモリインスペクターを有効化',
+                                    })}
+                                    <p style={{ margin: '0.375rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                                        応答で参照されたメモリを確認し、編集・削除・優先固定できます。
+                                    </p>
+                                </div>
+                                <div style={{ marginTop: '1rem' }}>
+                                    {renderDebugToggle({
+                                        label: '要約インスペクター',
+                                        enabled: summaryInspectorEnabled,
+                                        onToggle: () => setSummaryInspectorEnabled(!summaryInspectorEnabled),
+                                        ariaLabel: '要約インスペクターを有効化',
+                                    })}
+                                    <p style={{ margin: '0.375rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                                        現在の要約、圧縮範囲、履歴を確認して手動編集できます。
+                                    </p>
+                                </div>
+                                <div style={{ marginTop: '1rem' }}>
+                                    {renderDebugToggle({
+                                        label: '最終プロンプトインスペクター',
+                                        enabled: promptInspectorEnabled,
+                                        onToggle: () => setPromptInspectorEnabled(!promptInspectorEnabled),
+                                        ariaLabel: '最終プロンプトインスペクターを有効化',
+                                    })}
+                                    <p style={{ margin: '0.375rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                                        生成直前に組み立てたmessagesと、ブロック別の推定トークン数を表示します。
+                                    </p>
                                 </div>
                             </div>
                         </div>

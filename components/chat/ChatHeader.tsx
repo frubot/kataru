@@ -10,8 +10,10 @@ import {
     MessageSquare,
     MessagesSquare,
     SquarePen,
+    ScanSearch,
 } from 'lucide-react';
 import type { Room } from '@/lib/store';
+import KeyboardShortcutsHelp from './KeyboardShortcutsHelp';
 
 type RoomViewMode = NonNullable<Room['viewMode']>;
 
@@ -40,6 +42,8 @@ type ChatHeaderProps = {
     debugEnabled: boolean;
     debugLogCount: number;
     onOpenDebug: () => void;
+    inspectorEnabled: boolean;
+    onOpenInspector: () => void;
     showMemoryButton: boolean;
     onOpenMemory: () => void;
     showSecretModeButton: boolean;
@@ -64,6 +68,8 @@ export default function ChatHeader({
     debugEnabled,
     debugLogCount,
     onOpenDebug,
+    inspectorEnabled,
+    onOpenInspector,
     showMemoryButton,
     onOpenMemory,
     showSecretModeButton,
@@ -130,12 +136,24 @@ export default function ChatHeader({
                 </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', flexShrink: 0 }}>
+                <KeyboardShortcutsHelp />
                 {debugEnabled && (
                     <button type="button" className="btn btn-ghost" onClick={onOpenDebug} title="デバッグログを表示">
                         <Bug size={18} />
                         <span className="desktop-only" style={{ fontSize: '0.75rem' }}>
                             {debugLogCount}
                         </span>
+                    </button>
+                )}
+                {inspectorEnabled && (
+                    <button
+                        type="button"
+                        className="btn btn-ghost"
+                        onClick={onOpenInspector}
+                        title="開発者インスペクターを表示"
+                        aria-label="開発者インスペクターを表示"
+                    >
+                        <ScanSearch size={18} />
                     </button>
                 )}
                 {showMemoryButton && (

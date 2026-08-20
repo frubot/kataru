@@ -60,6 +60,13 @@ export function buildConversationBranch(
     const mappedSummaryCheckpoint = sourceRoom.summary && sourceRoom.summaryCheckpointUserMessageId
         ? messageIdMap.get(sourceRoom.summaryCheckpointUserMessageId)
         : undefined;
+    const summaryHistory = restoreSummarizedHistory
+        ? undefined
+        : sourceRoom.summaryHistory?.flatMap((revision) => {
+            if (!revision.checkpointUserMessageId) return [{ ...revision }];
+            const checkpointUserMessageId = messageIdMap.get(revision.checkpointUserMessageId);
+            return checkpointUserMessageId ? [{ ...revision, checkpointUserMessageId }] : [];
+        });
     const lastMessage = messages[messages.length - 1];
 
     return {
@@ -71,6 +78,7 @@ export function buildConversationBranch(
         summaryCheckpointUserMessageId: restoreSummarizedHistory
             ? undefined
             : mappedSummaryCheckpoint,
+        summaryHistory,
         replySuggestions: undefined,
         secretMode: undefined,
         isDraft: undefined,

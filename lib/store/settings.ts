@@ -190,6 +190,9 @@ type SettingsSlice = Pick<
     | 'openAiCompatibleImageGenerationEnabled'
     | 'fullJsonDebugEnabled'
     | 'detailedErrorLoggingEnabled'
+    | 'memoryInspectorEnabled'
+    | 'summaryInspectorEnabled'
+    | 'promptInspectorEnabled'
     | 'fullJsonDebugLogs'
     | 'setThemeMode'
     | 'setThemePalette'
@@ -215,6 +218,9 @@ type SettingsSlice = Pick<
     | 'getAiApiConfig'
     | 'setFullJsonDebugEnabled'
     | 'setDetailedErrorLoggingEnabled'
+    | 'setMemoryInspectorEnabled'
+    | 'setSummaryInspectorEnabled'
+    | 'setPromptInspectorEnabled'
     | 'addFullJsonDebugLog'
     | 'clearFullJsonDebugLogs'
 >;
@@ -243,6 +249,9 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         openAiCompatibleImageGenerationEnabled: DEFAULT_OPENAI_COMPATIBLE_IMAGE_GENERATION_ENABLED,
         fullJsonDebugEnabled: false,
         detailedErrorLoggingEnabled: false,
+        memoryInspectorEnabled: false,
+        summaryInspectorEnabled: false,
+        promptInspectorEnabled: false,
         fullJsonDebugLogs: [],
 
         setThemeMode: (themeMode) => {
@@ -332,6 +341,18 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         setDetailedErrorLoggingEnabled: (detailedErrorLoggingEnabled) => {
             set({ detailedErrorLoggingEnabled });
             fire(db.setMeta('detailedErrorLoggingEnabled', detailedErrorLoggingEnabled));
+        },
+        setMemoryInspectorEnabled: (memoryInspectorEnabled) => {
+            set({ memoryInspectorEnabled });
+            fire(db.setMeta('memoryInspectorEnabled', memoryInspectorEnabled));
+        },
+        setSummaryInspectorEnabled: (summaryInspectorEnabled) => {
+            set({ summaryInspectorEnabled });
+            fire(db.setMeta('summaryInspectorEnabled', summaryInspectorEnabled));
+        },
+        setPromptInspectorEnabled: (promptInspectorEnabled) => {
+            set({ promptInspectorEnabled });
+            fire(db.setMeta('promptInspectorEnabled', promptInspectorEnabled));
         },
         addFullJsonDebugLog: (log) => {
             const json = log.json.trim();

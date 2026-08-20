@@ -183,3 +183,57 @@ pub(super) fn sanitize_assistant(message: &mut Value) {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+    use crate::db::storage::{
+        memories, rooms,
+        test_support::{open_test_database, test_room},
+    };
+
+    #[test]
+    fn edited_linked_memory_content_is_rehydrated_from_the_memory_record() {
+        let mut connection = open_test_database();
+        assert!(rooms::put(&connection, test_room("room-1")).expect("store room"));
+        put(
+            &connection,
+            "room-1",
+            json!({
+                "id": "message-1",
+                "role": "assistant",
+                "characterId": "character-1",
+                "content": "reply",
+                "memories": ["old memory"],
+                "timestamp": 1
+            }),
+        )
+        .expect("store source message");
+
+        memories::remove_contents_from_messages(
+            &mut connection,
+            "character-1",
+            &["old memory".to_owned()],
+        )
+        .expect("remove the stale legacy label");
+        memories::put(
+            &connection,
+            json!({
+                "id": "memory-1",
+                "characterId": "character-1",
+                "sourceRoomId": "room-1",
+                "sourceMessageIds": ["message-1"],
+                "scope": "character",
+                "kind": "fact",
+                "content": "new memory",
+                "updatedAt": 2
+            }),
+        )
+        .expect("store edited memory");
+
+        let messages = get_by_room(&connection, "room-1").expect("reload room messages");
+        assert_eq!(messages[0]["memories"], json!(["new memory"]));
+    }
+}

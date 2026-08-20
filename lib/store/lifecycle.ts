@@ -64,7 +64,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
         hydrate: async () => {
             if (get().hydrated) return;
             await db.migrateLegacyDatabase();
-            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, currentRoomId, vnTypingSpeed, fullJsonDebugEnabled, detailedErrorLoggingEnabled, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion] = await Promise.all([
+            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, currentRoomId, vnTypingSpeed, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, promptInspectorEnabled, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion] = await Promise.all([
                 db.getAllCharacters(),
                 db.getAllGroups(),
                 db.getAllRooms(),
@@ -75,6 +75,9 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 db.getMeta<VnTypingSpeed>('vnTypingSpeed'),
                 db.getMeta<boolean>('fullJsonDebugEnabled'),
                 db.getMeta<boolean>('detailedErrorLoggingEnabled'),
+                db.getMeta<boolean>('memoryInspectorEnabled'),
+                db.getMeta<boolean>('summaryInspectorEnabled'),
+                db.getMeta<boolean>('promptInspectorEnabled'),
                 db.getMeta<string>('summaryModel'),
                 db.getMeta<string>('defaultChatModel'),
                 db.getMeta<string>('defaultDirectorModel'),
@@ -249,6 +252,9 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 openAiCompatibleImageGenerationEnabled: resolvedOpenAiCompatibleImageGenerationEnabled,
                 fullJsonDebugEnabled: fullJsonDebugEnabled === true,
                 detailedErrorLoggingEnabled: detailedErrorLoggingEnabled === true,
+                memoryInspectorEnabled: memoryInspectorEnabled === true,
+                summaryInspectorEnabled: summaryInspectorEnabled === true,
+                promptInspectorEnabled: promptInspectorEnabled === true,
                 fullJsonDebugLogs: [],
                 currentRoomId: resolvedCurrentRoomId,
             });
@@ -289,6 +295,9 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 openAiCompatibleImageGenerationEnabled: DEFAULT_OPENAI_COMPATIBLE_IMAGE_GENERATION_ENABLED,
                 fullJsonDebugEnabled: false,
                 detailedErrorLoggingEnabled: false,
+                memoryInspectorEnabled: false,
+                summaryInspectorEnabled: false,
+                promptInspectorEnabled: false,
                 fullJsonDebugLogs: [],
                 characters: [],
                 groups: [],

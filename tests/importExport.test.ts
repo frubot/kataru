@@ -51,6 +51,14 @@ function validBackup(): FullBackup {
         characterId: 'actor-a',
         groupId: situation.id,
         name: 'テストルーム',
+        summary: '既存の要約',
+        summaryCheckpointUserMessageId: 'message-1',
+        summaryHistory: [{
+            text: '既存の要約',
+            checkpointUserMessageId: 'message-1',
+            createdAt: 15,
+            source: 'automatic',
+        }],
         createdAt: 1,
         updatedAt: 2,
     };
@@ -60,6 +68,7 @@ function validBackup(): FullBackup {
         content: '古い返答',
         characterId: 'actor-b',
         toCharacterIds: ['actor-a'],
+        usedMemoryIds: ['memory-1'],
         timestamp: 10,
     };
     const newerMessage: Message = {
@@ -190,6 +199,9 @@ describe('createFullBackup and parseFullBackup', () => {
         expect(newRoom.characterId).toBe(newFirstActor.id);
         expect(newMessage.characterId).toBe(newGroup.actors[1].id);
         expect(newMessage.toCharacterIds).toEqual([newGroup.actors[0].id]);
+        expect(newMessage.usedMemoryIds).toEqual([newMemory.id]);
+        expect(newRoom.summaryCheckpointUserMessageId).toBe(newMessage.id);
+        expect(newRoom.summaryHistory?.[0].checkpointUserMessageId).toBe(newMessage.id);
         expect(newMemory.characterId).toBe(reassigned.characters[0].id);
         expect(newMemory.roomId).toBe(newRoom.id);
         expect(newMemory.sourceRoomId).toBe(newRoom.id);

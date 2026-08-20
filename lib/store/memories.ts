@@ -8,6 +8,7 @@ import type {
     AppState,
     MemoryKind,
     MemoryRecord,
+    Message,
     StoreGet,
     StoreSet,
 } from './types';
@@ -26,6 +27,44 @@ export function normalizeMemoryCompareKey(value: string): string {
     return normalizeMemoryContent(value)
         .toLocaleLowerCase()
         .replace(/[「」『』（）()[\]{}.,，。!！?？:：;；、・\s]/g, '');
+}
+
+export function replaceMemoryContentInMessages(
+    messages: Message[],
+    params: {
+        characterId: string;
+        sourceMessageIds?: string[];
+        previousContent: string;
+        nextContent: string;
+    },
+): Message[] {
+    const previousKey = normalizeMemoryContent(params.previousContent);
+    const nextContent = normalizeMemoryContent(params.nextContent);
+    if (!params.characterId || !previousKey || !nextContent || previousKey === nextContent) {
+        return messages;
+    }
+    const sourceMessageIds = new Set(params.sourceMessageIds ?? []);
+    return messages.map((message) => {
+        if (
+            message.characterId !== params.characterId
+            || !message.memories?.length
+            || (sourceMessageIds.size > 0 && !sourceMessageIds.has(message.id))
+        ) return message;
+        let replaced = false;
+        const seen = new Set<string>();
+        const memories: string[] = [];
+        for (const content of message.memories) {
+            const matchesPrevious = normalizeMemoryContent(content) === previousKey;
+            const candidate = matchesPrevious ? nextContent : content;
+            if (matchesPrevious) replaced = true;
+            const key = normalizeMemoryContent(candidate);
+            if (key && !seen.has(key)) {
+                seen.add(key);
+                memories.push(candidate);
+            }
+        }
+        return replaced ? { ...message, memories } : message;
+    });
 }
 
 function getMemoryTextSignals(value: string): Set<string> {
@@ -254,7 +293,7 @@ function memoryRecencyBoost(memory: MemoryRecord): number {
     return 1 - ageDays / 60;
 }
 
-function scoreMemory(
+export function scoreMemory(
     memory: MemoryRecord,
     query: string,
     queryEmbedding: number[] | null,
@@ -269,15 +308,16 @@ function scoreMemory(
     const usage = Math.min(1, Math.log1p(memory.usageCount ?? 0) / Math.log(10));
     const recency = memoryRecencyBoost(memory);
 
+    const pinnedBoost = memory.pinned ? 2 : 0;
     if (queryEmbedding && vector > 0) {
-        return vector * 0.62
+        return pinnedBoost + vector * 0.62
             + lexical * 0.14
             + importance * 0.12
             + confidence * 0.06
             + usage * 0.03
             + recency * 0.03;
     }
-    return lexical * 0.52
+    return pinnedBoost + lexical * 0.52
         + importance * 0.22
         + confidence * 0.12
         + usage * 0.06
@@ -288,6 +328,8 @@ type MemorySlice = Pick<
     AppState,
     | 'addMemory'
     | 'removeMemoryRecord'
+    | 'updateMemoryRecord'
+    | 'listMemoriesByIds'
     | 'clearMemories'
     | 'listMemoriesForCharacter'
     | 'searchRelevantMemories'
@@ -328,6 +370,64 @@ export function createMemorySlice(set: StoreSet, get: StoreGet): MemorySlice {
                     }),
                 })),
             }));
+        },
+
+        updateMemoryRecord: async (characterId, memoryId, updates) => {
+            const memory = await db.getMemory(memoryId);
+            if (!memory || memory.characterId !== characterId) return null;
+            const nextContent = updates.content === undefined
+                ? memory.content
+                : normalizeMemoryContent(updates.content);
+            if (!nextContent) return null;
+
+            const contentChanged = nextContent !== memory.content;
+            let nextMemory: MemoryRecord = {
+                ...memory,
+                content: nextContent,
+                ...(updates.pinned === undefined ? {} : { pinned: updates.pinned }),
+                updatedAt: Date.now(),
+                ...(contentChanged ? { embedding: undefined, embeddingModel: undefined } : {}),
+            };
+            if (contentChanged) {
+                const state = get();
+                const embedded = await requestMemoryEmbedding(
+                    nextContent,
+                    state.memoryEmbeddingModel,
+                    'search_document',
+                    getAiApiConfigFromState(state),
+                );
+                if (embedded) {
+                    nextMemory = {
+                        ...nextMemory,
+                        embedding: embedded.embedding,
+                        embeddingModel: embedded.model,
+                    };
+                }
+            }
+            if (contentChanged) {
+                await db.removeMemoryContentsFromMessages(characterId, [memory.content]);
+            }
+            await db.putMemory(nextMemory);
+            if (contentChanged) {
+                set((state) => ({
+                    rooms: state.rooms.map((room) => ({
+                        ...room,
+                        messages: replaceMemoryContentInMessages(room.messages, {
+                            characterId,
+                            sourceMessageIds: memory.sourceMessageIds,
+                            previousContent: memory.content,
+                            nextContent,
+                        }),
+                    })),
+                }));
+            }
+            return nextMemory;
+        },
+
+        listMemoriesByIds: async (memoryIds) => {
+            const uniqueIds = [...new Set(memoryIds.filter(Boolean))];
+            const memories = await Promise.all(uniqueIds.map((memoryId) => db.getMemory(memoryId)));
+            return memories.filter((memory): memory is MemoryRecord => memory != null);
         },
 
         clearMemories: async (characterId) => {

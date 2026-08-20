@@ -101,6 +101,7 @@ pub async fn persist_conversation_result(
                 let checkpoint = optional_string(summary, &["checkpointUserMessageId"]);
                 if let Some(object) = room.as_object_mut() {
                     if let Some(text) = text {
+                        append_summary_revision(object, &text, checkpoint.as_deref(), now);
                         object.insert("summary".to_owned(), Value::String(text));
                     }
                     if let Some(checkpoint) = checkpoint {
@@ -154,6 +155,46 @@ pub async fn persist_conversation_result(
         .await
 }
 
+fn append_summary_revision(
+    room: &mut serde_json::Map<String, Value>,
+    text: &str,
+    checkpoint: Option<&str>,
+    created_at: i64,
+) {
+    const HISTORY_LIMIT: usize = 20;
+    let history = room
+        .entry("summaryHistory".to_owned())
+        .or_insert_with(|| Value::Array(Vec::new()));
+    if !history.is_array() {
+        *history = Value::Array(Vec::new());
+    }
+    let entries = history
+        .as_array_mut()
+        .expect("summary history was normalized to an array");
+    let duplicate = entries.last().is_some_and(|previous| {
+        optional_string(previous, &["text"]).as_deref() == Some(text)
+            && optional_string(previous, &["checkpointUserMessageId"]).as_deref() == checkpoint
+            && optional_string(previous, &["source"]).as_deref() == Some("automatic")
+    });
+    if duplicate {
+        return;
+    }
+    let mut revision = serde_json::Map::new();
+    revision.insert("text".to_owned(), Value::String(text.to_owned()));
+    if let Some(checkpoint) = checkpoint {
+        revision.insert(
+            "checkpointUserMessageId".to_owned(),
+            Value::String(checkpoint.to_owned()),
+        );
+    }
+    revision.insert("createdAt".to_owned(), Value::from(created_at));
+    revision.insert("source".to_owned(), Value::String("automatic".to_owned()));
+    entries.push(Value::Object(revision));
+    if entries.len() > HISTORY_LIMIT {
+        entries.drain(..entries.len() - HISTORY_LIMIT);
+    }
+}
+
 fn preview(content: &str) -> String {
     let normalized = content.split_whitespace().collect::<Vec<_>>().join(" ");
     normalized.chars().take(50).collect()
@@ -193,6 +234,7 @@ mod tests {
                 "role": "assistant",
                 "content": "saved \\nin the background *unfinished",
                 "characterId": "character-1",
+                "usedMemoryIds": ["memory-referenced"],
                 "timestamp": 20
             }],
             "usages": [{
@@ -220,6 +262,7 @@ mod tests {
                 assert_eq!(messages.len(), 2);
                 assert_eq!(messages[1]["id"], "message-assistant");
                 assert_eq!(messages[1]["content"], "saved in the background unfinished");
+                assert_eq!(messages[1]["usedMemoryIds"], json!(["memory-referenced"]));
                 let room = query_optional_json(
                     connection,
                     "SELECT data_json FROM rooms WHERE id = ?1",
@@ -227,6 +270,8 @@ mod tests {
                 )?
                 .expect("stored room");
                 assert_eq!(room["summary"], "summary");
+                assert_eq!(room["summaryHistory"][0]["text"], "summary");
+                assert_eq!(room["summaryHistory"][0]["source"], "automatic");
                 assert_eq!(
                     room["lastMessagePreview"],
                     "saved in the background unfinished"

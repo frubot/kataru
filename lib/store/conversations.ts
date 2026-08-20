@@ -26,11 +26,45 @@ import type {
     AppState,
     Message,
     Room,
+    SummaryRevision,
     Situation,
     SituationActor,
     StoreGet,
     StoreSet,
 } from './types';
+
+const SUMMARY_HISTORY_LIMIT = 20;
+
+export function createSummaryRevision(
+    text: string,
+    checkpointUserMessageId: string | undefined,
+    source: SummaryRevision['source'],
+    createdAt = Date.now(),
+): SummaryRevision {
+    return {
+        text,
+        ...(checkpointUserMessageId ? { checkpointUserMessageId } : {}),
+        createdAt,
+        source,
+    };
+}
+
+export function appendSummaryRevision(
+    history: SummaryRevision[] | undefined,
+    revision: SummaryRevision,
+): SummaryRevision[] {
+    const current = history ?? [];
+    const previous = current[current.length - 1];
+    if (
+        previous
+        && previous.text === revision.text
+        && previous.checkpointUserMessageId === revision.checkpointUserMessageId
+        && previous.source === revision.source
+    ) {
+        return current;
+    }
+    return [...current, revision].slice(-SUMMARY_HISTORY_LIMIT);
+}
 
 type ConversationSlice = Pick<
     AppState,
@@ -299,7 +333,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
                     ? state.rooms.map((r) => {
                         if (r.id !== prevId) return r;
                         return r.secretMode === true
-                            ? { ...r, messages: [], summary: undefined, summaryCheckpointUserMessageId: undefined, lastMessagePreview: undefined, lastMessageAt: undefined }
+                            ? { ...r, messages: [], summary: undefined, summaryCheckpointUserMessageId: undefined, summaryHistory: undefined, lastMessagePreview: undefined, lastMessageAt: undefined }
                             : { ...r, messages: [] };
                     })
                     : state.rooms,
@@ -459,6 +493,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
                         secretMode: enabled || undefined,
                         summary: enabled ? undefined : r.summary,
                         summaryCheckpointUserMessageId: enabled ? undefined : r.summaryCheckpointUserMessageId,
+                        summaryHistory: enabled ? undefined : r.summaryHistory,
                         lastMessagePreview: enabled ? undefined : r.lastMessagePreview,
                         lastMessageAt: enabled ? undefined : r.lastMessageAt,
                     };
@@ -756,6 +791,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
                         replySuggestions: undefined,
                         summary: undefined,
                         summaryCheckpointUserMessageId: undefined,
+                        summaryHistory: undefined,
                         lastMessagePreview: undefined,
                         lastMessageAt: undefined,
                         updatedAt: Date.now(),
@@ -779,17 +815,23 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
             });
         },
 
-        updateRoomSummary: (roomId, summary, summaryCheckpointUserMessageId) => {
+        updateRoomSummary: (roomId, summary, summaryCheckpointUserMessageId, source = 'automatic') => {
             let updated: Room | undefined;
             set((state) => ({
                 rooms: state.rooms.map((r) => {
                     if (r.id !== roomId) return r;
+                    const revision = createSummaryRevision(
+                        summary,
+                        summaryCheckpointUserMessageId,
+                        source,
+                    );
                     const summaryUpdates = summaryCheckpointUserMessageId === undefined
                         ? { summary }
                         : { summary, summaryCheckpointUserMessageId };
+                    const summaryHistory = appendSummaryRevision(r.summaryHistory, revision);
                     updated = r.secretMode === true
-                        ? { ...r, ...summaryUpdates }
-                        : { ...r, ...summaryUpdates, updatedAt: Date.now() };
+                        ? { ...r, ...summaryUpdates, summaryHistory }
+                        : { ...r, ...summaryUpdates, summaryHistory, updatedAt: Date.now() };
                     return updated;
                 }),
             }));

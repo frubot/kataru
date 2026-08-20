@@ -48,6 +48,8 @@ export interface Message {
     toCharacterIds?: string[];
     expression?: string;
     memories?: string[];
+    /** Long-term memory records that were inserted into this assistant response's prompt. */
+    usedMemoryIds?: string[];
     timestamp: number;
     archived?: boolean;
 }
@@ -72,7 +74,15 @@ export interface MemoryRecord {
     updatedAt: number;
     lastUsedAt?: number;
     usageCount: number;
+    pinned?: boolean;
     archived?: boolean;
+}
+
+export interface SummaryRevision {
+    text: string;
+    checkpointUserMessageId?: string;
+    createdAt: number;
+    source: 'automatic' | 'manual';
 }
 
 export type AddMemoryOptions = {
@@ -189,6 +199,7 @@ export interface Room {
     messages: Message[];
     summary?: string;
     summaryCheckpointUserMessageId?: string;
+    summaryHistory?: SummaryRevision[];
     maxMentionChain?: number;
     viewMode?: 'chat' | 'message' | 'vn';
     costumeSelections?: Record<string, string>;
@@ -272,6 +283,9 @@ export interface AppState {
     openAiCompatibleImageGenerationEnabled: boolean;
     fullJsonDebugEnabled: boolean;
     detailedErrorLoggingEnabled: boolean;
+    memoryInspectorEnabled: boolean;
+    summaryInspectorEnabled: boolean;
+    promptInspectorEnabled: boolean;
     fullJsonDebugLogs: FullJsonDebugLog[];
     characters: Character[];
     groups: Situation[];
@@ -306,6 +320,9 @@ export interface AppState {
     getAiApiConfig: () => AiApiConfig;
     setFullJsonDebugEnabled: (enabled: boolean) => void;
     setDetailedErrorLoggingEnabled: (enabled: boolean) => void;
+    setMemoryInspectorEnabled: (enabled: boolean) => void;
+    setSummaryInspectorEnabled: (enabled: boolean) => void;
+    setPromptInspectorEnabled: (enabled: boolean) => void;
 
     createCharacter: (name: string, systemPrompt?: string, model?: string, extras?: CharacterExtras) => string;
     updateCharacter: (id: string, updates: Partial<Pick<Character, 'name' | 'systemPrompt' | 'favorite' | 'speechStyle' | 'protagonistPrompt' | 'userConstraints' | 'model' | 'icon' | 'maxTokens' | 'maxHistory' | 'temperature' | 'topP' | 'topK' | 'enableThinking' | 'enableMemory' | 'enableSummary' | 'expressions' | 'costumes'>>) => void;
@@ -318,6 +335,12 @@ export interface AppState {
 
     addMemory: (characterId: string, memory: string, options?: AddMemoryOptions) => Promise<void>;
     removeMemoryRecord: (characterId: string, memoryId: string) => Promise<void>;
+    updateMemoryRecord: (
+        characterId: string,
+        memoryId: string,
+        updates: { content?: string; pinned?: boolean },
+    ) => Promise<MemoryRecord | null>;
+    listMemoriesByIds: (memoryIds: string[]) => Promise<MemoryRecord[]>;
     clearMemories: (characterId: string) => Promise<void>;
     listMemoriesForCharacter: (characterId: string) => Promise<MemoryRecord[]>;
     searchRelevantMemories: (params: MemorySearchParams) => Promise<MemoryRecord[]>;
@@ -348,7 +371,12 @@ export interface AppState {
     clearRoomMessages: (roomId: string) => void;
     clearAllHistory: () => Promise<void>;
     resetApplication: () => Promise<void>;
-    updateRoomSummary: (roomId: string, summary: string, summaryCheckpointUserMessageId?: string) => void;
+    updateRoomSummary: (
+        roomId: string,
+        summary: string,
+        summaryCheckpointUserMessageId?: string,
+        source?: SummaryRevision['source'],
+    ) => void;
     compressRoomHistory: (roomId: string, keepCount: number) => void;
 
     addUsageRecord: (characterId: string, promptTokens: number, completionTokens: number, totalTokens: number, cost: number) => void;

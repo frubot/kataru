@@ -64,6 +64,7 @@ export type {
     SituationMemoryMode,
     SituationParticipant,
     SituationPriorMessage,
+    SummaryRevision,
     ThemeMode,
     ThemePalette,
     UsageRecord,

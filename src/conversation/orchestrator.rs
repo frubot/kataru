@@ -158,16 +158,23 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
         }
     };
     let summary_result = if active_history.len() < history.len() {
+        let summarized_count = history.len() - active_history.len();
+        let checkpoint_user_message_id =
+            summary_checkpoint_user_message_id(&history, summarized_count, prior_message_count);
         current_summary.as_ref().map(|summary| {
-            json!({
+            let mut result = json!({
                 "text": summary,
-                "checkpointUserMessageId": history
-                    .iter()
-                    .rev()
-                    .find(|message| string(message, "role") == "user")
-                    .map(|message| string(message, "id")),
                 "keepCount": active_history.len(),
-            })
+            });
+            if let (Some(object), Some(checkpoint)) =
+                (result.as_object_mut(), checkpoint_user_message_id.as_ref())
+            {
+                object.insert(
+                    "checkpointUserMessageId".to_owned(),
+                    Value::String(checkpoint.clone()),
+                );
+            }
+            result
         })
     } else {
         None
@@ -510,6 +517,10 @@ async fn generate_for_character(
         character,
         message_mode,
         id_offset,
+        &memories
+            .iter()
+            .map(|memory| memory.id.clone())
+            .collect::<Vec<_>>(),
     ))
 }
 
@@ -518,6 +529,7 @@ fn envelope_to_messages(
     character: &Value,
     message_mode: bool,
     id_offset: usize,
+    used_memory_ids: &[String],
 ) -> Vec<Value> {
     let contents = if message_mode {
         envelope.messages
@@ -539,6 +551,9 @@ fn envelope_to_messages(
             message.insert("content".into(), Value::String(content));
             message.insert("characterId".into(), Value::String(actor.clone()));
             message.insert("toCharacterIds".into(), Value::Array(Vec::new()));
+            if !used_memory_ids.is_empty() {
+                message.insert("usedMemoryIds".into(), json!(used_memory_ids));
+            }
             message.insert("timestamp".into(), json!(timestamp + index as u64));
             if index == 0
                 && let Some(expression) = &envelope.expression
@@ -667,8 +682,7 @@ async fn maybe_summarize(
     }
     let model = model.ok_or_else(|| {
         AppError::BadRequest(
-            "summaryModel または aiApiConfig.modelDefaults.summaryModel が必要です。"
-                .to_owned(),
+            "summaryModel または aiApiConfig.modelDefaults.summaryModel が必要です。".to_owned(),
         )
     })?;
     let named_messages = if group {
@@ -822,20 +836,22 @@ async fn search_memories(
             } else {
                 1.0 - age_days / 60.0
             };
-            let score = if query_embedding.is_some() && vector > 0.0 {
-                vector * 0.62
-                    + lexical * 0.14
-                    + importance * 0.12
-                    + confidence * 0.06
-                    + usage * 0.03
-                    + recency * 0.03
-            } else {
-                lexical * 0.52
-                    + importance * 0.22
-                    + confidence * 0.12
-                    + usage * 0.06
-                    + recency * 0.08
-            };
+            let pinned_boost = if boolean(&memory, "pinned") { 2.0 } else { 0.0 };
+            let score = pinned_boost
+                + if query_embedding.is_some() && vector > 0.0 {
+                    vector * 0.62
+                        + lexical * 0.14
+                        + importance * 0.12
+                        + confidence * 0.06
+                        + usage * 0.03
+                        + recency * 0.03
+                } else {
+                    lexical * 0.52
+                        + importance * 0.22
+                        + confidence * 0.12
+                        + usage * 0.06
+                        + recency * 0.08
+                };
             ScoredMemory {
                 id: string(&memory, "id"),
                 content,
@@ -1259,6 +1275,21 @@ fn summary_cut(messages: &[Value], prior_message_count: usize) -> usize {
         .max(prior_message_count.min(messages.len()))
 }
 
+fn summary_checkpoint_user_message_id(
+    history: &[Value],
+    summarized_count: usize,
+    prior_message_count: usize,
+) -> Option<String> {
+    let summarized_end = summarized_count.min(history.len());
+    let persisted_start = prior_message_count.min(summarized_end);
+    history[persisted_start..summarized_end]
+        .iter()
+        .rev()
+        .find(|message| string(message, "role") == "user")
+        .map(|message| string(message, "id"))
+        .filter(|message_id| !message_id.is_empty())
+}
+
 fn history_content(message: &Value) -> String {
     insert_space_after_italic_action(
         &sanitize_message_content(&string(message, "content")).replace(['\r', '\n'], ""),
@@ -1447,6 +1478,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn generated_messages_record_the_memories_inserted_into_the_prompt() {
+        let messages = envelope_to_messages(
+            AssistantEnvelope {
+                message: "reply".to_owned(),
+                messages: Vec::new(),
+                to: Vec::new(),
+                expression: None,
+            },
+            &json!({"id": "character-1", "name": "葵"}),
+            false,
+            0,
+            &["memory-1".to_owned(), "memory-2".to_owned()],
+        );
+
+        assert_eq!(
+            messages[0]["usedMemoryIds"],
+            json!(["memory-1", "memory-2"])
+        );
+    }
+
+    #[test]
     fn history_slice_keeps_complete_user_turns() {
         let messages = vec![
             json!({"role":"user","content":"1"}),
@@ -1579,6 +1631,24 @@ mod tests {
         assert_eq!(history[0]["content"], "以前の発言1");
         assert_eq!(history[3]["content"], "以前の返答2");
         assert_eq!(history[cut]["id"], "current-user-1");
+    }
+
+    #[test]
+    fn summary_checkpoint_is_the_last_persisted_user_in_the_summarized_slice() {
+        let history = vec![
+            json!({"id": "prior-user", "role": "user"}),
+            json!({"id": "prior-assistant", "role": "assistant"}),
+            json!({"id": "archived-user", "role": "user"}),
+            json!({"id": "archived-assistant", "role": "assistant"}),
+            json!({"id": "kept-user", "role": "user"}),
+            json!({"id": "kept-assistant", "role": "assistant"}),
+        ];
+
+        assert_eq!(
+            summary_checkpoint_user_message_id(&history, 4, 2).as_deref(),
+            Some("archived-user")
+        );
+        assert_eq!(summary_checkpoint_user_message_id(&history, 2, 2), None);
     }
 
     #[test]

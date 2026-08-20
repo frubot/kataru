@@ -218,6 +218,7 @@ export function reassignIds(parsed: ParsedBackup): ParsedBackup {
     const actorIdMap = new Map<string, string>();
     const roomIdMap = new Map<string, string>();
     const messageIdMap = new Map<string, string>();
+    const memoryIdMap = new Map<string, string>();
 
     const characters = parsed.characters.map((c) => {
         const newId = generateId();
@@ -260,9 +261,18 @@ export function reassignIds(parsed: ParsedBackup): ParsedBackup {
         };
     });
 
+    for (const room of parsed.rooms) {
+        roomIdMap.set(room.id, generateId());
+        for (const message of room.messages ?? []) {
+            messageIdMap.set(message.id, generateId());
+        }
+    }
+    for (const memory of parsed.memories) {
+        memoryIdMap.set(memory.id, generateId());
+    }
+
     const rooms = parsed.rooms.map((r) => {
-        const newRoomId = generateId();
-        roomIdMap.set(r.id, newRoomId);
+        const newRoomId = roomIdMap.get(r.id) ?? generateId();
         const costumeSelections = r.costumeSelections
             ? Object.fromEntries(
                 Object.entries(r.costumeSelections).map(([characterId, costumeName]) => [
@@ -281,16 +291,25 @@ export function reassignIds(parsed: ParsedBackup): ParsedBackup {
                 : charIdMap.get(r.characterId) ?? r.characterId,
             groupId: r.groupId ? groupIdMap.get(r.groupId) ?? r.groupId : undefined,
             costumeSelections,
+            summaryCheckpointUserMessageId: r.summaryCheckpointUserMessageId
+                ? messageIdMap.get(r.summaryCheckpointUserMessageId) ?? r.summaryCheckpointUserMessageId
+                : undefined,
+            summaryHistory: r.summaryHistory?.map((revision) => ({
+                ...revision,
+                ...(revision.checkpointUserMessageId ? {
+                    checkpointUserMessageId: messageIdMap.get(revision.checkpointUserMessageId)
+                        ?? revision.checkpointUserMessageId,
+                } : {}),
+            })),
             messages: (r.messages ?? []).map((m) => {
-                const newMessageId = generateId();
-                messageIdMap.set(m.id, newMessageId);
                 return {
                     ...m,
-                    id: newMessageId,
+                    id: messageIdMap.get(m.id) ?? generateId(),
                     characterId: m.characterId
                         ? actorIdMap.get(m.characterId) ?? charIdMap.get(m.characterId) ?? m.characterId
                         : undefined,
                     toCharacterIds: m.toCharacterIds?.map((id) => actorIdMap.get(id) ?? charIdMap.get(id) ?? id),
+                    usedMemoryIds: m.usedMemoryIds?.map((id) => memoryIdMap.get(id) ?? id),
                 };
             }),
         };
@@ -298,7 +317,7 @@ export function reassignIds(parsed: ParsedBackup): ParsedBackup {
 
     const memories = parsed.memories.map((memory) => ({
         ...memory,
-        id: generateId(),
+        id: memoryIdMap.get(memory.id) ?? generateId(),
         characterId: memory.characterId ? charIdMap.get(memory.characterId) ?? memory.characterId : undefined,
         roomId: memory.roomId ? roomIdMap.get(memory.roomId) ?? memory.roomId : undefined,
         sourceRoomId: memory.sourceRoomId ? roomIdMap.get(memory.sourceRoomId) ?? memory.sourceRoomId : undefined,

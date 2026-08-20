@@ -12,6 +12,8 @@ export function toStoredRoom(room: Room): db.StoredRoom {
     delete stored.isDraft;
     if (room.secretMode) {
         delete stored.summary;
+        delete stored.summaryCheckpointUserMessageId;
+        delete stored.summaryHistory;
         delete stored.lastMessagePreview;
         delete stored.lastMessageAt;
     }

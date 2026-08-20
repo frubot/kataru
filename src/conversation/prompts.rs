@@ -195,7 +195,7 @@ pub fn assistant_schema(
         properties.insert(
             "message".into(),
             json!({
-                "type": "string", 
+                "type": "string",
                 "description": "あなたの返答とナレーション",
                 "minLength": 5
             }),

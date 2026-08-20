@@ -51,6 +51,7 @@ test('branching inside summarized history restores messages and removes the summ
     ], {
         summary: '既存の要約',
         summaryCheckpointUserMessageId: 'user-1',
+        summaryHistory: [{ text: '既存の要約', checkpointUserMessageId: 'user-1', createdAt: 10, source: 'automatic' }],
     });
 
     const branched = buildConversationBranch(
@@ -64,6 +65,7 @@ test('branching inside summarized history restores messages and removes the summ
     assert.equal(branched.name, '元の会話 (分岐 2)');
     assert.equal(branched.summary, undefined);
     assert.equal(branched.summaryCheckpointUserMessageId, undefined);
+    assert.equal(branched.summaryHistory, undefined);
     assert.equal(branched.messages.length, 2);
     assert.equal(branched.messages.some((item) => item.archived), false);
     assert.equal(branched.messages.some((item) => item.memories), false);
@@ -80,6 +82,7 @@ test('branching after summarized history preserves the summary and remaps its ch
     ], {
         summary: '既存の要約',
         summaryCheckpointUserMessageId: 'user-1',
+        summaryHistory: [{ text: '既存の要約', checkpointUserMessageId: 'user-1', createdAt: 10, source: 'automatic' }],
     });
 
     const branched = buildConversationBranch(
@@ -92,6 +95,7 @@ test('branching after summarized history preserves the summary and remaps its ch
 
     assert.equal(branched.summary, '既存の要約');
     assert.equal(branched.summaryCheckpointUserMessageId, branched.messages[0].id);
+    assert.equal(branched.summaryHistory[0].checkpointUserMessageId, branched.messages[0].id);
     assert.equal(branched.messages[0].archived, true);
     assert.equal(branched.messages.length, 4);
     assert.equal(branched.messages.at(-1).content, 'assistant-2');

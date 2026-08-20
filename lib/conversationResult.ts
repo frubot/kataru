@@ -7,6 +7,7 @@ export type ConversationAssistantMessage = {
     characterId: string;
     expression?: string;
     toCharacterIds?: string[];
+    usedMemoryIds?: string[];
     timestamp: number;
 };
 

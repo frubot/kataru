@@ -33,6 +33,12 @@ import {
 } from '@/lib/conversationJobClient';
 import type { ConversationJobStatus } from '@/lib/conversationJobClient';
 import type { RustTurnResponse } from '@/lib/conversationResult';
+import {
+    boundPromptInspectionHistory,
+    createPromptInspectionSnapshots,
+    mergePromptInspectionSnapshots,
+    type PromptInspectionsByRoom,
+} from '@/lib/promptInspector';
 import { formatAssistantMarkdown } from '@/lib/markdownUtils';
 import {
     DEFAULT_COSTUME_NAME,
@@ -45,6 +51,7 @@ import ChatHeader from './chat/ChatHeader';
 import ChatMessagesView from './chat/ChatMessagesView';
 import ChatWelcome from './chat/ChatWelcome';
 import DebugLogModal from './chat/DebugLogModal';
+import DeveloperInspectorsModal from './chat/DeveloperInspectorsModal';
 import ReplySuggestions from './chat/ReplySuggestions';
 import { applyConversationResult } from './chat/applyConversationResult';
 import { useChatGenerationSessions } from './chat/useChatGenerationSessions';
@@ -254,12 +261,16 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         replySuggestionModel,
         fullJsonDebugEnabled,
         detailedErrorLoggingEnabled,
+        memoryInspectorEnabled,
+        summaryInspectorEnabled,
+        promptInspectorEnabled,
         fullJsonDebugLogs,
         addFullJsonDebugLog,
         clearFullJsonDebugLogs,
         listMemoriesForCharacter,
         markMemoriesUsed,
         getAiApiConfig,
+        rooms,
     } = useStore();
     const isGroupRoom = situation != null || (groupCharacters != null && groupCharacters.length > 1);
     const rawRoomViewMode = resolveRoomViewMode(room);
@@ -278,6 +289,8 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const [branchingMessageId, setBranchingMessageId] = useState<string | null>(null);
     const [editingMessage, setEditingMessage] = useState<EditingMessageDraft | null>(null);
     const [debugLogOpen, setDebugLogOpen] = useState(false);
+    const [developerInspectorOpen, setDeveloperInspectorOpen] = useState(false);
+    const [promptInspectionsByRoom, setPromptInspectionsByRoom] = useState<PromptInspectionsByRoom>({});
     const [streamingPreview, setStreamingPreview] = useState<ChatStreamingPreview | null>(null);
     const [streamedFinalMessageIds, setStreamedFinalMessageIds] = useState<Set<string>>(() => new Set());
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -343,7 +356,9 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const isEditingMessage = editingMessage?.roomId === currentRoomId;
     const isInlineVnEditing = isVisualNovelMode && isEditingMessage;
     const debugPanelEnabled = fullJsonDebugEnabled;
+    const developerInspectorEnabled = memoryInspectorEnabled || summaryInspectorEnabled || promptInspectorEnabled;
     const visibleDebugLogCount = fullJsonDebugLogs.length;
+    const activePromptRoomIds = useMemo(() => rooms.map((candidate) => candidate.id), [rooms]);
     const {
         state: replySuggestionState,
         setState: setReplySuggestionState,
@@ -589,6 +604,20 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     }, [debugPanelEnabled]);
 
     useEffect(() => {
+        if (!developerInspectorEnabled) setDeveloperInspectorOpen(false);
+    }, [developerInspectorEnabled]);
+
+    useEffect(() => {
+        if (!promptInspectorEnabled) setPromptInspectionsByRoom({});
+    }, [promptInspectorEnabled]);
+
+    useEffect(() => {
+        setPromptInspectionsByRoom((current) => (
+            boundPromptInspectionHistory(current, activePromptRoomIds)
+        ));
+    }, [activePromptRoomIds]);
+
+    useEffect(() => {
         if (isMessageMode) {
             stopTypewriter(true);
         }
@@ -685,6 +714,21 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             }
             if (job.status !== 'completed' || !job.result) {
                 throw new ChatGenerationJobError('バックグラウンド生成の結果を取得できませんでした。');
+            }
+            if (promptInspectorEnabled && !isSecretMode) {
+                const snapshots = createPromptInspectionSnapshots(
+                    job.result.fullJsonLogs,
+                    Date.now(),
+                    session.jobId,
+                );
+                if (snapshots.length > 0) {
+                    setPromptInspectionsByRoom((current) => mergePromptInspectionSnapshots(
+                        current,
+                        sourceRoom.id,
+                        snapshots,
+                        activePromptRoomIds,
+                    ));
+                }
             }
             const appliedResult = await applyConversationResult(
                 {
@@ -1164,6 +1208,8 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 debugEnabled={debugPanelEnabled}
                 debugLogCount={visibleDebugLogCount}
                 onOpenDebug={() => setDebugLogOpen(true)}
+                inspectorEnabled={developerInspectorEnabled}
+                onOpenInspector={() => setDeveloperInspectorOpen(true)}
                 showMemoryButton={showHeaderMemoryButton}
                 onOpenMemory={() => onOpenMemoryList(character)}
                 showSecretModeButton={
@@ -1255,6 +1301,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 />
             ) : (
                 <ChatMessagesView
+                    key={room.id}
                     priorMessages={priorMessagesForDisplay}
                     messages={processedMessages}
                     isSecretMode={isSecretMode}
@@ -1337,6 +1384,16 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     logs={fullJsonDebugLogs}
                     onClose={() => setDebugLogOpen(false)}
                     onClear={handleClearActiveDebugLogs}
+                />
+            )}
+            {developerInspectorOpen && developerInspectorEnabled && (
+                <DeveloperInspectorsModal
+                    room={room}
+                    memoryEnabled={memoryInspectorEnabled}
+                    summaryEnabled={summaryInspectorEnabled}
+                    promptEnabled={promptInspectorEnabled}
+                    promptSnapshots={promptInspectionsByRoom[room.id] ?? []}
+                    onClose={() => setDeveloperInspectorOpen(false)}
                 />
             )}
         </div>

@@ -6,6 +6,7 @@ import type { Character } from '@/lib/store';
 import { DEFAULT_COSTUME_NAME } from '@/lib/visualNovelPresentation';
 import type { VisualNovelCostumeOption } from '@/lib/visualNovelPresentation';
 import StoredImage from '../StoredImage';
+import { useVisualNovelImagePreload } from './useVisualNovelImagePreload';
 import WaitingEllipsis from './WaitingEllipsis';
 
 type VisualNovelViewProps = {
@@ -68,6 +69,12 @@ export default function VisualNovelView({
     const [costumeMenuOpen, setCostumeMenuOpen] = useState(false);
     const costumeMenuRef = useRef<HTMLDivElement>(null);
     const dialogueBodyRef = useRef<HTMLDivElement>(null);
+
+    useVisualNovelImagePreload({
+        character,
+        costumeName: selectedCostumeName,
+        currentImage: expressionImage,
+    });
 
     useEffect(() => {
         if (!costumeMenuOpen) return;

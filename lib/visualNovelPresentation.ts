@@ -85,6 +85,40 @@ export function getVisualNovelCostumeOptions(
     ];
 }
 
+export function getVisualNovelPreloadCandidates(
+    character: Character | null | undefined,
+    costumeName = DEFAULT_COSTUME_NAME,
+    currentImage?: string | null,
+    limit = 24,
+): string[] {
+    if (!character || limit <= 0) return [];
+
+    const candidates: string[] = [];
+    const seen = new Set<string>();
+    const add = (source?: string | null) => {
+        if (!source || source === currentImage || seen.has(source) || candidates.length >= limit) return;
+        seen.add(source);
+        candidates.push(source);
+    };
+
+    const selectedCostume = findCostume(character, costumeName);
+    if (selectedCostume) {
+        for (const expression of selectedCostume.expressions ?? []) add(expression.image);
+        add(selectedCostume.image);
+    } else {
+        for (const expression of character.expressions ?? []) add(expression.image);
+        add(character.icon);
+    }
+
+    // Costume changes are user-driven and can happen before the next response, so warm each
+    // alternative's base image after the likely expression variants for the active costume.
+    for (const costume of character.costumes ?? []) {
+        if (costume.name !== selectedCostume?.name) add(costume.image);
+    }
+
+    return candidates;
+}
+
 function isEscapedMarker(content: string, index: number): boolean {
     let slashCount = 0;
     for (let current = index - 1; current >= 0 && content[current] === '\\'; current--) {

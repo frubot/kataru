@@ -3,6 +3,7 @@ import type { Character, Room } from '../lib/store';
 import {
     buildVisualNovelTypingSegments,
     getVisualNovelCostumeOptions,
+    getVisualNovelPreloadCandidates,
     getVisualNovelTypingDelay,
     resolveVisualNovelCostumeName,
     resolveVisualNovelExpressionImage,
@@ -57,6 +58,33 @@ describe('visual novel costume and expression presentation', () => {
             { name: 'default', image: 'neutral.png', expressionCount: 2 },
             { name: 'uniform', image: 'uniform.png', expressionCount: 1 },
         ]);
+    });
+
+    test('prioritizes next expression variants and deduplicates the current image', () => {
+        expect(getVisualNovelPreloadCandidates(character, 'uniform', 'uniform-happy.png')).toEqual([
+            'uniform.png',
+        ]);
+        expect(getVisualNovelPreloadCandidates(character, 'default', 'neutral.png')).toEqual([
+            'happy.png',
+            'icon.png',
+            'uniform.png',
+        ]);
+    });
+
+    test('caps preload candidates without returning empty or duplicate sources', () => {
+        const duplicated: Character = {
+            ...character,
+            expressions: [
+                { name: 'neutral', image: 'same.png' },
+                { name: 'happy', image: 'same.png' },
+                { name: 'sad', image: 'sad.png' },
+            ],
+        };
+        expect(getVisualNovelPreloadCandidates(duplicated, 'default', null, 2)).toEqual([
+            'same.png',
+            'sad.png',
+        ]);
+        expect(getVisualNovelPreloadCandidates(null)).toEqual([]);
     });
 });
 

@@ -701,6 +701,10 @@ body {
   border-bottom: 1px solid var(--border-color);
 }
 
+.keyboard-shortcuts-modal .modal-header {
+  border-bottom: none;
+}
+
 .modal-body {
   padding: 1.5rem;
 }

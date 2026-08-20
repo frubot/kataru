@@ -66,27 +66,28 @@ export default function KeyboardShortcutsHelp() {
                 >
                     <div
                         ref={dialogRef}
-                        className="modal-content"
+                        className="modal-content keyboard-shortcuts-modal"
+                        onClick={(event) => event.stopPropagation()}
                         role="dialog"
                         aria-modal="true"
                         aria-labelledby="keyboard-shortcuts-title"
-                        style={{ maxWidth: 520 }}
                     >
                         <div className="modal-header">
-                            <h2 id="keyboard-shortcuts-title" style={{ fontSize: '1.125rem', fontWeight: 600 }}>
+                            <h2 id="keyboard-shortcuts-title" style={{ fontSize: '1.125rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
                                 キーボードショートカット
                             </h2>
                             <button
                                 type="button"
                                 className="btn btn-ghost"
                                 onClick={() => setOpen(false)}
+                                style={{ padding: '0.5rem' }}
                                 title="閉じる"
                                 aria-label="閉じる"
                             >
                                 <X size={20} />
                             </button>
                         </div>
-                        <div className="modal-body">
+                        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                             <dl style={{ display: 'grid', gridTemplateColumns: 'minmax(7rem, auto) 1fr', gap: '0.875rem 1rem', margin: 0 }}>
                                 {shortcuts.map((shortcut) => (
                                     <div key={shortcut.description} style={{ display: 'contents' }}>

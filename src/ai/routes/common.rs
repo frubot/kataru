@@ -12,7 +12,7 @@ use crate::{
 
 use super::super::{
     anthropic,
-    api_client::{AiApiClient, ai_api_config_value, map_request_error},
+    api_client::{AiApiClient, ai_api_config_value, classify_upstream_status, map_request_error},
 };
 
 pub(super) fn ai_api_client_for(state: &AppState, body: &Value) -> AppResult<AiApiClient> {
@@ -67,6 +67,11 @@ pub(super) fn copy_if_present(
 
 pub(super) async fn upstream_error(response: reqwest::Response) -> AppError {
     let status = response.status();
+    tracing::warn!(
+        upstream_status = status.as_u16(),
+        classification = classify_upstream_status(status),
+        "Upstream rejected the request"
+    );
     let detail = response.text().await.unwrap_or_default();
     AppError::Upstream(
         if detail.trim().is_empty() {

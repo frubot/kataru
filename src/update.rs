@@ -63,7 +63,10 @@ pub struct PreparedUpdate {
 }
 
 pub async fn run_special_command_if_requested() -> AppResult<bool> {
-    let args = env::args_os().skip(1).collect::<Vec<_>>();
+    let args = env::args_os()
+        .skip(1)
+        .filter(|arg| arg != "--verbose")
+        .collect::<Vec<_>>();
     let Some(command) = args.first().and_then(|arg| arg.to_str()) else {
         return Ok(false);
     };

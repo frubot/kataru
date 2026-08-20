@@ -30,6 +30,29 @@ pub enum AppError {
     Http(#[from] reqwest::Error),
 }
 
+impl AppError {
+    pub fn diagnostic_class(&self) -> &'static str {
+        match self {
+            Self::BadRequest(_) => "bad_request",
+            Self::NotFound(_) => "not_found",
+            Self::Forbidden(_) => "forbidden",
+            Self::Upstream(_, status) if matches!(status.as_u16(), 401 | 403) => {
+                "upstream_authentication"
+            }
+            Self::Upstream(_, status) if status.as_u16() == 429 => "upstream_rate_limit",
+            Self::Upstream(_, status) if status.is_server_error() => "upstream_unavailable",
+            Self::Upstream(_, _) => "upstream_rejected",
+            Self::Internal(_) => "internal",
+            Self::Io(_) => "io",
+            Self::Database(_) => "database",
+            Self::Json(_) => "json",
+            Self::Http(error) if error.is_timeout() => "upstream_timeout",
+            Self::Http(error) if error.is_connect() => "upstream_unreachable",
+            Self::Http(_) => "upstream_network",
+        }
+    }
+}
+
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let status = match &self {

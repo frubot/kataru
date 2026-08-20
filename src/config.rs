@@ -78,6 +78,7 @@ impl Config {
                     data_dir = portable_data_dir()?;
                 }
                 "--open" => open_browser = true,
+                "--verbose" => {}
                 "--dev-origin" => {
                     let value = args.next().ok_or_else(|| {
                         AppError::BadRequest("--dev-origin には値が必要です。".to_owned())
@@ -100,7 +101,7 @@ impl Config {
                 }
                 "--help" | "-h" => {
                     println!(
-                        "Kataru\n\n  version, --version, -V 現在のバージョンを表示\n  update                 最新版を確認して自動更新\n  config                 AI接続設定を表示・変更\n\n  --host <HOST>          待受ホスト（既定: {DEFAULT_HOST}）\n  --port <PORT>          待受ポート（既定: {DEFAULT_PORT}）\n  --data-dir <PATH>      データ保存先\n  --portable             実行ファイル横の kataru-data を使用\n  --open                 ブラウザを自動で開く\n  --dev-origin <ORIGIN>  開発UI用のloopbackオリジンを許可"
+                        "Kataru\n\n  version, --version, -V 現在のバージョンを表示\n  update                 最新版を確認して自動更新\n  config                 AI接続設定を表示・変更\n  doctor                 DB・設定・AI疎通を一括診断\n\n  --host <HOST>          待受ホスト（既定: {DEFAULT_HOST}）\n  --port <PORT>          待受ポート（既定: {DEFAULT_PORT}）\n  --data-dir <PATH>      データ保存先\n  --portable             実行ファイル横の kataru-data を使用\n  --open                 ブラウザを自動で開く\n  --dev-origin <ORIGIN>  開発UI用のloopbackオリジンを許可\n  --verbose              詳細な診断ログを出力"
                     );
                     std::process::exit(0);
                 }

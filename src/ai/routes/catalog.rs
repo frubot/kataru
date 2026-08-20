@@ -28,11 +28,7 @@ pub async fn connection_status(
         }
     };
 
-    match api_client
-        .get("models", Duration::from_secs(8))
-        .send()
-        .await
-    {
+    match api_client.send_get("models", Duration::from_secs(8)).await {
         Ok(response) if response.status().is_success() => Json(json!({
             "ready": true,
             "code": "ready",
@@ -164,11 +160,7 @@ pub async fn models(
     } else {
         "models"
     };
-    let response = api_client
-        .get(path, Duration::from_secs(15))
-        .send()
-        .await
-        .map_err(map_request_error)?;
+    let response = api_client.send_get(path, Duration::from_secs(15)).await?;
     if !response.status().is_success() {
         return Err(upstream_error(response).await);
     }
@@ -187,10 +179,8 @@ pub async fn providers(
         ));
     }
     let response = api_client
-        .get("providers", Duration::from_secs(15))
-        .send()
-        .await
-        .map_err(map_request_error)?;
+        .send_get("providers", Duration::from_secs(15))
+        .await?;
     if !response.status().is_success() {
         return Err(upstream_error(response).await);
     }

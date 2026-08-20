@@ -3,7 +3,9 @@ mod ai_config;
 mod config;
 mod conversation;
 mod db;
+mod doctor;
 mod error;
+mod logging;
 mod static_assets;
 mod update;
 
@@ -30,10 +32,8 @@ use tower_http::{
         CompressionLayer,
         predicate::{DefaultPredicate, NotForContentType, Predicate},
     },
-    trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer},
+    trace::TraceLayer,
 };
-use tracing::Level;
-use tracing_subscriber::EnvFilter;
 
 use crate::{
     config::Config,
@@ -80,19 +80,21 @@ async fn main() {
 }
 
 async fn run() -> AppResult<()> {
+    let verbose = logging::verbose_requested();
+    logging::init(verbose);
+
     if update::run_special_command_if_requested().await? {
         return Ok(());
     }
     if ai_config::run_cli_command_if_requested()? {
         return Ok(());
     }
-
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("kataru=info,tower_http=info")),
-        )
-        .init();
+    if let Some(exit_code) = doctor::run_cli_command_if_requested().await? {
+        if exit_code != 0 {
+            std::process::exit(exit_code);
+        }
+        return Ok(());
+    }
 
     let config = Config::from_args()?;
     let database = Database::open(&config.database_path)?;
@@ -133,9 +135,10 @@ async fn run() -> AppResult<()> {
         .layer(CompressionLayer::new().compress_when(response_compression_predicate()))
         .layer(
             TraceLayer::new_for_http()
-                .make_span_with(DefaultMakeSpan::new().include_headers(false))
-                .on_response(DefaultOnResponse::new().level(Level::INFO)),
-        );
+                .make_span_with(logging::make_http_span)
+                .on_response(logging::on_http_response),
+        )
+        .layer(middleware::from_fn(logging::assign_request_id));
 
     let listener = TcpListener::bind(config.bind_address()).await?;
     let url = config.origin();

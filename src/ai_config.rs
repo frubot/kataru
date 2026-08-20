@@ -428,6 +428,13 @@ impl AiConfigManager {
         }
     }
 
+    pub(crate) fn secret_store_available(&self) -> bool {
+        self.inner
+            .lock()
+            .expect("AI config lock poisoned")
+            .secret_store_available
+    }
+
     pub fn set_openrouter_api_key(&self, value: &str) -> AppResult<()> {
         if self.environment.openrouter_api_key.is_some() {
             return Err(environment_override("OPENROUTER_API_KEY"));
@@ -776,7 +783,10 @@ fn parse_config_data_dir(args: &mut Vec<String>) -> AppResult<PathBuf> {
 }
 
 pub fn run_cli_command_if_requested() -> AppResult<bool> {
-    let mut args = env::args().skip(1).collect::<Vec<_>>();
+    let mut args = env::args()
+        .skip(1)
+        .filter(|arg| arg != "--verbose")
+        .collect::<Vec<_>>();
     if args.first().map(String::as_str) != Some("config") {
         return Ok(false);
     }

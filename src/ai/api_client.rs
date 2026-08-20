@@ -1,4 +1,7 @@
-use std::{collections::HashSet, time::Duration};
+use std::{
+    collections::HashSet,
+    time::{Duration, Instant},
+};
 
 use axum::http::StatusCode;
 use reqwest::{Client, RequestBuilder, Response};
@@ -19,7 +22,10 @@ const LOCAL_API_KEY_FALLBACK: &str = "local";
 pub fn ai_api_config_value(body: &Value) -> Option<&Value> {
     body.get("aiApiConfig")
         .filter(|value| !value.is_null())
-        .or_else(|| body.get("aiProviderConfig").filter(|value| !value.is_null()))
+        .or_else(|| {
+            body.get("aiProviderConfig")
+                .filter(|value| !value.is_null())
+        })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,6 +33,16 @@ pub enum AiApiKind {
     OpenRouter,
     OpenAiCompatible,
     Anthropic,
+}
+
+impl AiApiKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::OpenRouter => "openrouter",
+            Self::OpenAiCompatible => "openai-compatible",
+            Self::Anthropic => "anthropic",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -257,14 +273,54 @@ impl AiApiClient {
         } else {
             None
         };
-        self.post_json(
-            path,
-            anthropic_body.as_ref().unwrap_or(&routed_body),
-            timeout_secs,
-        )
-        .send()
-        .await
-        .map_err(map_request_error)
+        let started_at = Instant::now();
+        let result = self
+            .post_json(
+                path,
+                anthropic_body.as_ref().unwrap_or(&routed_body),
+                timeout_secs,
+            )
+            .send()
+            .await;
+        self.finish_request(path, started_at, result)
+    }
+
+    pub async fn send_get(&self, path: &str, timeout: Duration) -> AppResult<Response> {
+        let started_at = Instant::now();
+        let result = self.get(path, timeout).send().await;
+        self.finish_request(path, started_at, result)
+    }
+
+    fn finish_request(
+        &self,
+        operation: &str,
+        started_at: Instant,
+        result: Result<Response, reqwest::Error>,
+    ) -> AppResult<Response> {
+        let latency_ms = started_at.elapsed().as_millis();
+        match result {
+            Ok(response) => {
+                tracing::debug!(
+                    upstream = self.kind.as_str(),
+                    operation = safe_upstream_operation(operation),
+                    status = response.status().as_u16(),
+                    latency_ms,
+                    classification = classify_upstream_status(response.status()),
+                    "Upstream request completed"
+                );
+                Ok(response)
+            }
+            Err(error) => {
+                tracing::warn!(
+                    upstream = self.kind.as_str(),
+                    operation = safe_upstream_operation(operation),
+                    latency_ms,
+                    classification = classify_request_error(&error),
+                    "Upstream request failed before receiving a response"
+                );
+                Err(mapped_request_error(error))
+            }
+        }
     }
 }
 
@@ -279,11 +335,66 @@ fn normalize_provider_slugs(values: Vec<String>) -> Vec<String> {
 }
 
 pub fn map_request_error(error: reqwest::Error) -> AppError {
+    tracing::warn!(
+        classification = classify_request_error(&error),
+        "Upstream response transport failed"
+    );
+    mapped_request_error(error)
+}
+
+fn mapped_request_error(error: reqwest::Error) -> AppError {
     if error.is_timeout() {
         let status = StatusCode::from_u16(499).expect("499 is a valid HTTP status code");
         AppError::Upstream("Request aborted".to_owned(), status)
     } else {
         AppError::Http(error)
+    }
+}
+
+pub fn classify_upstream_status(status: StatusCode) -> &'static str {
+    if status.is_success() {
+        return "success";
+    }
+    match status.as_u16() {
+        400 => "bad_request",
+        401 | 403 => "authentication",
+        408 => "timeout",
+        413 => "request_too_large",
+        429 => "rate_limit",
+        _ if status.is_client_error() => "client_error",
+        _ if status.is_server_error() => "server_error",
+        _ => "unexpected_status",
+    }
+}
+
+fn classify_request_error(error: &reqwest::Error) -> &'static str {
+    if error.is_timeout() {
+        "timeout"
+    } else if error.is_connect() {
+        "unreachable"
+    } else if error.is_decode() {
+        "decode"
+    } else if error.is_body() {
+        "body"
+    } else if error.is_request() {
+        "request"
+    } else {
+        "network"
+    }
+}
+
+fn safe_upstream_operation(operation: &str) -> &'static str {
+    match operation
+        .trim_matches('/')
+        .split_once('?')
+        .map_or(operation.trim_matches('/'), |(path, _)| path)
+    {
+        "models" => "models",
+        "providers" => "providers",
+        "chat/completions" => "chat/completions",
+        "embeddings" => "embeddings",
+        "images/generations" => "images/generations",
+        _ => "other",
     }
 }
 
@@ -301,6 +412,35 @@ mod tests {
             anthropic_base_url: "https://api.anthropic.com/v1".to_owned(),
             anthropic_api_key: Some("anthropic-secret".to_owned()),
         }
+    }
+
+    #[test]
+    fn upstream_status_classification_is_stable_and_content_free() {
+        assert_eq!(classify_upstream_status(StatusCode::OK), "success");
+        assert_eq!(
+            classify_upstream_status(StatusCode::UNAUTHORIZED),
+            "authentication"
+        );
+        assert_eq!(
+            classify_upstream_status(StatusCode::TOO_MANY_REQUESTS),
+            "rate_limit"
+        );
+        assert_eq!(
+            classify_upstream_status(StatusCode::INTERNAL_SERVER_ERROR),
+            "server_error"
+        );
+    }
+
+    #[test]
+    fn upstream_log_operation_is_allowlisted_and_strips_queries() {
+        assert_eq!(
+            safe_upstream_operation("models?output_modalities=text"),
+            "models"
+        );
+        assert_eq!(
+            safe_upstream_operation("private/secret-value?api_key=secret"),
+            "other"
+        );
     }
 
     #[test]

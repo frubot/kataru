@@ -12,6 +12,8 @@ mod rooms;
 mod test_support;
 mod usage;
 
+use std::time::Instant;
+
 use axum::{Json, extract::State};
 use serde_json::{Value, json};
 
@@ -27,6 +29,9 @@ pub async fn handle_storage_command(
     State(state): State<crate::AppState>,
     Json(command): Json<StorageCommand>,
 ) -> AppResult<Json<Value>> {
+    let command_kind = command.kind();
+    let started_at = Instant::now();
+    tracing::debug!(db_command = command_kind, "Database command started");
     let clear_history = matches!(
         &command,
         StorageCommand::ClearAllConversationHistory | StorageCommand::ResetAll
@@ -42,6 +47,24 @@ pub async fn handle_storage_command(
     let database: Database = state.database.clone();
     let result = database
         .call(move |connection| command::execute(connection, command))
-        .await?;
-    Ok(Json(json!({ "result": result })))
+        .await;
+    match result {
+        Ok(result) => {
+            tracing::debug!(
+                db_command = command_kind,
+                latency_ms = started_at.elapsed().as_millis(),
+                "Database command completed"
+            );
+            Ok(Json(json!({ "result": result })))
+        }
+        Err(error) => {
+            tracing::warn!(
+                db_command = command_kind,
+                latency_ms = started_at.elapsed().as_millis(),
+                classification = error.diagnostic_class(),
+                "Database command failed"
+            );
+            Err(error)
+        }
+    }
 }

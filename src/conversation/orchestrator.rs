@@ -150,7 +150,10 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
     let (current_summary, active_history) = match summary_attempt {
         Ok(result) => result,
         Err(error) => {
-            tracing::warn!(%error, "conversation summary failed; continuing with full history");
+            tracing::warn!(
+                classification = error.diagnostic_class(),
+                "conversation summary failed; continuing with full history"
+            );
             (fallback_summary.clone(), history.clone())
         }
     };

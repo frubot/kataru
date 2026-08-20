@@ -14,6 +14,7 @@ use tokio::{
     sync::{Mutex, OwnedMutexGuard},
     task::{AbortHandle, JoinHandle},
 };
+use tracing::Instrument;
 
 use crate::{
     AppState,
@@ -311,12 +312,23 @@ pub async fn start(
         .and_then(Value::as_bool)
         .or_else(|| payload.pointer("/room/secretMode").and_then(Value::as_bool))
         .unwrap_or(false);
+    tracing::debug!(
+        job_id,
+        secret_mode,
+        stage = "accepted",
+        "Conversation job accepted"
+    );
 
     let (snapshot, inserted) = state
         .conversation_jobs
         .insert(job_id.clone(), room_id.clone(), !secret_mode)
         .await?;
     if !inserted {
+        tracing::debug!(
+            job_id,
+            stage = "already_exists",
+            "Conversation job already exists"
+        );
         return Ok((StatusCode::ACCEPTED, Json(snapshot)));
     }
 
@@ -326,6 +338,11 @@ pub async fn start(
         Some(state.conversation_jobs.lock_history_persistence().await)
     };
     if !state.conversation_jobs.is_running(&job_id).await {
+        tracing::debug!(
+            job_id,
+            stage = "cancelled_before_persistence",
+            "Conversation job was cancelled before persistence"
+        );
         let current = state
             .conversation_jobs
             .get(&job_id)
@@ -333,60 +350,116 @@ pub async fn start(
             .unwrap_or(snapshot);
         return Ok((StatusCode::ACCEPTED, Json(current)));
     }
+    tracing::debug!(
+        job_id,
+        stage = "persisting_submission",
+        "Conversation job is persisting the submitted turn"
+    );
     if let Err(error) =
         persist_conversation_submission(&state.database, &payload, secret_mode).await
     {
+        tracing::warn!(
+            job_id,
+            stage = "submission_persistence_failed",
+            classification = error.diagnostic_class(),
+            "Conversation job could not persist the submitted turn"
+        );
         state
             .conversation_jobs
             .fail(&job_id, error.to_string())
             .await;
         return Err(error);
     }
+    tracing::debug!(
+        job_id,
+        stage = "submission_persisted",
+        "Conversation job persisted the submitted turn"
+    );
     drop(history_persistence_guard);
 
     let job_state = state.clone();
     let task_job_id = job_id.clone();
     let task_room_id = room_id;
-    let handle = tokio::spawn(async move {
-        match run_turn(job_state.clone(), payload).await {
-            Ok(mut result) => {
-                normalize_result_ids(&task_job_id, &mut result);
-                let history_persistence_guard = if secret_mode {
-                    None
-                } else {
-                    Some(job_state.conversation_jobs.lock_history_persistence().await)
-                };
-                if !job_state.conversation_jobs.is_running(&task_job_id).await {
-                    return;
+    let job_span = tracing::debug_span!("conversation_job", job_id = %task_job_id);
+    let handle = tokio::spawn(
+        async move {
+            tracing::debug!(
+                stage = "generation_started",
+                "Conversation generation started"
+            );
+            match run_turn(job_state.clone(), payload).await {
+                Ok(mut result) => {
+                    let message_count = result
+                        .get("messages")
+                        .and_then(serde_json::Value::as_array)
+                        .map_or(0, Vec::len);
+                    tracing::debug!(
+                        stage = "generation_completed",
+                        message_count,
+                        "Conversation generation completed"
+                    );
+                    normalize_result_ids(&task_job_id, &mut result);
+                    let history_persistence_guard = if secret_mode {
+                        None
+                    } else {
+                        Some(job_state.conversation_jobs.lock_history_persistence().await)
+                    };
+                    if !job_state.conversation_jobs.is_running(&task_job_id).await {
+                        tracing::debug!(
+                            stage = "cancelled_before_result_persistence",
+                            "Conversation job was cancelled before result persistence"
+                        );
+                        return;
+                    }
+                    tracing::debug!(
+                        stage = "persisting_result",
+                        "Conversation job is persisting the generated result"
+                    );
+                    if let Err(error) = persist_conversation_result(
+                        &job_state.database,
+                        &task_room_id,
+                        &result,
+                        secret_mode,
+                    )
+                    .await
+                    {
+                        tracing::warn!(
+                            stage = "result_persistence_failed",
+                            classification = error.diagnostic_class(),
+                            "Conversation job could not persist the generated result"
+                        );
+                        job_state
+                            .conversation_jobs
+                            .fail(&task_job_id, error.to_string())
+                            .await;
+                        return;
+                    }
+                    tracing::debug!(
+                        stage = "result_persisted",
+                        "Conversation job persisted the generated result"
+                    );
+                    drop(history_persistence_guard);
+                    job_state
+                        .conversation_jobs
+                        .complete(&task_job_id, result)
+                        .await;
+                    tracing::debug!(stage = "completed", "Conversation job completed");
                 }
-                if let Err(error) = persist_conversation_result(
-                    &job_state.database,
-                    &task_room_id,
-                    &result,
-                    secret_mode,
-                )
-                .await
-                {
+                Err(error) => {
+                    tracing::warn!(
+                        stage = "generation_failed",
+                        classification = error.diagnostic_class(),
+                        "Conversation generation failed"
+                    );
                     job_state
                         .conversation_jobs
                         .fail(&task_job_id, error.to_string())
                         .await;
-                    return;
                 }
-                drop(history_persistence_guard);
-                job_state
-                    .conversation_jobs
-                    .complete(&task_job_id, result)
-                    .await;
-            }
-            Err(error) => {
-                job_state
-                    .conversation_jobs
-                    .fail(&task_job_id, error.to_string())
-                    .await;
             }
         }
-    });
+        .instrument(job_span),
+    );
     state.conversation_jobs.attach(&job_id, &handle).await;
 
     Ok((StatusCode::ACCEPTED, Json(snapshot)))
@@ -417,6 +490,11 @@ pub async fn cancel(
     if !valid_job_id(&job_id) {
         return Err(AppError::BadRequest("jobId が不正です。".to_owned()));
     }
+    tracing::debug!(
+        job_id,
+        stage = "cancellation_requested",
+        "Conversation job cancellation requested"
+    );
     Ok(Json(state.conversation_jobs.cancel(&job_id).await))
 }
 

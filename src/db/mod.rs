@@ -21,6 +21,7 @@ pub use storage::{
 
 const INITIAL_MIGRATION: &str = include_str!("../../migrations/0001_initial.sql");
 const IMAGE_ASSET_MIGRATION: &str = include_str!("../../migrations/0002_image_assets.sql");
+pub const CURRENT_SCHEMA_VERSION: i64 = 2;
 
 // 自動バックアップはDBと同じデータディレクトリ内に5世代だけ保持する。
 // ファイル名のUnixミリ秒と連番で、同一ミリ秒の起動でも世代を上書きしない。

@@ -192,6 +192,62 @@ pub enum StorageCommand {
     },
 }
 
+impl StorageCommand {
+    pub(super) fn kind(&self) -> &'static str {
+        match self {
+            Self::GetMeta { .. } => "get_meta",
+            Self::SetMeta { .. } => "set_meta",
+            Self::DeleteMeta { .. } => "delete_meta",
+            Self::GetAllCharacters => "get_all_characters",
+            Self::GetAllCharactersWithImages => "get_all_characters_with_images",
+            Self::PutCharacter { .. } => "put_character",
+            Self::DeleteCharacter { .. } => "delete_character",
+            Self::GetAllSituations => "get_all_situations",
+            Self::PutSituation { .. } => "put_situation",
+            Self::DeleteSituation { .. } => "delete_situation",
+            Self::GetAllRooms => "get_all_rooms",
+            Self::PutRoom { .. } => "put_room",
+            Self::PutRoomAndMessage { .. } => "put_room_and_message",
+            Self::DeleteRoom { .. } => "delete_room",
+            Self::DeleteRoomHistory { .. } => "delete_room_history",
+            Self::GetAllMessages => "get_all_messages",
+            Self::GetMessagesByRoom { .. } => "get_messages_by_room",
+            Self::PutMessage { .. } => "put_message",
+            Self::PutMessages { .. } => "put_messages",
+            Self::DeleteMessage { .. } => "delete_message",
+            Self::DeleteMessagesByIds { .. } => "delete_messages_by_ids",
+            Self::DoMessagesExist { .. } => "do_messages_exist",
+            Self::ClearMessagesByRoom { .. } => "clear_messages_by_room",
+            Self::ClearAllConversationHistory => "clear_all_conversation_history",
+            Self::GetAllMemories => "get_all_memories",
+            Self::GetMemory { .. } => "get_memory",
+            Self::GetMemoriesBySourceMessageIds { .. } => "get_memories_by_source_message_ids",
+            Self::GetMemoriesByCharacter { .. } => "get_memories_by_character",
+            Self::GetSearchableMemories { .. } => "get_searchable_memories",
+            Self::PutMemory { .. } => "put_memory",
+            Self::PutMemories { .. } => "put_memories",
+            Self::DeleteMemory { .. } => "delete_memory",
+            Self::DeleteMemories { .. } => "delete_memories",
+            Self::RemoveMemoryContentsFromMessages { .. } => "remove_memory_contents_from_messages",
+            Self::DeleteMemoriesByCharacter { .. } => "delete_memories_by_character",
+            Self::DeleteMemoriesByCharacterAndContent { .. } => {
+                "delete_memories_by_character_and_content"
+            }
+            Self::DeleteMemoriesBySourceMessageIds { .. } => {
+                "delete_memories_by_source_message_ids"
+            }
+            Self::TouchMemories { .. } => "touch_memories",
+            Self::GetAllUsageRecords => "get_all_usage_records",
+            Self::PutUsageRecord { .. } => "put_usage_record",
+            Self::DeleteUsageRecordsOlderThan { .. } => "delete_usage_records_older_than",
+            Self::ClearAll => "clear_all",
+            Self::ResetAll => "reset_all",
+            Self::BulkWrite { .. } => "bulk_write",
+            Self::ReplaceAll { .. } => "replace_all",
+        }
+    }
+}
+
 pub(super) fn execute(connection: &mut Connection, command: StorageCommand) -> AppResult<Value> {
     match command {
         StorageCommand::GetMeta { key } => meta::get(connection, &key),
@@ -419,6 +475,20 @@ mod tests {
 
     use super::{StorageCommand, execute};
     use crate::db::storage::test_support::{open_test_database, test_room};
+
+    #[test]
+    fn command_kind_contains_only_the_operation_name() {
+        let command: StorageCommand = serde_json::from_value(serde_json::json!({
+            "op": "put_message",
+            "room_id": "secret-room",
+            "message": { "content": "must never be logged" }
+        }))
+        .expect("parse storage command");
+
+        assert_eq!(command.kind(), "put_message");
+        assert!(!command.kind().contains("secret"));
+        assert!(!command.kind().contains("content"));
+    }
 
     #[test]
     fn put_room_and_message_stores_first_message_with_foreign_keys_enabled() {

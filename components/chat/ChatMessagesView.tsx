@@ -1,5 +1,13 @@
-import { useEffect, useRef } from 'react';
-import type { RefObject } from 'react';
+import {
+    Fragment,
+    useCallback,
+    useEffect,
+    useLayoutEffect,
+    useMemo,
+    useRef,
+    useState,
+} from 'react';
+import type { ReactNode } from 'react';
 import { HatGlasses, MessageSquare } from 'lucide-react';
 import type { Character } from '@/lib/store';
 import type {
@@ -9,6 +17,13 @@ import type {
 } from '@/lib/chatMessagePresentation';
 import MessageBubble from '../MessageBubble';
 import StoredImage from '../StoredImage';
+import {
+    buildVirtualLayout,
+    CHAT_VIRTUALIZATION_THRESHOLD,
+    computeVirtualRange,
+    estimateChatMessageHeight,
+    getMeasurementScrollAdjustment,
+} from './chatVirtualization';
 import WaitingEllipsis from './WaitingEllipsis';
 
 const NOOP = () => undefined;
@@ -63,6 +78,68 @@ type EditingMessage = {
     messageId: string;
     content: string;
 } | null;
+
+type HistoryItem =
+    | {
+        key: string;
+        kind: 'prior';
+        presentation: PriorMessagePresentation;
+        presentationIndex: number;
+    }
+    | {
+        key: string;
+        kind: 'message';
+        presentation: ChatMessagePresentation;
+        messageIndex: number;
+    };
+
+function MeasuredVirtualRow({
+    index,
+    itemKey,
+    top,
+    totalCount,
+    setSize,
+    children,
+}: {
+    index: number;
+    itemKey: string;
+    top: number;
+    totalCount: number;
+    setSize: (itemKey: string, index: number, size: number) => void;
+    children: ReactNode;
+}) {
+    const rowRef = useRef<HTMLDivElement>(null);
+
+    useLayoutEffect(() => {
+        const row = rowRef.current;
+        if (!row) return;
+
+        const measure = () => setSize(itemKey, index, row.getBoundingClientRect().height);
+        measure();
+        if (typeof ResizeObserver === 'undefined') return;
+
+        const observer = new ResizeObserver(measure);
+        observer.observe(row);
+        return () => observer.disconnect();
+    }, [index, itemKey, setSize]);
+
+    return (
+        <div
+            ref={rowRef}
+            role="listitem"
+            aria-posinset={index + 1}
+            aria-setsize={totalCount}
+            style={{
+                position: 'absolute',
+                insetInline: 0,
+                top: 0,
+                transform: `translateY(${top}px)`,
+            }}
+        >
+            {children}
+        </div>
+    );
+}
 
 type ChatMessagesViewProps = {
     priorMessages: PriorMessagePresentation[];
@@ -149,17 +226,217 @@ export default function ChatMessagesView({
     onOpenMemoryList,
     onRevealTypewriter,
 }: ChatMessagesViewProps) {
-    const messagesEndRef: RefObject<HTMLDivElement | null> = useRef<HTMLDivElement>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const virtualListRef = useRef<HTMLDivElement>(null);
+    const followBottomRef = useRef(true);
+    const pendingScrollAdjustmentRef = useRef(0);
+    const scrollFrameRef = useRef<number | null>(null);
+    const [measuredHeights, setMeasuredHeights] = useState<Map<string, number>>(() => new Map());
+    const [viewport, setViewport] = useState({ scrollOffset: 0, viewportSize: 0 });
+
+    const historyItems = useMemo<HistoryItem[]>(() => [
+        ...priorMessages.map((presentation, presentationIndex) => ({
+            key: `prior-display:${presentation.message.id}`,
+            kind: 'prior' as const,
+            presentation,
+            presentationIndex,
+        })),
+        ...messages.map((presentation, messageIndex) => ({
+            key: presentation.id,
+            kind: 'message' as const,
+            presentation,
+            messageIndex,
+        })),
+    ], [messages, priorMessages]);
+    const itemSizes = useMemo(() => {
+        return historyItems.map((item) => {
+            const measuredHeight = measuredHeights.get(item.key);
+            if (measuredHeight != null) return measuredHeight;
+            const message = item.kind === 'prior' ? item.presentation.message : item.presentation;
+            return estimateChatMessageHeight(message.content, message.role);
+        });
+    }, [historyItems, measuredHeights]);
+    const layout = useMemo(() => buildVirtualLayout(itemSizes), [itemSizes]);
+
+    const virtualized = historyItems.length >= CHAT_VIRTUALIZATION_THRESHOLD;
+
+    const readViewport = useCallback(() => {
+        const container = containerRef.current;
+        if (!container) return;
+        const list = virtualListRef.current;
+        const listContentTop = list
+            ? list.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop
+            : 0;
+        const nextViewport = {
+            scrollOffset: Math.max(0, container.scrollTop - listContentTop),
+            viewportSize: container.clientHeight,
+        };
+        setViewport((current) => (
+            Math.abs(current.scrollOffset - nextViewport.scrollOffset) < 0.5
+            && current.viewportSize === nextViewport.viewportSize
+                ? current
+                : nextViewport
+        ));
+    }, [setViewport]);
 
     useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages]);
+        const activeKeys = new Set(historyItems.map((item) => item.key));
+        setMeasuredHeights((current) => {
+            if ([...current.keys()].every((key) => activeKeys.has(key))) return current;
+            return new Map([...current].filter(([key]) => activeKeys.has(key)));
+        });
+    }, [historyItems]);
+
+    useEffect(() => {
+        const container = containerRef.current;
+        if (!container) return;
+
+        const handleScroll = () => {
+            followBottomRef.current = (
+                container.scrollHeight - container.scrollTop - container.clientHeight <= 96
+            );
+            if (scrollFrameRef.current != null) return;
+            scrollFrameRef.current = requestAnimationFrame(() => {
+                scrollFrameRef.current = null;
+                readViewport();
+            });
+        };
+
+        container.addEventListener('scroll', handleScroll, { passive: true });
+        const observer = typeof ResizeObserver === 'undefined'
+            ? null
+            : new ResizeObserver(readViewport);
+        observer?.observe(container);
+        readViewport();
+
+        return () => {
+            container.removeEventListener('scroll', handleScroll);
+            observer?.disconnect();
+            if (scrollFrameRef.current != null) cancelAnimationFrame(scrollFrameRef.current);
+            scrollFrameRef.current = null;
+        };
+    }, [readViewport, virtualized]);
+
+    const setVirtualItemSize = useCallback((itemKey: string, reportedIndex: number, nextSize: number) => {
+        if (!Number.isFinite(nextSize) || nextSize <= 0) return;
+        const index = historyItems[reportedIndex]?.key === itemKey
+            ? reportedIndex
+            : historyItems.findIndex((item) => item.key === itemKey);
+        if (index < 0) return;
+
+        const previousSize = layout.sizes[index] ?? nextSize;
+        if (Math.abs(previousSize - nextSize) < 0.5) return;
+
+        const container = containerRef.current;
+        const list = virtualListRef.current;
+        const listContentTop = container && list
+            ? list.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop
+            : 0;
+        const viewportStart = container ? Math.max(0, container.scrollTop - listContentTop) : 0;
+
+        pendingScrollAdjustmentRef.current += getMeasurementScrollAdjustment({
+            itemEnd: (layout.starts[index] ?? 0) + previousSize,
+            viewportStart,
+            previousSize,
+            nextSize,
+            followingBottom: followBottomRef.current,
+        });
+        setMeasuredHeights((current) => {
+            if (current.get(itemKey) === nextSize) return current;
+            const next = new Map(current);
+            next.set(itemKey, nextSize);
+            return next;
+        });
+    }, [historyItems, layout, setMeasuredHeights]);
+
+    useLayoutEffect(() => {
+        const container = containerRef.current;
+        if (!container) return;
+        const scrollAdjustment = pendingScrollAdjustmentRef.current;
+        pendingScrollAdjustmentRef.current = 0;
+
+        if (scrollAdjustment !== 0 && !followBottomRef.current) {
+            container.scrollTop += scrollAdjustment;
+        } else if (followBottomRef.current) {
+            container.scrollTop = container.scrollHeight;
+        }
+        readViewport();
+    });
+
+    const virtualRange = virtualized
+        ? computeVirtualRange(layout, viewport.scrollOffset, viewport.viewportSize)
+        : { startIndex: 0, endIndex: historyItems.length - 1 };
+    const editingIndex = editingMessage
+        ? historyItems.findIndex((item) => item.kind === 'message' && item.presentation.id === editingMessage.messageId)
+        : -1;
+    const visibleIndices = useMemo(() => {
+        const indices: number[] = [];
+        for (let index = virtualRange.startIndex; index <= virtualRange.endIndex; index++) {
+            indices.push(index);
+        }
+        if (editingIndex >= 0 && !indices.includes(editingIndex)) indices.push(editingIndex);
+        return indices.sort((left, right) => left - right);
+    }, [editingIndex, virtualRange.endIndex, virtualRange.startIndex]);
 
     const formatAssistantActions = !isMessageMode;
     const interactionsDisabled = isLoading || isSummarizing || !!branchingMessageId;
 
+    const renderHistoryItem = (item: HistoryItem) => {
+        if (item.kind === 'prior') {
+            return (
+                <SituationPriorMessageBubble
+                    presentation={item.presentation}
+                    index={item.presentationIndex}
+                    formatAssistantActions={formatAssistantActions}
+                />
+            );
+        }
+
+        const { presentation: message, messageIndex: index } = item;
+        return (
+            <MessageBubble
+                messageId={message.id}
+                role={message.role}
+                content={message.content}
+                displayContent={message.displayContent}
+                index={index}
+                isArchived={message.isArchived}
+                isLastMessage={index === messages.length - 1}
+                isLoading={interactionsDisabled}
+                isHovered={hoveredMessageId === message.id || touchedMessageId === message.id}
+                isCopied={copiedMessageId === message.id}
+                disableEntranceAnimation={streamedFinalMessageIds.has(message.id)}
+                isTypewriterActive={isTypewriterActive && message.id === typingMessageId}
+                formatAssistantActions={formatAssistantActions}
+                isAssistantContinuation={message.isAssistantContinuation}
+                showAssistantActions={message.showAssistantActions}
+                showBranchAction={message.showBranchAction}
+                showMemoryIndicator={message.showMemoryIndicator}
+                showArchiveDivider={message.showArchiveDivider}
+                memoryCharacterId={message.characterId}
+                characterIcon={message.msgCharacterIcon}
+                characterName={message.msgCharacterName}
+                isGroupRoom={isGroupRoom}
+                onMouseEnter={onMouseEnter}
+                onMouseLeave={onMouseLeave}
+                onTouchStart={onTouchStart}
+                onEdit={onEdit}
+                isEditing={editingMessage?.messageId === message.id}
+                editContent={editingMessage?.messageId === message.id ? editingMessage.content : ''}
+                onEditChange={onEditChange}
+                onCancelEdit={onCancelEdit}
+                onSubmitEdit={onSubmitEdit}
+                onCopy={onCopy}
+                onRegenerate={onRegenerate}
+                onBranch={() => onBranch(message.id)}
+                onOpenMemoryList={onOpenMemoryList}
+                onRevealTypewriter={onRevealTypewriter}
+            />
+        );
+    };
+
     return (
-        <div className="chat-messages">
+        <div ref={containerRef} className="chat-messages">
             {priorMessages.length === 0 && messages.length === 0 ? (
                 <div className="empty-state" style={{ opacity: 0.7 }}>
                     {isSecretMode ? (
@@ -181,57 +458,39 @@ export default function ChatMessagesView({
                     )}
                 </div>
             ) : (
-                <>
-                    {priorMessages.map((presentation, index) => (
-                        <SituationPriorMessageBubble
-                            key={`prior-display:${presentation.message.id}`}
-                            presentation={presentation}
-                            index={index}
-                            formatAssistantActions={formatAssistantActions}
-                        />
-                    ))}
-                    {messages.map((message, index) => (
-                        <MessageBubble
-                            key={message.id}
-                            messageId={message.id}
-                            role={message.role}
-                            content={message.content}
-                            displayContent={message.displayContent}
-                            index={index}
-                            isArchived={message.isArchived}
-                            isLastMessage={index === messages.length - 1}
-                            isLoading={interactionsDisabled}
-                            isHovered={hoveredMessageId === message.id || touchedMessageId === message.id}
-                            isCopied={copiedMessageId === message.id}
-                            disableEntranceAnimation={streamedFinalMessageIds.has(message.id)}
-                            isTypewriterActive={isTypewriterActive && message.id === typingMessageId}
-                            formatAssistantActions={formatAssistantActions}
-                            isAssistantContinuation={message.isAssistantContinuation}
-                            showAssistantActions={message.showAssistantActions}
-                            showBranchAction={message.showBranchAction}
-                            showMemoryIndicator={message.showMemoryIndicator}
-                            showArchiveDivider={message.showArchiveDivider}
-                            memoryCharacterId={message.characterId}
-                            characterIcon={message.msgCharacterIcon}
-                            characterName={message.msgCharacterName}
-                            isGroupRoom={isGroupRoom}
-                            onMouseEnter={onMouseEnter}
-                            onMouseLeave={onMouseLeave}
-                            onTouchStart={onTouchStart}
-                            onEdit={onEdit}
-                            isEditing={editingMessage?.messageId === message.id}
-                            editContent={editingMessage?.messageId === message.id ? editingMessage.content : ''}
-                            onEditChange={onEditChange}
-                            onCancelEdit={onCancelEdit}
-                            onSubmitEdit={onSubmitEdit}
-                            onCopy={onCopy}
-                            onRegenerate={onRegenerate}
-                            onBranch={() => onBranch(message.id)}
-                            onOpenMemoryList={onOpenMemoryList}
-                            onRevealTypewriter={onRevealTypewriter}
-                        />
-                    ))}
-                </>
+                virtualized ? (
+                    <div
+                        ref={virtualListRef}
+                        role="list"
+                        aria-label="会話履歴"
+                        style={{
+                            position: 'relative',
+                            flex: `0 0 ${layout.totalSize}px`,
+                            height: layout.totalSize,
+                            minHeight: layout.totalSize,
+                        }}
+                    >
+                        {visibleIndices.map((index) => {
+                            const item = historyItems[index];
+                            return (
+                                <MeasuredVirtualRow
+                                    key={item.key}
+                                    index={index}
+                                    itemKey={item.key}
+                                    top={layout.starts[index]}
+                                    totalCount={historyItems.length}
+                                    setSize={setVirtualItemSize}
+                                >
+                                    {renderHistoryItem(item)}
+                                </MeasuredVirtualRow>
+                            );
+                        })}
+                    </div>
+                ) : (
+                    historyItems.map((item) => (
+                        <Fragment key={item.key}>{renderHistoryItem(item)}</Fragment>
+                    ))
+                )
             )}
             {formattedStreamingPreviewMessages.length > 0 && activeStreamingPreview ? (
                 <>
@@ -321,7 +580,6 @@ export default function ChatMessagesView({
                     古い会話を要約中...
                 </div>
             )}
-            <div ref={messagesEndRef} />
         </div>
     );
 }

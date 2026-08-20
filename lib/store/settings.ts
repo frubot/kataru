@@ -192,7 +192,6 @@ type SettingsSlice = Pick<
     | 'detailedErrorLoggingEnabled'
     | 'memoryInspectorEnabled'
     | 'summaryInspectorEnabled'
-    | 'promptInspectorEnabled'
     | 'fullJsonDebugLogs'
     | 'setThemeMode'
     | 'setThemePalette'
@@ -220,7 +219,6 @@ type SettingsSlice = Pick<
     | 'setDetailedErrorLoggingEnabled'
     | 'setMemoryInspectorEnabled'
     | 'setSummaryInspectorEnabled'
-    | 'setPromptInspectorEnabled'
     | 'addFullJsonDebugLog'
     | 'clearFullJsonDebugLogs'
 >;
@@ -251,7 +249,6 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         detailedErrorLoggingEnabled: false,
         memoryInspectorEnabled: false,
         summaryInspectorEnabled: false,
-        promptInspectorEnabled: false,
         fullJsonDebugLogs: [],
 
         setThemeMode: (themeMode) => {
@@ -349,10 +346,6 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         setSummaryInspectorEnabled: (summaryInspectorEnabled) => {
             set({ summaryInspectorEnabled });
             fire(db.setMeta('summaryInspectorEnabled', summaryInspectorEnabled));
-        },
-        setPromptInspectorEnabled: (promptInspectorEnabled) => {
-            set({ promptInspectorEnabled });
-            fire(db.setMeta('promptInspectorEnabled', promptInspectorEnabled));
         },
         addFullJsonDebugLog: (log) => {
             const json = log.json.trim();

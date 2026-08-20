@@ -285,7 +285,6 @@ export interface AppState {
     detailedErrorLoggingEnabled: boolean;
     memoryInspectorEnabled: boolean;
     summaryInspectorEnabled: boolean;
-    promptInspectorEnabled: boolean;
     fullJsonDebugLogs: FullJsonDebugLog[];
     characters: Character[];
     groups: Situation[];
@@ -322,7 +321,6 @@ export interface AppState {
     setDetailedErrorLoggingEnabled: (enabled: boolean) => void;
     setMemoryInspectorEnabled: (enabled: boolean) => void;
     setSummaryInspectorEnabled: (enabled: boolean) => void;
-    setPromptInspectorEnabled: (enabled: boolean) => void;
 
     createCharacter: (name: string, systemPrompt?: string, model?: string, extras?: CharacterExtras) => string;
     updateCharacter: (id: string, updates: Partial<Pick<Character, 'name' | 'systemPrompt' | 'favorite' | 'speechStyle' | 'protagonistPrompt' | 'userConstraints' | 'model' | 'icon' | 'maxTokens' | 'maxHistory' | 'temperature' | 'topP' | 'topK' | 'enableThinking' | 'enableMemory' | 'enableSummary' | 'expressions' | 'costumes'>>) => void;

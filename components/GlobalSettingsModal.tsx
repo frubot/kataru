@@ -337,10 +337,10 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         aiApiType, setAiApiType,
         openRouterIgnoredProviders, setOpenRouterIgnoredProviders,
         fullJsonDebugEnabled, detailedErrorLoggingEnabled, fullJsonDebugLogs,
-        memoryInspectorEnabled, summaryInspectorEnabled, promptInspectorEnabled,
+        memoryInspectorEnabled, summaryInspectorEnabled,
         setThemeMode, setThemePalette, setVnTypingSpeed,
         setFullJsonDebugEnabled, setDetailedErrorLoggingEnabled, clearFullJsonDebugLogs,
-        setMemoryInspectorEnabled, setSummaryInspectorEnabled, setPromptInspectorEnabled,
+        setMemoryInspectorEnabled, setSummaryInspectorEnabled,
         clearAllHistory, resetApplication, mergeBackup, restoreBackup,
     } = useStore();
     const apiTypeDefaults = getDefaultModelDefaults(aiApiType);
@@ -1438,17 +1438,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     })}
                                     <p style={{ margin: '0.375rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
                                         現在の要約、圧縮範囲、履歴を確認して手動編集できます。
-                                    </p>
-                                </div>
-                                <div style={{ marginTop: '1rem' }}>
-                                    {renderDebugToggle({
-                                        label: '最終プロンプトインスペクター',
-                                        enabled: promptInspectorEnabled,
-                                        onToggle: () => setPromptInspectorEnabled(!promptInspectorEnabled),
-                                        ariaLabel: '最終プロンプトインスペクターを有効化',
-                                    })}
-                                    <p style={{ margin: '0.375rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                                        生成直前に組み立てたmessagesと、ブロック別の推定トークン数を表示します。
                                     </p>
                                 </div>
                             </div>

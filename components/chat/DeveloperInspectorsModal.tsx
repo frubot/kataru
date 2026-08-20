@@ -1,29 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
-import { Brain, FileText, ScanSearch, X } from 'lucide-react';
+import { Brain, FileText, X } from 'lucide-react';
 
-import type { PromptInspectionSnapshot } from '@/lib/promptInspector';
 import type { Room } from '@/lib/store';
 import { useModalKeyboard } from '@/components/useModalKeyboard';
 import MemoryInspectorPanel from './MemoryInspectorPanel';
-import PromptInspectorPanel from './PromptInspectorPanel';
 import SummaryInspectorPanel from './SummaryInspectorPanel';
 
-type InspectorTab = 'memory' | 'summary' | 'prompt';
+type InspectorTab = 'memory' | 'summary';
 
 type DeveloperInspectorsModalProps = {
     room: Room;
     memoryEnabled: boolean;
     summaryEnabled: boolean;
-    promptEnabled: boolean;
-    promptSnapshots: PromptInspectionSnapshot[];
     onClose: () => void;
 };
 
-function enabledTabs(memoryEnabled: boolean, summaryEnabled: boolean, promptEnabled: boolean): InspectorTab[] {
+function enabledTabs(memoryEnabled: boolean, summaryEnabled: boolean): InspectorTab[] {
     return [
         ...(memoryEnabled ? ['memory' as const] : []),
         ...(summaryEnabled ? ['summary' as const] : []),
-        ...(promptEnabled ? ['prompt' as const] : []),
     ];
 }
 
@@ -31,12 +26,10 @@ export default function DeveloperInspectorsModal({
     room,
     memoryEnabled,
     summaryEnabled,
-    promptEnabled,
-    promptSnapshots,
     onClose,
 }: DeveloperInspectorsModalProps) {
     const modalRef = useRef<HTMLDivElement>(null);
-    const tabs = enabledTabs(memoryEnabled, summaryEnabled, promptEnabled);
+    const tabs = enabledTabs(memoryEnabled, summaryEnabled);
     const [activeTab, setActiveTab] = useState<InspectorTab>(tabs[0] ?? 'memory');
     useEffect(() => {
         if (!tabs.includes(activeTab) && tabs[0]) setActiveTab(tabs[0]);
@@ -71,15 +64,9 @@ export default function DeveloperInspectorsModal({
                                 <FileText size={15} />要約
                             </button>
                         )}
-                        {promptEnabled && (
-                            <button type="button" role="tab" aria-selected={activeTab === 'prompt'} className={`btn ${activeTab === 'prompt' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('prompt')}>
-                                <ScanSearch size={15} />プロンプト
-                            </button>
-                        )}
                     </div>
                     {activeTab === 'memory' && memoryEnabled && <MemoryInspectorPanel room={room} />}
                     {activeTab === 'summary' && summaryEnabled && <SummaryInspectorPanel room={room} />}
-                    {activeTab === 'prompt' && promptEnabled && <PromptInspectorPanel snapshots={promptSnapshots} />}
                 </div>
             </div>
         </div>

@@ -64,7 +64,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
         hydrate: async () => {
             if (get().hydrated) return;
             await db.migrateLegacyDatabase();
-            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, currentRoomId, vnTypingSpeed, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, promptInspectorEnabled, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion] = await Promise.all([
+            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, currentRoomId, vnTypingSpeed, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion] = await Promise.all([
                 db.getAllCharacters(),
                 db.getAllGroups(),
                 db.getAllRooms(),
@@ -77,7 +77,6 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 db.getMeta<boolean>('detailedErrorLoggingEnabled'),
                 db.getMeta<boolean>('memoryInspectorEnabled'),
                 db.getMeta<boolean>('summaryInspectorEnabled'),
-                db.getMeta<boolean>('promptInspectorEnabled'),
                 db.getMeta<string>('summaryModel'),
                 db.getMeta<string>('defaultChatModel'),
                 db.getMeta<string>('defaultDirectorModel'),
@@ -106,6 +105,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 fire(db.deleteMeta('openAiCompatibleApiKey'));
             }
             fire(db.deleteMeta('thinkDebugEnabled'));
+            fire(db.deleteMeta('promptInspectorEnabled'));
             const hasLegacyModelDefaults = [
                 storedSummaryModel,
                 storedDefaultChatModel,
@@ -254,7 +254,6 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 detailedErrorLoggingEnabled: detailedErrorLoggingEnabled === true,
                 memoryInspectorEnabled: memoryInspectorEnabled === true,
                 summaryInspectorEnabled: summaryInspectorEnabled === true,
-                promptInspectorEnabled: promptInspectorEnabled === true,
                 fullJsonDebugLogs: [],
                 currentRoomId: resolvedCurrentRoomId,
             });
@@ -297,7 +296,6 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 detailedErrorLoggingEnabled: false,
                 memoryInspectorEnabled: false,
                 summaryInspectorEnabled: false,
-                promptInspectorEnabled: false,
                 fullJsonDebugLogs: [],
                 characters: [],
                 groups: [],

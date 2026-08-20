@@ -33,12 +33,6 @@ import {
 } from '@/lib/conversationJobClient';
 import type { ConversationJobStatus } from '@/lib/conversationJobClient';
 import type { RustTurnResponse } from '@/lib/conversationResult';
-import {
-    boundPromptInspectionHistory,
-    createPromptInspectionSnapshots,
-    mergePromptInspectionSnapshots,
-    type PromptInspectionsByRoom,
-} from '@/lib/promptInspector';
 import { formatAssistantMarkdown } from '@/lib/markdownUtils';
 import {
     DEFAULT_COSTUME_NAME,
@@ -263,14 +257,12 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         detailedErrorLoggingEnabled,
         memoryInspectorEnabled,
         summaryInspectorEnabled,
-        promptInspectorEnabled,
         fullJsonDebugLogs,
         addFullJsonDebugLog,
         clearFullJsonDebugLogs,
         listMemoriesForCharacter,
         markMemoriesUsed,
         getAiApiConfig,
-        rooms,
     } = useStore();
     const isGroupRoom = situation != null || (groupCharacters != null && groupCharacters.length > 1);
     const rawRoomViewMode = resolveRoomViewMode(room);
@@ -290,7 +282,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const [editingMessage, setEditingMessage] = useState<EditingMessageDraft | null>(null);
     const [debugLogOpen, setDebugLogOpen] = useState(false);
     const [developerInspectorOpen, setDeveloperInspectorOpen] = useState(false);
-    const [promptInspectionsByRoom, setPromptInspectionsByRoom] = useState<PromptInspectionsByRoom>({});
     const [streamingPreview, setStreamingPreview] = useState<ChatStreamingPreview | null>(null);
     const [streamedFinalMessageIds, setStreamedFinalMessageIds] = useState<Set<string>>(() => new Set());
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -356,9 +347,8 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const isEditingMessage = editingMessage?.roomId === currentRoomId;
     const isInlineVnEditing = isVisualNovelMode && isEditingMessage;
     const debugPanelEnabled = fullJsonDebugEnabled;
-    const developerInspectorEnabled = memoryInspectorEnabled || summaryInspectorEnabled || promptInspectorEnabled;
+    const developerInspectorEnabled = memoryInspectorEnabled || summaryInspectorEnabled;
     const visibleDebugLogCount = fullJsonDebugLogs.length;
-    const activePromptRoomIds = useMemo(() => rooms.map((candidate) => candidate.id), [rooms]);
     const {
         state: replySuggestionState,
         setState: setReplySuggestionState,
@@ -608,16 +598,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     }, [developerInspectorEnabled]);
 
     useEffect(() => {
-        if (!promptInspectorEnabled) setPromptInspectionsByRoom({});
-    }, [promptInspectorEnabled]);
-
-    useEffect(() => {
-        setPromptInspectionsByRoom((current) => (
-            boundPromptInspectionHistory(current, activePromptRoomIds)
-        ));
-    }, [activePromptRoomIds]);
-
-    useEffect(() => {
         if (isMessageMode) {
             stopTypewriter(true);
         }
@@ -714,21 +694,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             }
             if (job.status !== 'completed' || !job.result) {
                 throw new ChatGenerationJobError('バックグラウンド生成の結果を取得できませんでした。');
-            }
-            if (promptInspectorEnabled && !isSecretMode) {
-                const snapshots = createPromptInspectionSnapshots(
-                    job.result.fullJsonLogs,
-                    Date.now(),
-                    session.jobId,
-                );
-                if (snapshots.length > 0) {
-                    setPromptInspectionsByRoom((current) => mergePromptInspectionSnapshots(
-                        current,
-                        sourceRoom.id,
-                        snapshots,
-                        activePromptRoomIds,
-                    ));
-                }
             }
             const appliedResult = await applyConversationResult(
                 {
@@ -1391,8 +1356,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     room={room}
                     memoryEnabled={memoryInspectorEnabled}
                     summaryEnabled={summaryInspectorEnabled}
-                    promptEnabled={promptInspectorEnabled}
-                    promptSnapshots={promptInspectionsByRoom[room.id] ?? []}
                     onClose={() => setDeveloperInspectorOpen(false)}
                 />
             )}

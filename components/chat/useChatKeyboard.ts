@@ -3,6 +3,16 @@ import type { Dispatch, KeyboardEvent as ReactKeyboardEvent, RefObject, SetState
 
 type KeyboardShortcut = Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'altKey'>;
 
+export function shouldIgnoreDocumentChatShortcut({
+    defaultPrevented,
+    modalOpen,
+}: {
+    defaultPrevented: boolean;
+    modalOpen: boolean;
+}): boolean {
+    return defaultPrevented || modalOpen;
+}
+
 export function shouldRedirectChatInput(event: KeyboardShortcut): boolean {
     if (event.key === '?') return false;
     if (event.key.length !== 1 && event.key !== 'Backspace') return false;
@@ -30,7 +40,10 @@ export function useChatInputRedirect({ inputRef, disabled, isMobile }: UseChatIn
         if (isMobile) return;
 
         const handleKeyDown = (event: KeyboardEvent) => {
-            if (event.defaultPrevented) return;
+            if (shouldIgnoreDocumentChatShortcut({
+                defaultPrevented: event.defaultPrevented,
+                modalOpen: document.querySelector('[aria-modal="true"]') != null,
+            })) return;
             if (isEditableTarget(event.target) || !shouldRedirectChatInput(event)) return;
             if (!inputRef.current || disabled) return;
             inputRef.current.focus();
@@ -56,6 +69,10 @@ export function useTypewriterAdvance({ activeRef, onAdvance }: UseTypewriterAdva
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
             if (!activeRef.current) return;
+            if (shouldIgnoreDocumentChatShortcut({
+                defaultPrevented: event.defaultPrevented,
+                modalOpen: document.querySelector('[aria-modal="true"]') != null,
+            })) return;
 
             const target = event.target as HTMLElement | null;
             const isDisabledFormTarget = target instanceof HTMLInputElement

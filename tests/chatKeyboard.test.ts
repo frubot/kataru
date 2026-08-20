@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import {
     shouldAdvanceTypewriter,
+    shouldIgnoreDocumentChatShortcut,
     shouldRedirectChatInput,
 } from '../components/chat/useChatKeyboard';
 
@@ -25,5 +26,11 @@ describe('chat keyboard shortcuts', () => {
         expect(shouldAdvanceTypewriter({ key: 'Enter' })).toBe(true);
         expect(shouldAdvanceTypewriter({ key: ' ' })).toBe(true);
         expect(shouldAdvanceTypewriter({ key: 'Escape' })).toBe(false);
+    });
+
+    test('ignores document shortcuts after another handler or while a modal is open', () => {
+        expect(shouldIgnoreDocumentChatShortcut({ defaultPrevented: true, modalOpen: false })).toBe(true);
+        expect(shouldIgnoreDocumentChatShortcut({ defaultPrevented: false, modalOpen: true })).toBe(true);
+        expect(shouldIgnoreDocumentChatShortcut({ defaultPrevented: false, modalOpen: false })).toBe(false);
     });
 });

@@ -18,12 +18,12 @@ const SHORTCUT_ROWS: readonly {
     {
         action: 'sendMessage',
         label: 'メッセージを送信',
-        description: '入力欄で送信します。送信に割り当てていないEnterは改行になります。',
+        description: 'チャット画面で入力されたメッセージを送信します。',
     },
     {
         action: 'advanceTypewriter',
-        label: 'ゲームモードの文字送り',
-        description: '表示中のメッセージを最後まで表示します。',
+        label: '文字送りをスキップ',
+        description: 'ゲームモードでの文字送りをスキップします。',
     },
     {
         action: 'closeDialog',
@@ -33,11 +33,23 @@ const SHORTCUT_ROWS: readonly {
     {
         action: 'openShortcutHelp',
         label: 'ショートカットを表示',
-        description: 'このショートカット設定をモーダルで開きます。',
+        description: 'このショートカット設定を開きます。',
     },
 ];
 
-function ShortcutKeys({ shortcuts }: { shortcuts: readonly KeyboardShortcut[] }) {
+function ShortcutKeys({
+    shortcuts,
+    label,
+    isCapturing,
+    onClick,
+    onKeyDown,
+}: {
+    shortcuts: readonly KeyboardShortcut[];
+    label: string;
+    isCapturing: boolean;
+    onClick: () => void;
+    onKeyDown: (event: ReactKeyboardEvent<HTMLButtonElement>) => void;
+}) {
     return (
         <span className="keyboard-shortcut-values">
             {shortcuts.map((shortcut, shortcutIndex) => (
@@ -45,14 +57,20 @@ function ShortcutKeys({ shortcuts }: { shortcuts: readonly KeyboardShortcut[] })
                     {shortcutIndex > 0 && (
                         <span className="keyboard-shortcut-or" aria-hidden="true">または</span>
                     )}
-                    <span aria-label={getKeyboardShortcutLabels(shortcut).join(' + ')}>
+                    <button
+                        type="button"
+                        className={`keyboard-shortcut-key ${isCapturing ? 'is-capturing' : ''}`}
+                        aria-label={`${label}（${getKeyboardShortcutLabels(shortcut).join(' + ')}）を変更`}
+                        onClick={onClick}
+                        onKeyDown={onKeyDown}
+                    >
                         {getKeyboardShortcutLabels(shortcut).map((label, labelIndex) => (
                             <span key={`${label}-${labelIndex}`}>
                                 {labelIndex > 0 && <span className="keyboard-shortcut-plus" aria-hidden="true">+</span>}
                                 <kbd>{label}</kbd>
                             </span>
                         ))}
-                    </span>
+                    </button>
                 </span>
             ))}
         </span>
@@ -63,7 +81,6 @@ export default function KeyboardSettingsPanel() {
     const {
         keyboardShortcuts,
         setKeyboardShortcut,
-        resetKeyboardShortcut,
         resetKeyboardShortcuts,
     } = useStore();
     const [capturingAction, setCapturingAction] = useState<KeyboardShortcutAction | null>(null);
@@ -119,49 +136,19 @@ export default function KeyboardSettingsPanel() {
             <div className="keyboard-shortcut-list">
                 {SHORTCUT_ROWS.map(({ action, label, description }) => {
                     const isCapturing = capturingAction === action;
-                    const isDefault = keyboardShortcutListEquals(
-                        keyboardShortcuts[action],
-                        DEFAULT_KEYBOARD_SHORTCUTS[action],
-                    );
                     return (
                         <div className={`keyboard-shortcut-row ${isCapturing ? 'is-capturing' : ''}`} key={action}>
                             <div className="keyboard-shortcut-copy">
                                 <span className="keyboard-shortcut-label">{label}</span>
                                 <span className="keyboard-shortcut-description">{description}</span>
                             </div>
-                            <ShortcutKeys shortcuts={keyboardShortcuts[action]} />
-                            <div className="keyboard-shortcut-actions">
-                                <button
-                                    type="button"
-                                    className={`btn ${isCapturing ? 'btn-primary' : 'btn-secondary'} keyboard-shortcut-capture`}
-                                    aria-label={`${label}のキーを変更`}
-                                    onClick={() => beginCapture(action)}
-                                    onKeyDown={(event) => handleCapture(event, action)}
-                                >
-                                    {isCapturing ? 'キーを入力…' : '変更'}
-                                </button>
-                                {isCapturing ? (
-                                    <button
-                                        type="button"
-                                        className="btn btn-ghost keyboard-shortcut-reset"
-                                        onClick={() => {
-                                            setCapturingAction(null);
-                                            setCaptureError(null);
-                                        }}
-                                    >
-                                        キャンセル
-                                    </button>
-                                ) : (
-                                    <button
-                                        type="button"
-                                        className="btn btn-ghost keyboard-shortcut-reset"
-                                        onClick={() => resetKeyboardShortcut(action)}
-                                        disabled={isDefault}
-                                    >
-                                        初期設定
-                                    </button>
-                                )}
-                            </div>
+                            <ShortcutKeys
+                                shortcuts={keyboardShortcuts[action]}
+                                label={label}
+                                isCapturing={isCapturing}
+                                onClick={() => beginCapture(action)}
+                                onKeyDown={(event) => handleCapture(event, action)}
+                            />
                         </div>
                     );
                 })}

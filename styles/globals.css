@@ -741,20 +741,13 @@ body {
   font-size: 0.75rem;
 }
 
-.keyboard-shortcut-list {
-  overflow: hidden;
-  border: 1px solid var(--border-color);
-  border-radius: 0.65rem;
-}
-
 .keyboard-shortcut-row {
   display: grid;
-  grid-template-columns: minmax(11rem, 1fr) minmax(8.5rem, auto) auto;
+  grid-template-columns: minmax(11rem, 1fr) minmax(8.5rem, auto);
   align-items: center;
   gap: 1rem;
   min-height: 5rem;
   padding: 0.8rem 0.9rem;
-  background: var(--bg-primary);
   transition: background 0.15s ease, box-shadow 0.15s ease;
 }
 
@@ -798,6 +791,32 @@ body {
   justify-content: flex-end;
 }
 
+.keyboard-shortcut-key {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  padding: 0.15rem;
+  border: 1px solid transparent;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.keyboard-shortcut-key:hover,
+.keyboard-shortcut-key.is-capturing {
+  border-color: var(--accent-primary);
+  background: rgba(var(--accent-primary-rgb), 0.08);
+}
+
+.keyboard-shortcut-key:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
 .keyboard-shortcut-value kbd {
   display: inline-flex;
   align-items: center;
@@ -826,29 +845,6 @@ body {
   margin: 0 0.15rem;
   color: var(--text-muted);
   font-size: 0.65rem;
-}
-
-.keyboard-shortcut-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.25rem;
-}
-
-.keyboard-shortcut-capture,
-.keyboard-shortcut-reset {
-  min-height: 2.1rem;
-  padding: 0.4rem 0.6rem;
-  font-size: 0.72rem;
-  white-space: nowrap;
-}
-
-.keyboard-shortcut-capture {
-  min-width: 4.9rem;
-}
-
-.keyboard-shortcut-reset {
-  min-width: 4.5rem;
 }
 
 .keyboard-settings-panel .keyboard-shortcut-hint {
@@ -3319,8 +3315,7 @@ body {
     gap: 0.65rem;
   }
 
-  .keyboard-shortcut-values,
-  .keyboard-shortcut-actions {
+  .keyboard-shortcut-values {
     justify-content: flex-start;
   }
 

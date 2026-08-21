@@ -1390,7 +1390,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                             <h3 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '0.75rem' }}>
                                 デバッグ
                             </h3>
-                            <div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                                 {renderDebugToggle({
                                     label: '入出力ログの有効化',
                                     enabled: fullJsonDebugEnabled,
@@ -1410,7 +1410,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         </button>
                                     ) : null,
                                 })}
-                                <div style={{ marginTop: '1rem' }}>
+                                <div>
                                     {renderDebugToggle({
                                         label: '詳細なエラー表示の有効化',
                                         enabled: detailedErrorLoggingEnabled,
@@ -1418,7 +1418,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         ariaLabel: '詳細なエラー表示を有効化',
                                     })}
                                 </div>
-                                <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color)' }}>
+                                <div>
                                     {renderDebugToggle({
                                         label: 'メモリインスペクター',
                                         enabled: memoryInspectorEnabled,
@@ -1429,7 +1429,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         応答で参照されたメモリを確認し、編集・削除・優先固定できます。
                                     </p>
                                 </div>
-                                <div style={{ marginTop: '1rem' }}>
+                                <div>
                                     {renderDebugToggle({
                                         label: '要約インスペクター',
                                         enabled: summaryInspectorEnabled,

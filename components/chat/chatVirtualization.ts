@@ -1,6 +1,22 @@
 export const CHAT_VIRTUALIZATION_THRESHOLD = 80;
 export const CHAT_VIRTUAL_ITEM_GAP = 16;
 export const CHAT_VIRTUAL_OVERSCAN_PX = 640;
+export const CHAT_BOTTOM_FOLLOW_THRESHOLD = 96;
+
+export function shouldFollowChatBottom({
+    previousScrollTop,
+    scrollTop,
+    distanceFromBottom,
+    threshold = CHAT_BOTTOM_FOLLOW_THRESHOLD,
+}: {
+    previousScrollTop: number;
+    scrollTop: number;
+    distanceFromBottom: number;
+    threshold?: number;
+}): boolean {
+    const scrollingUp = scrollTop < previousScrollTop - 0.5;
+    return !scrollingUp && distanceFromBottom <= threshold;
+}
 
 export type VirtualLayout = {
     starts: number[];

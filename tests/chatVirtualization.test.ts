@@ -5,6 +5,7 @@ import {
     computeVirtualRange,
     estimateChatMessageHeight,
     getMeasurementScrollAdjustment,
+    shouldFollowChatBottom,
 } from '../components/chat/chatVirtualization';
 
 describe('chat history virtualization', () => {
@@ -51,6 +52,24 @@ describe('chat history virtualization', () => {
             nextSize: 145,
             followingBottom: true,
         })).toBe(0);
+    });
+
+    test('stops following the bottom as soon as the user scrolls upward', () => {
+        expect(shouldFollowChatBottom({
+            previousScrollTop: 1_000,
+            scrollTop: 980,
+            distanceFromBottom: 20,
+        })).toBe(false);
+        expect(shouldFollowChatBottom({
+            previousScrollTop: 900,
+            scrollTop: 980,
+            distanceFromBottom: 20,
+        })).toBe(true);
+        expect(shouldFollowChatBottom({
+            previousScrollTop: 900,
+            scrollTop: 920,
+            distanceFromBottom: 120,
+        })).toBe(false);
     });
 
     test('estimates longer assistant messages as taller while capping pathological content', () => {

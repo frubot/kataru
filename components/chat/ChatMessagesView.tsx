@@ -23,6 +23,7 @@ import {
     computeVirtualRange,
     estimateChatMessageHeight,
     getMeasurementScrollAdjustment,
+    shouldFollowChatBottom,
 } from './chatVirtualization';
 import WaitingEllipsis from './WaitingEllipsis';
 
@@ -229,6 +230,7 @@ export default function ChatMessagesView({
     const containerRef = useRef<HTMLDivElement>(null);
     const virtualListRef = useRef<HTMLDivElement>(null);
     const followBottomRef = useRef(true);
+    const lastScrollTopRef = useRef(0);
     const pendingScrollAdjustmentRef = useRef(0);
     const scrollFrameRef = useRef<number | null>(null);
     const [measuredHeights, setMeasuredHeights] = useState<Map<string, number>>(() => new Map());
@@ -290,11 +292,16 @@ export default function ChatMessagesView({
     useEffect(() => {
         const container = containerRef.current;
         if (!container) return;
+        lastScrollTopRef.current = container.scrollTop;
 
         const handleScroll = () => {
-            followBottomRef.current = (
-                container.scrollHeight - container.scrollTop - container.clientHeight <= 96
-            );
+            const scrollTop = container.scrollTop;
+            followBottomRef.current = shouldFollowChatBottom({
+                previousScrollTop: lastScrollTopRef.current,
+                scrollTop,
+                distanceFromBottom: container.scrollHeight - scrollTop - container.clientHeight,
+            });
+            lastScrollTopRef.current = scrollTop;
             if (scrollFrameRef.current != null) return;
             scrollFrameRef.current = requestAnimationFrame(() => {
                 scrollFrameRef.current = null;

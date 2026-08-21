@@ -11,6 +11,11 @@ import {
 import * as db from '../db';
 import { generateId } from '../id';
 import {
+    createDefaultKeyboardShortcuts,
+    DEFAULT_KEYBOARD_SHORTCUTS,
+    type KeyboardShortcutAction,
+} from '../keyboardShortcuts';
+import {
     DEFAULT_AUTO_GENERATION_MODEL,
     DEFAULT_CHAT_MODEL,
     DEFAULT_DIRECTOR_MODEL,
@@ -171,6 +176,7 @@ type SettingsSlice = Pick<
     | 'themeMode'
     | 'themePalette'
     | 'vnTypingSpeed'
+    | 'keyboardShortcuts'
     | 'summaryModel'
     | 'defaultChatModel'
     | 'defaultDirectorModel'
@@ -198,6 +204,9 @@ type SettingsSlice = Pick<
     | 'toggleThemeMode'
     | 'toggleTheme'
     | 'setVnTypingSpeed'
+    | 'setKeyboardShortcut'
+    | 'resetKeyboardShortcut'
+    | 'resetKeyboardShortcuts'
     | 'setSummaryModel'
     | 'setDefaultChatModel'
     | 'setDefaultDirectorModel'
@@ -228,6 +237,7 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         themeMode: DEFAULT_THEME_SELECTION.mode,
         themePalette: DEFAULT_THEME_SELECTION.palette,
         vnTypingSpeed: DEFAULT_VN_TYPING_SPEED,
+        keyboardShortcuts: createDefaultKeyboardShortcuts(),
         summaryModel: DEFAULT_SUMMARY_MODEL,
         defaultChatModel: DEFAULT_CHAT_MODEL,
         defaultDirectorModel: DEFAULT_DIRECTOR_MODEL,
@@ -271,6 +281,27 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         setVnTypingSpeed: (vnTypingSpeed) => {
             set({ vnTypingSpeed });
             fire(db.setMeta('vnTypingSpeed', vnTypingSpeed));
+        },
+        setKeyboardShortcut: (action, shortcut) => {
+            const keyboardShortcuts = {
+                ...get().keyboardShortcuts,
+                [action]: [{ ...shortcut }],
+            };
+            set({ keyboardShortcuts });
+            fire(db.setMeta('keyboardShortcuts', keyboardShortcuts));
+        },
+        resetKeyboardShortcut: (action: KeyboardShortcutAction) => {
+            const keyboardShortcuts = {
+                ...get().keyboardShortcuts,
+                [action]: DEFAULT_KEYBOARD_SHORTCUTS[action].map((shortcut) => ({ ...shortcut })),
+            };
+            set({ keyboardShortcuts });
+            fire(db.setMeta('keyboardShortcuts', keyboardShortcuts));
+        },
+        resetKeyboardShortcuts: () => {
+            const keyboardShortcuts = createDefaultKeyboardShortcuts();
+            set({ keyboardShortcuts });
+            fire(db.setMeta('keyboardShortcuts', keyboardShortcuts));
         },
         setSummaryModel: (summaryModel) => {
             updateModelDefault(set, get, 'summaryModel', summaryModel);

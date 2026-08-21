@@ -6,6 +6,7 @@ import StatisticsPanel from '@/components/StatisticsPanel';
 import AiConnectionSettings from '@/components/AiConnectionSettings';
 import ModelSelector from '@/components/ModelSelector';
 import ProviderSelector from '@/components/ProviderSelector';
+import KeyboardSettingsPanel from '@/components/KeyboardSettingsPanel';
 import { useModalKeyboard } from '@/components/useModalKeyboard';
 
 interface GlobalSettingsModalProps {
@@ -62,11 +63,12 @@ async function waitForUpdatedServer(version: string): Promise<void> {
     throw new Error('更新後のKataruを起動できませんでした。手動でKataruを起動してください。');
 }
 
-type SettingsTab = 'general' | 'models' | 'debug' | 'statistics';
+type SettingsTab = 'general' | 'models' | 'keyboard' | 'debug' | 'statistics';
 
 const SETTINGS_TABS = [
     { id: 'general', label: '一般' },
     { id: 'models', label: 'モデル' },
+    { id: 'keyboard', label: 'キーボード' },
     { id: 'debug', label: '開発者' },
     { id: 'statistics', label: '統計' },
 ] as const satisfies readonly { id: SettingsTab; label: string }[];
@@ -1443,6 +1445,8 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                             </div>
                         </div>
                         )}
+
+                        {activeTab === 'keyboard' && <KeyboardSettingsPanel />}
 
                         {activeTab === 'statistics' && <StatisticsPanel />}
 

@@ -28,6 +28,12 @@ describe('chat keyboard shortcuts', () => {
         expect(shouldAdvanceTypewriter({ key: 'Escape' })).toBe(false);
     });
 
+    test('uses a customized typewriter shortcut with exact modifiers', () => {
+        const shortcuts = [{ key: 'a', ctrl: true, shift: false, alt: false, meta: false }];
+        expect(shouldAdvanceTypewriter({ key: 'a', ctrlKey: true }, shortcuts)).toBe(true);
+        expect(shouldAdvanceTypewriter({ key: 'a' }, shortcuts)).toBe(false);
+    });
+
     test('ignores document shortcuts after another handler or while a modal is open', () => {
         expect(shouldIgnoreDocumentChatShortcut({ defaultPrevented: true, modalOpen: false })).toBe(true);
         expect(shouldIgnoreDocumentChatShortcut({ defaultPrevented: false, modalOpen: true })).toBe(true);

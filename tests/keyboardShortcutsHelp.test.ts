@@ -24,4 +24,13 @@ describe('keyboard shortcut help', () => {
         expect(shouldOpenKeyboardShortcutsHelp({ ...defaultContext, altKey: true })).toBe(false);
         expect(shouldOpenKeyboardShortcutsHelp({ ...defaultContext, modalOpen: true })).toBe(false);
     });
+
+    test('opens with a customized shortcut', () => {
+        const shortcuts = [{ key: 'k', ctrl: true, shift: true, alt: false, meta: false }];
+        expect(shouldOpenKeyboardShortcutsHelp({
+            ...defaultContext,
+            key: 'K',
+            shiftKey: true,
+        }, shortcuts)).toBe(true);
+    });
 });

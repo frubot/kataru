@@ -1,6 +1,11 @@
 import type { StoreApi } from 'zustand';
 
 import type { AiApiConfig, AiApiType } from '../aiApi';
+import type {
+    KeyboardShortcut,
+    KeyboardShortcutAction,
+    KeyboardShortcutSettings,
+} from '../keyboardShortcuts';
 import type { ModelDefaultsByApiType } from '../modelDefaults';
 
 export interface Expression {
@@ -264,6 +269,7 @@ export interface AppState {
     themeMode: ThemeMode;
     themePalette: ThemePalette;
     vnTypingSpeed: VnTypingSpeed;
+    keyboardShortcuts: KeyboardShortcutSettings;
     summaryModel: string;
     defaultChatModel: string;
     defaultDirectorModel: string;
@@ -300,6 +306,9 @@ export interface AppState {
     toggleThemeMode: () => void;
     toggleTheme: () => void;
     setVnTypingSpeed: (speed: VnTypingSpeed) => void;
+    setKeyboardShortcut: (action: KeyboardShortcutAction, shortcut: KeyboardShortcut) => void;
+    resetKeyboardShortcut: (action: KeyboardShortcutAction) => void;
+    resetKeyboardShortcuts: () => void;
     setSummaryModel: (model: string) => void;
     setDefaultChatModel: (model: string) => void;
     setDefaultDirectorModel: (model: string) => void;

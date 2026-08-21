@@ -11,6 +11,11 @@ import {
 import { resolveAiSettingsMigration } from '../aiSettingsMigration';
 import * as db from '../db';
 import {
+    createDefaultKeyboardShortcuts,
+    normalizeKeyboardShortcuts,
+    type KeyboardShortcutSettings,
+} from '../keyboardShortcuts';
+import {
     DEFAULT_AUTO_GENERATION_MODEL,
     DEFAULT_CHAT_MODEL,
     DEFAULT_DIRECTOR_MODEL,
@@ -64,7 +69,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
         hydrate: async () => {
             if (get().hydrated) return;
             await db.migrateLegacyDatabase();
-            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, currentRoomId, vnTypingSpeed, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion] = await Promise.all([
+            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, currentRoomId, vnTypingSpeed, storedKeyboardShortcuts, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion] = await Promise.all([
                 db.getAllCharacters(),
                 db.getAllGroups(),
                 db.getAllRooms(),
@@ -73,6 +78,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 db.getMeta<ThemePalette>('themePalette'),
                 db.getMeta<string | null>('currentRoomId'),
                 db.getMeta<VnTypingSpeed>('vnTypingSpeed'),
+                db.getMeta<KeyboardShortcutSettings>('keyboardShortcuts'),
                 db.getMeta<boolean>('fullJsonDebugEnabled'),
                 db.getMeta<boolean>('detailedErrorLoggingEnabled'),
                 db.getMeta<boolean>('memoryInspectorEnabled'),
@@ -193,9 +199,13 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
             });
             writeThemeCache(resolvedTheme.mode, resolvedTheme.palette);
             const resolvedVnTypingSpeed = isVnTypingSpeed(vnTypingSpeed) ? vnTypingSpeed : DEFAULT_VN_TYPING_SPEED;
+            const resolvedKeyboardShortcuts = normalizeKeyboardShortcuts(storedKeyboardShortcuts);
             if (themeMode !== resolvedTheme.mode) fire(db.setMeta('themeMode', resolvedTheme.mode));
             if (themePalette !== resolvedTheme.palette) fire(db.setMeta('themePalette', resolvedTheme.palette));
             if (vnTypingSpeed !== resolvedVnTypingSpeed) fire(db.setMeta('vnTypingSpeed', resolvedVnTypingSpeed));
+            if (JSON.stringify(storedKeyboardShortcuts) !== JSON.stringify(resolvedKeyboardShortcuts)) {
+                fire(db.setMeta('keyboardShortcuts', resolvedKeyboardShortcuts));
+            }
             const resolvedGenerateTitleOnFirstReply = storedGenerateTitleOnFirstReply === true;
             const resolvedReplySuggestionsEnabled = storedReplySuggestionsEnabled === true;
             const resolvedOpenRouterIgnoredProviders = normalizeOpenRouterIgnoredProviders(storedOpenRouterIgnoredProviders);
@@ -241,6 +251,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 themeMode: resolvedTheme.mode,
                 themePalette: resolvedTheme.palette,
                 vnTypingSpeed: resolvedVnTypingSpeed,
+                keyboardShortcuts: resolvedKeyboardShortcuts,
                 ...activeModelDefaults,
                 modelDefaultsByApiType,
                 generateTitleOnFirstReply: resolvedGenerateTitleOnFirstReply,
@@ -275,6 +286,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 themeMode: DEFAULT_THEME_SELECTION.mode,
                 themePalette: DEFAULT_THEME_SELECTION.palette,
                 vnTypingSpeed: DEFAULT_VN_TYPING_SPEED,
+                keyboardShortcuts: createDefaultKeyboardShortcuts(),
                 summaryModel: DEFAULT_SUMMARY_MODEL,
                 defaultChatModel: DEFAULT_CHAT_MODEL,
                 defaultDirectorModel: DEFAULT_DIRECTOR_MODEL,

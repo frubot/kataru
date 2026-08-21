@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef } from 'react';
 import type { Dispatch, KeyboardEvent as ReactKeyboardEvent, RefObject, SetStateAction } from 'react';
+import { DEFAULT_KEYBOARD_SHORTCUTS, useStore, type KeyboardShortcut } from '../../lib/store';
+import { matchesAnyKeyboardShortcut } from '../../lib/keyboardShortcuts';
 
-type KeyboardShortcut = Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'altKey'>;
+type ChatInputKeyEvent = Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'altKey'>;
+type ShortcutKeyEvent = Pick<KeyboardEvent, 'key'>
+    & Partial<Pick<KeyboardEvent, 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey'>>;
 
 export function shouldIgnoreDocumentChatShortcut({
     defaultPrevented,
@@ -13,14 +17,17 @@ export function shouldIgnoreDocumentChatShortcut({
     return defaultPrevented || modalOpen;
 }
 
-export function shouldRedirectChatInput(event: KeyboardShortcut): boolean {
+export function shouldRedirectChatInput(event: ChatInputKeyEvent): boolean {
     if (event.key === '?') return false;
     if (event.key.length !== 1 && event.key !== 'Backspace') return false;
     return !event.metaKey && !event.ctrlKey && !event.altKey;
 }
 
-export function shouldAdvanceTypewriter(event: Pick<KeyboardEvent, 'key'>): boolean {
-    return event.key === 'Enter' || event.key === ' ';
+export function shouldAdvanceTypewriter(
+    event: ShortcutKeyEvent,
+    shortcuts: readonly KeyboardShortcut[] = DEFAULT_KEYBOARD_SHORTCUTS.advanceTypewriter,
+): boolean {
+    return matchesAnyKeyboardShortcut(event, shortcuts);
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -61,6 +68,7 @@ type UseTypewriterAdvanceOptions = {
 
 export function useTypewriterAdvance({ activeRef, onAdvance }: UseTypewriterAdvanceOptions) {
     const onAdvanceRef = useRef(onAdvance);
+    const advanceTypewriterShortcuts = useStore((state) => state.keyboardShortcuts.advanceTypewriter);
 
     useEffect(() => {
         onAdvanceRef.current = onAdvance;
@@ -81,7 +89,7 @@ export function useTypewriterAdvance({ activeRef, onAdvance }: UseTypewriterAdva
                 ? target.disabled
                 : false;
             if (isEditableTarget(target) && !isDisabledFormTarget) return;
-            if (!shouldAdvanceTypewriter(event)) return;
+            if (!shouldAdvanceTypewriter(event, advanceTypewriterShortcuts)) return;
 
             event.preventDefault();
             onAdvanceRef.current();
@@ -89,7 +97,7 @@ export function useTypewriterAdvance({ activeRef, onAdvance }: UseTypewriterAdva
 
         document.addEventListener('keydown', handleKeyDown);
         return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [activeRef]);
+    }, [activeRef, advanceTypewriterShortcuts]);
 }
 
 type UseChatComposerKeyboardOptions<T> = {
@@ -117,6 +125,7 @@ export function useChatComposerKeyboard<T>({
     onSubmit,
     onSubmitEdit,
 }: UseChatComposerKeyboardOptions<T>) {
+    const sendMessageShortcuts = useStore((state) => state.keyboardShortcuts.sendMessage);
     return useCallback((event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
         if (mentionOpen && mentionCandidates.length > 0) {
             if (event.key === 'ArrowDown') {
@@ -140,7 +149,7 @@ export function useChatComposerKeyboard<T>({
             }
         }
 
-        if (isMobile || event.key !== 'Enter' || event.shiftKey) return;
+        if (isMobile || !matchesAnyKeyboardShortcut(event, sendMessageShortcuts)) return;
         event.preventDefault();
         if (isInlineEditing) {
             onSubmitEdit();
@@ -157,6 +166,7 @@ export function useChatComposerKeyboard<T>({
         onSubmit,
         onSubmitEdit,
         selectedMentionIndex,
+        sendMessageShortcuts,
         setSelectedMentionIndex,
     ]);
 }

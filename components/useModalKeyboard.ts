@@ -1,5 +1,7 @@
 import { useEffect, useEffectEvent } from 'react';
 import type { RefObject } from 'react';
+import { useStore } from '../lib/store';
+import { matchesAnyKeyboardShortcut } from '../lib/keyboardShortcuts';
 
 const FOCUSABLE_SELECTOR = [
     'a[href]',
@@ -60,6 +62,7 @@ export function useModalKeyboard({
     initialFocusRef,
     onEnter,
 }: UseModalKeyboardOptions) {
+    const closeDialogShortcuts = useStore((state) => state.keyboardShortcuts.closeDialog);
     const closeLatest = useEffectEvent(onClose);
     const canCloseLatest = useEffectEvent(() => canClose);
     const submitLatest = useEffectEvent(() => onEnter?.());
@@ -94,7 +97,7 @@ export function useModalKeyboard({
             const container = containerRef.current;
             if (!container) return;
 
-            if (event.key === 'Escape' && canCloseLatest()) {
+            if (matchesAnyKeyboardShortcut(event, closeDialogShortcuts) && canCloseLatest()) {
                 event.preventDefault();
                 event.stopPropagation();
                 closeLatest();
@@ -143,5 +146,5 @@ export function useModalKeyboard({
                 if (previouslyFocused?.isConnected) previouslyFocused.focus({ preventScroll: true });
             });
         };
-    }, [containerRef, initialFocusRef, isOpen]);
+    }, [closeDialogShortcuts, containerRef, initialFocusRef, isOpen]);
 }

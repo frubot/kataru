@@ -44,6 +44,14 @@ export {
     getThemeClassName,
 } from './store/settings';
 export { resolveSituationParticipants } from './store/situations';
+export {
+    DEFAULT_KEYBOARD_SHORTCUTS,
+    getKeyboardShortcutLabels,
+    keyboardShortcutListEquals,
+    type KeyboardShortcut,
+    type KeyboardShortcutAction,
+    type KeyboardShortcutSettings,
+} from './keyboardShortcuts';
 export type {
     AddMemoryOptions,
     Character,

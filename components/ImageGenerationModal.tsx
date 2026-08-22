@@ -58,7 +58,7 @@ export default function ImageGenerationModal({
         : null;
     const imageGenerationHint = providerImageGenerationHint
         ?? (transparentFullBody
-            ? `全身が収まる立ち絵と単色背景（${AVATAR_CHROMA_KEY_HEX}）を生成し、背景を自動で透過します。`
+            ? `全身の立ち絵を生成します。背景は自動で透過されます。`
             : '例: full body portrait of a smiling young woman with long brown hair, 2:3 vertical composition, neutral expression');
 
     useEffect(() => {

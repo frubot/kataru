@@ -7,7 +7,7 @@ import {
     Situation,
     SituationParticipant,
 } from '@/lib/store';
-import type { MemoryRecord } from '@/lib/store';
+import type { MemoryRecord, SituationPriorMessage } from '@/lib/store';
 import {
     ChatGenerationJobError,
     getChatErrorDebugInfo,
@@ -34,6 +34,7 @@ import {
 import type { ConversationJobStatus } from '@/lib/conversationJobClient';
 import type { RustTurnResponse } from '@/lib/conversationResult';
 import { formatAssistantMarkdown } from '@/lib/markdownUtils';
+import { resolveSituationVisualNovelInitialCharacterId } from '@/lib/situationVisualNovelPresentation';
 import {
     DEFAULT_COSTUME_NAME,
     getVisualNovelCostumeOptions,
@@ -56,6 +57,7 @@ import type { ChatNoticeAction } from './chat/useChatNotice';
 import { useReplySuggestions } from './chat/useReplySuggestions';
 import { useRoomTitleGeneration } from './chat/useRoomTitleGeneration';
 import { useVisualNovelPresentation } from './chat/useVisualNovelPresentation';
+import { useSituationVisualNovelPresentation } from './chat/useSituationVisualNovelPresentation';
 import VisualNovelView from './chat/VisualNovelView';
 
 interface ChatWindowProps {
@@ -73,6 +75,8 @@ interface ChatWindowProps {
 const MESSAGE_MODE_BUBBLE_DELAY_MS = 420;
 const CONVERSATION_JOB_POLL_INTERVAL_MS = 750;
 const CONVERSATION_STREAMING_POLL_INTERVAL_MS = 120;
+const EMPTY_MESSAGES: Message[] = [];
+const EMPTY_SITUATION_PRIOR_MESSAGES: SituationPriorMessage[] = [];
 
 type RoomViewMode = NonNullable<Room['viewMode']>;
 type EditingMessageDraft = {
@@ -266,9 +270,11 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     } = useStore();
     const isGroupRoom = situation != null || (groupCharacters != null && groupCharacters.length > 1);
     const rawRoomViewMode = resolveRoomViewMode(room);
-    const currentRoomViewMode = isGroupRoom && rawRoomViewMode === 'vn' ? 'chat' : rawRoomViewMode;
+    const currentRoomViewMode = rawRoomViewMode;
     const isMessageMode = currentRoomViewMode === 'message';
-    const isVisualNovelMode = currentRoomViewMode === 'vn' && !isGroupRoom;
+    const isVisualNovelMode = currentRoomViewMode === 'vn';
+    const isSituationVisualNovelMode = isVisualNovelMode && isGroupRoom;
+    const situationPriorMessages = situation?.priorMessages ?? EMPTY_SITUATION_PRIOR_MESSAGES;
     const isRoomEmpty = (room?.messages.length ?? 0) === 0;
     const isSecretMode = room?.secretMode === true;
     const showHeaderMemoryButton = !isSecretMode && !isGroupRoom && character != null && character.enableMemory !== false;
@@ -300,6 +306,9 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         stopTypewriter,
         playTypewriter,
     } = useVisualNovelPresentation({ typingSpeed: vnTypingSpeed });
+    const clearStreamingPreview = useCallback((jobId: string) => {
+        setStreamingPreview((current) => current?.jobId === jobId ? null : current);
+    }, []);
     const {
         query: mentionQuery,
         candidates: mentionCandidates,
@@ -344,6 +353,39 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     });
     const currentRoomId = room?.id;
     const isLoading = currentRoomId ? activeGenerationRoomIds.has(currentRoomId) : false;
+    const situationVnPresentation = useSituationVisualNovelPresentation({
+        active: isSituationVisualNovelMode,
+        roomId: room?.id,
+        situationId: situation?.id,
+        messages: room?.messages ?? EMPTY_MESSAGES,
+        priorMessages: situationPriorMessages,
+        streamingPreview,
+        isLoading,
+        isTypewriterActive,
+        playTypewriter,
+        stopTypewriter,
+        onStreamingPreviewConsumed: clearStreamingPreview,
+    });
+    useEffect(() => {
+        if (!streamingPreview) return;
+        if (streamingPreview.roomId !== currentRoomId) {
+            clearStreamingPreview(streamingPreview.jobId);
+            return;
+        }
+        if (
+            !isLoading
+            && !isSituationVisualNovelMode
+            && (streamingPreview.turns?.length ?? 0) > 0
+        ) {
+            clearStreamingPreview(streamingPreview.jobId);
+        }
+    }, [
+        clearStreamingPreview,
+        currentRoomId,
+        isLoading,
+        isSituationVisualNovelMode,
+        streamingPreview,
+    ]);
     const isEditingMessage = editingMessage?.roomId === currentRoomId;
     const isInlineVnEditing = isVisualNovelMode && isEditingMessage;
     const debugPanelEnabled = fullJsonDebugEnabled;
@@ -362,7 +404,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         situationPrompt: situation?.situationPrompt,
         isLoading,
         isSummarizing,
-        isTypewriterActive,
+        isTypewriterActive: isTypewriterActive || situationVnPresentation.locked,
         getAiApiConfig,
         setRoomReplySuggestions,
     });
@@ -390,10 +432,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         getCurrentRoom,
         updateRoomName,
     });
-
-    const clearStreamingPreview = useCallback((jobId: string) => {
-        setStreamingPreview((current) => current?.jobId === jobId ? null : current);
-    }, []);
 
     const rememberStreamedFinalMessageIds = useCallback((messageIds: string[]) => {
         if (messageIds.length === 0) return;
@@ -431,6 +469,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     characterName: job.preview.characterName,
                     formattedMessages: job.preview.formattedMessages,
                     expression: job.preview.expression,
+                    turns: job.preview.turns,
                 });
             }
             if (job.status !== 'running') return job;
@@ -452,6 +491,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         const session = startGenerationSession(job.roomId, job.jobId);
         const controller = new AbortController();
         if (!attachGenerationController(session, controller)) return;
+        let keepStreamingPreview = false;
         try {
             const completed = await pollConversationJob(session, controller);
             if (completed.status === 'completed') {
@@ -464,6 +504,9 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     );
                 }
                 await refreshConversationRoom(job.roomId);
+                keepStreamingPreview = vnTypingSpeedRef.current === 'streaming'
+                    && isSituationVisualNovelMode
+                    && (completed.result?.messages?.length ?? 0) > 0;
             } else if (completed.status === 'failed' && getCurrentRoom()?.id === job.roomId) {
                 const error = completed.error || 'バックグラウンド生成に失敗しました。';
                 logChatError('Conversation job failed:', error);
@@ -477,7 +520,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 }
             }
         } finally {
-            clearStreamingPreview(session.jobId);
+            if (!keepStreamingPreview) clearStreamingPreview(session.jobId);
             clearGenerationController(session, controller);
             finishGenerationSession(session);
         }
@@ -488,6 +531,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         finishGenerationSession,
         getCurrentRoom,
         hasGenerationSession,
+        isSituationVisualNovelMode,
         logChatError,
         pollConversationJob,
         refreshConversationRoom,
@@ -655,6 +699,9 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     ): Promise<ChatGenerationResult> => {
         if (!isGenerationSessionActive(session)) return { status: 'aborted' };
         const shouldStreamPreview = vnTypingSpeedRef.current === 'streaming';
+        const retainSituationStreamingPreview = shouldStreamPreview
+            && isSituationVisualNovelMode;
+        let keepStreamingPreview = false;
         if (shouldStreamPreview) {
             setStreamingPreview((current) => current?.roomId === sourceRoom.id ? null : current);
         }
@@ -704,6 +751,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     isSecretMode,
                     isMessageMode,
                     shouldStreamPreview,
+                    deferTypewriter: isSituationVisualNovelMode,
                     typingSpeed: vnTypingSpeed,
                     debugEnabled: fullJsonDebugEnabled,
                 },
@@ -716,7 +764,9 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     addMessage,
                     rememberStreamedFinalMessageIds,
                     refreshConversationRoom,
-                    clearStreamingPreview,
+                    clearStreamingPreview: retainSituationStreamingPreview
+                        ? () => undefined
+                        : clearStreamingPreview,
                     addFullJsonDebugLog,
                     getCurrentRoom,
                     markMemoriesUsed,
@@ -726,6 +776,8 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     playTypewriter,
                 },
             );
+            keepStreamingPreview = retainSituationStreamingPreview
+                && appliedResult.assistantMessageIds.length > 0;
             return {
                 status: 'success',
                 message: appliedResult.message,
@@ -737,7 +789,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             logChatError('Rust conversation turn failed:', error);
             return { status: 'error', error };
         } finally {
-            clearStreamingPreview(session.jobId);
+            if (!keepStreamingPreview) clearStreamingPreview(session.jobId);
             clearGenerationController(session, controller);
         }
     };
@@ -750,7 +802,13 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     ) => {
         e?.preventDefault();
         const submittedInput = suggestedReply ?? editDraft?.content ?? inputOverride ?? input;
-        if (!submittedInput.trim() || !room || isLoading || isSummarizing) return;
+        if (
+            !submittedInput.trim()
+            || !room
+            || isLoading
+            || isSummarizing
+            || (isSituationVisualNovelMode && situationVnPresentation.locked)
+        ) return;
         if (!isGroupRoom && !character) return;
         if (isGroupRoom && (!groupCharacters || groupCharacters.length === 0)) return;
 
@@ -889,7 +947,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     };
 
     const handleRegenerate = async () => {
-        if (!room || isLoading) return;
+        if (!room || isLoading || (isSituationVisualNovelMode && situationVnPresentation.locked)) return;
         setReplySuggestionState(null);
 
         const regenerateAsGroup = isGroupRoom && groupCharacters != null;
@@ -971,7 +1029,13 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     };
 
     const handleReplySuggestionSelect = (suggestion: string) => {
-        if (isLoading || isSummarizing || isEditingMessage || !suggestion.trim()) return;
+        if (
+            isLoading
+            || isSummarizing
+            || isEditingMessage
+            || (isSituationVisualNovelMode && situationVnPresentation.locked)
+            || !suggestion.trim()
+        ) return;
         void handleSubmit(undefined, undefined, suggestion);
     };
 
@@ -1035,16 +1099,37 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         return null;
     }, [room]);
 
-    const vnCharacter = useMemo(() => {
+    const soloVnCharacter = useMemo(() => {
         if (latestAssistantMessage?.characterId && characterMap) {
             return characterMap.get(latestAssistantMessage.characterId) ?? character;
         }
         return character;
     }, [latestAssistantMessage, characterMap, character]);
 
+    const situationVnInitialCharacterId = useMemo(
+        () => resolveSituationVisualNovelInitialCharacterId(
+            situationPriorMessages,
+            groupCharacters ?? [],
+        ),
+        [groupCharacters, situationPriorMessages],
+    );
+    const situationVnInitialCharacter = situationVnInitialCharacterId && characterMap
+        ? characterMap.get(situationVnInitialCharacterId) ?? null
+        : null;
+
+    const situationVnCurrentItem = situationVnPresentation.current;
+    const situationVnSceneCharacter = situationVnPresentation.sceneCharacterId && characterMap
+        ? characterMap.get(situationVnPresentation.sceneCharacterId) ?? null
+        : null;
+    const vnCharacter = isSituationVisualNovelMode
+        ? situationVnSceneCharacter ?? situationVnInitialCharacter
+        : soloVnCharacter;
+
     const vnSelectedCostumeName = useMemo(
-        () => resolveVisualNovelCostumeName(room, vnCharacter),
-        [room, vnCharacter],
+        () => isSituationVisualNovelMode
+            ? DEFAULT_COSTUME_NAME
+            : resolveVisualNovelCostumeName(room, vnCharacter),
+        [isSituationVisualNovelMode, room, vnCharacter],
     );
     const vnCostumeOptions = useMemo(
         () => getVisualNovelCostumeOptions(vnCharacter),
@@ -1054,32 +1139,108 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const vnExpressionImage = useMemo(
         () => resolveVisualNovelExpressionImage(
             vnCharacter,
-            activeStreamingPreview?.expression ?? latestAssistantMessage?.emotion ?? latestResolvedAssistantEmotion,
+            isSituationVisualNovelMode
+                ? situationVnPresentation.sceneExpression ?? null
+                : activeStreamingPreview?.expression ?? latestAssistantMessage?.emotion ?? latestResolvedAssistantEmotion,
             vnSelectedCostumeName,
         ),
-        [activeStreamingPreview?.expression, vnCharacter, latestAssistantMessage, latestResolvedAssistantEmotion, vnSelectedCostumeName],
+        [
+            activeStreamingPreview?.expression,
+            isSituationVisualNovelMode,
+            latestAssistantMessage,
+            latestResolvedAssistantEmotion,
+            situationVnPresentation.sceneExpression,
+            vnCharacter,
+            vnSelectedCostumeName,
+        ],
     );
     const latestAssistantMessageId = latestAssistantMessage?.id;
     const latestAssistantEmotion = latestAssistantMessage?.emotion;
     const latestAssistantHasText = !!latestAssistantMessage?.displayContent.trim();
+    const situationVnAssistantBounceKey = situationVnCurrentItem?.role === 'assistant'
+        ? `${situationVnCurrentItem.key}:${situationVnCurrentItem.expression ?? ''}`
+        : null;
 
     useEffect(() => {
-        if (!isVisualNovelMode || !latestAssistantMessageId || !latestAssistantHasText) return;
+        const bounceKey = isSituationVisualNovelMode
+            ? situationVnAssistantBounceKey
+            : latestAssistantMessageId;
+        if (!isVisualNovelMode || !bounceKey || (!isSituationVisualNovelMode && !latestAssistantHasText)) return;
         triggerVnBounce();
-    }, [isVisualNovelMode, latestAssistantMessageId, latestAssistantEmotion, latestAssistantHasText, triggerVnBounce]);
+    }, [
+        isSituationVisualNovelMode,
+        isVisualNovelMode,
+        latestAssistantEmotion,
+        latestAssistantHasText,
+        latestAssistantMessageId,
+        situationVnAssistantBounceKey,
+        triggerVnBounce,
+    ]);
 
     const lastRoomMessage = room ? room.messages[room.messages.length - 1] : undefined;
-    const isWaitingForAssistant = isLoading
-        && lastRoomMessage?.role !== 'assistant'
-        && !activeStreamingPreview;
+    const isWaitingForAssistant = isSituationVisualNovelMode
+        ? situationVnPresentation.isWaitingForResponse
+        : isLoading && lastRoomMessage?.role !== 'assistant' && !activeStreamingPreview;
     const isTypingLatestMessage = latestAssistantMessage?.id === typingMessageId;
-    const vnDialogueContent = activeStreamingPreview?.content
-        ?? (isTypingLatestMessage
+    const situationVnDialogueContent = situationVnCurrentItem
+        ? situationVnCurrentItem.key === typingMessageId
             ? typedContent
-            : latestAssistantMessage?.displayContent || (isWaitingForAssistant ? '...' : '...（話しかけてみましょう）'));
+            : situationVnCurrentItem.source === 'preview'
+                ? situationVnCurrentItem.content
+            : situationVnPresentation.currentComplete
+                ? situationVnCurrentItem.content
+                : ''
+        : isWaitingForAssistant
+            ? '...'
+            : '...（話しかけてみましょう）';
+    const vnDialogueContent = isSituationVisualNovelMode
+        ? situationVnDialogueContent
+        : activeStreamingPreview?.content
+            ?? (isTypingLatestMessage
+                ? typedContent
+                : latestAssistantMessage?.displayContent || (isWaitingForAssistant ? '...' : '...（話しかけてみましょう）'));
     const vnProcessedDialogueContent = useMemo(() => formatAssistantMarkdown(vnDialogueContent), [vnDialogueContent]);
-    const canRegenerateVN = !!latestAssistantMessage && lastRoomMessage?.id === latestAssistantMessage.id && !isLoading && !isInlineVnEditing;
-    const canEditLatestUserMessageInVn = !!latestEditableUserMessage && !isLoading && !isSummarizing && !isInlineVnEditing;
+    const situationVnShowsLatestAssistant = situationVnCurrentItem?.source === 'room'
+        && situationVnCurrentItem.role === 'assistant'
+        && situationVnCurrentItem.id === latestAssistantMessage?.id;
+    const showSituationVnAdvanceIndicator = isSituationVisualNovelMode
+        && !isTypewriterActive
+        && situationVnPresentation.current != null
+        && situationVnPresentation.currentComplete
+        && situationVnPresentation.pending.length > 0;
+    const canRegenerateVN = !!latestAssistantMessage
+        && lastRoomMessage?.id === latestAssistantMessage.id
+        && !isLoading
+        && !isInlineVnEditing
+        && (!isSituationVisualNovelMode || (
+            !situationVnPresentation.locked
+            && situationVnShowsLatestAssistant
+        ));
+    const canEditLatestUserMessageInVn = !!latestEditableUserMessage
+        && !isLoading
+        && !isSummarizing
+        && !isInlineVnEditing
+        && (!isSituationVisualNovelMode || !situationVnPresentation.locked);
+    const vnSpeakerName = isSituationVisualNovelMode
+        ? situationVnCurrentItem?.role === 'user'
+            ? 'あなた'
+            : situationVnCurrentItem?.role === 'assistant'
+                ? (situationVnCurrentItem.characterId && characterMap?.get(situationVnCurrentItem.characterId)?.name)
+                    ?? situationVnCurrentItem.characterName
+                    ?? '不明な話者'
+                : groupName ?? 'シチュエーション'
+        : undefined;
+    const vnDisplayedMessageId = isSituationVisualNovelMode
+        ? situationVnCurrentItem?.key
+        : latestAssistantMessage?.id;
+    const vnDisplayedMessageContent = isSituationVisualNovelMode
+        ? situationVnCurrentItem?.content
+        : latestAssistantMessage?.displayContent;
+    const situationVnCastCharacters = isSituationVisualNovelMode
+        && !vnCharacter
+        && situationVnCurrentItem?.role !== 'assistant'
+        ? groupCharacters ?? []
+        : undefined;
 
     const handleEditLatestUserMessageInVn = useCallback(() => {
         if (!room || !latestEditableUserMessage || isLoading || isSummarizing) return;
@@ -1094,7 +1255,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     }, [closeMention, isLoading, isSummarizing, latestEditableUserMessage, room]);
 
     const handleSelectVnCostume = (costumeName: string) => {
-        if (!room || !vnCharacter) return;
+        if (!room || !vnCharacter || isSituationVisualNovelMode) return;
         const nextSelections = { ...(room.costumeSelections ?? {}) };
         if (costumeName === DEFAULT_COSTUME_NAME) {
             delete nextSelections[vnCharacter.id];
@@ -1121,14 +1282,29 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         : isEditingMessage
             ? '編集中のメッセージで送信してください'
             : '返信を入力';
-    const chatInputDisabled = isLoading || isSummarizing || (isEditingMessage && !isInlineVnEditing);
-    const chatInputSubmitDisabled = isInlineVnEditing
+    const situationVnInputLocked = isSituationVisualNovelMode && situationVnPresentation.locked;
+    const previousSituationVnInputLockedRef = useRef(situationVnInputLocked);
+    const chatInputDisabled = isLoading
+        || isSummarizing
+        || situationVnInputLocked
+        || (isEditingMessage && !isInlineVnEditing);
+    const chatInputSubmitDisabled = chatInputDisabled || (isInlineVnEditing
         ? !editingMessage?.content.trim()
-        : !input.trim() || isEditingMessage;
+        : !input.trim() || isEditingMessage);
+
+    useEffect(() => {
+        const wasLocked = previousSituationVnInputLockedRef.current;
+        previousSituationVnInputLockedRef.current = situationVnInputLocked;
+        if (!isSituationVisualNovelMode || !wasLocked || situationVnInputLocked) return;
+        const timeout = setTimeout(() => textareaRef.current?.focus(), 0);
+        return () => clearTimeout(timeout);
+    }, [isSituationVisualNovelMode, situationVnInputLocked]);
+
     const showReplySuggestions = replySuggestionsEnabled
         && replySuggestionState != null
         && replySuggestionState.roomId === room?.id
         && !isEditingMessage
+        && !situationVnInputLocked
         && !input.trim()
         && (replySuggestionState.loading || replySuggestionState.suggestions.length === 3);
     const handleChatInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -1204,7 +1380,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                         : undefined
                 }
                 showViewModeSelector={!!(character || isGroupRoom)}
-                allowVisualNovelMode={!isGroupRoom}
+                allowVisualNovelMode
                 currentViewMode={currentRoomViewMode}
                 onChangeViewMode={(viewMode) => {
                     updateRoomSettings(room.id, { viewMode });
@@ -1216,6 +1392,8 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 <VisualNovelView
                     character={vnCharacter}
                     fallbackCharacterName={character?.name}
+                    speakerName={vnSpeakerName}
+                    castCharacters={situationVnCastCharacters}
                     expressionImage={vnExpressionImage}
                     bounceActive={vnBounceActive}
                     onCharacterImageLoad={triggerVnBounce}
@@ -1225,19 +1403,17 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     selectedCostumeName={vnSelectedCostumeName}
                     costumeOptions={vnCostumeOptions}
                     onSelectCostume={handleSelectVnCostume}
+                    showCostumeSelector={!isSituationVisualNovelMode}
                     canEditLatestUserMessage={canEditLatestUserMessageInVn}
                     onEditLatestUserMessage={handleEditLatestUserMessageInVn}
-                    latestAssistantMessageId={latestAssistantMessage?.id}
-                    latestAssistantContent={latestAssistantMessage?.displayContent}
-                    isLatestAssistantCopied={
-                        !!latestAssistantMessage && copiedMessageId === latestAssistantMessage.id
+                    displayedMessageId={vnDisplayedMessageId}
+                    displayedMessageContent={vnDisplayedMessageContent}
+                    isDisplayedMessageCopied={
+                        !!vnDisplayedMessageId && copiedMessageId === vnDisplayedMessageId
                     }
-                    onCopyLatestAssistant={() => {
-                        if (latestAssistantMessage) {
-                            void handleCopyMessage(
-                                latestAssistantMessage.id,
-                                latestAssistantMessage.displayContent,
-                            );
+                    onCopyDisplayedMessage={() => {
+                        if (vnDisplayedMessageId && vnDisplayedMessageContent != null) {
+                            void handleCopyMessage(vnDisplayedMessageId, vnDisplayedMessageContent);
                         }
                     }}
                     canRegenerate={canRegenerateVN}
@@ -1248,6 +1424,10 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                         && !isSummarizing
                         && !branchingMessageId
                         && !isSecretMode
+                        && (!isSituationVisualNovelMode || (
+                            !situationVnPresentation.locked
+                            && situationVnShowsLatestAssistant
+                        ))
                     }
                     onBranch={() => {
                         if (latestAssistantMessage) {
@@ -1257,12 +1437,23 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     isWaitingForAssistant={isWaitingForAssistant}
                     dialogueContent={vnProcessedDialogueContent}
                     plainStreamingContent={
-                        activeStreamingPreview && formattedStreamingPreviewMessages.length === 0
+                        !isSituationVisualNovelMode
+                        && activeStreamingPreview
+                        && formattedStreamingPreviewMessages.length === 0
                             ? activeStreamingPreview.content
                             : undefined
                     }
                     isTypewriterActive={isTypewriterActive}
-                    onRevealTypewriter={() => stopTypewriter(true)}
+                    dialogueAdvanceAvailable={
+                        isTypewriterActive
+                        || (isSituationVisualNovelMode && situationVnPresentation.canAdvance)
+                    }
+                    showDialogueAdvanceIndicator={showSituationVnAdvanceIndicator}
+                    onAdvanceDialogue={
+                        isSituationVisualNovelMode
+                            ? situationVnPresentation.advanceDialogue
+                            : () => stopTypewriter(true)
+                    }
                 />
             ) : (
                 <ChatMessagesView
@@ -1316,12 +1507,18 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 placeholder={chatInputPlaceholder}
                 disabled={chatInputDisabled}
                 redirectDisabled={
-                    isLoading || (isEditingMessage && !isInlineVnEditing)
+                    isLoading
+                    || situationVnInputLocked
+                    || (isEditingMessage && !isInlineVnEditing)
                 }
                 submitDisabled={chatInputSubmitDisabled}
                 isMobile={isMobile}
                 isInlineEditing={isInlineVnEditing}
-                isBusy={isLoading || isSummarizing}
+                isBusy={
+                    isLoading
+                    || isSummarizing
+                    || (situationVnInputLocked && isTypewriterActive)
+                }
                 isTypewriterActive={isTypewriterActive}
                 onSubmit={() => {
                     void handleSubmit();
@@ -1330,7 +1527,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 onCancelEdit={handleCancelEditMessage}
                 onStop={handleStop}
                 notice={chatNotice}
-                noticeActionDisabled={isLoading || isSummarizing}
+                noticeActionDisabled={isLoading || isSummarizing || situationVnInputLocked}
                 onNoticeAction={handleChatNoticeAction}
                 onDismissNotice={dismissChatNotice}
                 onNoticeInteractionStart={handleChatNoticeMouseEnter}

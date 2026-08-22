@@ -12,6 +12,8 @@ import WaitingEllipsis from './WaitingEllipsis';
 type VisualNovelViewProps = {
     character: Character | null;
     fallbackCharacterName?: string;
+    speakerName?: string;
+    castCharacters?: Character[];
     expressionImage: string | null;
     bounceActive: boolean;
     onCharacterImageLoad: () => void;
@@ -21,12 +23,13 @@ type VisualNovelViewProps = {
     selectedCostumeName: string;
     costumeOptions: VisualNovelCostumeOption[];
     onSelectCostume: (costumeName: string) => void;
+    showCostumeSelector?: boolean;
     canEditLatestUserMessage: boolean;
     onEditLatestUserMessage: () => void;
-    latestAssistantMessageId?: string;
-    latestAssistantContent?: string;
-    isLatestAssistantCopied: boolean;
-    onCopyLatestAssistant: () => void;
+    displayedMessageId?: string;
+    displayedMessageContent?: string;
+    isDisplayedMessageCopied: boolean;
+    onCopyDisplayedMessage: () => void;
     canRegenerate: boolean;
     onRegenerate: () => void;
     canBranch: boolean;
@@ -35,12 +38,16 @@ type VisualNovelViewProps = {
     dialogueContent: string;
     plainStreamingContent?: string;
     isTypewriterActive: boolean;
-    onRevealTypewriter: () => void;
+    dialogueAdvanceAvailable: boolean;
+    showDialogueAdvanceIndicator: boolean;
+    onAdvanceDialogue: () => void;
 };
 
 export default function VisualNovelView({
     character,
     fallbackCharacterName,
+    speakerName,
+    castCharacters,
     expressionImage,
     bounceActive,
     onCharacterImageLoad,
@@ -50,12 +57,13 @@ export default function VisualNovelView({
     selectedCostumeName,
     costumeOptions,
     onSelectCostume,
+    showCostumeSelector = true,
     canEditLatestUserMessage,
     onEditLatestUserMessage,
-    latestAssistantMessageId,
-    latestAssistantContent,
-    isLatestAssistantCopied,
-    onCopyLatestAssistant,
+    displayedMessageId,
+    displayedMessageContent,
+    isDisplayedMessageCopied,
+    onCopyDisplayedMessage,
     canRegenerate,
     onRegenerate,
     canBranch,
@@ -64,7 +72,9 @@ export default function VisualNovelView({
     dialogueContent,
     plainStreamingContent,
     isTypewriterActive,
-    onRevealTypewriter,
+    dialogueAdvanceAvailable,
+    showDialogueAdvanceIndicator,
+    onAdvanceDialogue,
 }: VisualNovelViewProps) {
     const [costumeMenuOpen, setCostumeMenuOpen] = useState(false);
     const costumeMenuRef = useRef<HTMLDivElement>(null);
@@ -104,31 +114,54 @@ export default function VisualNovelView({
     return (
         <div className={`vn-stage${hasReplySuggestions ? ' has-reply-suggestions' : ''}`}>
             <div className="vn-scene">
-                <div className={`vn-character-wrap ${bounceActive ? 'vn-character-bounce' : ''}`}>
-                    {expressionImage ? (
-                        <StoredImage
-                            src={expressionImage}
-                            alt={character?.name ?? 'character'}
-                            className="vn-character-image"
-                            onLoad={onCharacterImageLoad}
-                        />
-                    ) : (
+                {character ? (
+                    <div className={`vn-character-wrap ${bounceActive ? 'vn-character-bounce' : ''}`}>
+                        {expressionImage ? (
+                            <StoredImage
+                                src={expressionImage}
+                                alt={character.name}
+                                className="vn-character-image"
+                                onLoad={onCharacterImageLoad}
+                            />
+                        ) : (
+                            <div className="vn-character-placeholder">
+                                {character.icon ? (
+                                    <StoredImage src={character.icon} alt={character.name} />
+                                ) : (
+                                    <span>{character.name.charAt(0) || '?'}</span>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                ) : castCharacters && castCharacters.length > 0 ? (
+                    <div className="vn-cast" aria-label="参加キャラクター">
+                        {castCharacters.map((castCharacter) => (
+                            <div key={castCharacter.id} className="vn-cast-member">
+                                <div className="vn-cast-avatar">
+                                    {castCharacter.icon ? (
+                                        <StoredImage src={castCharacter.icon} alt={castCharacter.name} />
+                                    ) : (
+                                        <span>{castCharacter.name.charAt(0) || '?'}</span>
+                                    )}
+                                </div>
+                                <span>{castCharacter.name}</span>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="vn-character-wrap">
                         <div className="vn-character-placeholder">
-                            {character?.icon ? (
-                                <StoredImage src={character.icon} alt={character.name} />
-                            ) : (
-                                <span>{character?.name?.charAt(0) ?? '?'}</span>
-                            )}
+                            <span>?</span>
                         </div>
-                    )}
-                </div>
+                    </div>
+                )}
             </div>
 
             {replySuggestions}
             <div className="vn-dialogue">
                 <div className="vn-dialogue-topline">
                     <div className="vn-speaker">
-                        {character?.name ?? fallbackCharacterName ?? 'Character'}
+                        {speakerName ?? character?.name ?? fallbackCharacterName ?? 'Character'}
                     </div>
                     <div className="vn-actions">
                         {isSummarizing && (
@@ -136,7 +169,7 @@ export default function VisualNovelView({
                                 <div className="spinner" />
                             </div>
                         )}
-                        {character && (
+                        {showCostumeSelector && character && (
                             <div ref={costumeMenuRef} style={{ position: 'relative' }}>
                                 <button
                                     type="button"
@@ -236,11 +269,11 @@ export default function VisualNovelView({
                         <button
                             type="button"
                             className="btn btn-ghost"
-                            onClick={onCopyLatestAssistant}
-                            disabled={!latestAssistantMessageId || latestAssistantContent == null}
+                            onClick={onCopyDisplayedMessage}
+                            disabled={!displayedMessageId || displayedMessageContent == null}
                             title="コピー"
                         >
-                            {isLatestAssistantCopied ? <Check size={15} /> : <Copy size={15} />}
+                            {isDisplayedMessageCopied ? <Check size={15} /> : <Copy size={15} />}
                         </button>
                         <button
                             type="button"
@@ -266,9 +299,9 @@ export default function VisualNovelView({
                 <div
                     ref={dialogueBodyRef}
                     className="vn-dialogue-body"
-                    onClick={isTypewriterActive ? onRevealTypewriter : undefined}
-                    title={isTypewriterActive ? '全文表示' : undefined}
-                    style={{ cursor: isTypewriterActive ? 'pointer' : undefined }}
+                    onClick={dialogueAdvanceAvailable ? onAdvanceDialogue : undefined}
+                    title={isTypewriterActive ? '全文表示' : dialogueAdvanceAvailable ? '次へ' : undefined}
+                    style={{ cursor: dialogueAdvanceAvailable ? 'pointer' : undefined }}
                 >
                     {isWaitingForAssistant ? (
                         <WaitingEllipsis className="vn-waiting-ellipsis" />
@@ -285,6 +318,9 @@ export default function VisualNovelView({
                         <ReactMarkdown>{dialogueContent}</ReactMarkdown>
                     )}
                 </div>
+                {showDialogueAdvanceIndicator && (
+                    <span className="vn-dialogue-advance-indicator" aria-hidden="true" />
+                )}
             </div>
         </div>
     );

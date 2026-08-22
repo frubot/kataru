@@ -436,7 +436,12 @@ async fn generate_for_character(
     id_offset: usize,
     streaming_preview: Option<(&ConversationJobs, &str)>,
 ) -> AppResult<Vec<Value>> {
-    let expression_names = expression_names(character, room, situation.is_none());
+    let expression_names = expression_names(
+        character,
+        room,
+        string(room, "viewMode") == "vn",
+        situation.is_none(),
+    );
     let max_characters = character_max_characters(character);
     let schema = assistant_schema(
         &expression_names,
@@ -1112,16 +1117,24 @@ fn with_speaker_names(
         .collect()
 }
 
-fn expression_names(character: &Value, room: &Value, allow_vn: bool) -> Vec<String> {
-    if !allow_vn || string(room, "viewMode") != "vn" {
+fn expression_names(
+    character: &Value,
+    room: &Value,
+    visual_novel_mode: bool,
+    allow_costume: bool,
+) -> Vec<String> {
+    if !visual_novel_mode {
         return Vec::new();
     }
-    let selected_costume = room
-        .get("costumeSelections")
-        .and_then(Value::as_object)
-        .and_then(|selections| selections.get(&string(character, "id")))
-        .and_then(Value::as_str)
-        .filter(|name| *name != "default");
+    let selected_costume = if allow_costume {
+        room.get("costumeSelections")
+            .and_then(Value::as_object)
+            .and_then(|selections| selections.get(&string(character, "id")))
+            .and_then(Value::as_str)
+            .filter(|name| *name != "default")
+    } else {
+        None
+    };
     if let Some(costume_name) = selected_costume
         && let Some(costume) = character
             .get("costumes")
@@ -1694,5 +1707,34 @@ mod tests {
             situation_max_turns(&json!({"maxMentionChain": 4}), &situation, 2),
             4
         );
+    }
+
+    #[test]
+    fn situation_visual_novel_uses_base_expressions_without_costumes() {
+        let character = json!({
+            "id": "actor-1",
+            "expressions": [
+                {"name": "neutral"},
+                {"name": "happy"}
+            ],
+            "costumes": [{
+                "name": "uniform",
+                "expressions": [{"name": "uniform-happy"}]
+            }]
+        });
+        let room = json!({
+            "viewMode": "vn",
+            "costumeSelections": {"actor-1": "uniform"}
+        });
+
+        assert_eq!(
+            expression_names(&character, &room, true, false),
+            vec!["neutral", "happy"]
+        );
+        assert_eq!(
+            expression_names(&character, &room, true, true),
+            vec!["neutral", "uniform-happy"]
+        );
+        assert!(expression_names(&character, &room, false, false).is_empty());
     }
 }

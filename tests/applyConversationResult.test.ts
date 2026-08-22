@@ -95,4 +95,33 @@ describe('conversation result application', () => {
         expect(operations.refreshConversationRoom).not.toHaveBeenCalled();
         expect(operations.markMemoriesUsed).not.toHaveBeenCalled();
     });
+
+    test('defers typewriter playback to the situation visual novel queue', async () => {
+        const operations = createOperations(sourceRoom);
+        await applyConversationResult(
+            {
+                data: {
+                    messages: [{
+                        id: 'server-message',
+                        role: 'assistant',
+                        content: '順番に表示する返答',
+                        characterId: 'actor-1',
+                        timestamp: 1,
+                    }],
+                },
+                sourceRoom,
+                jobId: 'job-1',
+                character: null,
+                isSecretMode: false,
+                isMessageMode: false,
+                shouldStreamPreview: false,
+                deferTypewriter: true,
+                typingSpeed: 'default',
+                debugEnabled: false,
+            },
+            operations,
+        );
+
+        expect(operations.playTypewriter).not.toHaveBeenCalled();
+    });
 });

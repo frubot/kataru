@@ -55,12 +55,19 @@ export function useVisualNovelPresentation({ typingSpeed }: UseVisualNovelPresen
 
     const stopTypewriter = useCallback((revealFull: boolean) => {
         const activeRun = typewriterRef.current;
-        if (!activeRun) return false;
+        if (!activeRun) {
+            if (!revealFull) {
+                setTypedContent('');
+                setTypingMessageId(null);
+                setIsTypewriterActive(false);
+            }
+            return false;
+        }
 
         typewriterRef.current = null;
         releaseTypeDelay();
         setTypedContent(revealFull ? activeRun.fullContent : '');
-        setTypingMessageId(null);
+        setTypingMessageId(revealFull ? activeRun.messageId : null);
         setIsTypewriterActive(false);
         return true;
     }, [releaseTypeDelay]);
@@ -79,6 +86,12 @@ export function useVisualNovelPresentation({ typingSpeed }: UseVisualNovelPresen
         const run = { messageId, fullContent };
         typewriterRef.current = run;
         setTypingMessageId(messageId);
+        if (typingSpeedRef.current === 'streaming') {
+            typewriterRef.current = null;
+            setTypedContent(fullContent);
+            setIsTypewriterActive(false);
+            return;
+        }
         setTypedContent('');
         setIsTypewriterActive(true);
 
@@ -103,7 +116,7 @@ export function useVisualNovelPresentation({ typingSpeed }: UseVisualNovelPresen
         if (typewriterRef.current !== run) return;
         typewriterRef.current = null;
         setTypedContent(fullContent);
-        setTypingMessageId(null);
+        setTypingMessageId(messageId);
         setIsTypewriterActive(false);
     }, [stopTypewriter]);
 

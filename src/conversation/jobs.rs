@@ -193,10 +193,42 @@ impl ConversationJobs {
         if job.status != JobStatus::Running {
             return;
         }
+        let mut turns = job
+            .preview
+            .as_ref()
+            .and_then(|preview| preview.get("turns"))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let continue_last_turn = turns.last().is_some_and(|turn| {
+            !turn
+                .get("complete")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+                && turn.get("characterId").and_then(Value::as_str) == Some(character_id)
+        });
+        let turn_index = if continue_last_turn {
+            turns.len().saturating_sub(1)
+        } else {
+            let index = turns.len();
+            turns.push(json!({
+                "turnIndex": index,
+                "content": content,
+                "characterId": character_id,
+                "characterName": character_name,
+                "complete": false,
+            }));
+            index
+        };
+        if continue_last_turn {
+            turns[turn_index]["content"] = Value::String(content.to_owned());
+            turns[turn_index]["characterName"] = Value::String(character_name.to_owned());
+        }
         job.preview = Some(json!({
             "content": content,
             "characterId": character_id,
             "characterName": character_name,
+            "turns": turns,
         }));
         job.updated_at = now_millis();
     }
@@ -220,11 +252,45 @@ impl ConversationJobs {
         if job.status != JobStatus::Running {
             return;
         }
+        let mut turns = job
+            .preview
+            .as_ref()
+            .and_then(|preview| preview.get("turns"))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let continue_last_turn = turns.last().is_some_and(|turn| {
+            !turn
+                .get("complete")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+                && turn.get("characterId").and_then(Value::as_str) == Some(character_id)
+        });
+        let turn_index = if continue_last_turn {
+            turns.len().saturating_sub(1)
+        } else {
+            let index = turns.len();
+            turns.push(json!({}));
+            index
+        };
+        let mut turn = json!({
+            "turnIndex": turn_index,
+            "content": content,
+            "characterId": character_id,
+            "characterName": character_name,
+            "formattedMessages": formatted_messages,
+            "complete": true,
+        });
+        if let Some(expression) = expression {
+            turn["expression"] = Value::String(expression.to_owned());
+        }
+        turns[turn_index] = turn;
         let mut preview = json!({
             "content": content,
             "characterId": character_id,
             "characterName": character_name,
             "formattedMessages": formatted_messages,
+            "turns": turns,
         });
         if let Some(expression) = expression {
             preview["expression"] = Value::String(expression.to_owned());
@@ -626,5 +692,37 @@ mod tests {
         let secret = jobs.get("job-secret").await.expect("secret job");
         assert_eq!(recoverable["status"], "cancelled");
         assert_eq!(secret["status"], "running");
+    }
+
+    #[tokio::test]
+    async fn streaming_preview_keeps_completed_actor_turns_in_order() {
+        let jobs = ConversationJobs::default();
+        let job_id = "job-streaming-turns";
+        jobs.insert(job_id.to_owned(), "room-1".to_owned(), true)
+            .await
+            .expect("insert streaming job");
+
+        jobs.update_preview(job_id, "こ", "actor-a", "A");
+        jobs.update_preview(job_id, "こんにちは", "actor-a", "A");
+        jobs.finalize_preview(job_id, "こんにちは", "actor-a", "A", &[], Some("happy"))
+            .await;
+        jobs.update_preview(job_id, "や", "actor-b", "B");
+        jobs.finalize_preview(job_id, "やあ", "actor-b", "B", &[], None)
+            .await;
+
+        let snapshot = jobs.get(job_id).await.expect("streaming job");
+        let turns = snapshot["preview"]["turns"]
+            .as_array()
+            .expect("preview turns");
+        assert_eq!(turns.len(), 2);
+        assert_eq!(turns[0]["turnIndex"], 0);
+        assert_eq!(turns[0]["content"], "こんにちは");
+        assert_eq!(turns[0]["characterId"], "actor-a");
+        assert_eq!(turns[0]["expression"], "happy");
+        assert_eq!(turns[0]["complete"], true);
+        assert_eq!(turns[1]["turnIndex"], 1);
+        assert_eq!(turns[1]["content"], "やあ");
+        assert_eq!(turns[1]["characterId"], "actor-b");
+        assert_eq!(turns[1]["complete"], true);
     }
 }

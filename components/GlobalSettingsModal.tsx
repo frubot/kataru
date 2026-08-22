@@ -69,7 +69,7 @@ const SETTINGS_TABS = [
     { id: 'general', label: '一般' },
     { id: 'models', label: 'モデル' },
     { id: 'keyboard', label: 'キーボード' },
-    { id: 'debug', label: '開発者' },
+    { id: 'debug', label: '開者' },
     { id: 'statistics', label: '統計' },
 ] as const satisfies readonly { id: SettingsTab; label: string }[];
 

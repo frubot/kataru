@@ -13,27 +13,22 @@ import { keyboardShortcutFromEvent } from '../lib/keyboardShortcuts';
 const SHORTCUT_ROWS: readonly {
     action: KeyboardShortcutAction;
     label: string;
-    description: string;
 }[] = [
     {
         action: 'sendMessage',
         label: 'メッセージを送信',
-        description: 'チャット画面で入力されたメッセージを送信します。',
     },
     {
         action: 'advanceTypewriter',
         label: '文字送りをスキップ',
-        description: 'ゲームモードでの文字送りをスキップします。',
     },
     {
         action: 'closeDialog',
         label: 'ダイアログを閉じる',
-        description: '最前面のダイアログや設定画面を閉じます。',
     },
     {
         action: 'openShortcutHelp',
         label: 'ショートカットを表示',
-        description: 'このショートカット設定を開きます。',
     },
 ];
 
@@ -116,7 +111,6 @@ export default function KeyboardSettingsPanel() {
             <div className="keyboard-settings-heading-row">
                 <div>
                     <h3 id="keyboard-settings-heading">キーボードショートカット</h3>
-                    <p>変更する項目を選び、新しいキーの組み合わせを入力してください。</p>
                 </div>
                 <button
                     type="button"
@@ -134,13 +128,12 @@ export default function KeyboardSettingsPanel() {
             </div>
 
             <div className="keyboard-shortcut-list">
-                {SHORTCUT_ROWS.map(({ action, label, description }) => {
+                {SHORTCUT_ROWS.map(({ action, label}) => {
                     const isCapturing = capturingAction === action;
                     return (
                         <div className={`keyboard-shortcut-row ${isCapturing ? 'is-capturing' : ''}`} key={action}>
                             <div className="keyboard-shortcut-copy">
                                 <span className="keyboard-shortcut-label">{label}</span>
-                                <span className="keyboard-shortcut-description">{description}</span>
                             </div>
                             <ShortcutKeys
                                 shortcuts={keyboardShortcuts[action]}
@@ -155,7 +148,7 @@ export default function KeyboardSettingsPanel() {
             </div>
 
             <p className={`keyboard-shortcut-hint ${captureError ? 'is-error' : ''}`} aria-live="polite">
-                {captureError ?? 'OSやブラウザが使用するキーの組み合わせは動作しないことがあります。'}
+                {captureError}
             </p>
         </section>
     );

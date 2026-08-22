@@ -746,7 +746,7 @@ body {
   grid-template-columns: minmax(11rem, 1fr) minmax(8.5rem, auto);
   align-items: center;
   gap: 1rem;
-  min-height: 5rem;
+  min-height: 3rem;
   padding: 0.8rem 0.9rem;
   transition: background 0.15s ease, box-shadow 0.15s ease;
 }
@@ -770,13 +770,7 @@ body {
 .keyboard-shortcut-label {
   color: var(--text-primary);
   font-size: 0.875rem;
-  font-weight: 600;
-}
-
-.keyboard-shortcut-description {
-  color: var(--text-muted);
-  font-size: 0.72rem;
-  line-height: 1.4;
+  font-weight: 500;
 }
 
 .keyboard-shortcut-values,

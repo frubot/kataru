@@ -2587,6 +2587,61 @@ body {
   object-fit: cover;
 }
 
+.vn-cast {
+  position: relative;
+  z-index: 1;
+  align-self: center;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  width: min(90%, 720px);
+  margin: auto 0 calc(clamp(118px, 21vh, 240px) + 5rem);
+}
+
+.vn-cast-member {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 5rem;
+  max-width: 7rem;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.vn-cast-member > span {
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vn-cast-avatar {
+  width: clamp(64px, 10vw, 96px);
+  aspect-ratio: 1;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+  background: var(--bg-secondary);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.24);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.vn-cast-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .vn-dialogue {
   --vn-dialogue-body-height: clamp(118px, 21vh, 240px);
   --vn-dialogue-topline-height: 32px;
@@ -3459,6 +3514,22 @@ body {
     inset: 0;
     min-height: auto;
     padding: 0.25rem 0 0;
+  }
+
+  .vn-cast {
+    gap: 0.65rem;
+    width: calc(100% - 1.5rem);
+    margin-bottom: calc(clamp(92px, 22vh, 172px) + 5rem);
+  }
+
+  .vn-cast-member {
+    min-width: 3.75rem;
+    max-width: 5rem;
+    font-size: 0.7rem;
+  }
+
+  .vn-cast-avatar {
+    width: clamp(52px, 17vw, 72px);
   }
 
   .vn-character-wrap {

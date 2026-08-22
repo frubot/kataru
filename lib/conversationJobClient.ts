@@ -1,5 +1,15 @@
 import { throwChatRequestError } from './chatErrors';
 
+export type ConversationJobPreviewTurn = {
+    turnIndex: number;
+    content: string;
+    characterId?: string;
+    characterName?: string;
+    formattedMessages?: string[];
+    expression?: string;
+    complete: boolean;
+};
+
 export type ConversationJobStatus<TResult> = {
     jobId: string;
     roomId: string;
@@ -12,6 +22,7 @@ export type ConversationJobStatus<TResult> = {
         characterName?: string;
         formattedMessages?: string[];
         expression?: string;
+        turns?: ConversationJobPreviewTurn[];
     };
 };
 

@@ -18,6 +18,7 @@ type ApplyConversationResultOptions = {
     isSecretMode: boolean;
     isMessageMode: boolean;
     shouldStreamPreview: boolean;
+    deferTypewriter?: boolean;
     typingSpeed: VnTypingSpeed;
     debugEnabled: boolean;
 };
@@ -58,6 +59,7 @@ export async function applyConversationResult(
         isSecretMode,
         isMessageMode,
         shouldStreamPreview,
+        deferTypewriter = false,
         typingSpeed,
         debugEnabled,
     } = options;
@@ -157,6 +159,7 @@ export async function applyConversationResult(
 
     if (
         !isMessageMode
+        && !deferTypewriter
         && typingSpeed !== 'streaming'
         && operations.getCurrentRoom()?.id === sourceRoom.id
         && assistantMessageIds[0]

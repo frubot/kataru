@@ -1,0 +1,171 @@
+import { describe, expect, test } from 'vitest';
+import type { Message, SituationPriorMessage } from '../lib/store';
+import {
+    advanceSituationVisualNovelPresentation,
+    appendSituationVisualNovelItems,
+    buildSituationVisualNovelPriorItems,
+    buildSituationVisualNovelPreviewItems,
+    buildSituationVisualNovelRoomItems,
+    completeSituationVisualNovelItem,
+    createSituationVisualNovelPresentationState,
+    reconcileSituationVisualNovelPreviewItems,
+    syncSituationVisualNovelPreviewItems,
+    unlockSituationVisualNovelPresentation,
+} from '../lib/situationVisualNovelPresentation';
+
+const priorMessages: SituationPriorMessage[] = [
+    { id: 'prior-user-1', role: 'user', content: 'ここはどこ？' },
+    { id: 'prior-assistant-1', role: 'assistant', actorId: 'actor-a', content: '放課後の教室だよ。' },
+    { id: 'prior-user-2', role: 'user', content: 'そうなんだ。' },
+];
+
+function roomMessage(
+    id: string,
+    role: Message['role'],
+    content: string,
+    characterId?: string,
+    expression?: string,
+): Message {
+    return {
+        id,
+        role,
+        content,
+        characterId,
+        expression,
+        timestamp: 1,
+    };
+}
+
+describe('situation visual novel presentation', () => {
+    test('plays every prior message from the beginning and keeps the actor on protagonist lines', () => {
+        const priorItems = buildSituationVisualNovelPriorItems(priorMessages);
+        let state = createSituationVisualNovelPresentationState({
+            hasRoomHistory: false,
+            priorItems,
+            roomItems: [],
+            isLoading: false,
+        });
+
+        expect(state.current).toMatchObject({ role: 'user', content: 'ここはどこ？' });
+        expect(state.pending).toHaveLength(2);
+        expect(state.locked).toBe(true);
+        expect(state.sceneCharacterId).toBeUndefined();
+
+        state = completeSituationVisualNovelItem(state, state.current!.key);
+        state = advanceSituationVisualNovelPresentation(state, false);
+        expect(state.current).toMatchObject({ role: 'assistant', characterId: 'actor-a' });
+        expect(state.sceneCharacterId).toBe('actor-a');
+
+        state = completeSituationVisualNovelItem(state, state.current!.key);
+        state = advanceSituationVisualNovelPresentation(state, false);
+        expect(state.current).toMatchObject({ role: 'user', content: 'そうなんだ。' });
+        expect(state.sceneCharacterId).toBe('actor-a');
+
+        state = completeSituationVisualNovelItem(state, state.current!.key);
+        state = unlockSituationVisualNovelPresentation(state, false);
+        expect(state.locked).toBe(false);
+    });
+
+    test('presents a submitted protagonist line and all assistant turns in order', () => {
+        let state = createSituationVisualNovelPresentationState({
+            hasRoomHistory: false,
+            priorItems: [],
+            roomItems: [],
+            isLoading: false,
+        });
+        const turnItems = buildSituationVisualNovelRoomItems([
+            roomMessage('user-1', 'user', 'みんな、こんにちは。'),
+            roomMessage('assistant-a', 'assistant', 'こんにちは！', 'actor-a', 'happy'),
+            roomMessage('assistant-b', 'assistant', '待っていたよ。', 'actor-b', 'neutral'),
+        ]);
+
+        state = appendSituationVisualNovelItems(state, turnItems);
+        expect(state.current).toMatchObject({ id: 'user-1', role: 'user' });
+        expect(state.pending.map((item) => item.id)).toEqual(['assistant-a', 'assistant-b']);
+
+        state = completeSituationVisualNovelItem(state, state.current!.key);
+        state = advanceSituationVisualNovelPresentation(state, true);
+        expect(state.current?.id).toBe('assistant-a');
+        expect(state.sceneCharacterId).toBe('actor-a');
+        expect(state.sceneExpression).toBe('happy');
+
+        state = completeSituationVisualNovelItem(state, state.current!.key);
+        state = advanceSituationVisualNovelPresentation(state, true);
+        expect(state.current?.id).toBe('assistant-b');
+        expect(state.sceneCharacterId).toBe('actor-b');
+
+        state = completeSituationVisualNovelItem(state, state.current!.key);
+        state = unlockSituationVisualNovelPresentation(state, false);
+        expect(state.locked).toBe(false);
+    });
+
+    test('opens existing conversations on the latest message without replaying history', () => {
+        const roomItems = buildSituationVisualNovelRoomItems([
+            roomMessage('user-1', 'user', '最初の発言'),
+            roomMessage('assistant-1', 'assistant', '返答', 'actor-a', 'happy'),
+            roomMessage('user-2', 'user', '最後の発言'),
+        ]);
+        const state = createSituationVisualNovelPresentationState({
+            hasRoomHistory: true,
+            priorItems: buildSituationVisualNovelPriorItems(priorMessages),
+            roomItems,
+            isLoading: false,
+        });
+
+        expect(state.current).toMatchObject({ id: 'user-2', role: 'user' });
+        expect(state.pending).toEqual([]);
+        expect(state.locked).toBe(false);
+        expect(state.animateCurrent).toBe(false);
+        expect(state.sceneCharacterId).toBe('actor-a');
+        expect(state.sceneExpression).toBe('happy');
+    });
+
+    test('updates streamed actor turns in place and reconciles them with persisted messages', () => {
+        let state = createSituationVisualNovelPresentationState({
+            hasRoomHistory: true,
+            priorItems: [],
+            roomItems: [roomMessage('user-1', 'user', '話してみて。')].flatMap((message) =>
+                buildSituationVisualNovelRoomItems([message])
+            ),
+            isLoading: true,
+        });
+        state = advanceSituationVisualNovelPresentation(state, true);
+
+        const partial = buildSituationVisualNovelPreviewItems('job-1', [{
+            turnIndex: 0,
+            content: 'こん',
+            characterId: 'actor-a',
+            characterName: 'A',
+            complete: false,
+        }]);
+        state = appendSituationVisualNovelItems(state, partial);
+        expect(state.current).toMatchObject({ source: 'preview', content: 'こん' });
+        expect(state.currentComplete).toBe(false);
+
+        const completed = buildSituationVisualNovelPreviewItems('job-1', [{
+            turnIndex: 0,
+            content: 'こんにちは',
+            characterId: 'actor-a',
+            characterName: 'A',
+            expression: 'happy',
+            complete: true,
+        }]);
+        state = syncSituationVisualNovelPreviewItems(state, completed);
+        expect(state.current).toMatchObject({ content: 'こんにちは', expression: 'happy' });
+        expect(state.currentComplete).toBe(true);
+        expect(state.sceneCharacterId).toBe('actor-a');
+
+        const persisted = buildSituationVisualNovelRoomItems([
+            roomMessage('assistant-a', 'assistant', 'こんにちは', 'actor-a', 'happy'),
+        ])[0];
+        state = reconcileSituationVisualNovelPreviewItems(
+            state,
+            new Map([[completed[0].key, persisted]]),
+        );
+        expect(state.current).toMatchObject({
+            source: 'room',
+            id: 'assistant-a',
+            content: 'こんにちは',
+        });
+    });
+});

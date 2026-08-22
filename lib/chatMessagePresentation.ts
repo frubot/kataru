@@ -1,5 +1,6 @@
 import { getMessageMemories } from './chatAssistantResponse';
 import { isConversationResponseEnd } from './conversationBranch';
+import type { ConversationJobPreviewTurn } from './conversationJobClient';
 import type {
     Character,
     Message,
@@ -16,6 +17,7 @@ export type ChatStreamingPreview = {
     characterName?: string;
     formattedMessages?: string[];
     expression?: string;
+    turns?: ConversationJobPreviewTurn[];
 };
 
 export type PriorMessagePresentation = {

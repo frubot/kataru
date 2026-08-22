@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import { useStore } from '../lib/store';
+import { normalizeCharacters } from '../lib/store/characters';
 import {
     createMemoryRecord,
     inferMemoryKind,
@@ -38,6 +39,21 @@ describe('store composition', () => {
 });
 
 describe('store pure helpers', () => {
+    test('removes the legacy character token limit without reusing it as a character limit', () => {
+        const [character] = normalizeCharacters([{
+            id: 'character-1',
+            name: '葵',
+            systemPrompt: '',
+            model: 'model-1',
+            maxTokens: 1024,
+            createdAt: 1,
+            updatedAt: 1,
+        } as Parameters<typeof normalizeCharacters>[0][number] & { maxTokens: number }], 'fallback-model');
+
+        expect(character).not.toHaveProperty('maxTokens');
+        expect(character.maxCharacters).toBeUndefined();
+    });
+
     test('builds a safe conversation preview', () => {
         expect(toPreview('[emotion:happy] こんにちは <memory>非表示の記憶</memory>   世界'))
             .toBe('こんにちは 世界');

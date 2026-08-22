@@ -27,14 +27,15 @@ use super::{
         director_schema, string, summary_prompts, summary_schema,
     },
     response::{
-        AssistantEnvelope, DirectorDecision, assistant_response_preview, parse_assistant_response,
-        parse_director_decision, parse_summary_response, sanitize_assistant_reply_content,
-        sanitize_message_content,
+        AssistantEnvelope, DirectorDecision, assistant_response_preview,
+        limit_assistant_reply_characters, parse_assistant_response, parse_director_decision,
+        parse_summary_response, sanitize_assistant_reply_content, sanitize_message_content,
     },
 };
 
 const DEFAULT_MAX_HISTORY: usize = 20;
-const DEFAULT_MAX_TOKENS: u64 = 2048;
+const CHAT_COMPLETION_MAX_TOKENS: u64 = 2048;
+const DEFAULT_MAX_CHARACTERS: u64 = 512;
 const DEFAULT_TEMPERATURE: f64 = 0.8;
 const DEFAULT_TOP_P: f64 = 1.0;
 const DEFAULT_TOP_K: u64 = 0;
@@ -42,6 +43,11 @@ const MEMORY_LIMIT: usize = 8;
 const MEMORY_MIN_IMPORTANCE: f64 = 0.4;
 const MEMORY_MIN_CONFIDENCE: f64 = 0.7;
 const MEMORY_MAX_CANDIDATES: usize = 5;
+
+fn character_max_characters(character: &Value) -> usize {
+    usize::try_from(number_u64(character, "maxCharacters", DEFAULT_MAX_CHARACTERS).max(1))
+        .unwrap_or(usize::MAX)
+}
 
 fn situation_max_turns(room: &Value, situation: &Value, participant_count: usize) -> usize {
     if participant_count <= 1 {
@@ -431,10 +437,12 @@ async fn generate_for_character(
     streaming_preview: Option<(&ConversationJobs, &str)>,
 ) -> AppResult<Vec<Value>> {
     let expression_names = expression_names(character, room, situation.is_none());
+    let max_characters = character_max_characters(character);
     let schema = assistant_schema(
         &expression_names,
         message_mode,
         boolean(character, "enableThinking"),
+        max_characters,
     );
     let system_prompt = character_system_prompt(
         character,
@@ -461,7 +469,7 @@ async fn generate_for_character(
     let body = json!({
         "model": string(character, "model"),
         "messages": request_messages,
-        "max_tokens": number_u64(character, "maxTokens", DEFAULT_MAX_TOKENS),
+        "max_tokens": CHAT_COMPLETION_MAX_TOKENS,
         "temperature": number_f64(character, "temperature", DEFAULT_TEMPERATURE),
         "top_p": number_f64(character, "topP", DEFAULT_TOP_P),
         "top_k": number_u64(character, "topK", DEFAULT_TOP_K),
@@ -472,7 +480,7 @@ async fn generate_for_character(
     let started = now_ms();
     let raw = if let Some((jobs, job_id)) = streaming_preview {
         structured_completion_streaming(api_client, body, schema, 120, |partial| {
-            let preview = assistant_response_preview(partial, message_mode);
+            let preview = assistant_response_preview(partial, message_mode, max_characters);
             jobs.update_preview(
                 job_id,
                 &preview,
@@ -485,7 +493,10 @@ async fn generate_for_character(
         structured_completion(api_client, body, schema, 120).await?
     };
     let content = extract_message_text(&raw);
-    let envelope = parse_assistant_response(&content, &expression_names, message_mode)?;
+    let envelope = limit_assistant_reply_characters(
+        parse_assistant_response(&content, &expression_names, message_mode)?,
+        max_characters,
+    );
     if let Some((jobs, job_id)) = streaming_preview {
         jobs.finalize_preview(
             job_id,
@@ -1476,6 +1487,16 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn character_reply_length_defaults_to_512_characters() {
+        assert_eq!(character_max_characters(&json!({})), 512);
+        assert_eq!(
+            character_max_characters(&json!({"maxCharacters": 256})),
+            256
+        );
+        assert_eq!(character_max_characters(&json!({"maxCharacters": 0})), 1);
+    }
 
     #[test]
     fn generated_messages_record_the_memories_inserted_into_the_prompt() {

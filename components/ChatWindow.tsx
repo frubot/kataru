@@ -88,7 +88,7 @@ type ConversationCharacter = {
     protagonistPrompt?: string;
     userConstraints?: string;
     model: string;
-    maxTokens?: number;
+    maxCharacters?: number;
     maxHistory?: number;
     temperature?: number;
     topP?: number;
@@ -120,7 +120,7 @@ function toConversationCharacter(character: Character | null): ConversationChara
         protagonistPrompt: character.protagonistPrompt,
         userConstraints: character.userConstraints,
         model: character.model,
-        maxTokens: character.maxTokens,
+        maxCharacters: character.maxCharacters,
         maxHistory: character.maxHistory,
         temperature: character.temperature,
         topP: character.topP,

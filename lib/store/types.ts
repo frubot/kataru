@@ -31,7 +31,7 @@ export interface Character {
     userConstraints?: string;
     model: string;
     icon?: string;
-    maxTokens?: number;
+    maxCharacters?: number;
     maxHistory?: number;
     temperature?: number;
     topP?: number;
@@ -128,7 +128,7 @@ export type SituationActor =
         icon?: string;
         rolePrompt?: string;
         directorDescription?: string;
-        maxTokens?: number;
+        maxCharacters?: number;
         maxHistory?: number;
         temperature?: number;
         topP?: number;
@@ -332,7 +332,7 @@ export interface AppState {
     setSummaryInspectorEnabled: (enabled: boolean) => void;
 
     createCharacter: (name: string, systemPrompt?: string, model?: string, extras?: CharacterExtras) => string;
-    updateCharacter: (id: string, updates: Partial<Pick<Character, 'name' | 'systemPrompt' | 'favorite' | 'speechStyle' | 'protagonistPrompt' | 'userConstraints' | 'model' | 'icon' | 'maxTokens' | 'maxHistory' | 'temperature' | 'topP' | 'topK' | 'enableThinking' | 'enableMemory' | 'enableSummary' | 'expressions' | 'costumes'>>) => void;
+    updateCharacter: (id: string, updates: Partial<Pick<Character, 'name' | 'systemPrompt' | 'favorite' | 'speechStyle' | 'protagonistPrompt' | 'userConstraints' | 'model' | 'icon' | 'maxCharacters' | 'maxHistory' | 'temperature' | 'topP' | 'topK' | 'enableThinking' | 'enableMemory' | 'enableSummary' | 'expressions' | 'costumes'>>) => void;
     deleteCharacter: (id: string) => void;
     duplicateCharacter: (id: string) => string;
     getCharacter: (id: string) => Character | undefined;

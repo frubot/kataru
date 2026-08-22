@@ -6,7 +6,7 @@ import {
     Costume,
     Expression,
     DEFAULT_CHARACTER_MAX_HISTORY,
-    DEFAULT_CHARACTER_MAX_TOKENS,
+    DEFAULT_CHARACTER_MAX_CHARACTERS,
     DEFAULT_CHARACTER_TEMPERATURE,
     DEFAULT_CHARACTER_TOP_P,
     DEFAULT_CHARACTER_TOP_K,
@@ -46,7 +46,7 @@ function buildInitialCharacterDraft(character: Character | null, defaultChatMode
         enableThinking: character?.enableThinking ?? false,
         enableMemory: character?.enableMemory ?? true,
         enableSummary: character?.enableSummary ?? true,
-        maxTokens: character?.maxTokens != null ? String(character.maxTokens) : '',
+        maxCharacters: character?.maxCharacters != null ? String(character.maxCharacters) : '',
         maxHistory: character?.maxHistory != null ? String(character.maxHistory) : '',
         temperature: character?.temperature ?? null,
         topP: character?.topP ?? null,
@@ -77,9 +77,7 @@ const MAX_HISTORY_SLIDER_MAX = 100;
 const DEFAULT_MAX_HISTORY_SLIDER_VALUE = DEFAULT_CHARACTER_MAX_HISTORY == null
     ? MAX_HISTORY_SLIDER_MAX
     : Math.max(1, Math.min(MAX_HISTORY_SLIDER_MAX, Math.round(DEFAULT_CHARACTER_MAX_HISTORY)));
-const DEFAULT_MAX_TOKENS_PLACEHOLDER = DEFAULT_CHARACTER_MAX_TOKENS == null
-    ? 'デフォルト（指定なし）'
-    : `デフォルト（${DEFAULT_CHARACTER_MAX_TOKENS}）`;
+const DEFAULT_MAX_CHARACTERS_PLACEHOLDER = `デフォルト（${DEFAULT_CHARACTER_MAX_CHARACTERS}）`;
 const DEFAULT_MAX_HISTORY_LABEL = DEFAULT_CHARACTER_MAX_HISTORY == null
     ? '無制限'
     : `${DEFAULT_MAX_HISTORY_SLIDER_VALUE} 件`;
@@ -331,7 +329,7 @@ function CharacterSettingsModalContent({ isOpen, onClose, character, isNew = fal
 
     // Parameter settings
     const [parametersOpen, setParametersOpen] = useState(false);
-    const [maxTokens, setMaxTokens] = useState<string>(initialDraft.maxTokens);
+    const [maxCharacters, setMaxCharacters] = useState<string>(initialDraft.maxCharacters);
     const [maxHistory, setMaxHistory] = useState<string>(initialDraft.maxHistory);
     // null = use code default, number = custom value
     const [temperature, setTemperature] = useState<number | null>(initialDraft.temperature);
@@ -361,7 +359,7 @@ function CharacterSettingsModalContent({ isOpen, onClose, character, isNew = fal
             enableThinking,
             enableMemory,
             enableSummary,
-            maxTokens,
+            maxCharacters,
             maxHistory,
             temperature,
             topP,
@@ -394,7 +392,7 @@ function CharacterSettingsModalContent({ isOpen, onClose, character, isNew = fal
             enableThinking,
             enableMemory,
             enableSummary,
-            maxTokens: maxTokens ? Number(maxTokens) : undefined,
+            maxCharacters: maxCharacters ? Math.max(1, Math.round(Number(maxCharacters))) : undefined,
             maxHistory: maxHistory ? Math.min(100, Math.max(1, Number(maxHistory))) : undefined,
             temperature: temperature ?? undefined,
             topP: topP ?? undefined,
@@ -410,7 +408,7 @@ function CharacterSettingsModalContent({ isOpen, onClose, character, isNew = fal
             updateCharacter(character.id, updates);
         }
         onClose();
-    }, [character, costumes, createCharacter, defaultChatModel, enableMemory, enableSummary, enableThinking, expressions, icon, initialDraft, isNew, maxHistory, maxTokens, model, name, onClose, protagonistPrompt, speechStyle, systemPrompt, temperature, topK, topP, updateCharacter, userConstraints]);
+    }, [character, costumes, createCharacter, defaultChatModel, enableMemory, enableSummary, enableThinking, expressions, icon, initialDraft, isNew, maxCharacters, maxHistory, model, name, onClose, protagonistPrompt, speechStyle, systemPrompt, temperature, topK, topP, updateCharacter, userConstraints]);
 
     const childModalOpen = imageGenOpen || characterGeneratorOpen || expressionsOpen || costumesOpen;
     useModalKeyboard({
@@ -460,7 +458,7 @@ function CharacterSettingsModalContent({ isOpen, onClose, character, isNew = fal
         ?? expressions.find((e) => e.name === NEUTRAL_NAME)?.image;
 
     // パラメータに何かカスタム値が設定されているか
-    const hasCustomParams = maxTokens || maxHistory || temperature !== null || topP !== null || topK !== null;
+    const hasCustomParams = maxCharacters || maxHistory || temperature !== null || topP !== null || topK !== null;
     const combinedPromptEditorStyle: React.CSSProperties = {
         border: '1px solid var(--border-color)',
         borderRadius: '0.5rem',
@@ -906,18 +904,18 @@ function CharacterSettingsModalContent({ isOpen, onClose, character, isNew = fal
                                 flexDirection: 'column',
                                 gap: '1.25rem',
                             }}>
-                                {/* Max Tokens */}
+                                {/* Maximum reply characters */}
                                 <div>
-                                    {renderLabelWithInfo('Max Tokens', '生成する最大トークン数です', {
+                                    {renderLabelWithInfo('最大の文字数', '返信本文（message/messages）の最大文字数です', {
                                         marginBottom: '0.375rem',
                                         labelStyleOverride: { fontSize: '0.8125rem' },
                                     })}
                                     <input
                                         type="number"
                                         className="input"
-                                        value={maxTokens}
-                                        onChange={(e) => setMaxTokens(e.target.value)}
-                                        placeholder={DEFAULT_MAX_TOKENS_PLACEHOLDER}
+                                        value={maxCharacters}
+                                        onChange={(e) => setMaxCharacters(e.target.value)}
+                                        placeholder={DEFAULT_MAX_CHARACTERS_PLACEHOLDER}
                                         min="1"
                                         style={{ fontSize: '0.8125rem' }}
                                     />

@@ -23,10 +23,17 @@ export function resolveCharacterModel(model: string | undefined, fallbackModel: 
 
 export function normalizeCharacterModel(character: Character, fallbackModel: string): Character {
     const model = resolveCharacterModel(character.model, fallbackModel);
-    const normalized = { ...character } as Character & { thinkModeEnabled?: boolean };
+    const normalized = { ...character } as Character & {
+        thinkModeEnabled?: boolean;
+        maxTokens?: number;
+    };
     const hadLegacyThinkMode = 'thinkModeEnabled' in normalized;
+    const hadLegacyMaxTokens = 'maxTokens' in normalized;
     delete normalized.thinkModeEnabled;
-    return model === character.model && !hadLegacyThinkMode ? character : { ...normalized, model };
+    delete normalized.maxTokens;
+    return model === character.model && !hadLegacyThinkMode && !hadLegacyMaxTokens
+        ? character
+        : { ...normalized, model };
 }
 
 export function normalizeCharacters(characters: Character[], fallbackModel: string): Character[] {

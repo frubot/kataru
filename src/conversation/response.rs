@@ -97,6 +97,44 @@ pub fn parse_assistant_response(
     })
 }
 
+fn truncate_to_character_limit(content: &str, max_characters: usize) -> String {
+    content.chars().take(max_characters).collect()
+}
+
+/// Limits only the user-visible reply fields, leaving metadata such as recipients and
+/// expressions untouched. In message mode the limit is shared by all reply bubbles.
+pub(crate) fn limit_assistant_reply_characters(
+    mut envelope: AssistantEnvelope,
+    max_characters: usize,
+) -> AssistantEnvelope {
+    let max_characters = max_characters.max(1);
+    let source_messages = if envelope.messages.is_empty() {
+        vec![envelope.message]
+    } else {
+        envelope.messages
+    };
+    let mut remaining = max_characters;
+    let mut messages = Vec::new();
+    for message in source_messages {
+        if remaining == 0 {
+            break;
+        }
+        let truncated = truncate_to_character_limit(&message, remaining);
+        let sanitized = sanitize_assistant_reply_content(&truncated);
+        if sanitized.is_empty() {
+            continue;
+        }
+        remaining = remaining.saturating_sub(sanitized.chars().count());
+        messages.push(sanitized);
+    }
+    if messages.is_empty() {
+        messages.push(truncate_to_character_limit("...", max_characters));
+    }
+    envelope.message = messages.join("\n\n");
+    envelope.messages = messages;
+    envelope
+}
+
 fn json_string_at(content: &str, start: usize) -> (String, usize, bool) {
     let bytes = content.as_bytes();
     let mut index = start + 1;
@@ -158,8 +196,12 @@ fn json_property_value_start(content: &str, keys: &[&str]) -> Option<usize> {
 
 /// Extracts only user-visible reply text from an in-progress structured JSON response.
 /// Incomplete JSON string escape sequences are held back until they can be decoded safely.
-pub(crate) fn assistant_response_preview(content: &str, message_mode: bool) -> String {
-    if message_mode {
+pub(crate) fn assistant_response_preview(
+    content: &str,
+    message_mode: bool,
+    max_characters: usize,
+) -> String {
+    let preview = if message_mode {
         let Some(mut cursor) = json_property_value_start(content, &["messages"]) else {
             return String::new();
         };
@@ -190,19 +232,20 @@ pub(crate) fn assistant_response_preview(content: &str, message_mode: bool) -> S
             }
             cursor = end;
         }
-        return messages.join("\n\n");
-    }
-
-    let Some(cursor) = json_property_value_start(
-        content,
-        &["message", "dialogue", "content", "text", "reply", "answer"],
-    ) else {
-        return String::new();
+        messages.join("\n\n")
+    } else {
+        let Some(cursor) = json_property_value_start(
+            content,
+            &["message", "dialogue", "content", "text", "reply", "answer"],
+        ) else {
+            return String::new();
+        };
+        if content.as_bytes().get(cursor) != Some(&b'"') {
+            return String::new();
+        }
+        json_string_at(content, cursor).0
     };
-    if content.as_bytes().get(cursor) != Some(&b'"') {
-        return String::new();
-    }
-    json_string_at(content, cursor).0
+    truncate_to_character_limit(&preview, max_characters.max(1))
 }
 
 pub fn parse_director_decision(
@@ -760,11 +803,12 @@ mod tests {
             assistant_response_preview(
                 r#"{"thought":"hidden","expression":"happy","message":"こんにちは\n世"#,
                 false,
+                512,
             ),
             "こんにちは\n世"
         );
         assert_eq!(
-            assistant_response_preview(r#"{"thought":"still hidden"#, false),
+            assistant_response_preview(r#"{"thought":"still hidden"#, false, 512),
             ""
         );
     }
@@ -772,8 +816,34 @@ mod tests {
     #[test]
     fn previews_message_array_as_one_temporary_block() {
         assert_eq!(
-            assistant_response_preview(r#"{"messages":["一つ目","二つ"#, true),
+            assistant_response_preview(r#"{"messages":["一つ目","二つ"#, true, 512),
             "一つ目\n\n二つ"
+        );
+    }
+
+    #[test]
+    fn limits_only_reply_text_across_message_bubbles() {
+        let response = limit_assistant_reply_characters(
+            AssistantEnvelope {
+                message: "あいう\n\nえおか".into(),
+                messages: vec!["あいう".into(), "えおか".into()],
+                to: vec!["character-2".into()],
+                expression: Some("happy".into()),
+            },
+            5,
+        );
+
+        assert_eq!(response.messages, ["あいう", "えお"]);
+        assert_eq!(response.message, "あいう\n\nえお");
+        assert_eq!(response.to, ["character-2"]);
+        assert_eq!(response.expression.as_deref(), Some("happy"));
+    }
+
+    #[test]
+    fn limits_streaming_preview_by_characters() {
+        assert_eq!(
+            assistant_response_preview(r#"{"message":"あいうえお"#, false, 3),
+            "あいう"
         );
     }
 

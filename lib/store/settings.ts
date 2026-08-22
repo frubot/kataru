@@ -45,7 +45,7 @@ import type {
 export const THEME_LS_KEY = 'kataru-theme';
 export const DEFAULT_THEME_SELECTION: ThemeSelection = { mode: 'dark', palette: 'mono' };
 export const DEFAULT_VN_TYPING_SPEED: VnTypingSpeed = 'default';
-export const DEFAULT_CHARACTER_MAX_TOKENS: number | undefined = 1024;
+export const DEFAULT_CHARACTER_MAX_CHARACTERS = 512;
 export const DEFAULT_CHARACTER_MAX_HISTORY: number | undefined = 7;
 export const DEFAULT_CHARACTER_TEMPERATURE = 1.0;
 export const DEFAULT_CHARACTER_TOP_P: number | undefined = 0.95;

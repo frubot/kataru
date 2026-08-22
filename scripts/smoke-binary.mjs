@@ -61,10 +61,11 @@ async function postJson(url, value, origin) {
   return body;
 }
 
+let lastUpstreamRequest;
 const mockUpstreamApi = createServer(async (request, response) => {
   let requestBody = "";
   for await (const chunk of request) requestBody += chunk;
-  JSON.parse(requestBody);
+  lastUpstreamRequest = JSON.parse(requestBody);
   response.writeHead(200, { "Content-Type": "application/json" });
   response.end(JSON.stringify({
     choices: [{
@@ -182,7 +183,7 @@ try {
       systemPrompt: "You are a test character.",
       protagonistPrompt: "",
       model: "mock-model",
-      maxTokens: 256,
+      maxCharacters: 256,
       maxHistory: 7,
       enableSummary: false,
       enableMemory: false,
@@ -201,6 +202,11 @@ try {
   assert.equal(turn.messages[0].content, "Rust response");
   assert.equal(turn.usages[0].totalTokens, 14);
   assert.equal(turn.fullJsonLogs[0].source, "assistant-json");
+  assert.equal(lastUpstreamRequest.max_tokens, 2048);
+  assert.equal(
+    lastUpstreamRequest.response_format.json_schema.schema.properties.message.maxLength,
+    256,
+  );
   const sentPrompt = JSON.parse(turn.fullJsonLogs[0].prompt);
   assert.equal(sentPrompt[0].role, "system");
   assert.equal(sentPrompt.at(-1).content, "Hello");

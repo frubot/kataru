@@ -155,7 +155,9 @@ pub fn assistant_schema(
     expression_names: &[String],
     use_message_mode: bool,
     include_thought: bool,
+    max_characters: usize,
 ) -> Value {
+    let max_characters = max_characters.max(1);
     let mut properties = serde_json::Map::new();
     let mut required = Vec::new();
     if include_thought {
@@ -185,10 +187,13 @@ pub fn assistant_schema(
             "messages".into(),
             json!({
                 "type": "array",
-                "description": "あなたの返信",
+                "description": format!("あなたの返信。"),
                 "minItems": 1,
                 "maxItems": 4,
-                "items": {"type": "string"},
+                "items": {
+                    "type": "string",
+                    "maxLength": max_characters,
+                },
             }),
         );
         required.push("messages");
@@ -198,7 +203,8 @@ pub fn assistant_schema(
             json!({
                 "type": "string",
                 "description": "あなたの返答とナレーション",
-                "minLength": 5
+                "minLength": 1,
+                "maxLength": max_characters,
             }),
         );
         required.push("message");
@@ -494,7 +500,7 @@ mod tests {
 
     #[test]
     fn assistant_schema_puts_thought_first_when_enabled() {
-        let schema = assistant_schema(&["neutral".into()], false, true);
+        let schema = assistant_schema(&["neutral".into()], false, true, 512);
         let properties = schema["json_schema"]["schema"]["properties"]
             .as_object()
             .expect("schema properties");
@@ -507,11 +513,20 @@ mod tests {
             schema["json_schema"]["schema"]["required"],
             json!(["thought", "expression", "message"])
         );
+        assert_eq!(
+            schema["json_schema"]["schema"]["properties"]["message"]["maxLength"],
+            512
+        );
+        assert!(
+            schema["json_schema"]["schema"]["properties"]["thought"]
+                .get("maxLength")
+                .is_none()
+        );
     }
 
     #[test]
     fn assistant_schema_omits_thought_when_disabled() {
-        let schema = assistant_schema(&[], true, false);
+        let schema = assistant_schema(&[], true, false, 256);
         let properties = schema["json_schema"]["schema"]["properties"]
             .as_object()
             .expect("schema properties");
@@ -520,6 +535,10 @@ mod tests {
         assert_eq!(
             schema["json_schema"]["schema"]["required"],
             json!(["messages"])
+        );
+        assert_eq!(
+            schema["json_schema"]["schema"]["properties"]["messages"]["items"]["maxLength"],
+            256
         );
     }
 }

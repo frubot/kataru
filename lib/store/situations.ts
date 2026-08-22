@@ -100,7 +100,7 @@ export function normalizeSituationActor(
             ...(typeof rawActor.directorDescription === 'string' && rawActor.directorDescription.trim()
                 ? { directorDescription: rawActor.directorDescription.trim() }
                 : {}),
-            ...(typeof rawActor.maxTokens === 'number' ? { maxTokens: rawActor.maxTokens } : {}),
+            ...(typeof rawActor.maxCharacters === 'number' ? { maxCharacters: rawActor.maxCharacters } : {}),
             ...(typeof rawActor.maxHistory === 'number' ? { maxHistory: rawActor.maxHistory } : {}),
             ...(typeof rawActor.temperature === 'number' ? { temperature: rawActor.temperature } : {}),
             ...(typeof rawActor.topP === 'number' ? { topP: rawActor.topP } : {}),
@@ -221,7 +221,7 @@ export function resolveSituationParticipants(
                 userConstraints: actor.userConstraints,
                 model: actor.model?.trim() || fallbackModel,
                 icon: actor.icon,
-                maxTokens: actor.maxTokens,
+                maxCharacters: actor.maxCharacters,
                 maxHistory: actor.maxHistory,
                 temperature: actor.temperature,
                 topP: actor.topP,

@@ -187,7 +187,7 @@ pub fn assistant_schema(
             "messages".into(),
             json!({
                 "type": "array",
-                "description": format!("あなたの返信。"),
+                "description": "あなたの返信。",
                 "minItems": 1,
                 "maxItems": 4,
                 "items": {

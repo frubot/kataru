@@ -39,6 +39,7 @@ type VisualNovelViewProps = {
     plainStreamingContent?: string;
     isTypewriterActive: boolean;
     dialogueAdvanceAvailable: boolean;
+    showDialogueAdvanceIndicator: boolean;
     onAdvanceDialogue: () => void;
 };
 
@@ -72,6 +73,7 @@ export default function VisualNovelView({
     plainStreamingContent,
     isTypewriterActive,
     dialogueAdvanceAvailable,
+    showDialogueAdvanceIndicator,
     onAdvanceDialogue,
 }: VisualNovelViewProps) {
     const [costumeMenuOpen, setCostumeMenuOpen] = useState(false);
@@ -316,6 +318,9 @@ export default function VisualNovelView({
                         <ReactMarkdown>{dialogueContent}</ReactMarkdown>
                     )}
                 </div>
+                {showDialogueAdvanceIndicator && (
+                    <span className="vn-dialogue-advance-indicator" aria-hidden="true" />
+                )}
             </div>
         </div>
     );

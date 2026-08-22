@@ -1191,6 +1191,11 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const situationVnShowsLatestAssistant = situationVnCurrentItem?.source === 'room'
         && situationVnCurrentItem.role === 'assistant'
         && situationVnCurrentItem.id === latestAssistantMessage?.id;
+    const showSituationVnAdvanceIndicator = isSituationVisualNovelMode
+        && !isTypewriterActive
+        && situationVnPresentation.current != null
+        && situationVnPresentation.currentComplete
+        && situationVnPresentation.pending.length > 0;
     const canRegenerateVN = !!latestAssistantMessage
         && lastRoomMessage?.id === latestAssistantMessage.id
         && !isLoading
@@ -1431,6 +1436,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                         isTypewriterActive
                         || (isSituationVisualNovelMode && situationVnPresentation.canAdvance)
                     }
+                    showDialogueAdvanceIndicator={showSituationVnAdvanceIndicator}
                     onAdvanceDialogue={
                         isSituationVisualNovelMode
                             ? situationVnPresentation.advanceDialogue

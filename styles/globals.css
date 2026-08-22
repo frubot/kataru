@@ -2749,6 +2749,20 @@ body {
   opacity: 1;
 }
 
+.vn-dialogue-advance-indicator {
+  position: absolute;
+  right: 1.25rem;
+  bottom: 0.75rem;
+  width: 0.625rem;
+  height: 0.625rem;
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 72%, var(--text-primary));
+  border-radius: 0.08rem;
+  background: var(--accent-primary);
+  box-shadow: 0 0 0.65rem color-mix(in srgb, var(--accent-primary) 55%, transparent);
+  pointer-events: none;
+  animation: vn-dialogue-advance-pulse 1.15s ease-in-out infinite;
+}
+
 .mode-light .vn-dialogue-body em {
   color: color-mix(in srgb, var(--accent-primary) 82%, var(--text-primary));
   opacity: 1;
@@ -3210,7 +3224,8 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .modal-overlay,
   .modal-content,
-  .vn-character-bounce {
+  .vn-character-bounce,
+  .vn-dialogue-advance-indicator {
     animation: none;
   }
 
@@ -3218,6 +3233,11 @@ body {
     animation: none;
     opacity: 0.8;
     transform: none;
+  }
+
+  .vn-dialogue-advance-indicator {
+    opacity: 0.85;
+    transform: rotate(45deg);
   }
 }
 
@@ -3242,6 +3262,19 @@ body {
   }
   100% {
     transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes vn-dialogue-advance-pulse {
+  0%,
+  100% {
+    opacity: 0.42;
+    transform: translateY(0) rotate(45deg) scale(0.88);
+  }
+
+  50% {
+    opacity: 1;
+    transform: translateY(-0.18rem) rotate(45deg) scale(1);
   }
 }
 

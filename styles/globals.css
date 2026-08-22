@@ -2546,6 +2546,7 @@ body {
   width: min(70vw, 780px);
   max-width: 92%;
   height: min(112%, 92vh);
+  margin-bottom: -7rem;
   display: flex;
   align-items: flex-end;
   justify-content: center;
@@ -3467,7 +3468,7 @@ body {
     height: clamp(430px, 76svh, 720px);
     max-height: none;
     flex: 0 0 auto;
-    margin-bottom: 5rem;
+    margin-bottom: 1.5rem;
   }
 
   .vn-dialogue {

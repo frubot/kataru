@@ -10,6 +10,7 @@ import {
     completeSituationVisualNovelItem,
     createSituationVisualNovelPresentationState,
     reconcileSituationVisualNovelPreviewItems,
+    resolveSituationVisualNovelInitialCharacterId,
     syncSituationVisualNovelPreviewItems,
     unlockSituationVisualNovelPresentation,
 } from '../lib/situationVisualNovelPresentation';
@@ -38,6 +39,36 @@ function roomMessage(
 }
 
 describe('situation visual novel presentation', () => {
+    test('uses the first speaking actor as the initial character', () => {
+        expect(resolveSituationVisualNovelInitialCharacterId(priorMessages, [
+            { id: 'actor-b', expressions: [{ name: 'neutral', image: 'portrait-b' }] },
+            { id: 'actor-a', expressions: [{ name: 'neutral', image: 'portrait-a' }] },
+        ])).toBe('actor-a');
+    });
+
+    test('prefers an available portrait when the first speaking actor has none', () => {
+        expect(resolveSituationVisualNovelInitialCharacterId(priorMessages, [
+            { id: 'actor-a' },
+            { id: 'actor-b', expressions: [{ name: 'neutral', image: 'portrait-b' }] },
+        ])).toBe('actor-b');
+    });
+
+    test('uses the first participant with a portrait when the intro has no actor line', () => {
+        expect(resolveSituationVisualNovelInitialCharacterId([
+            { id: 'prior-user', role: 'user', content: 'こんにちは。' },
+        ], [
+            { id: 'actor-a' },
+            { id: 'actor-b', expressions: [{ name: 'neutral', image: 'portrait-b' }] },
+        ])).toBe('actor-b');
+    });
+
+    test('falls back to the first participant when nobody has a portrait', () => {
+        expect(resolveSituationVisualNovelInitialCharacterId([], [
+            { id: 'actor-a' },
+            { id: 'actor-b' },
+        ])).toBe('actor-a');
+    });
+
     test('plays every prior message from the beginning and keeps the actor on protagonist lines', () => {
         const priorItems = buildSituationVisualNovelPriorItems(priorMessages);
         let state = createSituationVisualNovelPresentationState({

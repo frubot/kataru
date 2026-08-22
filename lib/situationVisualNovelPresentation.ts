@@ -1,4 +1,4 @@
-import type { Message, SituationPriorMessage } from './store/types';
+import type { Character, Message, SituationPriorMessage } from './store/types';
 import type { ConversationJobPreviewTurn } from './conversationJobClient';
 
 export type SituationVisualNovelItem = {
@@ -31,6 +31,31 @@ type InitialPresentationInput = {
     roomItems: SituationVisualNovelItem[];
     isLoading: boolean;
 };
+
+type SituationVisualNovelInitialCharacter = Pick<Character, 'id' | 'expressions'>;
+
+export function resolveSituationVisualNovelInitialCharacterId(
+    priorMessages: SituationPriorMessage[],
+    characters: SituationVisualNovelInitialCharacter[],
+): string | undefined {
+    const hasPortrait = (character: SituationVisualNovelInitialCharacter) => (
+        character.expressions?.some((expression) => expression.image.trim()) === true
+    );
+    const openingMessage = priorMessages.find(
+        (message): message is Extract<SituationPriorMessage, { role: 'assistant' }> => (
+            message.role === 'assistant' && !!message.content.trim()
+        ),
+    );
+    const openingCharacter = characters.find(
+        (character) => character.id === openingMessage?.actorId,
+    );
+    if (openingCharacter && hasPortrait(openingCharacter)) {
+        return openingCharacter.id;
+    }
+
+    const characterWithPortrait = characters.find(hasPortrait);
+    return characterWithPortrait?.id ?? openingCharacter?.id ?? characters[0]?.id;
+}
 
 export function buildSituationVisualNovelPriorItems(
     messages: SituationPriorMessage[],

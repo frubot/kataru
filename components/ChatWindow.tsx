@@ -34,6 +34,7 @@ import {
 import type { ConversationJobStatus } from '@/lib/conversationJobClient';
 import type { RustTurnResponse } from '@/lib/conversationResult';
 import { formatAssistantMarkdown } from '@/lib/markdownUtils';
+import { resolveSituationVisualNovelInitialCharacterId } from '@/lib/situationVisualNovelPresentation';
 import {
     DEFAULT_COSTUME_NAME,
     getVisualNovelCostumeOptions,
@@ -1105,12 +1106,23 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         return character;
     }, [latestAssistantMessage, characterMap, character]);
 
+    const situationVnInitialCharacterId = useMemo(
+        () => resolveSituationVisualNovelInitialCharacterId(
+            situationPriorMessages,
+            groupCharacters ?? [],
+        ),
+        [groupCharacters, situationPriorMessages],
+    );
+    const situationVnInitialCharacter = situationVnInitialCharacterId && characterMap
+        ? characterMap.get(situationVnInitialCharacterId) ?? null
+        : null;
+
     const situationVnCurrentItem = situationVnPresentation.current;
     const situationVnSceneCharacter = situationVnPresentation.sceneCharacterId && characterMap
         ? characterMap.get(situationVnPresentation.sceneCharacterId) ?? null
         : null;
     const vnCharacter = isSituationVisualNovelMode
-        ? situationVnSceneCharacter
+        ? situationVnSceneCharacter ?? situationVnInitialCharacter
         : soloVnCharacter;
 
     const vnSelectedCostumeName = useMemo(

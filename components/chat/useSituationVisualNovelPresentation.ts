@@ -4,6 +4,7 @@ import type { ChatStreamingPreview } from '@/lib/chatMessagePresentation';
 import {
     advanceSituationVisualNovelPresentation,
     appendSituationVisualNovelItems,
+    beginSituationVisualNovelResponse,
     buildSituationVisualNovelPriorItems,
     buildSituationVisualNovelPreviewItems,
     buildSituationVisualNovelRoomItems,
@@ -52,6 +53,14 @@ export function useSituationVisualNovelPresentation({
         () => buildSituationVisualNovelRoomItems(messages),
         [messages],
     );
+    const currentRoundAssistantItems = useMemo(() => {
+        const lastUserIndex = messages.findLastIndex((message) => (
+            message.role === 'user'
+            && !message.archived
+            && message.content.trim()
+        ));
+        return buildSituationVisualNovelRoomItems(messages.slice(lastUserIndex + 1));
+    }, [messages]);
     const activeStreamingPreview = streamingPreview?.roomId === roomId
         ? streamingPreview
         : null;
@@ -122,10 +131,12 @@ export function useSituationVisualNovelPresentation({
         for (const messageId of unseenIds) seenRoomMessageIdsRef.current.add(messageId);
 
         const unseenIdSet = new Set(unseenIds);
-        const lastUserIndex = roomItems.findLastIndex((item) => item.role === 'user');
-        const currentRoundAssistantItems = roomItems
-            .slice(lastUserIndex + 1)
-            .filter((item) => item.role === 'assistant');
+        const hasUnseenUserMessage = messages.some((message) => (
+            unseenIdSet.has(message.id)
+            && message.role === 'user'
+            && !message.archived
+            && !!message.content.trim()
+        ));
         const previewCoveredRoomIds = new Set(previewItems.flatMap((previewItem, index) => {
             const roomItem = currentRoundAssistantItems[index];
             return roomItem
@@ -137,7 +148,10 @@ export function useSituationVisualNovelPresentation({
             unseenIdSet.has(item.id) && !previewCoveredRoomIds.has(item.id)
         ));
         setState((current) => {
-            const appended = appendSituationVisualNovelItems(current, appendedItems);
+            const waiting = hasUnseenUserMessage
+                ? beginSituationVisualNovelResponse(current)
+                : current;
+            const appended = appendSituationVisualNovelItems(waiting, appendedItems);
             return syncSituationVisualNovelRoomItems(appended, {
                 hasRoomHistory,
                 priorItems,
@@ -147,6 +161,7 @@ export function useSituationVisualNovelPresentation({
         });
     }, [
         active,
+        currentRoundAssistantItems,
         hasRoomHistory,
         isLoading,
         messages,
@@ -170,10 +185,6 @@ export function useSituationVisualNovelPresentation({
 
     useEffect(() => {
         if (!active || !activeStreamingPreview || previewItems.length === 0) return;
-        const lastUserIndex = roomItems.findLastIndex((item) => item.role === 'user');
-        const currentRoundAssistantItems = roomItems
-            .slice(lastUserIndex + 1)
-            .filter((item) => item.role === 'assistant');
         const replacements = new Map(previewItems.flatMap((previewItem, index) => {
             const roomItem = currentRoundAssistantItems[index];
             return roomItem
@@ -189,10 +200,10 @@ export function useSituationVisualNovelPresentation({
     }, [
         active,
         activeStreamingPreview,
+        currentRoundAssistantItems,
         isLoading,
         onStreamingPreviewConsumed,
         previewItems,
-        roomItems,
     ]);
 
     useEffect(() => {

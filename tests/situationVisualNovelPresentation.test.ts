@@ -3,6 +3,7 @@ import type { Message, SituationPriorMessage } from '../lib/store';
 import {
     advanceSituationVisualNovelPresentation,
     appendSituationVisualNovelItems,
+    beginSituationVisualNovelResponse,
     buildSituationVisualNovelPriorItems,
     buildSituationVisualNovelPreviewItems,
     buildSituationVisualNovelRoomItems,
@@ -66,7 +67,7 @@ describe('situation visual novel presentation', () => {
         expect(state.locked).toBe(false);
     });
 
-    test('presents a submitted protagonist line and all assistant turns in order', () => {
+    test('hides a submitted protagonist line and presents all assistant turns in order', () => {
         let state = createSituationVisualNovelPresentationState({
             hasRoomHistory: false,
             priorItems: [],
@@ -79,15 +80,15 @@ describe('situation visual novel presentation', () => {
             roomMessage('assistant-b', 'assistant', '待っていたよ。', 'actor-b', 'neutral'),
         ]);
 
-        state = appendSituationVisualNovelItems(state, turnItems);
-        expect(state.current).toMatchObject({ id: 'user-1', role: 'user' });
-        expect(state.pending.map((item) => item.id)).toEqual(['assistant-a', 'assistant-b']);
+        expect(turnItems.map((item) => item.id)).toEqual(['assistant-a', 'assistant-b']);
 
-        state = completeSituationVisualNovelItem(state, state.current!.key);
-        state = advanceSituationVisualNovelPresentation(state, true);
-        expect(state.current?.id).toBe('assistant-a');
-        expect(state.sceneCharacterId).toBe('actor-a');
-        expect(state.sceneExpression).toBe('happy');
+        state = beginSituationVisualNovelResponse(state);
+        expect(state.current).toBeNull();
+        expect(state.locked).toBe(true);
+
+        state = appendSituationVisualNovelItems(state, turnItems);
+        expect(state.current).toMatchObject({ id: 'assistant-a', role: 'assistant' });
+        expect(state.pending.map((item) => item.id)).toEqual(['assistant-b']);
 
         state = completeSituationVisualNovelItem(state, state.current!.key);
         state = advanceSituationVisualNovelPresentation(state, true);
@@ -112,7 +113,7 @@ describe('situation visual novel presentation', () => {
             isLoading: false,
         });
 
-        expect(state.current).toMatchObject({ id: 'user-2', role: 'user' });
+        expect(state.current).toMatchObject({ id: 'assistant-1', role: 'assistant' });
         expect(state.pending).toEqual([]);
         expect(state.locked).toBe(false);
         expect(state.animateCurrent).toBe(false);

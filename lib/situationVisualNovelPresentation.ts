@@ -49,7 +49,11 @@ export function buildSituationVisualNovelPriorItems(
 
 export function buildSituationVisualNovelRoomItems(messages: Message[]): SituationVisualNovelItem[] {
     return messages
-        .filter((message) => !message.archived && message.content.trim())
+        .filter((message) => (
+            message.role === 'assistant'
+            && !message.archived
+            && message.content.trim()
+        ))
         .map((message) => ({
             key: `room:${message.id}`,
             id: message.id,
@@ -239,6 +243,20 @@ export function appendSituationVisualNovelItems(
         ...nextState,
         pending: [...state.pending, ...pending],
     }, current, true);
+}
+
+export function beginSituationVisualNovelResponse(
+    state: SituationVisualNovelPresentationState,
+): SituationVisualNovelPresentationState {
+    return {
+        ...state,
+        current: null,
+        pending: [],
+        locked: true,
+        currentComplete: true,
+        animateCurrent: false,
+        phase: 'conversation',
+    };
 }
 
 export function completeSituationVisualNovelItem(

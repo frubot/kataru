@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import { X, Sparkles, Loader2, Upload } from 'lucide-react';
 import { resizeToMaxEdge, cropSquareToJpeg, cropSquareToPng, cropRectToPng, loadImage } from '@/lib/imageUtils';
 import {
-    AVATAR_CHROMA_KEY_HEX,
     buildTransparentFullBodyPrompt,
     removeAvatarChromaKeyBackground,
 } from '@/lib/avatarImageGeneration';

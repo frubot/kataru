@@ -1,6 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { X, Sparkles, Loader2, Upload } from 'lucide-react';
-import { resizeToMaxEdge, cropSquareToJpeg, cropRectToPng, loadImage } from '@/lib/imageUtils';
+import { resizeToMaxEdge, cropSquareToJpeg, cropSquareToPng, cropRectToPng, loadImage } from '@/lib/imageUtils';
+import {
+    AVATAR_CHROMA_KEY_HEX,
+    buildTransparentFullBodyPrompt,
+    removeAvatarChromaKeyBackground,
+} from '@/lib/avatarImageGeneration';
 import { CropArea, createInitialCrop, type CropBox } from './ImageCropArea';
 import { useStore } from '@/lib/store';
 import ModelSelector from './ModelSelector';
@@ -15,12 +20,18 @@ interface Props {
     isOpen: boolean;
     onClose: () => void;
     onComplete: (avatarDataUrl: string, fullBodyDataUrl: string) => void;
+    transparentFullBody?: boolean;
 }
 
 type ImageSource = 'generated' | 'uploaded';
 type CropTarget = 'neutral' | 'avatar';
 
-export default function ImageGenerationModal({ isOpen, onClose, onComplete }: Props) {
+export default function ImageGenerationModal({
+    isOpen,
+    onClose,
+    onComplete,
+    transparentFullBody = false,
+}: Props) {
     const { defaultImageModel, aiApiType, openAiCompatibleImageGenerationEnabled, getAiApiConfig } = useStore();
     const [prompt, setPrompt] = useState('');
     const [model, setModel] = useState(defaultImageModel);
@@ -38,13 +49,17 @@ export default function ImageGenerationModal({ isOpen, onClose, onComplete }: Pr
     const fileInputRef = useRef<HTMLInputElement>(null);
     const canGenerateImages = aiApiType === 'openrouter'
         || (aiApiType === 'openai-compatible' && openAiCompatibleImageGenerationEnabled);
-    const imageGenerationHint = aiApiType === 'anthropic'
+    const providerImageGenerationHint = aiApiType === 'anthropic'
         ? 'Anthropic APIでは画像生成を利用できません。ファイルからアップロードしてください。'
         : aiApiType === 'openai-compatible'
         ? openAiCompatibleImageGenerationEnabled
             ? 'OpenAI互換APIでは、テキストからの画像生成だけを試します。'
             : 'OpenAI互換APIでの画像生成は無効です。ファイルからアップロードしてください。'
-        : '例: full body portrait of a smiling young woman with long brown hair, 2:3 vertical composition, neutral expression';
+        : null;
+    const imageGenerationHint = providerImageGenerationHint
+        ?? (transparentFullBody
+            ? `全身が収まる立ち絵と単色背景（${AVATAR_CHROMA_KEY_HEX}）を生成し、背景を自動で透過します。`
+            : '例: full body portrait of a smiling young woman with long brown hair, 2:3 vertical composition, neutral expression');
 
     useEffect(() => {
         if (!isOpen) {
@@ -88,7 +103,9 @@ export default function ImageGenerationModal({ isOpen, onClose, onComplete }: Pr
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    prompt: prompt.trim(),
+                    prompt: transparentFullBody
+                        ? buildTransparentFullBodyPrompt(prompt)
+                        : prompt.trim(),
                     model: model.trim(),
                     aspectRatio: IMAGE_ASPECT_RATIO,
                     aiApiConfig: getAiApiConfig(),
@@ -101,8 +118,11 @@ export default function ImageGenerationModal({ isOpen, onClose, onComplete }: Pr
             }
             const data = await res.json();
             const resized = await resizeToMaxEdge(data.image, MAX_EDGE);
-            const img = await loadImage(resized);
-            setFullBody(resized);
+            const processed = transparentFullBody
+                ? (await removeAvatarChromaKeyBackground(resized)).dataUrl
+                : resized;
+            const img = await loadImage(processed);
+            setFullBody(processed);
             setSource('generated');
             setImgNatural({ w: img.width, h: img.height });
             setAvatarCrop(createInitialCrop(img.width, img.height, AVATAR_ASPECT));
@@ -157,7 +177,9 @@ export default function ImageGenerationModal({ isOpen, onClose, onComplete }: Pr
         const neutral = source === 'uploaded' && neutralCrop
             ? await cropRectToPng(fullBody, neutralCrop.x, neutralCrop.y, neutralCrop.width, neutralCrop.height)
             : fullBody;
-        const avatar = await cropSquareToJpeg(fullBody, avatarCrop.x, avatarCrop.y, avatarCrop.width, AVATAR_SIZE);
+        const avatar = source === 'generated' && transparentFullBody
+            ? await cropSquareToPng(fullBody, avatarCrop.x, avatarCrop.y, avatarCrop.width, AVATAR_SIZE)
+            : await cropSquareToJpeg(fullBody, avatarCrop.x, avatarCrop.y, avatarCrop.width, AVATAR_SIZE);
         onComplete(avatar, neutral);
         onClose();
     };
@@ -207,7 +229,9 @@ export default function ImageGenerationModal({ isOpen, onClose, onComplete }: Pr
                                     className="input textarea"
                                     value={prompt}
                                     onChange={(e) => setPrompt(e.target.value)}
-                                    placeholder="生成したいキャラクターの説明（全身・縦長 2:3 が想定されます）"
+                                    placeholder={transparentFullBody
+                                        ? '生成したいキャラクターの説明（全身・立ち絵・透過背景は自動で指定されます）'
+                                        : '生成したいキャラクターの説明（全身・縦長 2:3 が想定されます）'}
                                     style={{ minHeight: 120 }}
                                     disabled={generating || !canGenerateImages}
                                 />

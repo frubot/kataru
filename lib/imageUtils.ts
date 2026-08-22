@@ -31,6 +31,22 @@ export async function cropSquareToJpeg(
     return canvas.toDataURL('image/jpeg', quality);
 }
 
+export async function cropSquareToPng(
+    dataUrl: string,
+    sx: number,
+    sy: number,
+    sSize: number,
+    outSize: number,
+): Promise<string> {
+    const img = await loadImage(dataUrl);
+    const canvas = document.createElement('canvas');
+    canvas.width = outSize;
+    canvas.height = outSize;
+    const ctx = canvas.getContext('2d')!;
+    ctx.drawImage(img, sx, sy, sSize, sSize, 0, 0, outSize, outSize);
+    return canvas.toDataURL('image/png');
+}
+
 export async function cropRectToPng(
     dataUrl: string,
     sx: number,

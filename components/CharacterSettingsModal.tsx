@@ -1088,6 +1088,7 @@ function CharacterSettingsModalContent({ isOpen, onClose, character, isNew = fal
             <ImageGenerationModal
                 isOpen={imageGenOpen}
                 onClose={() => setImageGenOpen(false)}
+                transparentFullBody
                 onComplete={(avatar, fullBody) => {
                     setIcon(avatar);
                     setExpressions((prev) => {

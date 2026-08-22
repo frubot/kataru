@@ -2663,7 +2663,7 @@ body {
   );
   margin: 0 auto 0.625rem;
   padding: 0.875rem 1.25rem 1.125rem;
-  border-radius: 0.125rem;
+  border-radius: 0.7rem;
   background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
   backdrop-filter: none;
 }

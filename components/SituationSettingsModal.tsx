@@ -832,6 +832,112 @@ function serializeSituationDraft(draft: ReturnType<typeof buildInitialState>) {
     });
 }
 
+interface CharacterSelectionModalProps {
+    characters: Character[];
+    selectedCharacterIds: Set<string>;
+    onToggle: (character: Character) => void;
+    onClose: () => void;
+}
+
+function CharacterSelectionModal({
+    characters,
+    selectedCharacterIds,
+    onToggle,
+    onClose,
+}: CharacterSelectionModalProps) {
+    const modalRef = useRef<HTMLDivElement>(null);
+
+    useModalKeyboard({
+        isOpen: true,
+        containerRef: modalRef,
+        onClose,
+    });
+
+    return (
+        <div
+            className="modal-overlay"
+            onPointerDown={(event) => {
+                if (event.target === event.currentTarget) onClose();
+            }}
+        >
+            <div
+                ref={modalRef}
+                className="modal-content settings-form-modal"
+                onClick={(event) => event.stopPropagation()}
+                style={{ maxWidth: 560 }}
+                role="dialog"
+                aria-modal="true"
+                aria-label="既存キャラクターを編集"
+            >
+                <div className="settings-form-modal-actions" style={{ justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--text-primary)', paddingLeft: '0.25rem' }}>
+                        既存キャラクターを編集
+                    </span>
+                    <button
+                        type="button"
+                        className="btn btn-ghost"
+                        onClick={onClose}
+                        aria-label="閉じる"
+                        title="閉じる"
+                    >
+                        <X size={20} />
+                    </button>
+                </div>
+
+                <div className="modal-body">
+                    {characters.length > 0 ? (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, 5.5rem)', gap: '0.5rem', justifyContent: 'start' }}>
+                            {characters.map((character) => {
+                                const checked = selectedCharacterIds.has(character.id);
+                                return (
+                                    <button
+                                        key={character.id}
+                                        type="button"
+                                        onClick={() => onToggle(character)}
+                                        aria-pressed={checked}
+                                        style={{
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '0.375rem',
+                                            width: '5.5rem',
+                                            minHeight: '6.75rem',
+                                            padding: '0.625rem 0.375rem 0.5rem',
+                                            border: 'none',
+                                            background: 'transparent',
+                                            cursor: 'pointer',
+                                            minWidth: 0,
+                                            textAlign: 'center',
+                                            color: 'inherit',
+                                            font: 'inherit',
+                                        }}
+                                    >
+                                        <div style={{ width: 56, height: 56, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: `2px solid ${checked ? 'var(--accent-primary)' : 'transparent'}`, boxShadow: checked ? '0 0 0 2px rgba(var(--accent-primary-rgb), 0.25)' : 'none', transition: 'border-color 0.15s ease, box-shadow 0.15s ease' }}>
+                                            {character.icon ? (
+                                                <StoredImage src={character.icon} alt={character.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                            ) : (
+                                                <User size={28} style={{ color: 'var(--text-muted)' }} />
+                                            )}
+                                        </div>
+                                        <span title={character.name} style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.75rem', lineHeight: 1.25 }}>
+                                            {character.name}
+                                        </span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    ) : (
+                        <div style={{ color: 'var(--text-muted)', fontSize: '0.8125rem', textAlign: 'center', padding: '1.5rem 0' }}>
+                            既存キャラクターがありません
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
 function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omit<SituationSettingsModalProps, 'isOpen'>) {
     const {
         characters,
@@ -857,6 +963,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
     const [characterActorMeta, setCharacterActorMeta] = useState<Record<string, CharacterActorMeta>>(initial.characterActorMeta);
     const [temporaryActors, setTemporaryActors] = useState<TemporaryActorDraft[]>(initial.temporaryActors);
     const [descriptionGeneratorOpen, setDescriptionGeneratorOpen] = useState(false);
+    const [characterSelectionOpen, setCharacterSelectionOpen] = useState(false);
     const [temporaryActorModal, setTemporaryActorModal] = useState<{
         actor: TemporaryActorDraft;
         isNew: boolean;
@@ -867,6 +974,10 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
         [temporaryActors],
     );
     const actorCount = selectedCharacterIds.size + validTemporaryActors.length;
+    const selectedCharacters = useMemo(
+        () => sortedCharacters.filter((character) => selectedCharacterIds.has(character.id)),
+        [selectedCharacterIds, sortedCharacters],
+    );
     const parsedMaxTurns = Math.max(1, Math.min(10, Math.round(Number(maxAutoTurns) || 3)));
     const effectiveMaxTurns = actorCount <= 1 ? 1 : parsedMaxTurns;
     const parsedMaxHistory = maxHistory ? Math.max(1, Math.min(100, Math.round(Number(maxHistory)))) : undefined;
@@ -1104,7 +1215,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
         isOpen: true,
         containerRef: modalRef,
         onClose: isEditing ? saveAndClose : onClose,
-        canClose: !descriptionGeneratorOpen && temporaryActorModal === null,
+        canClose: !descriptionGeneratorOpen && !characterSelectionOpen && temporaryActorModal === null,
     });
 
     return (
@@ -1392,39 +1503,36 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                     </div>
 
                     <section style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                        <div style={sectionLabelStyle}>
-                            <Users size={16} />
-                            既存キャラクター
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
+                            <div style={sectionLabelStyle}>
+                                <Users size={16} />
+                                既存キャラクター
+                            </div>
+                            <button
+                                type="button"
+                                className="btn btn-secondary"
+                                onClick={() => setCharacterSelectionOpen(true)}
+                            >
+                                編集
+                            </button>
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, 5.5rem)', gap: '0.5rem', justifyContent: 'start' }}>
-                            {sortedCharacters.map((character) => {
-                                const checked = selectedCharacterIds.has(character.id);
-                                return (
-                                    <button
+                        {selectedCharacters.length > 0 ? (
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, 5.5rem)', gap: '0.5rem', justifyContent: 'start' }}>
+                                {selectedCharacters.map((character) => (
+                                    <div
                                         key={character.id}
-                                        type="button"
-                                        onClick={() => toggleCharacter(character)}
-                                        aria-pressed={checked}
                                         style={{
                                             display: 'flex',
                                             flexDirection: 'column',
                                             alignItems: 'center',
-                                            justifyContent: 'center',
                                             gap: '0.375rem',
                                             width: '5.5rem',
-                                            minHeight: '6.75rem',
-                                            padding: '0.625rem 0.375rem 0.5rem',
-                                            borderRadius: '0.5rem',
-                                            border: 'none',
-                                            background: 'transparent',
-                                            cursor: 'pointer',
                                             minWidth: 0,
+                                            padding: '0.375rem',
                                             textAlign: 'center',
-                                            color: 'inherit',
-                                            font: 'inherit',
                                         }}
                                     >
-                                        <div style={{ width: 56, height: 56, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: `2px solid ${checked ? 'var(--accent-primary)' : 'transparent'}`, boxShadow: checked ? '0 0 0 2px rgba(var(--accent-primary-rgb), 0.25)' : 'none', transition: 'border-color 0.15s ease, box-shadow 0.15s ease' }}>
+                                        <div style={{ width: 56, height: 56, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid var(--accent-primary)', boxShadow: '0 0 0 2px rgba(var(--accent-primary-rgb), 0.25)' }}>
                                             {character.icon ? (
                                                 <StoredImage src={character.icon} alt={character.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                             ) : (
@@ -1434,10 +1542,14 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                                         <span title={character.name} style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.75rem', lineHeight: 1.25 }}>
                                             {character.name}
                                         </span>
-                                    </button>
-                                );
-                            })}
-                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', padding: '0.25rem 0' }}>
+                                選択されていません
+                            </div>
+                        )}
                     </section>
 
                     <section style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -1548,6 +1660,15 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                 participants={participantNames}
                 initialModel={defaultAutoGenerationModel}
             />
+
+            {characterSelectionOpen && (
+                <CharacterSelectionModal
+                    characters={sortedCharacters}
+                    selectedCharacterIds={selectedCharacterIds}
+                    onToggle={toggleCharacter}
+                    onClose={() => setCharacterSelectionOpen(false)}
+                />
+            )}
 
             {temporaryActorModal && (
                 <TemporaryActorSettingsModal

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, ChevronDown, ChevronRight, ChevronUp, EllipsisVertical, Image as ImageIcon, MessagesSquare, Plus, RotateCcw, Shirt, Smile, Sparkles, Trash2, User, Users, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, ChevronUp, EllipsisVertical, Image as ImageIcon, MessagesSquare, Plus, RotateCcw, Search, Shirt, Smile, Sparkles, Trash2, User, Users, X } from 'lucide-react';
 import {
     Character,
     DEFAULT_CHARACTER_MAX_HISTORY,
@@ -950,6 +950,10 @@ interface CharacterSelectionModalProps {
     onClose: () => void;
 }
 
+function normalizeCharacterSearchText(value: string) {
+    return value.normalize('NFKC').toLocaleLowerCase('ja-JP');
+}
+
 function CharacterSelectionModal({
     characters,
     selectedCharacterIds,
@@ -957,6 +961,14 @@ function CharacterSelectionModal({
     onClose,
 }: CharacterSelectionModalProps) {
     const modalRef = useRef<HTMLDivElement>(null);
+    const [query, setQuery] = useState('');
+    const normalizedQuery = normalizeCharacterSearchText(query.trim());
+    const filteredCharacters = useMemo(
+        () => normalizedQuery
+            ? characters.filter((character) => normalizeCharacterSearchText(character.name).includes(normalizedQuery))
+            : characters,
+        [characters, normalizedQuery],
+    );
 
     useModalKeyboard({
         isOpen: true,
@@ -996,9 +1008,29 @@ function CharacterSelectionModal({
                 </div>
 
                 <div className="modal-body">
-                    {characters.length > 0 ? (
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, 5.5rem)', gap: '0.5rem', justifyContent: 'start' }}>
-                            {characters.map((character) => {
+                    {characters.length > 0 && (
+                        <label style={{ position: 'relative', display: 'block', marginBottom: '1rem' }}>
+                            <Search
+                                size={17}
+                                aria-hidden="true"
+                                style={{ position: 'absolute', left: '0.75rem', top: '50%', color: 'var(--text-muted)', transform: 'translateY(-50%)', pointerEvents: 'none' }}
+                            />
+                            <input
+                                type="search"
+                                className="situation-character-search-input"
+                                value={query}
+                                onChange={(event) => setQuery(event.target.value)}
+                                placeholder="キャラクター名で検索"
+                                aria-label="キャラクター名で検索"
+                                autoFocus
+                                style={{ ...fieldStyle, paddingLeft: '2.25rem' }}
+                            />
+                        </label>
+                    )}
+
+                    {filteredCharacters.length > 0 ? (
+                        <div aria-live="polite" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, 5.5rem)', gap: '0.5rem', justifyContent: 'start' }}>
+                            {filteredCharacters.map((character) => {
                                 const checked = selectedCharacterIds.has(character.id);
                                 return (
                                     <button
@@ -1038,9 +1070,13 @@ function CharacterSelectionModal({
                                 );
                             })}
                         </div>
-                    ) : (
+                    ) : characters.length === 0 ? (
                         <div style={{ color: 'var(--text-muted)', fontSize: '0.8125rem', textAlign: 'center', padding: '1.5rem 0' }}>
                             既存キャラクターがありません
+                        </div>
+                    ) : (
+                        <div aria-live="polite" style={{ color: 'var(--text-muted)', fontSize: '0.8125rem', textAlign: 'center', padding: '1.5rem 0' }}>
+                            「{query.trim()}」に一致するキャラクターはいません
                         </div>
                     )}
                 </div>

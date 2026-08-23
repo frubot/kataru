@@ -909,6 +909,10 @@ body {
   overflow-y: auto;
 }
 
+.situation-character-search-input::-webkit-search-cancel-button {
+  display: none;
+}
+
 .settings-form-modal-actions {
   display: flex;
   align-items: center;

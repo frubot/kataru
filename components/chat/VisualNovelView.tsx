@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Check, Copy, GitBranch, RefreshCw, Shirt, Undo2 } from 'lucide-react';
+import { Check, Copy, GitBranch, History, RefreshCw, Shirt, Undo2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import type { Character } from '@/lib/store';
 import { DEFAULT_COSTUME_NAME } from '@/lib/visualNovelPresentation';
@@ -24,6 +24,7 @@ type VisualNovelViewProps = {
     costumeOptions: VisualNovelCostumeOption[];
     onSelectCostume: (costumeName: string) => void;
     showCostumeSelector?: boolean;
+    onOpenLog: () => void;
     canEditLatestUserMessage: boolean;
     onEditLatestUserMessage: () => void;
     displayedMessageId?: string;
@@ -58,6 +59,7 @@ export default function VisualNovelView({
     costumeOptions,
     onSelectCostume,
     showCostumeSelector = true,
+    onOpenLog,
     canEditLatestUserMessage,
     onEditLatestUserMessage,
     displayedMessageId,
@@ -257,6 +259,15 @@ export default function VisualNovelView({
                                 )}
                             </div>
                         )}
+                        <button
+                            type="button"
+                            className="btn btn-ghost"
+                            onClick={onOpenLog}
+                            title="会話ログを表示"
+                            aria-label="会話ログを表示"
+                        >
+                            <History size={15} />
+                        </button>
                         <button
                             type="button"
                             className="btn btn-ghost"

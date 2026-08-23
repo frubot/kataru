@@ -58,6 +58,7 @@ import { useReplySuggestions } from './chat/useReplySuggestions';
 import { useRoomTitleGeneration } from './chat/useRoomTitleGeneration';
 import { useVisualNovelPresentation } from './chat/useVisualNovelPresentation';
 import { useSituationVisualNovelPresentation } from './chat/useSituationVisualNovelPresentation';
+import VisualNovelLogView from './chat/VisualNovelLogView';
 import VisualNovelView from './chat/VisualNovelView';
 
 interface ChatWindowProps {
@@ -288,6 +289,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const [editingMessage, setEditingMessage] = useState<EditingMessageDraft | null>(null);
     const [debugLogOpen, setDebugLogOpen] = useState(false);
     const [developerInspectorOpen, setDeveloperInspectorOpen] = useState(false);
+    const [vnLogOpen, setVnLogOpen] = useState(false);
     const [streamingPreview, setStreamingPreview] = useState<ChatStreamingPreview | null>(null);
     const [streamedFinalMessageIds, setStreamedFinalMessageIds] = useState<Set<string>>(() => new Set());
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -306,6 +308,13 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         stopTypewriter,
         playTypewriter,
     } = useVisualNovelPresentation({ typingSpeed: vnTypingSpeed });
+    const openVisualNovelLog = useCallback(() => {
+        stopTypewriter(true);
+        setVnLogOpen(true);
+    }, [stopTypewriter]);
+    const closeVisualNovelLog = useCallback(() => {
+        setVnLogOpen(false);
+    }, []);
     const clearStreamingPreview = useCallback((jobId: string) => {
         setStreamingPreview((current) => current?.jobId === jobId ? null : current);
     }, []);
@@ -353,6 +362,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     });
     const currentRoomId = room?.id;
     const isLoading = currentRoomId ? activeGenerationRoomIds.has(currentRoomId) : false;
+    const isVisualNovelLogOpen = isVisualNovelMode && vnLogOpen;
     const situationVnPresentation = useSituationVisualNovelPresentation({
         active: isSituationVisualNovelMode,
         roomId: room?.id,
@@ -597,6 +607,10 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     useEffect(() => {
         setEditingMessage(null);
     }, [currentRoomId]);
+
+    useEffect(() => {
+        setVnLogOpen(false);
+    }, [currentRoomId, currentRoomViewMode]);
 
     useEffect(() => {
         const checkMobile = () => {
@@ -1365,59 +1379,74 @@ export default function ChatWindow({ room, character, situation, groupName, grou
 
     return (
         <div className={`chat-container ${isVisualNovelMode ? 'vn-mode' : ''} ${isMessageMode ? 'message-mode' : ''}`}>
-            <ChatHeader
-                roomId={room.id}
-                roomName={displayedRoomName}
-                subtitle={
-                    isGroupRoom && groupCharacters
-                        ? groupName ?? 'シチュエーション'
-                        : character?.name
-                }
-                isMobile={isMobile}
-                onOpenSidebar={onOpenSidebar}
-                debugEnabled={debugPanelEnabled}
-                debugLogCount={visibleDebugLogCount}
-                onOpenDebug={() => setDebugLogOpen(true)}
-                inspectorEnabled={developerInspectorEnabled}
-                onOpenInspector={() => setDeveloperInspectorOpen(true)}
-                showMemoryButton={showHeaderMemoryButton}
-                onOpenMemory={() => onOpenMemoryList(character)}
-                showSecretModeButton={
-                    !!(character || isGroupRoom) && (isRoomEmpty || isSecretMode)
-                }
-                isSecretMode={isSecretMode}
-                isRoomEmpty={isRoomEmpty}
-                onToggleSecretMode={handleToggleSecretMode}
-                onStartNewChat={
-                    !isRoomEmpty && !isGroupRoom && character
-                        ? () => createRoom(
-                            character.id,
-                            undefined,
-                            { viewMode: currentRoomViewMode },
-                        )
-                        : !isRoomEmpty && isGroupRoom && room.groupId
-                            ? () => createRoomForSituation(
-                                room.groupId!,
+            {!isVisualNovelLogOpen && (
+                <ChatHeader
+                    roomId={room.id}
+                    roomName={displayedRoomName}
+                    subtitle={
+                        isGroupRoom && groupCharacters
+                            ? groupName ?? 'シチュエーション'
+                            : character?.name
+                    }
+                    isMobile={isMobile}
+                    onOpenSidebar={onOpenSidebar}
+                    debugEnabled={debugPanelEnabled}
+                    debugLogCount={visibleDebugLogCount}
+                    onOpenDebug={() => setDebugLogOpen(true)}
+                    inspectorEnabled={developerInspectorEnabled}
+                    onOpenInspector={() => setDeveloperInspectorOpen(true)}
+                    showMemoryButton={showHeaderMemoryButton}
+                    onOpenMemory={() => onOpenMemoryList(character)}
+                    showSecretModeButton={
+                        !!(character || isGroupRoom) && (isRoomEmpty || isSecretMode)
+                    }
+                    isSecretMode={isSecretMode}
+                    isRoomEmpty={isRoomEmpty}
+                    onToggleSecretMode={handleToggleSecretMode}
+                    onStartNewChat={
+                        !isRoomEmpty && !isGroupRoom && character
+                            ? () => createRoom(
+                                character.id,
                                 undefined,
                                 { viewMode: currentRoomViewMode },
                             )
+                            : !isRoomEmpty && isGroupRoom && room.groupId
+                                ? () => createRoomForSituation(
+                                    room.groupId!,
+                                    undefined,
+                                    { viewMode: currentRoomViewMode },
+                                )
+                                : undefined
+                    }
+                    newChatTitle={
+                        isGroupRoom
+                            ? `${groupName ?? 'シチュエーション'}の新しいチャットを開始`
                             : undefined
-                }
-                newChatTitle={
-                    isGroupRoom
-                        ? `${groupName ?? 'シチュエーション'}の新しいチャットを開始`
-                        : undefined
-                }
-                showViewModeSelector={!!(character || isGroupRoom)}
-                allowVisualNovelMode
-                currentViewMode={currentRoomViewMode}
-                onChangeViewMode={(viewMode) => {
-                    updateRoomSettings(room.id, { viewMode });
-                }}
-                disabled={isLoading || isSummarizing}
-            />
+                    }
+                    showViewModeSelector={!!(character || isGroupRoom)}
+                    allowVisualNovelMode
+                    currentViewMode={currentRoomViewMode}
+                    onChangeViewMode={(viewMode) => {
+                        setVnLogOpen(false);
+                        updateRoomSettings(room.id, { viewMode });
+                    }}
+                    disabled={isLoading || isSummarizing}
+                />
+            )}
 
-            {isVisualNovelMode ? (
+            {isVisualNovelLogOpen ? (
+                <VisualNovelLogView
+                    character={character}
+                    priorMessages={priorMessagesForDisplay}
+                    messages={processedMessages}
+                    activeStreamingPreview={activeStreamingPreview}
+                    streamingPreviewCharacter={streamingPreviewCharacter}
+                    formattedStreamingPreviewMessages={formattedStreamingPreviewMessages}
+                    isLoading={isLoading}
+                    isSummarizing={isSummarizing}
+                    onClose={closeVisualNovelLog}
+                />
+            ) : isVisualNovelMode ? (
                 <VisualNovelView
                     character={vnCharacter}
                     fallbackCharacterName={character?.name}
@@ -1433,6 +1462,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     costumeOptions={vnCostumeOptions}
                     onSelectCostume={handleSelectVnCostume}
                     showCostumeSelector={!isSituationVisualNovelMode}
+                    onOpenLog={openVisualNovelLog}
                     canEditLatestUserMessage={canEditLatestUserMessageInVn}
                     onEditLatestUserMessage={handleEditLatestUserMessageInVn}
                     displayedMessageId={vnDisplayedMessageId}
@@ -1528,48 +1558,50 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 />
             )}
 
-            <ChatComposer
-                inputRef={textareaRef}
-                focusKey={room.id}
-                value={chatInputValue}
-                onChange={handleChatInputChange}
-                placeholder={chatInputPlaceholder}
-                disabled={chatInputDisabled}
-                redirectDisabled={
-                    isLoading
-                    || situationVnInputLocked
-                    || (isEditingMessage && !isInlineVnEditing)
-                }
-                submitDisabled={chatInputSubmitDisabled}
-                isMobile={isMobile}
-                isInlineEditing={isInlineVnEditing}
-                isBusy={
-                    isLoading
-                    || isSummarizing
-                    || (situationVnInputLocked && isTypewriterActive)
-                }
-                isTypewriterActive={isTypewriterActive}
-                onSubmit={() => {
-                    void handleSubmit();
-                }}
-                onSubmitEdit={handleSubmitEditMessage}
-                onCancelEdit={handleCancelEditMessage}
-                onStop={handleStop}
-                notice={chatNotice}
-                noticeActionDisabled={isLoading || isSummarizing || situationVnInputLocked}
-                onNoticeAction={handleChatNoticeAction}
-                onDismissNotice={dismissChatNotice}
-                onNoticeInteractionStart={handleChatNoticeMouseEnter}
-                onNoticeInteractionEnd={handleChatNoticeMouseLeave}
-                replySuggestions={replySuggestions}
-                visualNovelMode={isVisualNovelMode}
-                mentionOpen={mentionQuery !== null}
-                mentionCandidates={mentionCandidates}
-                selectedMentionIndex={selectedMentionIdx}
-                setSelectedMentionIndex={setSelectedMentionIdx}
-                onApplyMention={applyMention}
-                onCloseMention={closeMention}
-            />
+            {!isVisualNovelLogOpen && (
+                <ChatComposer
+                    inputRef={textareaRef}
+                    focusKey={room.id}
+                    value={chatInputValue}
+                    onChange={handleChatInputChange}
+                    placeholder={chatInputPlaceholder}
+                    disabled={chatInputDisabled}
+                    redirectDisabled={
+                        isLoading
+                        || situationVnInputLocked
+                        || (isEditingMessage && !isInlineVnEditing)
+                    }
+                    submitDisabled={chatInputSubmitDisabled}
+                    isMobile={isMobile}
+                    isInlineEditing={isInlineVnEditing}
+                    isBusy={
+                        isLoading
+                        || isSummarizing
+                        || (situationVnInputLocked && isTypewriterActive)
+                    }
+                    isTypewriterActive={isTypewriterActive}
+                    onSubmit={() => {
+                        void handleSubmit();
+                    }}
+                    onSubmitEdit={handleSubmitEditMessage}
+                    onCancelEdit={handleCancelEditMessage}
+                    onStop={handleStop}
+                    notice={chatNotice}
+                    noticeActionDisabled={isLoading || isSummarizing || situationVnInputLocked}
+                    onNoticeAction={handleChatNoticeAction}
+                    onDismissNotice={dismissChatNotice}
+                    onNoticeInteractionStart={handleChatNoticeMouseEnter}
+                    onNoticeInteractionEnd={handleChatNoticeMouseLeave}
+                    replySuggestions={replySuggestions}
+                    visualNovelMode={isVisualNovelMode}
+                    mentionOpen={mentionQuery !== null}
+                    mentionCandidates={mentionCandidates}
+                    selectedMentionIndex={selectedMentionIdx}
+                    setSelectedMentionIndex={setSelectedMentionIdx}
+                    onApplyMention={applyMention}
+                    onCloseMention={closeMention}
+                />
+            )}
             {debugLogOpen && debugPanelEnabled && (
                 <DebugLogModal
                     logs={fullJsonDebugLogs}

@@ -2488,9 +2488,7 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background:
-    radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--accent-primary) 13%, transparent), transparent 42%),
-    linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 78%, var(--bg-primary)), var(--bg-primary));
+  background: var(--bg-primary);
   animation: vn-log-reveal 160ms ease-out;
 }
 

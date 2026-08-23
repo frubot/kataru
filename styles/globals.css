@@ -3752,6 +3752,10 @@ body {
     padding: 0.75rem 1rem;
   }
 
+  .chat-header-title-copy {
+    display: none;
+  }
+
   .chat-messages {
     padding: 1rem;
   }

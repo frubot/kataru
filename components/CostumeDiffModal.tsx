@@ -247,18 +247,18 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
         >
             <div
                 ref={modalRef}
-                className="modal-content"
+                className="modal-content settings-form-modal"
                 onClick={(e) => e.stopPropagation()}
                 style={{ maxWidth: 640 }}
                 role="dialog"
                 aria-modal="true"
                 aria-label="衣装差分"
             >
-                <div className="modal-header">
-                    <h2 style={{ fontSize: '1.125rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div className="settings-form-modal-actions" style={{ justifyContent: 'space-between' }}>
+                    <h2 style={{ margin: 0, paddingLeft: '0.25rem', fontSize: '0.9375rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
                         <Shirt size={18} /> 衣装差分
                     </h2>
-                    <button className="btn btn-ghost" onClick={() => !busy && onClose()} style={{ padding: '0.5rem' }} title="閉じる" aria-label="閉じる">
+                    <button className="btn btn-ghost" onClick={() => !busy && onClose()} disabled={!!busy} title="閉じる" aria-label="閉じる">
                         <X size={20} />
                     </button>
                 </div>
@@ -505,9 +505,6 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                     </div>
                 </div>
 
-                <div className="modal-footer">
-                    <button className="btn btn-ghost" onClick={() => !busy && onClose()} disabled={!!busy}>閉じる</button>
-                </div>
             </div>
         </div>
     );

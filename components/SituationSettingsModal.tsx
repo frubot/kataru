@@ -804,6 +804,7 @@ function TemporaryActorSettingsModal({
                 onClose={() => setExpressionsOpen(false)}
                 expressions={draft.expressions}
                 costumes={[]}
+                showCostumeSettings={false}
                 onUpsert={(expression) => {
                     setDraft((current) => {
                         const index = current.expressions.findIndex((item) => item.name === expression.name);

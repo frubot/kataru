@@ -24,11 +24,20 @@ interface Props {
     onClose: () => void;
     expressions: Expression[];
     costumes: Costume[];
+    showCostumeSettings?: boolean;
     onUpsert: (expression: Expression, costumeName?: string) => void;
     onRemove: (name: string, costumeName?: string) => void;
 }
 
-export default function ExpressionDiffModal({ isOpen, onClose, expressions, costumes, onUpsert, onRemove }: Props) {
+export default function ExpressionDiffModal({
+    isOpen,
+    onClose,
+    expressions,
+    costumes,
+    showCostumeSettings = true,
+    onUpsert,
+    onRemove,
+}: Props) {
     const { defaultImageModel, aiApiType, getAiApiConfig } = useStore();
     const canGenerateDiffs = aiApiType === 'openrouter';
     const [selectedCostumeName, setSelectedCostumeName] = useState(DEFAULT_COSTUME_NAME);
@@ -71,11 +80,15 @@ export default function ExpressionDiffModal({ isOpen, onClose, expressions, cost
     }, [addMode, canGenerateDiffs]);
 
     useEffect(() => {
+        if (!showCostumeSettings) {
+            setSelectedCostumeName(DEFAULT_COSTUME_NAME);
+            return;
+        }
         if (selectedCostumeName === DEFAULT_COSTUME_NAME) return;
         if (!costumes.some((costume) => costume.name === selectedCostumeName)) {
             setSelectedCostumeName(DEFAULT_COSTUME_NAME);
         }
-    }, [costumes, selectedCostumeName]);
+    }, [costumes, selectedCostumeName, showCostumeSettings]);
 
     const additionalCostumes = costumes.filter((costume) => costume.name.toLowerCase() !== DEFAULT_COSTUME_NAME);
     const selectedCostume = selectedCostumeName === DEFAULT_COSTUME_NAME
@@ -272,48 +285,50 @@ export default function ExpressionDiffModal({ isOpen, onClose, expressions, cost
         >
             <div
                 ref={modalRef}
-                className="modal-content"
+                className="modal-content settings-form-modal"
                 onClick={(e) => e.stopPropagation()}
                 style={{ maxWidth: 640 }}
                 role="dialog"
                 aria-modal="true"
                 aria-label="表情差分"
             >
-                <div className="modal-header">
-                    <h2 style={{ fontSize: '1.125rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div className="settings-form-modal-actions" style={{ justifyContent: 'space-between' }}>
+                    <h2 style={{ margin: 0, paddingLeft: '0.25rem', fontSize: '0.9375rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
                         <Smile size={18} /> 表情差分
                     </h2>
-                    <button className="btn btn-ghost" onClick={() => !busy && onClose()} style={{ padding: '0.5rem' }} title="閉じる" aria-label="閉じる">
+                    <button className="btn btn-ghost" onClick={() => !busy && onClose()} disabled={!!busy} title="閉じる" aria-label="閉じる">
                         <X size={20} />
                     </button>
                 </div>
 
                 <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                    <div>
-                        <label style={labelStyle}>コスチューム</label>
-                        <select
-                            className="input"
-                            value={selectedCostumeName}
-                            onChange={(e) => {
-                                setSelectedCostumeName(e.target.value);
-                                clearUploadDraft();
-                                setError(null);
-                            }}
-                            disabled={!!busy}
-                        >
-                            <option value={DEFAULT_COSTUME_NAME}>default</option>
-                            {additionalCostumes.map((costume) => (
-                                <option key={costume.name} value={costume.name}>
-                                    {costume.name}
-                                </option>
-                            ))}
-                        </select>
-                        <p style={hintStyle}>
-                            {selectedCostume
-                                ? `「${selectedCostume.name}」の衣装画像をベースに、この衣装専用の表情差分を作成します`
-                                : 'デフォルトの立ち絵をベースに、従来の表情差分を作成します'}
-                        </p>
-                    </div>
+                    {showCostumeSettings && (
+                        <div>
+                            <label style={labelStyle}>コスチューム</label>
+                            <select
+                                className="input"
+                                value={selectedCostumeName}
+                                onChange={(e) => {
+                                    setSelectedCostumeName(e.target.value);
+                                    clearUploadDraft();
+                                    setError(null);
+                                }}
+                                disabled={!!busy}
+                            >
+                                <option value={DEFAULT_COSTUME_NAME}>default</option>
+                                {additionalCostumes.map((costume) => (
+                                    <option key={costume.name} value={costume.name}>
+                                        {costume.name}
+                                    </option>
+                                ))}
+                            </select>
+                            <p style={hintStyle}>
+                                {selectedCostume
+                                    ? `「${selectedCostume.name}」の衣装画像をベースに、この衣装専用の表情差分を作成します`
+                                    : 'デフォルトの立ち絵をベースに、従来の表情差分を作成します'}
+                            </p>
+                        </div>
+                    )}
 
                     <div>
                         <label style={labelStyle}>新しい表情を追加</label>
@@ -550,9 +565,6 @@ export default function ExpressionDiffModal({ isOpen, onClose, expressions, cost
                     </div>
                 </div>
 
-                <div className="modal-footer">
-                    <button className="btn btn-ghost" onClick={() => !busy && onClose()} disabled={!!busy}>閉じる</button>
-                </div>
             </div>
         </div>
     );

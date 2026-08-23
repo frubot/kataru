@@ -1,5 +1,6 @@
 import type { Character, Message, SituationPriorMessage } from './store/types';
 import type { ConversationJobPreviewTurn } from './conversationJobClient';
+import { splitVisualNovelMessage } from './visualNovelPresentation';
 
 export type SituationVisualNovelItem = {
     key: string;
@@ -12,6 +13,8 @@ export type SituationVisualNovelItem = {
     expression?: string;
     previewTurnIndex?: number;
     streamingComplete?: boolean;
+    pageIndex?: number;
+    pageCount?: number;
 };
 
 export type SituationVisualNovelPresentationState = {
@@ -33,6 +36,20 @@ type InitialPresentationInput = {
 };
 
 type SituationVisualNovelInitialCharacter = Pick<Character, 'id' | 'expressions'>;
+
+function paginateSituationVisualNovelItem(
+    item: SituationVisualNovelItem,
+): SituationVisualNovelItem[] {
+    const pages = splitVisualNovelMessage(item.content);
+    if (pages.length <= 1) return [item];
+    return pages.map((content, pageIndex) => ({
+        ...item,
+        key: pageIndex === 0 ? item.key : `${item.key}:page:${pageIndex}`,
+        content,
+        pageIndex,
+        pageCount: pages.length,
+    }));
+}
 
 export function resolveSituationVisualNovelInitialCharacterId(
     priorMessages: SituationPriorMessage[],
@@ -62,7 +79,7 @@ export function buildSituationVisualNovelPriorItems(
 ): SituationVisualNovelItem[] {
     return messages
         .filter((message) => message.content.trim())
-        .map((message) => ({
+        .flatMap((message) => paginateSituationVisualNovelItem({
             key: `prior:${message.id}`,
             id: message.id,
             source: 'prior' as const,
@@ -79,7 +96,7 @@ export function buildSituationVisualNovelRoomItems(messages: Message[]): Situati
             && !message.archived
             && message.content.trim()
         ))
-        .map((message) => ({
+        .flatMap((message) => paginateSituationVisualNovelItem({
             key: `room:${message.id}`,
             id: message.id,
             source: 'room' as const,
@@ -97,18 +114,21 @@ export function buildSituationVisualNovelPreviewItems(
     if (!jobId || !turns) return [];
     return turns
         .filter((turn) => turn.content.trim())
-        .map((turn) => ({
-            key: `preview:${jobId}:${turn.turnIndex}`,
-            id: `${jobId}:${turn.turnIndex}`,
-            source: 'preview' as const,
-            role: 'assistant' as const,
-            content: turn.content,
-            characterId: turn.characterId,
-            characterName: turn.characterName,
-            expression: turn.expression,
-            previewTurnIndex: turn.turnIndex,
-            streamingComplete: turn.complete,
-        }));
+        .flatMap((turn) => {
+            const item: SituationVisualNovelItem = {
+                key: `preview:${jobId}:${turn.turnIndex}`,
+                id: `${jobId}:${turn.turnIndex}`,
+                source: 'preview' as const,
+                role: 'assistant' as const,
+                content: turn.content,
+                characterId: turn.characterId,
+                characterName: turn.characterName,
+                expression: turn.expression,
+                previewTurnIndex: turn.turnIndex,
+                streamingComplete: turn.complete,
+            };
+            return turn.complete ? paginateSituationVisualNovelItem(item) : [item];
+        });
 }
 
 function sceneFromItems(items: SituationVisualNovelItem[]): {

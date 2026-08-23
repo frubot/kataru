@@ -15,6 +15,7 @@ import {
     syncSituationVisualNovelRoomItems,
     unlockSituationVisualNovelPresentation,
 } from '../lib/situationVisualNovelPresentation';
+import { VN_MESSAGE_PAGE_MAX_CHARS } from '../lib/visualNovelPresentation';
 
 const priorMessages: SituationPriorMessage[] = [
     { id: 'prior-user-1', role: 'user', content: 'ここはどこ？' },
@@ -130,6 +131,77 @@ describe('situation visual novel presentation', () => {
         state = completeSituationVisualNovelItem(state, state.current!.key);
         state = unlockSituationVisualNovelPresentation(state, false);
         expect(state.locked).toBe(false);
+    });
+
+    test('queues completed long messages as sequential pages', () => {
+        const content = 'あ'.repeat(VN_MESSAGE_PAGE_MAX_CHARS + 1);
+        const items = buildSituationVisualNovelRoomItems([
+            roomMessage('assistant-long', 'assistant', content, 'actor-a'),
+        ]);
+
+        expect(items).toHaveLength(2);
+        expect(items.map((item) => item.key)).toEqual([
+            'room:assistant-long',
+            'room:assistant-long:page:1',
+        ]);
+        expect(items.map((item) => item.pageIndex)).toEqual([0, 1]);
+
+        let state = createSituationVisualNovelPresentationState({
+            hasRoomHistory: false,
+            priorItems: [],
+            roomItems: [],
+            isLoading: true,
+        });
+        state = appendSituationVisualNovelItems(state, items);
+        expect(state.current?.key).toBe('room:assistant-long');
+        expect(state.pending.map((item) => item.key)).toEqual(['room:assistant-long:page:1']);
+
+        state = completeSituationVisualNovelItem(state, state.current!.key);
+        state = advanceSituationVisualNovelPresentation(state, false);
+        expect(state.current?.key).toBe('room:assistant-long:page:1');
+    });
+
+    test('does not split a streaming turn until the turn is complete', () => {
+        const content = 'あ'.repeat(VN_MESSAGE_PAGE_MAX_CHARS + 1);
+        const partial = buildSituationVisualNovelPreviewItems('stream-job', [{
+            turnIndex: 0,
+            content,
+            characterId: 'actor-a',
+            complete: false,
+        }]);
+        const completed = buildSituationVisualNovelPreviewItems('stream-job', [{
+            turnIndex: 0,
+            content,
+            characterId: 'actor-a',
+            complete: true,
+        }]);
+
+        expect(partial).toHaveLength(1);
+        expect(partial[0]).toMatchObject({ content, streamingComplete: false });
+        expect(completed).toHaveLength(2);
+        expect(completed.map((item) => item.key)).toEqual([
+            'preview:stream-job:0',
+            'preview:stream-job:0:page:1',
+        ]);
+
+        let state = createSituationVisualNovelPresentationState({
+            hasRoomHistory: false,
+            priorItems: [],
+            roomItems: [],
+            isLoading: true,
+        });
+        state = appendSituationVisualNovelItems(state, partial);
+        state = appendSituationVisualNovelItems(state, completed.slice(1));
+        state = syncSituationVisualNovelPreviewItems(state, completed);
+
+        expect(state.current).toMatchObject({
+            key: 'preview:stream-job:0',
+            content: completed[0].content,
+        });
+        expect(state.currentComplete).toBe(true);
+        expect(state.pending.map((item) => item.key)).toEqual([
+            'preview:stream-job:0:page:1',
+        ]);
     });
 
     test('opens existing conversations on the latest message without replaying history', () => {

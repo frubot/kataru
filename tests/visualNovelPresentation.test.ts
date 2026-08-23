@@ -7,6 +7,7 @@ import {
     getVisualNovelTypingDelay,
     resolveVisualNovelCostumeName,
     resolveVisualNovelExpressionImage,
+    splitVisualNovelMessage,
 } from '../lib/visualNovelPresentation';
 
 const character: Character = {
@@ -101,5 +102,24 @@ describe('visual novel typewriter presentation', () => {
         expect(getVisualNovelTypingDelay('*action*', 'default')).toBe(90);
         expect(getVisualNovelTypingDelay('a', 'fast')).toBe(13);
         expect(getVisualNovelTypingDelay('a', 'slow')).toBe(37);
+    });
+
+    test('splits long messages at sentence boundaries', () => {
+        expect(splitVisualNovelMessage(
+            '最初の文です。次の文です。最後の文です。',
+            8,
+        )).toEqual([
+            '最初の文です。',
+            '次の文です。',
+            '最後の文です。',
+        ]);
+    });
+
+    test('keeps italic actions intact across pages', () => {
+        const content = '12345*とても長い仕草*67890';
+        const pages = splitVisualNovelMessage(content, 8);
+
+        expect(pages.join('')).toBe(content);
+        expect(pages.some((page) => page.includes('*とても長い仕草*'))).toBe(true);
     });
 });

@@ -7,6 +7,7 @@ const VN_TYPING_DEFAULT_DELAY_MS = 24;
 const VN_TYPING_COMMA_DELAY_MS = 70;
 const VN_TYPING_SENTENCE_DELAY_MS = 160;
 const VN_TYPING_ITALIC_DELAY_MS = 90;
+export const VN_MESSAGE_PAGE_MAX_CHARS = 160;
 const VN_TYPING_SPEED_MULTIPLIER: Record<VnTypingSpeed, number> = {
     slow: 1.55,
     default: 1,
@@ -160,6 +161,82 @@ export function buildVisualNovelTypingSegments(content: string): string[] {
         index += character.length;
     }
     return segments;
+}
+
+function getVisualNovelSegmentLength(segment: string): number {
+    const isItalicSegment = segment.startsWith('*') && segment.endsWith('*') && segment.length > 2;
+    return Array.from(isItalicSegment ? segment.slice(1, -1) : segment).length;
+}
+
+function getVisualNovelPageBreakPriority(segments: string[], end: number): number {
+    const current = segments[end - 1] ?? '';
+    const previous = segments[end - 2] ?? '';
+    if (current === '\n' && previous === '\n') return 4;
+    if (current === '\n') return 3;
+    if ('。.!！？!?…'.includes(current)) return 3;
+    if ('」』】）》”’\"\''.includes(current) && '。.!！？!?…'.includes(previous)) return 3;
+    if ('、,，;；:：'.includes(current) || /^\s$/u.test(current)) return 2;
+    return 0;
+}
+
+/**
+ * Splits a completed visual-novel message into readable pages. Italic action blocks are
+ * kept intact, and paragraph/sentence boundaries are preferred over hard character cuts.
+ */
+export function splitVisualNovelMessage(
+    content: string,
+    maxChars = VN_MESSAGE_PAGE_MAX_CHARS,
+): string[] {
+    const normalized = content.trim();
+    if (!normalized) return [];
+    if (!Number.isFinite(maxChars) || maxChars <= 0) return [normalized];
+
+    const segments = buildVisualNovelTypingSegments(normalized);
+    const pages: string[] = [];
+    let start = 0;
+
+    while (start < segments.length) {
+        let end = start;
+        let visibleLength = 0;
+        const preferredBreaks = new Map<number, number>();
+
+        while (end < segments.length) {
+            const nextLength = getVisualNovelSegmentLength(segments[end]);
+            if (end > start && visibleLength + nextLength > maxChars) break;
+            visibleLength += nextLength;
+            end++;
+            const priority = getVisualNovelPageBreakPriority(segments, end);
+            if (priority > 0) preferredBreaks.set(priority, end);
+            if (visibleLength >= maxChars) break;
+        }
+
+        if (end >= segments.length) {
+            const page = segments.slice(start).join('').trim();
+            if (page) pages.push(page);
+            break;
+        }
+
+        const minimumPreferredLength = Math.max(1, Math.floor(maxChars * 0.4));
+        let cut = end;
+        for (const priority of [4, 3, 2]) {
+            const candidate = preferredBreaks.get(priority);
+            if (!candidate) continue;
+            const candidateLength = segments
+                .slice(start, candidate)
+                .reduce((total, segment) => total + getVisualNovelSegmentLength(segment), 0);
+            if (priority === 4 || candidateLength >= minimumPreferredLength) {
+                cut = candidate;
+                break;
+            }
+        }
+
+        const page = segments.slice(start, cut).join('').trim();
+        if (page) pages.push(page);
+        start = cut;
+        while (segments[start] != null && /^\s$/u.test(segments[start])) start++;
+    }
+
+    return pages.length > 0 ? pages : [normalized];
 }
 
 function getBaseVisualNovelTypingDelay(segment: string): number {

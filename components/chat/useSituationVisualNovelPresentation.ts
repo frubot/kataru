@@ -256,6 +256,7 @@ export function useSituationVisualNovelPresentation({
 
     const canAdvance = active
         && state.locked
+        && state.current != null
         && state.currentComplete
         && (state.pending.length > 0 || isLoading);
     useEffect(() => {

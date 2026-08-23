@@ -2173,7 +2173,25 @@ body {
 
 .chat-container.vn-mode > .chat-header {
   z-index: 4;
-  background: color-mix(in srgb, var(--bg-primary) 58%, transparent);
+}
+
+.chat-container.vn-mode > .chat-header > .chat-header-title,
+.chat-container.vn-mode > .chat-header > .chat-header-actions {
+  border: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-primary) 78%, transparent);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
+  backdrop-filter: blur(8px);
+}
+
+.chat-container.vn-mode > .chat-header > .chat-header-title {
+  flex: 0 1 auto;
+  max-width: min(60%, 32rem);
+  padding: 0.5rem 0.875rem;
+}
+
+.chat-container.vn-mode > .chat-header > .chat-header-actions {
+  padding: 0.25rem;
 }
 
 .vn-background {
@@ -2202,6 +2220,22 @@ body {
   height: 90px;
   flex-shrink: 0;
   padding: 0 1.5rem;
+}
+
+.chat-header-title {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.chat-header-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.25rem;
 }
 
 .chat-mode-selector {

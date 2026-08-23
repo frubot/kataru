@@ -113,7 +113,7 @@ export default function ChatHeader({
 
     return (
         <div className="chat-header">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: '1 1 auto', minWidth: 0, overflow: 'hidden' }}>
+            <div className="chat-header-title">
                 {isMobile && (
                     <button
                         type="button"
@@ -135,7 +135,7 @@ export default function ChatHeader({
                     </p>
                 </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', flexShrink: 0 }}>
+            <div className="chat-header-actions">
                 <KeyboardShortcutsHelp />
                 {debugEnabled && (
                     <button type="button" className="btn btn-ghost" onClick={onOpenDebug} title="デバッグログを表示">

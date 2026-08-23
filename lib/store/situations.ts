@@ -111,6 +111,9 @@ export function normalizeSituationActor(
             ...(typeof rawActor.temperature === 'number' ? { temperature: rawActor.temperature } : {}),
             ...(typeof rawActor.topP === 'number' ? { topP: rawActor.topP } : {}),
             ...(typeof rawActor.topK === 'number' ? { topK: rawActor.topK } : {}),
+            ...(typeof rawActor.enableThinking === 'boolean'
+                ? { enableThinking: rawActor.enableThinking }
+                : {}),
             ...(Array.isArray(rawActor.expressions) ? { expressions: rawActor.expressions as Expression[] } : {}),
             ...(Array.isArray(rawActor.costumes) ? { costumes: rawActor.costumes as Costume[] } : {}),
         };
@@ -250,6 +253,7 @@ export function resolveSituationParticipants(
                 temperature: actor.temperature,
                 topP: actor.topP,
                 topK: actor.topK,
+                enableThinking: actor.enableThinking,
                 enableMemory: false,
                 enableSummary: false,
                 expressions: actor.expressions,

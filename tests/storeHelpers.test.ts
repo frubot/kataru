@@ -15,6 +15,7 @@ import {
     getSituationCostumeSelections,
     normalizeGroupData,
     normalizeSituationActor,
+    resolveSituationParticipants,
 } from '../lib/store/situations';
 
 describe('store composition', () => {
@@ -217,5 +218,42 @@ describe('store pure helpers', () => {
             { id: 'actor-1', type: 'character', characterId: 'character-1', costumeName: 'default' },
             { id: 'actor-2', type: 'temporary', name: '通行人', systemPrompt: '' },
         ])).toBeUndefined();
+    });
+
+    test('preserves thinking mode for temporary situation actors and participants', () => {
+        const actor = normalizeSituationActor({
+            id: 'actor-1',
+            type: 'temporary',
+            name: '通行人',
+            systemPrompt: '街角に立っている。',
+            enableThinking: true,
+        }, new Set(), 'fallback-model');
+
+        expect(actor).toMatchObject({
+            type: 'temporary',
+            enableThinking: true,
+        });
+        if (!actor) throw new Error('Expected a normalized actor');
+
+        const participants = resolveSituationParticipants({
+            id: 'situation-1',
+            name: '街角',
+            actors: [actor],
+            director: {
+                enabled: true,
+                model: 'director-model',
+                maxAutoTurns: 1,
+                stopPolicy: 'max-turns',
+            },
+            memoryMode: 'off',
+            createdAt: 1,
+            updatedAt: 1,
+        }, [], 'fallback-model');
+
+        expect(participants[0]).toMatchObject({
+            actorId: 'actor-1',
+            actorType: 'temporary',
+            enableThinking: true,
+        });
     });
 });

@@ -134,6 +134,7 @@ export type SituationActor =
         temperature?: number;
         topP?: number;
         topK?: number;
+        enableThinking?: boolean;
         expressions?: Expression[];
         costumes?: Costume[];
     };

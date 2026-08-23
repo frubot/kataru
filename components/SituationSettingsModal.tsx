@@ -38,6 +38,7 @@ type TemporaryActorDraft = {
     temperature: number | null;
     topP: number | null;
     topK: number | null;
+    enableThinking: boolean;
 };
 
 type CharacterActorMeta = {
@@ -125,6 +126,7 @@ function createTemporaryDraft(): TemporaryActorDraft {
         temperature: null,
         topP: null,
         topK: null,
+        enableThinking: false,
     };
 }
 
@@ -733,6 +735,47 @@ function TemporaryActorSettingsModal({
                         </div>
 
                         <div style={sectionStyle}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+                                <div>
+                                    <div style={{ ...labelStyle, marginBottom: '0.25rem' }}>考える</div>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                        返答前の思考をJSONのthoughtフィールドに含めます。会話には表示されません。
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => updateDraft({ enableThinking: !draft.enableThinking })}
+                                    style={{
+                                        position: 'relative',
+                                        width: '44px',
+                                        height: '24px',
+                                        borderRadius: '12px',
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                        background: draft.enableThinking ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
+                                        transition: 'background 0.2s ease',
+                                        padding: 0,
+                                        flexShrink: 0,
+                                    }}
+                                    aria-label="考えるを有効化"
+                                    aria-pressed={draft.enableThinking}
+                                >
+                                    <span style={{
+                                        position: 'absolute',
+                                        top: '2px',
+                                        left: draft.enableThinking ? '22px' : '2px',
+                                        width: '20px',
+                                        height: '20px',
+                                        borderRadius: '50%',
+                                        background: '#fff',
+                                        transition: 'left 0.2s ease',
+                                        boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                                    }} />
+                                </button>
+                            </div>
+                        </div>
+
+                        <div style={sectionStyle}>
                             <button
                                 type="button"
                                 onClick={() => setParametersOpen((open) => !open)}
@@ -869,6 +912,7 @@ function buildInitialState(
                 temperature: typeof actor.temperature === 'number' ? actor.temperature : null,
                 topP: typeof actor.topP === 'number' ? actor.topP : null,
                 topK: typeof actor.topK === 'number' ? actor.topK : null,
+                enableThinking: actor.enableThinking ?? false,
             });
         }
     }
@@ -1422,6 +1466,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
             ...(actor.temperature !== null ? { temperature: actor.temperature } : {}),
             ...(actor.topP !== null ? { topP: actor.topP } : {}),
             ...(actor.topK !== null ? { topK: actor.topK } : {}),
+            enableThinking: actor.enableThinking,
         })),
     ], [characterActorMeta, defaultChatModel, selectedCharacterIds, validTemporaryActors]);
 

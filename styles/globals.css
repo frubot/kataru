@@ -881,6 +881,21 @@ body {
   cursor: progress;
 }
 
+.image-generation-model-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.image-generation-model-actions,
+.image-generation-inline-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
 .settings-form-modal {
   position: relative;
   overflow: hidden;

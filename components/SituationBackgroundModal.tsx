@@ -144,15 +144,15 @@ export default function SituationBackgroundModal({
         >
             <div
                 ref={modalRef}
-                className="modal-content"
+                className="modal-content settings-form-modal"
                 onClick={(event) => event.stopPropagation()}
                 style={{ maxWidth: 720 }}
                 role="dialog"
                 aria-modal="true"
                 aria-label="背景を編集"
             >
-                <div className="modal-header">
-                    <h2 style={{ fontSize: '1.125rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div className="settings-form-modal-actions" style={{ justifyContent: 'space-between' }}>
+                    <h2 style={{ margin: 0, paddingLeft: '0.25rem', fontSize: '0.9375rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
                         <ImageIcon size={18} /> 背景を編集
                     </h2>
                     <button
@@ -160,7 +160,6 @@ export default function SituationBackgroundModal({
                         className="btn btn-ghost"
                         onClick={handleCancel}
                         disabled={generating}
-                        style={{ padding: '0.5rem' }}
                         title="閉じる"
                         aria-label="閉じる"
                     >
@@ -180,6 +179,14 @@ export default function SituationBackgroundModal({
                                 />
                             </div>
                             <p style={hintStyle}>ビジュアルノベル表示のシーン背景として使用されます。</p>
+                            <div className="image-generation-inline-actions">
+                                <button type="button" className="btn btn-danger" onClick={handleRemove}>
+                                    <Trash2 size={16} /> 削除
+                                </button>
+                                <button type="button" className="btn btn-primary" onClick={() => setSelectingImage(true)}>
+                                    画像を変更
+                                </button>
+                            </div>
                         </div>
                     ) : candidate ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
@@ -187,6 +194,28 @@ export default function SituationBackgroundModal({
                                 <img src={candidate} alt="選択した背景のプレビュー" style={previewImageStyle} />
                             </div>
                             <p style={hintStyle}>画面いっぱいに表示するときは、表示領域に合わせて画像の端が切り取られる場合があります。</p>
+                            <div className="image-generation-inline-actions">
+                                <button
+                                    type="button"
+                                    className="btn btn-ghost"
+                                    onClick={() => {
+                                        setCandidate(null);
+                                        setError(null);
+                                    }}
+                                >
+                                    選び直す
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn btn-primary"
+                                    onClick={() => {
+                                        onComplete(candidate);
+                                        onClose();
+                                    }}
+                                >
+                                    確定
+                                </button>
+                            </div>
                         </div>
                     ) : (
                         <>
@@ -202,14 +231,36 @@ export default function SituationBackgroundModal({
                                 />
                                 <p style={hintStyle}>{providerHint}</p>
                             </div>
-                            <div>
-                                <label style={labelStyle}>モデル</label>
-                                <ModelSelector
-                                    value={model}
-                                    onChange={setModel}
-                                    outputModality="image"
-                                    disabled={generating || !canGenerateImages}
-                                />
+                            <div className="image-generation-model-section">
+                                <div className="global-settings-selector-row">
+                                    <label htmlFor="situation-background-image-model" style={modelLabelStyle}>モデル</label>
+                                    <div className="global-settings-selector-control global-settings-model-selector-control">
+                                        <ModelSelector
+                                            id="situation-background-image-model"
+                                            value={model}
+                                            onChange={setModel}
+                                            outputModality="image"
+                                            disabled={generating || !canGenerateImages}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="image-generation-model-actions">
+                                    {generating && (
+                                        <button type="button" className="btn btn-ghost" onClick={handleCancel}>
+                                            生成をキャンセル
+                                        </button>
+                                    )}
+                                    <button
+                                        type="button"
+                                        className="btn btn-primary"
+                                        onClick={handleGenerate}
+                                        disabled={generating || !canGenerateImages || !prompt.trim() || !model.trim()}
+                                        style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                                    >
+                                        {generating ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                                        {generating ? '生成中...' : '生成'}
+                                    </button>
+                                </div>
                             </div>
                             {error && <p style={{ color: 'var(--error)', fontSize: '0.8125rem' }}>{error}</p>}
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -236,58 +287,6 @@ export default function SituationBackgroundModal({
                         </>
                     )}
                 </div>
-
-                <div className="modal-footer">
-                    {!selectingImage && currentImage ? (
-                        <>
-                            <button type="button" className="btn btn-danger" onClick={handleRemove}>
-                                <Trash2 size={16} /> 削除
-                            </button>
-                            <button type="button" className="btn btn-primary" onClick={() => setSelectingImage(true)}>
-                                画像を変更
-                            </button>
-                        </>
-                    ) : candidate ? (
-                        <>
-                            <button
-                                type="button"
-                                className="btn btn-ghost"
-                                onClick={() => {
-                                    setCandidate(null);
-                                    setError(null);
-                                }}
-                            >
-                                選び直す
-                            </button>
-                            <button
-                                type="button"
-                                className="btn btn-primary"
-                                onClick={() => {
-                                    onComplete(candidate);
-                                    onClose();
-                                }}
-                            >
-                                確定
-                            </button>
-                        </>
-                    ) : (
-                        <>
-                            <button type="button" className="btn btn-ghost" onClick={handleCancel}>
-                                {generating ? '中止' : 'キャンセル'}
-                            </button>
-                            <button
-                                type="button"
-                                className="btn btn-primary"
-                                onClick={handleGenerate}
-                                disabled={generating || !canGenerateImages || !prompt.trim() || !model.trim()}
-                                style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-                            >
-                                {generating ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-                                {generating ? '生成中...' : 'AI生成'}
-                            </button>
-                        </>
-                    )}
-                </div>
             </div>
         </div>
     );
@@ -296,6 +295,12 @@ export default function SituationBackgroundModal({
 const labelStyle: React.CSSProperties = {
     display: 'block',
     marginBottom: '0.5rem',
+    color: 'var(--text-secondary)',
+    fontSize: '0.875rem',
+    fontWeight: 500,
+};
+
+const modelLabelStyle: React.CSSProperties = {
     color: 'var(--text-secondary)',
     fontSize: '0.875rem',
     fontWeight: 500,

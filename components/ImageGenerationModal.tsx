@@ -203,18 +203,18 @@ export default function ImageGenerationModal({
         >
             <div
                 ref={modalRef}
-                className="modal-content"
+                className="modal-content settings-form-modal"
                 onClick={(e) => e.stopPropagation()}
                 style={{ maxWidth: 640 }}
                 role="dialog"
                 aria-modal="true"
                 aria-label="アバターの変更"
             >
-                <div className="modal-header">
-                    <h2 style={{ fontSize: '1.125rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div className="settings-form-modal-actions" style={{ justifyContent: 'space-between' }}>
+                    <h2 style={{ margin: 0, paddingLeft: '0.25rem', fontSize: '0.9375rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
                         <Sparkles size={18} /> アバターの変更
                     </h2>
-                    <button className="btn btn-ghost" onClick={handleCancel} style={{ padding: '0.5rem' }} title="閉じる" aria-label="閉じる">
+                    <button className="btn btn-ghost" onClick={handleCancel} disabled={generating} title="閉じる" aria-label="閉じる">
                         <X size={20} />
                     </button>
                 </div>
@@ -236,14 +236,35 @@ export default function ImageGenerationModal({
                                 />
                                 <p style={hintStyle}>{imageGenerationHint}</p>
                             </div>
-                            <div>
-                                <label style={labelStyle}>モデル</label>
-                                <ModelSelector
-                                    value={model}
-                                    onChange={setModel}
-                                    outputModality="image"
-                                    disabled={generating || !canGenerateImages}
-                                />
+                            <div className="image-generation-model-section">
+                                <div className="global-settings-selector-row">
+                                    <label htmlFor="avatar-image-model" style={modelLabelStyle}>モデル</label>
+                                    <div className="global-settings-selector-control global-settings-model-selector-control">
+                                        <ModelSelector
+                                            id="avatar-image-model"
+                                            value={model}
+                                            onChange={setModel}
+                                            outputModality="image"
+                                            disabled={generating || !canGenerateImages}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="image-generation-model-actions">
+                                    {generating && (
+                                        <button className="btn btn-ghost" onClick={handleCancel}>
+                                            生成をキャンセル
+                                        </button>
+                                    )}
+                                    <button
+                                        className="btn btn-primary"
+                                        onClick={handleGenerate}
+                                        disabled={generating || !canGenerateImages || !prompt.trim() || !model.trim()}
+                                        style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                                    >
+                                        {generating && <Loader2 size={16} className="animate-spin" />}
+                                        {generating ? '生成中...' : '生成'}
+                                    </button>
+                                </div>
                             </div>
                             {error && <p style={{ color: 'var(--error)', fontSize: '0.8125rem' }}>{error}</p>}
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -316,32 +337,12 @@ export default function ImageGenerationModal({
                                     onChange={(next) => setAvatarCrop(next)}
                                 />
                             )}
-                        </div>
-                    )}
-                </div>
 
-                <div className="modal-footer">
-                    {!fullBody && (
-                        <>
-                            <button className="btn btn-ghost" onClick={handleCancel}>
-                                {generating ? '中止' : 'キャンセル'}
-                            </button>
-                            <button
-                                className="btn btn-primary"
-                                onClick={handleGenerate}
-                                disabled={generating || !canGenerateImages || !prompt.trim() || !model.trim()}
-                                style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-                            >
-                                {generating && <Loader2 size={16} className="animate-spin" />}
-                                {generating ? '生成中...' : '生成'}
-                            </button>
-                        </>
-                    )}
-                    {fullBody && (
-                        <>
-                            <button className="btn btn-ghost" onClick={handleRegenerate}>再生成</button>
-                            <button className="btn btn-primary" onClick={handleConfirm}>確定</button>
-                        </>
+                            <div className="image-generation-inline-actions">
+                                <button className="btn btn-ghost" onClick={handleRegenerate}>再生成</button>
+                                <button className="btn btn-primary" onClick={handleConfirm}>確定</button>
+                            </div>
+                        </div>
                     )}
                 </div>
             </div>
@@ -355,6 +356,12 @@ const labelStyle: React.CSSProperties = {
     fontWeight: 500,
     marginBottom: '0.5rem',
     color: 'var(--text-secondary)',
+};
+
+const modelLabelStyle: React.CSSProperties = {
+    color: 'var(--text-secondary)',
+    fontSize: '0.875rem',
+    fontWeight: 500,
 };
 
 const hintStyle: React.CSSProperties = {

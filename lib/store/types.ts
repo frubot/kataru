@@ -114,6 +114,7 @@ export type SituationActor =
         id: string;
         type: 'character';
         characterId: string;
+        costumeName?: string;
         rolePrompt?: string;
         directorDescription?: string;
     }

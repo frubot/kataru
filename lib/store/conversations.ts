@@ -15,6 +15,7 @@ import {
     createDefaultSituationDirector,
     defaultGroupRoomName,
     getSituationActorIds,
+    getSituationCostumeSelections,
     normalizeSituationActor,
     normalizeSituationDirector,
     normalizeSituationMaxHistory,
@@ -171,12 +172,14 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
                 createdAt: now,
                 updatedAt: now,
             };
+            const costumeSelections = getSituationCostumeSelections(actors);
             const room: Room = {
                 id: roomId,
                 characterId: actorIds[0],
                 groupId,
                 name: explicitRoomName || (get().generateTitleOnFirstReply ? '' : defaultGroupRoomName(resolvedGroupName, 1)),
                 messages: [],
+                ...(costumeSelections ? { costumeSelections } : {}),
                 isDraft: true,
                 createdAt: now,
                 updatedAt: now,
@@ -199,6 +202,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
             const now = Date.now();
             const explicitName = name?.trim();
             const roomCountForGroup = get().rooms.filter((r) => shouldShowRoomInHistory(r) && r.groupId === groupId).length;
+            const costumeSelections = getSituationCostumeSelections(group.actors);
             const room: Room = {
                 id,
                 characterId: actorIds[0],
@@ -206,6 +210,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
                 name: explicitName || (get().generateTitleOnFirstReply ? '' : defaultGroupRoomName(group.name, roomCountForGroup + 1)),
                 messages: [],
                 viewMode: options?.viewMode,
+                ...(costumeSelections ? { costumeSelections } : {}),
                 isDraft: true,
                 createdAt: now,
                 updatedAt: now,
@@ -394,19 +399,14 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
                     const actorIds = getSituationActorIds(updated);
                     const actorIdSet = new Set(actorIds);
                     if (actorIds.length === 0) return { groups };
+                    const costumeSelections = getSituationCostumeSelections(updated.actors);
 
                     const rooms = state.rooms.map((r) => {
                         if (r.groupId !== id) return r;
-                        const costumeSelections = r.costumeSelections
-                            ? Object.fromEntries(
-                                Object.entries(r.costumeSelections)
-                                    .filter(([actorId]) => actorIdSet.has(actorId))
-                            )
-                            : undefined;
                         const nextRoom: Room = {
                             ...r,
                             characterId: actorIdSet.has(r.characterId) ? r.characterId : actorIds[0],
-                            costumeSelections: costumeSelections && Object.keys(costumeSelections).length > 0 ? costumeSelections : undefined,
+                            costumeSelections,
                             updatedAt: now,
                         };
                         updatedRooms.push(nextRoom);

@@ -1169,10 +1169,8 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         : soloVnCharacter;
 
     const vnSelectedCostumeName = useMemo(
-        () => isSituationVisualNovelMode
-            ? DEFAULT_COSTUME_NAME
-            : resolveVisualNovelCostumeName(room, vnCharacter),
-        [isSituationVisualNovelMode, room, vnCharacter],
+        () => resolveVisualNovelCostumeName(room, vnCharacter),
+        [room, vnCharacter],
     );
     const vnCostumeOptions = useMemo(
         () => getVisualNovelCostumeOptions(vnCharacter),

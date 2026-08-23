@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import { useStore } from '../lib/store';
+import { useStore, type Character, type Room, type Situation } from '../lib/store';
 import { normalizeCharacters } from '../lib/store/characters';
 import {
     createMemoryRecord,
@@ -10,6 +10,11 @@ import {
 } from '../lib/store/memories';
 import { toPreview } from '../lib/store/persistence';
 import { resolveThemeSelection } from '../lib/store/settings';
+import {
+    getSituationCostumeSelections,
+    normalizeGroupData,
+    normalizeSituationActor,
+} from '../lib/store/situations';
 
 describe('store composition', () => {
     test('assembles state and actions from every slice', () => {
@@ -89,5 +94,65 @@ describe('store pure helpers', () => {
             usageCount: 0,
         });
         expect(createMemoryRecord('character-1', '   ')).toBeNull();
+    });
+
+    test('normalizes situation costumes and applies them to situation rooms', () => {
+        const character: Character = {
+            id: 'character-1',
+            name: '葵',
+            systemPrompt: '',
+            model: 'model-1',
+            costumes: [{ name: '制服', image: 'uniform-image' }],
+            createdAt: 1,
+            updatedAt: 1,
+        };
+        const actor = normalizeSituationActor({
+            id: 'actor-1',
+            type: 'character',
+            characterId: character.id,
+            costumeName: ' 制服 ',
+        }, new Set([character.id]), 'fallback-model');
+        expect(actor).toMatchObject({ costumeName: '制服' });
+        if (!actor) throw new Error('Expected a normalized actor');
+
+        const situation: Situation = {
+            id: 'situation-1',
+            name: '放課後',
+            actors: [actor],
+            director: {
+                enabled: true,
+                model: 'model-1',
+                maxAutoTurns: 1,
+                stopPolicy: 'max-turns',
+            },
+            memoryMode: 'off',
+            createdAt: 1,
+            updatedAt: 1,
+        };
+        const room: Room = {
+            id: 'room-1',
+            characterId: actor.id,
+            groupId: situation.id,
+            name: 'チャット 1',
+            messages: [],
+            createdAt: 1,
+            updatedAt: 1,
+        };
+        const normalized = normalizeGroupData({
+            characters: [character],
+            groups: [situation],
+            rooms: [room],
+        });
+
+        expect(getSituationCostumeSelections(situation.actors)).toEqual({ 'actor-1': '制服' });
+        expect(normalized.rooms[0].costumeSelections).toEqual({ 'actor-1': '制服' });
+        expect(normalized.changedRooms).toHaveLength(1);
+    });
+
+    test('keeps default and temporary situation actors out of costume selections', () => {
+        expect(getSituationCostumeSelections([
+            { id: 'actor-1', type: 'character', characterId: 'character-1', costumeName: 'default' },
+            { id: 'actor-2', type: 'temporary', name: '通行人', systemPrompt: '' },
+        ])).toBeUndefined();
     });
 });

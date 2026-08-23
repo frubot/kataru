@@ -1,5 +1,6 @@
-import { useCallback, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { ChevronDown, ChevronRight, ChevronUp, MessagesSquare, Plus, RotateCcw, Smile, Sparkles, Trash2, User, Users, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
+import { Check, ChevronDown, ChevronRight, ChevronUp, EllipsisVertical, MessagesSquare, Plus, RotateCcw, Shirt, Smile, Sparkles, Trash2, User, Users, X } from 'lucide-react';
 import {
     Character,
     DEFAULT_CHARACTER_MAX_HISTORY,
@@ -15,6 +16,7 @@ import {
     useStore,
 } from '@/lib/store';
 import { generateId } from '@/lib/id';
+import { DEFAULT_COSTUME_NAME, getVisualNovelCostumeOptions } from '@/lib/visualNovelPresentation';
 import CharacterGeneratorModal from './CharacterGeneratorModal';
 import ExpressionDiffModal from './ExpressionDiffModal';
 import ImageGenerationModal from './ImageGenerationModal';
@@ -39,8 +41,17 @@ type TemporaryActorDraft = {
 
 type CharacterActorMeta = {
     id: string;
+    costumeName?: string;
     rolePrompt?: string;
     directorDescription?: string;
+};
+
+type CostumeMenuState = {
+    characterId: string;
+    anchorElement: HTMLButtonElement;
+    anchorTop: number;
+    anchorRight: number;
+    anchorBottom: number;
 };
 
 interface SituationSettingsModalProps {
@@ -840,6 +851,7 @@ function buildInitialState(
             selectedCharacterIds.add(actor.characterId);
             characterActorMeta[actor.characterId] = {
                 id: actor.id,
+                costumeName: actor.costumeName,
                 rolePrompt: actor.rolePrompt,
                 directorDescription: actor.directorDescription,
             };
@@ -993,6 +1005,135 @@ function CharacterSelectionModal({
     );
 }
 
+interface CharacterCostumeMenuProps {
+    character: Character;
+    selectedCostumeName: string;
+    anchor: CostumeMenuState;
+    onSelect: (costumeName: string) => void;
+    onClose: () => void;
+}
+
+function CharacterCostumeMenu({
+    character,
+    selectedCostumeName,
+    anchor,
+    onSelect,
+    onClose,
+}: CharacterCostumeMenuProps) {
+    const menuRef = useRef<HTMLDivElement>(null);
+    const costumeOptions = getVisualNovelCostumeOptions(character);
+    const resolvedCostumeName = costumeOptions.some((option) => option.name === selectedCostumeName)
+        ? selectedCostumeName
+        : DEFAULT_COSTUME_NAME;
+    const menuWidth = Math.min(240, window.innerWidth - 16);
+    const left = Math.max(8, Math.min(anchor.anchorRight - menuWidth, window.innerWidth - menuWidth - 8));
+    const placeAbove = window.innerHeight - anchor.anchorBottom < 220 && anchor.anchorTop > window.innerHeight - anchor.anchorBottom;
+
+    useEffect(() => {
+        const handlePointerDown = (event: PointerEvent) => {
+            const target = event.target as Node | null;
+            if (!target || menuRef.current?.contains(target) || anchor.anchorElement.contains(target)) return;
+            onClose();
+        };
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key !== 'Escape') return;
+            event.preventDefault();
+            event.stopPropagation();
+            onClose();
+            anchor.anchorElement.focus({ preventScroll: true });
+        };
+        const handleViewportChange = () => onClose();
+
+        document.addEventListener('pointerdown', handlePointerDown);
+        document.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('resize', handleViewportChange);
+        document.addEventListener('scroll', handleViewportChange, true);
+        return () => {
+            document.removeEventListener('pointerdown', handlePointerDown);
+            document.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('resize', handleViewportChange);
+            document.removeEventListener('scroll', handleViewportChange, true);
+        };
+    }, [anchor.anchorElement, onClose]);
+
+    return createPortal(
+        <div
+            ref={menuRef}
+            role="menu"
+            aria-label={`${character.name}の衣装`}
+            style={{
+                position: 'fixed',
+                left,
+                ...(placeAbove
+                    ? { bottom: window.innerHeight - anchor.anchorTop + 6 }
+                    : { top: anchor.anchorBottom + 6 }),
+                width: menuWidth,
+                maxHeight: 320,
+                overflowY: 'auto',
+                padding: 6,
+                border: '1px solid var(--border-color)',
+                borderRadius: 8,
+                background: 'var(--bg-primary)',
+                boxShadow: '0 12px 28px rgba(0,0,0,0.28)',
+                zIndex: 80,
+            }}
+        >
+            <div style={{ padding: '0.375rem 0.5rem', color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 600 }}>
+                衣装
+            </div>
+            {costumeOptions.map((option) => {
+                const active = option.name === resolvedCostumeName;
+                return (
+                    <button
+                        key={option.name}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={active}
+                        onClick={() => onSelect(option.name)}
+                        style={{
+                            width: '100%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            padding: '6px 8px',
+                            border: 'none',
+                            borderRadius: 6,
+                            background: active ? 'var(--bg-tertiary)' : 'transparent',
+                            color: 'var(--text-primary)',
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                        }}
+                    >
+                        <span style={{
+                            width: 30,
+                            height: 42,
+                            flexShrink: 0,
+                            overflow: 'hidden',
+                            borderRadius: 4,
+                            border: '1px solid var(--border-color)',
+                            background: 'var(--bg-secondary)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                        }}>
+                            {option.image ? (
+                                <StoredImage src={option.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            ) : (
+                                <Shirt size={14} style={{ color: 'var(--text-muted)' }} />
+                            )}
+                        </span>
+                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {option.name}
+                        </span>
+                        {active && <Check size={15} style={{ flexShrink: 0, color: 'var(--accent-primary)' }} />}
+                    </button>
+                );
+            })}
+        </div>,
+        document.body,
+    );
+}
+
 interface TemporaryActorDeleteDialogProps {
     actor: TemporaryActorDraft;
     onCancel: () => void;
@@ -1071,6 +1212,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
     const [selectedCharacterIds, setSelectedCharacterIds] = useState<Set<string>>(initial.selectedCharacterIds);
     const [characterActorMeta, setCharacterActorMeta] = useState<Record<string, CharacterActorMeta>>(initial.characterActorMeta);
     const [temporaryActors, setTemporaryActors] = useState<TemporaryActorDraft[]>(initial.temporaryActors);
+    const [costumeMenu, setCostumeMenu] = useState<CostumeMenuState | null>(null);
     const [descriptionGeneratorOpen, setDescriptionGeneratorOpen] = useState(false);
     const [characterSelectionOpen, setCharacterSelectionOpen] = useState(false);
     const [temporaryActorPendingDelete, setTemporaryActorPendingDelete] = useState<TemporaryActorDraft | null>(null);
@@ -1078,6 +1220,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
         actor: TemporaryActorDraft;
         isNew: boolean;
     } | null>(null);
+    const closeCostumeMenu = useCallback(() => setCostumeMenu(null), []);
 
     const validTemporaryActors = useMemo(
         () => temporaryActors.filter((actor) => actor.name.trim()),
@@ -1088,6 +1231,9 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
         () => sortedCharacters.filter((character) => selectedCharacterIds.has(character.id)),
         [selectedCharacterIds, sortedCharacters],
     );
+    const costumeMenuCharacter = costumeMenu
+        ? characters.find((character) => character.id === costumeMenu.characterId) ?? null
+        : null;
     const parsedMaxTurns = Math.max(1, Math.min(10, Math.round(Number(maxAutoTurns) || 3)));
     const effectiveMaxTurns = actorCount <= 1 ? 1 : parsedMaxTurns;
     const parsedMaxHistory = maxHistory ? Math.max(1, Math.min(100, Math.round(Number(maxHistory)))) : undefined;
@@ -1130,6 +1276,22 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                 [character.id]: meta[character.id] ?? { id: character.id },
             }));
         }
+    };
+
+    const selectCharacterCostume = (characterId: string, costumeName: string) => {
+        setCharacterActorMeta((meta) => {
+            const current = meta[characterId] ?? { id: characterId };
+            if (costumeName === DEFAULT_COSTUME_NAME) {
+                const nextCurrent = { ...current };
+                delete nextCurrent.costumeName;
+                return { ...meta, [characterId]: nextCurrent };
+            }
+            return {
+                ...meta,
+                [characterId]: { ...current, costumeName },
+            };
+        });
+        setCostumeMenu(null);
     };
 
     const addTemporaryActor = () => {
@@ -1237,6 +1399,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                 id: meta?.id || characterId,
                 type: 'character' as const,
                 characterId,
+                ...(meta?.costumeName ? { costumeName: meta.costumeName } : {}),
                 ...(meta?.rolePrompt ? { rolePrompt: meta.rolePrompt } : {}),
                 ...(meta?.directorDescription ? { directorDescription: meta.directorDescription } : {}),
             };
@@ -1329,6 +1492,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
         onClose: isEditing ? saveAndClose : onClose,
         canClose: !descriptionGeneratorOpen
             && !characterSelectionOpen
+            && costumeMenu === null
             && temporaryActorPendingDelete === null
             && temporaryActorModal === null,
     });
@@ -1633,32 +1797,82 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                         </div>
                         {selectedCharacters.length > 0 ? (
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, 5.5rem)', gap: '0.5rem', justifyContent: 'start' }}>
-                                {selectedCharacters.map((character) => (
-                                    <div
-                                        key={character.id}
-                                        style={{
-                                            display: 'flex',
-                                            flexDirection: 'column',
-                                            alignItems: 'center',
-                                            gap: '0.375rem',
-                                            width: '5.5rem',
-                                            minWidth: 0,
-                                            padding: '0.375rem',
-                                            textAlign: 'center',
-                                        }}
-                                    >
-                                        <div style={{ width: 56, height: 56, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid var(--accent-primary)', boxShadow: '0 0 0 2px rgba(var(--accent-primary-rgb), 0.25)' }}>
-                                            {character.icon ? (
-                                                <StoredImage src={character.icon} alt={character.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                            ) : (
-                                                <User size={28} style={{ color: 'var(--text-muted)' }} />
-                                            )}
+                                {selectedCharacters.map((character) => {
+                                    const costumeOptions = getVisualNovelCostumeOptions(character);
+                                    const storedCostumeName = characterActorMeta[character.id]?.costumeName ?? DEFAULT_COSTUME_NAME;
+                                    const selectedCostumeName = costumeOptions.some((option) => option.name === storedCostumeName)
+                                        ? storedCostumeName
+                                        : DEFAULT_COSTUME_NAME;
+                                    const menuOpen = costumeMenu?.characterId === character.id;
+                                    return (
+                                        <div
+                                            key={character.id}
+                                            style={{
+                                                display: 'flex',
+                                                flexDirection: 'column',
+                                                alignItems: 'center',
+                                                gap: '0.375rem',
+                                                width: '5.5rem',
+                                                minWidth: 0,
+                                                padding: '0.375rem',
+                                                textAlign: 'center',
+                                            }}
+                                        >
+                                            <div style={{ position: 'relative', width: 56, height: 56, flexShrink: 0 }}>
+                                                <div style={{ width: 56, height: 56, borderRadius: '50%', overflow: 'hidden', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid var(--accent-primary)', boxShadow: '0 0 0 2px rgba(var(--accent-primary-rgb), 0.25)' }}>
+                                                    {character.icon ? (
+                                                        <StoredImage src={character.icon} alt={character.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                    ) : (
+                                                        <User size={28} style={{ color: 'var(--text-muted)' }} />
+                                                    )}
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={(event) => {
+                                                        const rect = event.currentTarget.getBoundingClientRect();
+                                                        setCostumeMenu((current) => current?.characterId === character.id
+                                                            ? null
+                                                            : {
+                                                                characterId: character.id,
+                                                                anchorElement: event.currentTarget,
+                                                                anchorTop: rect.top,
+                                                                anchorRight: rect.right,
+                                                                anchorBottom: rect.bottom,
+                                                            });
+                                                    }}
+                                                    title={`衣装: ${selectedCostumeName}`}
+                                                    aria-label={`${character.name}の衣装を選択`}
+                                                    aria-haspopup="menu"
+                                                    aria-expanded={menuOpen}
+                                                    style={{
+                                                        position: 'absolute',
+                                                        top: -5,
+                                                        right: -7,
+                                                        width: 24,
+                                                        height: 24,
+                                                        padding: 0,
+                                                        border: '1px solid var(--border-color)',
+                                                        borderRadius: '50%',
+                                                        background: 'var(--bg-primary)',
+                                                        color: selectedCostumeName === DEFAULT_COSTUME_NAME
+                                                            ? 'var(--text-secondary)'
+                                                            : 'var(--accent-primary)',
+                                                        cursor: 'pointer',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        boxShadow: '0 1px 4px rgba(0, 0, 0, 0.25)',
+                                                    }}
+                                                >
+                                                    <EllipsisVertical size={15} />
+                                                </button>
+                                            </div>
+                                            <span title={character.name} style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.75rem', lineHeight: 1.25 }}>
+                                                {character.name}
+                                            </span>
                                         </div>
-                                        <span title={character.name} style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.75rem', lineHeight: 1.25 }}>
-                                            {character.name}
-                                        </span>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         ) : (
                             <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', padding: '0.25rem 0' }}>
@@ -1787,6 +2001,16 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                 participants={participantNames}
                 initialModel={defaultAutoGenerationModel}
             />
+
+            {costumeMenu && costumeMenuCharacter && (
+                <CharacterCostumeMenu
+                    character={costumeMenuCharacter}
+                    selectedCostumeName={characterActorMeta[costumeMenuCharacter.id]?.costumeName ?? DEFAULT_COSTUME_NAME}
+                    anchor={costumeMenu}
+                    onSelect={(costumeName) => selectCharacterCostume(costumeMenuCharacter.id, costumeName)}
+                    onClose={closeCostumeMenu}
+                />
+            )}
 
             {characterSelectionOpen && (
                 <CharacterSelectionModal

@@ -548,7 +548,6 @@ async fn generate_for_character(
         character,
         room,
         string(room, "viewMode") == "vn",
-        situation.is_none(),
     );
     let max_characters = character_max_characters(character);
     let schema = assistant_schema(
@@ -1306,20 +1305,16 @@ fn expression_names(
     character: &Value,
     room: &Value,
     visual_novel_mode: bool,
-    allow_costume: bool,
 ) -> Vec<String> {
     if !visual_novel_mode {
         return Vec::new();
     }
-    let selected_costume = if allow_costume {
-        room.get("costumeSelections")
-            .and_then(Value::as_object)
-            .and_then(|selections| selections.get(&string(character, "id")))
-            .and_then(Value::as_str)
-            .filter(|name| *name != "default")
-    } else {
-        None
-    };
+    let selected_costume = room
+        .get("costumeSelections")
+        .and_then(Value::as_object)
+        .and_then(|selections| selections.get(&string(character, "id")))
+        .and_then(Value::as_str)
+        .filter(|name| *name != "default");
     if let Some(costume_name) = selected_costume
         && let Some(costume) = character
             .get("costumes")
@@ -1943,7 +1938,7 @@ mod tests {
     }
 
     #[test]
-    fn situation_visual_novel_uses_base_expressions_without_costumes() {
+    fn visual_novel_uses_selected_costume_expressions() {
         let character = json!({
             "id": "actor-1",
             "expressions": [
@@ -1961,13 +1956,9 @@ mod tests {
         });
 
         assert_eq!(
-            expression_names(&character, &room, true, false),
-            vec!["neutral", "happy"]
-        );
-        assert_eq!(
-            expression_names(&character, &room, true, true),
+            expression_names(&character, &room, true),
             vec!["neutral", "uniform-happy"]
         );
-        assert!(expression_names(&character, &room, false, false).is_empty());
+        assert!(expression_names(&character, &room, false).is_empty());
     }
 }

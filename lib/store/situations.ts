@@ -64,10 +64,12 @@ export function normalizeSituationActor(
         const characterId = typeof rawActor.characterId === 'string' ? rawActor.characterId.trim() : '';
         if (!characterId || !validCharacterIds.has(characterId)) return null;
         const id = typeof rawActor.id === 'string' && rawActor.id.trim() ? rawActor.id.trim() : characterId;
+        const costumeName = typeof rawActor.costumeName === 'string' ? rawActor.costumeName.trim() : '';
         return {
             id,
             type: 'character',
             characterId,
+            ...(costumeName && costumeName.toLowerCase() !== 'default' ? { costumeName } : {}),
             ...(typeof rawActor.rolePrompt === 'string' && rawActor.rolePrompt.trim()
                 ? { rolePrompt: rawActor.rolePrompt.trim() }
                 : {}),
@@ -124,6 +126,21 @@ export function uniqueSituationActors(actors: SituationActor[]): SituationActor[
 
 export function getSituationActorIds(situation: Pick<Situation, 'actors'>): string[] {
     return situation.actors.map((actor) => actor.id);
+}
+
+export function getSituationCostumeSelections(
+    actors: SituationActor[],
+): Record<string, string> | undefined {
+    const selections = Object.fromEntries(
+        actors.flatMap((actor) => {
+            if (actor.type !== 'character') return [];
+            const costumeName = actor.costumeName?.trim();
+            return costumeName && costumeName.toLowerCase() !== 'default'
+                ? [[actor.id, costumeName] as const]
+                : [];
+        }),
+    );
+    return Object.keys(selections).length > 0 ? selections : undefined;
 }
 
 export function normalizeSituationPriorMessages(
@@ -271,11 +288,16 @@ export function normalizeGroupData(params: {
         if (room.groupId && groupsById.has(room.groupId)) {
             const group = groupsById.get(room.groupId)!;
             const actorIds = getSituationActorIds(group);
+            const costumeSelections = getSituationCostumeSelections(group.actors);
             const next: Room = {
                 ...room,
                 characterId: actorIds[0],
+                costumeSelections,
             };
-            if (next.characterId !== room.characterId) {
+            if (
+                next.characterId !== room.characterId
+                || JSON.stringify(next.costumeSelections ?? {}) !== JSON.stringify(room.costumeSelections ?? {})
+            ) {
                 changedRooms.push(next);
                 return next;
             }

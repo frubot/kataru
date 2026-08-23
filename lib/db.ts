@@ -71,6 +71,14 @@ export async function getAllCharactersWithImages(): Promise<Character[]> {
     return storage<Character[]>({ op: 'get_all_characters_with_images' });
 }
 
+export async function getCharacterWithImages(id: string): Promise<Character | undefined> {
+    const result = await storage<Character | null>({
+        op: 'get_character_with_images',
+        character_id: id,
+    });
+    return result ?? undefined;
+}
+
 export async function putCharacter(value: Character): Promise<void> {
     await storage<null>({ op: 'put_character', value });
 }

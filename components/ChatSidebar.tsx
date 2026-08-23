@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Plus, Settings, Trash2, ChevronDown, ChevronRight, User, Users, Copy, EllipsisVertical, PanelLeftClose, PanelLeftOpen, Search, SquarePen, Star, X } from 'lucide-react';
+import { Plus, Settings, Trash2, ChevronDown, ChevronRight, User, Users, Copy, EllipsisVertical, PanelLeftClose, PanelLeftOpen, Search, Share2, SquarePen, Star, X } from 'lucide-react';
 import { useStore, Character, Situation, resolveSituationParticipants } from '@/lib/store';
+import { createCharacterBackup, createCharacterBackupFilename, shareJsonFile } from '@/lib/importExport';
 import StoredImage from './StoredImage';
 import SituationSettingsModal from './SituationSettingsModal';
 import SidebarSearchDialog, { type SidebarSearchResult } from './SidebarSearchDialog';
@@ -23,14 +24,14 @@ const CONTEXT_MENU_VERTICAL_PADDING = 8;
 const CONTEXT_MENU_MARGIN = 8;
 
 function getContextMenuHeight(type: SidebarContextMenu['type']) {
-    const itemCount = type === 'character' || type === 'situation'
-        ? 4
-        : type === 'character-actions'
-            ? 3
-            : type === 'situation-actions'
-                ? 3
-                : 1;
-    return itemCount * CONTEXT_MENU_ITEM_HEIGHT + CONTEXT_MENU_VERTICAL_PADDING;
+    const itemCounts: Record<SidebarContextMenu['type'], number> = {
+        character: 5,
+        'character-actions': 4,
+        situation: 4,
+        'situation-actions': 3,
+        room: 1,
+    };
+    return itemCounts[type] * CONTEXT_MENU_ITEM_HEIGHT + CONTEXT_MENU_VERTICAL_PADDING;
 }
 
 function clampContextMenuPosition(value: number, size: number, viewportSize: number) {
@@ -255,6 +256,19 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
 
     const duplicateCharacterById = (characterId: string) => {
         duplicateCharacter(characterId);
+    };
+
+    const shareCharacterById = async (characterId: string) => {
+        const character = characters.find((candidate) => candidate.id === characterId);
+        if (!character) return;
+        try {
+            const json = await createCharacterBackup(character.id);
+            const filename = createCharacterBackupFilename(character.name);
+            await shareJsonFile(json, filename, `${character.name} - Kataru`);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'キャラクターの共有に失敗しました';
+            window.alert(message);
+        }
     };
 
     const openCharacterSettings = (character: Character) => {
@@ -822,6 +836,11 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
                                 onClick={() => runContextMenuAction(() => createCharacterRoom(contextMenuCharacter.id))}
                             />
                             <SidebarContextMenuItem
+                                icon={<Share2 size={15} />}
+                                label="共有"
+                                onClick={() => runContextMenuAction(() => { void shareCharacterById(contextMenuCharacter.id); })}
+                            />
+                            <SidebarContextMenuItem
                                 icon={<Copy size={15} />}
                                 label="複製"
                                 onClick={() => runContextMenuAction(() => duplicateCharacterById(contextMenuCharacter.id))}
@@ -845,6 +864,11 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
                                 icon={<Star size={15} fill={contextMenuCharacter.favorite ? 'currentColor' : 'none'} />}
                                 label={contextMenuCharacter.favorite ? 'お気に入りから削除' : 'お気に入りに追加'}
                                 onClick={() => runContextMenuAction(() => updateCharacter(contextMenuCharacter.id, { favorite: !contextMenuCharacter.favorite }))}
+                            />
+                            <SidebarContextMenuItem
+                                icon={<Share2 size={15} />}
+                                label="共有"
+                                onClick={() => runContextMenuAction(() => { void shareCharacterById(contextMenuCharacter.id); })}
                             />
                             <SidebarContextMenuItem
                                 icon={<Copy size={15} />}

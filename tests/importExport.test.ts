@@ -1,9 +1,15 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import {
+    createCharacterBackup,
+    createCharacterBackupFilename,
     createFullBackup,
+    parseCharacterBackup,
     parseFullBackup,
+    parseImportFile,
     reassignIds,
+    shareJsonFile,
+    type CharacterBackup,
     type FullBackup,
 } from '../lib/importExport';
 import type {
@@ -125,6 +131,27 @@ function backupJson(backup = validBackup()): string {
     return JSON.stringify(backup);
 }
 
+function validCharacterBackup(): CharacterBackup {
+    return {
+        version: 1,
+        exportedAt: 123,
+        type: 'character',
+        data: {
+            character: {
+                name: 'アリス',
+                systemPrompt: 'アリスのシステムプロンプト',
+                speechStyle: '丁寧に話す',
+                model: 'test-model',
+                icon: 'data:image/png;base64,AA==',
+                expressions: [{
+                    name: 'neutral',
+                    image: 'data:image/png;base64,AQ==',
+                }],
+            },
+        },
+    };
+}
+
 afterEach(() => {
     vi.unstubAllGlobals();
 });
@@ -207,6 +234,118 @@ describe('createFullBackup and parseFullBackup', () => {
         expect(newMemory.sourceRoomId).toBe(newRoom.id);
         expect(newMemory.sourceMessageIds).toEqual([newMessage.id]);
         expect(reassigned.usageRecords[0].characterId).toBe(reassigned.characters[0].id);
+    });
+});
+
+describe('character sharing', () => {
+    test('exports one character with inline images and without local metadata', async () => {
+        const source: Character = {
+            ...character('character-a', 'アリス'),
+            favorite: true,
+            icon: 'data:image/png;base64,AA==',
+            expressions: [{ name: 'neutral', image: 'data:image/png;base64,AQ==' }],
+        };
+        const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
+            const request = JSON.parse(String(init?.body)) as { op: string; character_id?: string };
+            expect(request).toEqual({
+                op: 'get_character_with_images',
+                character_id: source.id,
+            });
+            return {
+                ok: true,
+                json: async () => ({ result: source }),
+            };
+        });
+        vi.stubGlobal('fetch', fetchMock);
+
+        const json = await createCharacterBackup(source.id);
+        const envelope = JSON.parse(json) as CharacterBackup;
+
+        expect(envelope.type).toBe('character');
+        expect(envelope.version).toBe(1);
+        expect(envelope.data.character).toMatchObject({
+            name: source.name,
+            icon: source.icon,
+            expressions: source.expressions,
+        });
+        expect(envelope.data.character).not.toHaveProperty('id');
+        expect(envelope.data.character).not.toHaveProperty('favorite');
+        expect(envelope.data.character).not.toHaveProperty('createdAt');
+        expect(envelope.data.character).not.toHaveProperty('updatedAt');
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    test('parses a character as a new import without conversation data', () => {
+        const backup = validCharacterBackup();
+        const parsed = parseCharacterBackup(JSON.stringify(backup));
+
+        expect(parsed.characters).toHaveLength(1);
+        expect(parsed.characters[0]).toMatchObject(backup.data.character);
+        expect(parsed.characters[0].id).toEqual(expect.any(String));
+        expect(parsed.characters[0].createdAt).toEqual(expect.any(Number));
+        expect(parsed.characters[0].updatedAt).toEqual(expect.any(Number));
+        expect(parsed.groups).toEqual([]);
+        expect(parsed.rooms).toEqual([]);
+        expect(parsed.memories).toEqual([]);
+        expect(parsed.usageRecords).toEqual([]);
+    });
+
+    test('recognizes both full backups and character files', () => {
+        expect(parseImportFile(backupJson()).type).toBe('full');
+        expect(parseImportFile(JSON.stringify(validCharacterBackup())).type).toBe('character');
+    });
+
+    test('rejects invalid settings and machine-local image references', () => {
+        const invalidTemperature = validCharacterBackup();
+        invalidTemperature.data.character.temperature = 3;
+        expect(() => parseCharacterBackup(JSON.stringify(invalidTemperature)))
+            .toThrow('キャラクターファイルの形式が正しくありません');
+
+        const localAsset = validCharacterBackup();
+        localAsset.data.character.icon = `asset:${'a'.repeat(64)}`;
+        expect(() => parseCharacterBackup(JSON.stringify(localAsset)))
+            .toThrow('キャラクターファイルの形式が正しくありません');
+    });
+
+    test('creates a filesystem-safe character filename', () => {
+        expect(createCharacterBackupFilename(' Alice: test/01. '))
+            .toBe('Alice_ test_01.kataru-character.json');
+        expect(createCharacterBackupFilename('   '))
+            .toBe('character.kataru-character.json');
+    });
+
+    test('uses native file sharing when it is available', async () => {
+        const share = vi.fn().mockResolvedValue(undefined);
+        vi.stubGlobal('navigator', {
+            canShare: vi.fn(() => true),
+            share,
+        });
+
+        await expect(shareJsonFile('{}', 'alice.json', 'Alice')).resolves.toBe('shared');
+
+        const shareData = share.mock.calls[0][0] as ShareData;
+        expect(shareData.title).toBe('Alice');
+        expect(shareData.files?.[0]).toBeInstanceOf(File);
+        expect(shareData.files?.[0].name).toBe('alice.json');
+    });
+
+    test('downloads the JSON when native file sharing is unavailable', async () => {
+        const click = vi.fn();
+        const createObjectURL = vi.fn(() => 'blob:character');
+        const revokeObjectURL = vi.fn();
+        vi.stubGlobal('navigator', {
+            canShare: vi.fn(() => false),
+            share: vi.fn(),
+        });
+        vi.stubGlobal('document', {
+            createElement: vi.fn(() => ({ href: '', download: '', click })),
+        });
+        vi.stubGlobal('URL', { createObjectURL, revokeObjectURL });
+
+        await expect(shareJsonFile('{}', 'alice.json', 'Alice')).resolves.toBe('downloaded');
+        expect(createObjectURL).toHaveBeenCalledOnce();
+        expect(click).toHaveBeenCalledOnce();
+        expect(revokeObjectURL).toHaveBeenCalledWith('blob:character');
     });
 });
 

@@ -22,6 +22,9 @@ pub enum StorageCommand {
 
     GetAllCharacters,
     GetAllCharactersWithImages,
+    GetCharacterWithImages {
+        character_id: String,
+    },
     PutCharacter {
         #[serde(alias = "value")]
         character: Value,
@@ -201,6 +204,7 @@ impl StorageCommand {
             Self::DeleteMeta { .. } => "delete_meta",
             Self::GetAllCharacters => "get_all_characters",
             Self::GetAllCharactersWithImages => "get_all_characters_with_images",
+            Self::GetCharacterWithImages { .. } => "get_character_with_images",
             Self::PutCharacter { .. } => "put_character",
             Self::DeleteCharacter { .. } => "delete_character",
             Self::GetAllSituations => "get_all_situations",
@@ -267,6 +271,10 @@ pub(super) fn execute(connection: &mut Connection, command: StorageCommand) -> A
         }
         StorageCommand::GetAllCharactersWithImages => {
             characters::get_all_characters(connection, true).map(Value::Array)
+        }
+        StorageCommand::GetCharacterWithImages { character_id } => {
+            characters::get_character_with_images(connection, &character_id)
+                .map(|character| character.unwrap_or(Value::Null))
         }
         StorageCommand::PutCharacter { character } => {
             characters::put_character(connection, character)?;
@@ -533,6 +541,55 @@ mod tests {
                 )
                 .expect("count messages"),
             1
+        );
+    }
+
+    #[test]
+    fn get_character_with_images_returns_only_the_requested_hydrated_character() {
+        let mut connection = open_test_database();
+        execute(
+            &mut connection,
+            StorageCommand::PutCharacter {
+                character: json!({
+                    "id": "character-1",
+                    "name": "Alice",
+                    "icon": "data:image/png;base64,AA==",
+                    "updatedAt": 1
+                }),
+            },
+        )
+        .expect("store character image");
+        execute(
+            &mut connection,
+            StorageCommand::PutCharacter {
+                character: json!({
+                    "id": "character-2",
+                    "name": "Bob",
+                    "updatedAt": 1
+                }),
+            },
+        )
+        .expect("store another character");
+
+        let character = execute(
+            &mut connection,
+            StorageCommand::GetCharacterWithImages {
+                character_id: "character-1".to_owned(),
+            },
+        )
+        .expect("load character with images");
+
+        assert_eq!(character["id"], "character-1");
+        assert_eq!(character["icon"], "data:image/png;base64,AA==");
+        assert_eq!(
+            execute(
+                &mut connection,
+                StorageCommand::GetCharacterWithImages {
+                    character_id: "missing".to_owned(),
+                },
+            )
+            .expect("load missing character"),
+            Value::Null
         );
     }
 

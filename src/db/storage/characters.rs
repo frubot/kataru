@@ -9,8 +9,23 @@ use super::{
         inline_situation_images, prune_orphaned_image_assets, sync_character_image_assets,
         sync_situation_image_assets,
     },
-    json::{query_json_values, required_i64, required_string, serialize},
+    json::{query_json_values, query_optional_json, required_i64, required_string, serialize},
 };
+
+pub(super) fn get_character_with_images(
+    connection: &Connection,
+    character_id: &str,
+) -> AppResult<Option<Value>> {
+    let mut character = query_optional_json(
+        connection,
+        "SELECT data_json FROM characters WHERE id = ?1",
+        params![character_id],
+    )?;
+    if let Some(character) = &mut character {
+        inline_character_images(connection, character)?;
+    }
+    Ok(character)
+}
 
 pub(super) fn get_all_characters(
     connection: &Connection,

@@ -30,6 +30,53 @@ export interface FullBackup {
     };
 }
 
+export type SharedCharacter = Omit<Character, 'id' | 'favorite' | 'createdAt' | 'updatedAt'>;
+
+export interface CharacterBackup {
+    version: 1;
+    exportedAt: number;
+    type: 'character';
+    data: {
+        character: SharedCharacter;
+    };
+}
+
+export interface ParsedImport {
+    type: 'full' | 'character';
+    data: ParsedBackup;
+}
+
+function copySharedCharacter(character: SharedCharacter): SharedCharacter {
+    return {
+        name: character.name,
+        systemPrompt: character.systemPrompt,
+        model: character.model,
+        ...(character.speechStyle !== undefined ? { speechStyle: character.speechStyle } : {}),
+        ...(character.protagonistPrompt !== undefined ? { protagonistPrompt: character.protagonistPrompt } : {}),
+        ...(character.userConstraints !== undefined ? { userConstraints: character.userConstraints } : {}),
+        ...(character.icon !== undefined ? { icon: character.icon } : {}),
+        ...(character.maxCharacters !== undefined ? { maxCharacters: character.maxCharacters } : {}),
+        ...(character.maxHistory !== undefined ? { maxHistory: character.maxHistory } : {}),
+        ...(character.temperature !== undefined ? { temperature: character.temperature } : {}),
+        ...(character.topP !== undefined ? { topP: character.topP } : {}),
+        ...(character.topK !== undefined ? { topK: character.topK } : {}),
+        ...(character.enableThinking !== undefined ? { enableThinking: character.enableThinking } : {}),
+        ...(character.enableMemory !== undefined ? { enableMemory: character.enableMemory } : {}),
+        ...(character.enableSummary !== undefined ? { enableSummary: character.enableSummary } : {}),
+        ...(character.expressions !== undefined ? {
+            expressions: character.expressions.map((expression) => ({ ...expression })),
+        } : {}),
+        ...(character.costumes !== undefined ? {
+            costumes: character.costumes.map((costume) => ({
+                ...costume,
+                ...(costume.expressions ? {
+                    expressions: costume.expressions.map((expression) => ({ ...expression })),
+                } : {}),
+            })),
+        } : {}),
+    };
+}
+
 function getSituationActorIds(situation: Situation): string[] {
     return situation.actors
         .map((actor) => actor.id)
@@ -75,6 +122,34 @@ export async function createFullBackup(): Promise<string> {
     return JSON.stringify(backup, null, 2);
 }
 
+export async function createCharacterBackup(characterId: string): Promise<string> {
+    const character = await db.getCharacterWithImages(characterId);
+    if (!character) {
+        throw new Error('共有するキャラクターが見つかりません');
+    }
+    const backup: CharacterBackup = {
+        version: 1,
+        exportedAt: Date.now(),
+        type: 'character',
+        data: {
+            character: copySharedCharacter(character),
+        },
+    };
+    return JSON.stringify(backup, null, 2);
+}
+
+export function createCharacterBackupFilename(name: string): string {
+    const normalized = Array.from(name.normalize('NFKC'), (character) => (
+        character.charCodeAt(0) <= 0x1f || '<>:"/\\|?*'.includes(character)
+            ? '_'
+            : character
+    )).join('')
+        .replace(/[. ]+$/g, '')
+        .trim();
+    const safeName = (normalized || 'character').slice(0, 80);
+    return `${safeName}.kataru-character.json`;
+}
+
 export function downloadJson(json: string, filename: string) {
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -85,22 +160,60 @@ export function downloadJson(json: string, filename: string) {
     URL.revokeObjectURL(url);
 }
 
+export async function shareJsonFile(
+    json: string,
+    filename: string,
+    title: string,
+): Promise<'shared' | 'downloaded' | 'cancelled'> {
+    if (typeof navigator !== 'undefined' && typeof File === 'function' && typeof navigator.share === 'function') {
+        const file = new File([json], filename, { type: 'application/json' });
+        const shareData: ShareData = { files: [file], title };
+        let canShareFiles = true;
+        if (typeof navigator.canShare === 'function') {
+            try {
+                canShareFiles = navigator.canShare(shareData);
+            } catch {
+                canShareFiles = false;
+            }
+        }
+        if (canShareFiles) {
+            try {
+                await navigator.share(shareData);
+                return 'shared';
+            } catch (error) {
+                if (
+                    typeof error === 'object'
+                    && error !== null
+                    && 'name' in error
+                    && error.name === 'AbortError'
+                ) {
+                    return 'cancelled';
+                }
+            }
+        }
+    }
+
+    downloadJson(json, filename);
+    return 'downloaded';
+}
+
 // IndexedDB では大容量保存が可能だが、実運用上の安全圏として上限を設ける
 const MAX_IMPORT_SIZE_MB = 256;
 const MAX_IMPORT_SIZE = MAX_IMPORT_SIZE_MB * 1024 * 1024;
 
-export function parseFullBackup(json: string): ParsedBackup {
+function parseBackupJson(json: string): unknown {
     if (json.length > MAX_IMPORT_SIZE) {
         throw new Error(`インポートデータが大きすぎます（${(json.length / 1024 / 1024).toFixed(1)}MB）。${MAX_IMPORT_SIZE_MB}MB以下にしてください。`);
     }
 
-    let parsed: unknown;
     try {
-        parsed = JSON.parse(json);
+        return JSON.parse(json) as unknown;
     } catch {
         throw new Error('JSONの解析に失敗しました');
     }
+}
 
+function parseFullBackupValue(parsed: unknown): ParsedBackup {
     const b = parsed as FullBackup;
     if (
         typeof b !== 'object' ||
@@ -209,6 +322,127 @@ export function parseFullBackup(json: string): ParsedBackup {
     }
 
     return { characters, groups, rooms, memories: validMemories, usageRecords };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isOptionalString(value: unknown): boolean {
+    return value === undefined || typeof value === 'string';
+}
+
+function isOptionalBoolean(value: unknown): boolean {
+    return value === undefined || typeof value === 'boolean';
+}
+
+function isValidSharedImageSource(value: unknown): boolean {
+    return typeof value === 'string'
+        && value.length > 0
+        && !value.startsWith('asset:');
+}
+
+function isOptionalNumber(
+    value: unknown,
+    { min, max, integer = false }: { min?: number; max?: number; integer?: boolean } = {},
+): boolean {
+    if (value === undefined) return true;
+    if (typeof value !== 'number' || !Number.isFinite(value)) return false;
+    if (integer && !Number.isInteger(value)) return false;
+    if (min !== undefined && value < min) return false;
+    if (max !== undefined && value > max) return false;
+    return true;
+}
+
+function isValidExpression(value: unknown): boolean {
+    return isRecord(value)
+        && typeof value.name === 'string'
+        && value.name.trim().length > 0
+        && isOptionalString(value.promptDetail)
+        && isValidSharedImageSource(value.image);
+}
+
+function isValidCostume(value: unknown): boolean {
+    return isRecord(value)
+        && typeof value.name === 'string'
+        && value.name.trim().length > 0
+        && isOptionalString(value.promptDetail)
+        && isValidSharedImageSource(value.image)
+        && (value.expressions === undefined
+            || (Array.isArray(value.expressions) && value.expressions.every(isValidExpression)));
+}
+
+function isValidSharedCharacter(value: unknown): value is SharedCharacter {
+    if (!isRecord(value)) return false;
+    return typeof value.name === 'string'
+        && value.name.trim().length > 0
+        && typeof value.systemPrompt === 'string'
+        && typeof value.model === 'string'
+        && value.model.trim().length > 0
+        && isOptionalString(value.speechStyle)
+        && isOptionalString(value.protagonistPrompt)
+        && isOptionalString(value.userConstraints)
+        && (value.icon === undefined || isValidSharedImageSource(value.icon))
+        && isOptionalNumber(value.maxCharacters, { min: 1, integer: true })
+        && isOptionalNumber(value.maxHistory, { min: 1, max: 100, integer: true })
+        && isOptionalNumber(value.temperature, { min: 0, max: 2 })
+        && isOptionalNumber(value.topP, { min: 0, max: 1 })
+        && isOptionalNumber(value.topK, { min: 0, max: 100, integer: true })
+        && isOptionalBoolean(value.enableThinking)
+        && isOptionalBoolean(value.enableMemory)
+        && isOptionalBoolean(value.enableSummary)
+        && (value.expressions === undefined
+            || (Array.isArray(value.expressions) && value.expressions.every(isValidExpression)))
+        && (value.costumes === undefined
+            || (Array.isArray(value.costumes) && value.costumes.every(isValidCostume)));
+}
+
+function parseCharacterBackupValue(parsed: unknown): ParsedBackup {
+    if (
+        !isRecord(parsed)
+        || parsed.version !== 1
+        || parsed.type !== 'character'
+        || typeof parsed.exportedAt !== 'number'
+        || !Number.isFinite(parsed.exportedAt)
+        || !isRecord(parsed.data)
+        || !isValidSharedCharacter(parsed.data.character)
+    ) {
+        throw new Error('キャラクターファイルの形式が正しくありません');
+    }
+
+    const now = Date.now();
+    const character: Character = {
+        id: generateId(),
+        ...copySharedCharacter(parsed.data.character),
+        createdAt: now,
+        updatedAt: now,
+    };
+    return {
+        characters: [character],
+        groups: [],
+        rooms: [],
+        memories: [],
+        usageRecords: [],
+    };
+}
+
+export function parseFullBackup(json: string): ParsedBackup {
+    return parseFullBackupValue(parseBackupJson(json));
+}
+
+export function parseCharacterBackup(json: string): ParsedBackup {
+    return parseCharacterBackupValue(parseBackupJson(json));
+}
+
+export function parseImportFile(json: string): ParsedImport {
+    const parsed = parseBackupJson(json);
+    if (isRecord(parsed) && parsed.type === 'full') {
+        return { type: 'full', data: parseFullBackupValue(parsed) };
+    }
+    if (isRecord(parsed) && parsed.type === 'character') {
+        return { type: 'character', data: parseCharacterBackupValue(parsed) };
+    }
+    throw new Error('インポートファイルの形式が正しくありません');
 }
 
 // IDを全て再生成してマージ時の衝突を防ぐ

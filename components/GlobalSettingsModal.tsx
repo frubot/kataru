@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
 import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Check, ChevronDown, RefreshCw, ExternalLink, type LucideIcon } from 'lucide-react';
 import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, getDefaultModelDefaults, type AiApiType } from '@/lib/store';
-import { createFullBackup, downloadJson, parseFullBackup, reassignIds, ParsedBackup } from '@/lib/importExport';
+Added character sharing feature.import { createFullBackup, downloadJson, parseImportFile, reassignIds, type ParsedImport } from '@/lib/importExport';
 import StatisticsPanel from '@/components/StatisticsPanel';
 import AiConnectionSettings from '@/components/AiConnectionSettings';
 import ModelSelector from '@/components/ModelSelector';
@@ -348,7 +348,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
     const apiTypeDefaults = getDefaultModelDefaults(aiApiType);
     const [showClearConfirm, setShowClearConfirm] = useState(false);
     const [showResetConfirm, setShowResetConfirm] = useState(false);
-    const [importData, setImportData] = useState<ParsedBackup | null>(null);
+    const [importData, setImportData] = useState<ParsedImport | null>(null);
     const [importError, setImportError] = useState<string | null>(null);
     const [isImporting, setIsImporting] = useState(false);
     const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
@@ -562,7 +562,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         const reader = new FileReader();
         reader.onload = (ev) => {
             try {
-                const parsed = parseFullBackup(ev.target?.result as string);
+                const parsed = parseImportFile(ev.target?.result as string);
                 setImportData(parsed);
                 setImportError(null);
                 setShowRestoreConfirm(false);
@@ -580,7 +580,10 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         setImportError(null);
         setIsImporting(true);
         try {
-            await mergeBackup(reassignIds(importData));
+            const data = importData.type === 'full'
+                ? reassignIds(importData.data)
+                : importData.data;
+            await mergeBackup(data);
             setImportData(null);
         } catch (err) {
             setImportError(err instanceof Error ? err.message : 'インポートに失敗しました');
@@ -590,11 +593,11 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
     };
 
     const handleRestore = async () => {
-        if (!importData) return;
+        if (!importData || importData.type !== 'full') return;
         setImportError(null);
         setIsImporting(true);
         try {
-            await restoreBackup(importData);
+            await restoreBackup(importData.data);
             setImportData(null);
             setShowRestoreConfirm(false);
         } catch (err) {
@@ -1547,7 +1550,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                 <input
                                     ref={fileInputRef}
                                     type="file"
-                                    accept=".json"
+                                    accept=".json,application/json"
                                     disabled={isImporting}
                                     style={{ display: 'none' }}
                                     onChange={handleFileSelect}
@@ -1575,17 +1578,19 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                             {importData && (
                                 <div className="card" aria-busy={isImporting} style={{ marginTop: '0.75rem', background: 'rgba(59, 130, 246, 0.1)', borderColor: 'rgba(59, 130, 246, 0.4)' }}>
                                     <p style={{ fontSize: '0.875rem', marginBottom: '0.5rem', fontWeight: 500 }}>
-                                        インポート内容
+                                        {importData.type === 'character' ? 'キャラクターを追加' : 'インポート内容'}
                                     </p>
                                     <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.75rem' }}>
-                                        キャラクター {importData.characters.length} 件 / ルーム {importData.rooms.length} 件 / 使用記録 {importData.usageRecords.length} 件
+                                        {importData.type === 'character'
+                                            ? `「${importData.data.characters[0]?.name ?? '名称不明'}」の設定と画像を読み込みます。会話履歴やメモリは含まれません。`
+                                            : `キャラクター ${importData.data.characters.length} 件 / ルーム ${importData.data.rooms.length} 件 / 使用記録 ${importData.data.usageRecords.length} 件`}
                                     </p>
                                     {isImporting && (
                                         <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.75rem' }}>
                                             インポート中です。完了までこの画面を閉じずにお待ちください。
                                         </p>
                                     )}
-                                    {showRestoreConfirm ? (
+                                    {importData.type === 'full' && showRestoreConfirm ? (
                                         <div>
                                             <p style={{ fontSize: '0.8rem', color: '#f59e0b', marginBottom: '0.5rem' }}>
                                                 現在のデータはすべて置き換えられます。本当によろしいですか？
@@ -1602,11 +1607,15 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     ) : (
                                         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                                             <button className="btn btn-primary" onClick={handleMerge} disabled={isImporting}>
-                                                {isImporting ? 'マージ中...' : 'マージ（追加）'}
+                                                {importData.type === 'character'
+                                                    ? (isImporting ? '追加中...' : '追加する')
+                                                    : (isImporting ? 'マージ中...' : 'マージ（追加）')}
                                             </button>
-                                            <button className="btn btn-danger" onClick={() => setShowRestoreConfirm(true)} disabled={isImporting}>
-                                                置き換え
-                                            </button>
+                                            {importData.type === 'full' && (
+                                                <button className="btn btn-danger" onClick={() => setShowRestoreConfirm(true)} disabled={isImporting}>
+                                                    置き換え
+                                                </button>
+                                            )}
                                             <button className="btn btn-secondary" onClick={() => setImportData(null)} disabled={isImporting}>
                                                 キャンセル
                                             </button>

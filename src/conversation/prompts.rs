@@ -26,6 +26,7 @@ fn roleplay_reply_instruction(character_name: &str) -> String {
 ### キャラクターの返答  
   キャラクターの制約:
    - {character_name}として、設定を守って返答する必要があります。
+   - テンプレート的な返答を避け、独自性を出す。
 
 ### ナレーション
   キャラクターとしての返答だけでなく、ユーザーが周囲の状況を理解しやすいようにナレーションも表します。
@@ -165,7 +166,7 @@ pub fn assistant_schema(
             "thought".into(),
             json!({
                 "type": "string",
-                "description": "考え",
+                "description": "返答内容を考える",
                 "minLength": 100
             }),
         );

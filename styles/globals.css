@@ -2166,6 +2166,7 @@ body {
 
 .chat-container.vn-mode > .chat-header,
 .chat-container.vn-mode > .vn-stage,
+.chat-container.vn-mode > .vn-log-view,
 .chat-container.vn-mode > .chat-input-area {
   position: relative;
   z-index: 1;

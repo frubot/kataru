@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { History, X } from 'lucide-react';
+import { History, UserRound, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import type { Character } from '@/lib/store';
 import type {
@@ -36,7 +36,11 @@ type VisualNovelLogEntry = {
 
 function LogAvatar({ entry }: { entry: VisualNovelLogEntry }) {
     if (entry.role === 'user') {
-        return <div className="vn-log-avatar user" aria-hidden="true">YOU</div>;
+        return (
+            <div className="vn-log-avatar user" aria-hidden="true">
+                <UserRound size={20} strokeWidth={1.8} />
+            </div>
+        );
     }
 
     return (

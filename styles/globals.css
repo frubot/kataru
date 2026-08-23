@@ -2745,6 +2745,7 @@ body {
   content: "";
   position: absolute;
   inset: 0;
+  z-index: 1;
   background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
   pointer-events: none;
 }
@@ -2753,9 +2754,18 @@ body {
   background: color-mix(in srgb, var(--accent-primary) 6%, transparent);
 }
 
+.vn-background-image {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .vn-character-wrap {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   width: min(70vw, 780px);
   max-width: 92%;
   height: min(112%, 92vh);
@@ -2802,7 +2812,7 @@ body {
 
 .vn-cast {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   align-self: center;
   display: flex;
   flex-wrap: wrap;
@@ -2998,6 +3008,10 @@ body {
   padding-right: 52px;
   font-size: 1rem;
   scrollbar-width: none;
+}
+
+.chat-input:focus {
+  box-shadow: 0 0 0 2px rgba(var(--accent-primary-rgb), 0.12);
 }
 
 .chat-input-wrapper.editing .chat-input {

@@ -13,6 +13,11 @@ pub(super) fn open_test_database() -> Connection {
         .execute_batch(include_str!("../../../migrations/0002_image_assets.sql"))
         .expect("apply image asset migration");
     connection
+        .execute_batch(include_str!(
+            "../../../migrations/0003_situation_image_assets.sql"
+        ))
+        .expect("apply situation image asset migration");
+    connection
 }
 
 pub(super) fn test_room(id: &str) -> Value {

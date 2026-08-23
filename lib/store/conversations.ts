@@ -160,6 +160,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
             const group: Situation = {
                 id: groupId,
                 name: resolvedGroupName,
+                ...(input.backgroundImage ? { backgroundImage: input.backgroundImage } : {}),
                 situationPrompt: input.situationPrompt?.trim() ?? '',
                 priorMessages: normalizeSituationPriorMessages(input.priorMessages, new Set(actorIds)),
                 actors,

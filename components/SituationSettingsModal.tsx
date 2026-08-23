@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, ChevronDown, ChevronRight, ChevronUp, EllipsisVertical, MessagesSquare, Plus, RotateCcw, Shirt, Smile, Sparkles, Trash2, User, Users, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, ChevronUp, EllipsisVertical, Image as ImageIcon, MessagesSquare, Plus, RotateCcw, Shirt, Smile, Sparkles, Trash2, User, Users, X } from 'lucide-react';
 import {
     Character,
     DEFAULT_CHARACTER_MAX_HISTORY,
@@ -20,6 +20,7 @@ import { DEFAULT_COSTUME_NAME, getVisualNovelCostumeOptions } from '@/lib/visual
 import CharacterGeneratorModal from './CharacterGeneratorModal';
 import ExpressionDiffModal from './ExpressionDiffModal';
 import ImageGenerationModal from './ImageGenerationModal';
+import SituationBackgroundModal from './SituationBackgroundModal';
 import SituationDescriptionGeneratorModal from './SituationDescriptionGeneratorModal';
 import StoredImage from './StoredImage';
 import ModelSelector from './ModelSelector';
@@ -874,6 +875,7 @@ function buildInitialState(
 
     return {
         name: situation?.name ?? '',
+        backgroundImage: situation?.backgroundImage ?? '',
         situationPrompt: situation?.situationPrompt ?? '',
         maxAutoTurns: String(getInitialMaxTurns(situation, room)),
         maxHistory: situation?.maxHistory != null ? String(situation.maxHistory) : '',
@@ -888,6 +890,7 @@ function buildInitialState(
 function serializeSituationDraft(draft: ReturnType<typeof buildInitialState>) {
     return JSON.stringify({
         name: draft.name,
+        backgroundImage: draft.backgroundImage,
         situationPrompt: draft.situationPrompt,
         maxAutoTurns: draft.maxAutoTurns,
         maxHistory: draft.maxHistory,
@@ -1204,6 +1207,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
     const initial = buildInitialState(situation, room);
     const initialDraftRef = useRef(initial);
     const [name, setName] = useState(initial.name);
+    const [backgroundImage, setBackgroundImage] = useState(initial.backgroundImage);
     const [situationPrompt, setSituationPrompt] = useState(initial.situationPrompt);
     const [maxAutoTurns, setMaxAutoTurns] = useState(initial.maxAutoTurns);
     const [maxHistory, setMaxHistory] = useState(initial.maxHistory);
@@ -1214,6 +1218,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
     const [temporaryActors, setTemporaryActors] = useState<TemporaryActorDraft[]>(initial.temporaryActors);
     const [costumeMenu, setCostumeMenu] = useState<CostumeMenuState | null>(null);
     const [descriptionGeneratorOpen, setDescriptionGeneratorOpen] = useState(false);
+    const [backgroundEditorOpen, setBackgroundEditorOpen] = useState(false);
     const [characterSelectionOpen, setCharacterSelectionOpen] = useState(false);
     const [temporaryActorPendingDelete, setTemporaryActorPendingDelete] = useState<TemporaryActorDraft | null>(null);
     const [temporaryActorModal, setTemporaryActorModal] = useState<{
@@ -1424,6 +1429,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
         if (isEditing) {
             const currentDraft = {
                 name,
+                backgroundImage,
                 situationPrompt,
                 maxAutoTurns,
                 maxHistory,
@@ -1459,6 +1465,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
         if (situation) {
             updateSituation(situation.id, {
                 name: name.trim() || 'シチュエーション',
+                backgroundImage: backgroundImage || undefined,
                 situationPrompt: situationPrompt.trim(),
                 priorMessages: priorMessagesForSave,
                 actors,
@@ -1472,6 +1479,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
         } else if (actorCount > 0) {
             createSituationRoom({
                 name: name.trim() || undefined,
+                backgroundImage: backgroundImage || undefined,
                 situationPrompt: situationPrompt.trim(),
                 priorMessages: priorMessagesForSave,
                 actors,
@@ -1483,7 +1491,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
         }
 
         onClose();
-    }, [actorCount, buildActors, characterActorMeta, createSituationRoom, defaultDirectorModel, effectiveMaxTurns, isEditing, maxAutoTurns, maxHistory, memoryReadOnly, name, onClose, onCreated, parsedMaxHistory, priorMessages, room, selectedCharacterIds, situation, situationPrompt, temporaryActors, updateRoomSettings, updateSituation]);
+    }, [actorCount, backgroundImage, buildActors, characterActorMeta, createSituationRoom, defaultDirectorModel, effectiveMaxTurns, isEditing, maxAutoTurns, maxHistory, memoryReadOnly, name, onClose, onCreated, parsedMaxHistory, priorMessages, room, selectedCharacterIds, situation, situationPrompt, temporaryActors, updateRoomSettings, updateSituation]);
 
     const modalRef = useRef<HTMLDivElement>(null);
     useModalKeyboard({
@@ -1491,6 +1499,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
         containerRef: modalRef,
         onClose: isEditing ? saveAndClose : onClose,
         canClose: !descriptionGeneratorOpen
+            && !backgroundEditorOpen
             && !characterSelectionOpen
             && costumeMenu === null
             && temporaryActorPendingDelete === null
@@ -1784,6 +1793,44 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                     <section style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
                             <div style={sectionLabelStyle}>
+                                <ImageIcon size={16} />
+                                背景
+                            </div>
+                            <button
+                                type="button"
+                                className="btn btn-secondary"
+                                onClick={() => setBackgroundEditorOpen(true)}
+                            >
+                                編集
+                            </button>
+                        </div>
+                        {backgroundImage ? (
+                            <div
+                                style={{
+                                    width: 'min(100%, 22rem)',
+                                    aspectRatio: '16 / 9',
+                                    overflow: 'hidden',
+                                    border: '1px solid var(--border-color)',
+                                    borderRadius: '0.625rem',
+                                    background: 'var(--bg-secondary)',
+                                }}
+                            >
+                                <StoredImage
+                                    src={backgroundImage}
+                                    alt="設定中の背景"
+                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                />
+                            </div>
+                        ) : (
+                            <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', padding: '0.25rem 0' }}>
+                                設定されていません
+                            </div>
+                        )}
+                    </section>
+
+                    <section style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
+                            <div style={sectionLabelStyle}>
                                 <Users size={16} />
                                 既存キャラクター
                             </div>
@@ -2001,6 +2048,16 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                 participants={participantNames}
                 initialModel={defaultAutoGenerationModel}
             />
+
+            {backgroundEditorOpen && (
+                <SituationBackgroundModal
+                    isOpen
+                    currentImage={backgroundImage || undefined}
+                    initialPrompt={[name.trim(), situationPrompt.trim()].filter(Boolean).join('\n\n')}
+                    onClose={() => setBackgroundEditorOpen(false)}
+                    onComplete={(image) => setBackgroundImage(image ?? '')}
+                />
+            )}
 
             {costumeMenu && costumeMenuCharacter && (
                 <CharacterCostumeMenu

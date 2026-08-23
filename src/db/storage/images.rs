@@ -137,6 +137,23 @@ pub(super) fn externalize_character_images(
     Ok((referenced_assets, changed))
 }
 
+pub(super) fn externalize_situation_images(
+    connection: &Connection,
+    situation: &mut Value,
+) -> AppResult<(HashSet<String>, bool)> {
+    let object = situation.as_object_mut().ok_or_else(|| {
+        AppError::BadRequest("シチュエーションはJSONオブジェクトである必要があります。".to_owned())
+    })?;
+    let mut referenced_assets = HashSet::new();
+    let changed = persist_image_field(
+        connection,
+        object,
+        "backgroundImage",
+        &mut referenced_assets,
+    )?;
+    Ok((referenced_assets, changed))
+}
+
 pub(super) fn sync_character_image_assets(
     connection: &Connection,
     character_id: &str,
@@ -155,12 +172,34 @@ pub(super) fn sync_character_image_assets(
     Ok(())
 }
 
+pub(super) fn sync_situation_image_assets(
+    connection: &Connection,
+    situation_id: &str,
+    asset_ids: &HashSet<String>,
+) -> AppResult<()> {
+    connection.execute(
+        "DELETE FROM situation_image_assets WHERE situation_id = ?1",
+        params![situation_id],
+    )?;
+    for asset_id in asset_ids {
+        connection.execute(
+            "INSERT INTO situation_image_assets(situation_id, asset_id) VALUES (?1, ?2)",
+            params![situation_id, asset_id],
+        )?;
+    }
+    Ok(())
+}
+
 pub(super) fn prune_orphaned_image_assets(connection: &Connection) -> AppResult<()> {
     connection.execute(
         "DELETE FROM image_assets
          WHERE NOT EXISTS (
              SELECT 1 FROM character_image_assets
              WHERE character_image_assets.asset_id = image_assets.id
+         )
+         AND NOT EXISTS (
+             SELECT 1 FROM situation_image_assets
+             WHERE situation_image_assets.asset_id = image_assets.id
          )",
         [],
     )?;
@@ -230,6 +269,19 @@ pub(super) fn inline_character_images(
     Ok(())
 }
 
+pub(super) fn inline_situation_images(
+    connection: &Connection,
+    situation: &mut Value,
+) -> AppResult<()> {
+    let Some(object) = situation.as_object_mut() else {
+        return Ok(());
+    };
+    if let Some(background_image) = object.get_mut("backgroundImage") {
+        inline_image_source(connection, background_image)?;
+    }
+    Ok(())
+}
+
 pub fn migrate_character_images(transaction: &Transaction<'_>) -> AppResult<()> {
     let stored_characters = {
         let mut statement =
@@ -258,13 +310,47 @@ pub fn migrate_character_images(transaction: &Transaction<'_>) -> AppResult<()> 
     prune_orphaned_image_assets(transaction)
 }
 
+pub fn migrate_situation_images(transaction: &Transaction<'_>) -> AppResult<()> {
+    let stored_situations = {
+        let mut statement =
+            transaction.prepare("SELECT id, data_json FROM situations ORDER BY id")?;
+        let rows = statement.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut situations = Vec::new();
+        for row in rows {
+            situations.push(row?);
+        }
+        situations
+    };
+
+    for (situation_id, data_json) in stored_situations {
+        let mut situation: Value = serde_json::from_str(&data_json)?;
+        let (asset_ids, changed) = externalize_situation_images(transaction, &mut situation)?;
+        if changed {
+            transaction.execute(
+                "UPDATE situations SET data_json = ?2 WHERE id = ?1",
+                params![situation_id, serialize(&situation)?],
+            )?;
+        }
+        sync_situation_image_assets(transaction, &situation_id, &asset_ids)?;
+    }
+    prune_orphaned_image_assets(transaction)
+}
+
 #[cfg(test)]
 mod tests {
     use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
     use serde_json::{Value, json};
 
-    use super::{IMAGE_ASSET_PREFIX, inline_character_images, prune_orphaned_image_assets};
-    use crate::db::storage::{characters::upsert_character, test_support::open_test_database};
+    use super::{
+        IMAGE_ASSET_PREFIX, inline_character_images, inline_situation_images,
+        prune_orphaned_image_assets,
+    };
+    use crate::db::storage::{
+        characters::{upsert_character, upsert_situation},
+        test_support::open_test_database,
+    };
 
     #[test]
     fn character_images_are_externalized_deduplicated_and_inlined_for_export() {
@@ -351,5 +437,50 @@ mod tests {
                 .expect("count remaining assets"),
             0
         );
+    }
+
+    #[test]
+    fn situation_background_is_externalized_and_inlined_for_export() {
+        let mut connection = open_test_database();
+        let data_url = format!(
+            "data:image/png;base64,{}",
+            BASE64.encode(b"situation-background")
+        );
+        let transaction = connection.transaction().expect("start transaction");
+        upsert_situation(
+            &transaction,
+            json!({
+                "id": "situation-1",
+                "updatedAt": 1,
+                "backgroundImage": data_url
+            }),
+        )
+        .expect("store situation background");
+        prune_orphaned_image_assets(&transaction).expect("prune assets");
+        transaction.commit().expect("commit situation");
+
+        let stored_json: String = connection
+            .query_row(
+                "SELECT data_json FROM situations WHERE id = 'situation-1'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read stored situation");
+        assert!(!stored_json.contains("data:image"));
+        assert!(stored_json.contains(IMAGE_ASSET_PREFIX));
+        assert_eq!(
+            connection
+                .query_row("SELECT COUNT(*) FROM situation_image_assets", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .expect("count situation image assets"),
+            1
+        );
+
+        let mut exported: Value =
+            serde_json::from_str(&stored_json).expect("parse stored situation");
+        inline_situation_images(&connection, &mut exported)
+            .expect("inline exported situation background");
+        assert_eq!(exported["backgroundImage"], data_url);
     }
 }

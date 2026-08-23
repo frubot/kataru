@@ -134,7 +134,7 @@ describe('createFullBackup and parseFullBackup', () => {
         const backup = validBackup();
         const responses: Record<string, unknown> = {
             get_all_characters_with_images: backup.data.characters,
-            get_all_situations: backup.data.situations,
+            get_all_situations_with_images: backup.data.situations,
             get_all_rooms: backup.data.rooms,
             get_all_messages: backup.data.messages,
             get_all_memories: backup.data.memories,

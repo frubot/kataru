@@ -194,6 +194,9 @@ export function normalizeSituation(
     return {
         id: situation.id,
         name: situation.name?.trim() || 'シチュエーション',
+        ...(typeof situation.backgroundImage === 'string' && situation.backgroundImage
+            ? { backgroundImage: situation.backgroundImage }
+            : {}),
         situationPrompt: situation.situationPrompt ?? '',
         priorMessages: normalizeSituationPriorMessages(situation.priorMessages, new Set(actorIds)),
         actors,

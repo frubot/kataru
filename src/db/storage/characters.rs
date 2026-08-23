@@ -5,8 +5,9 @@ use crate::error::AppResult;
 
 use super::{
     images::{
-        externalize_character_images, inline_character_images, prune_orphaned_image_assets,
-        sync_character_image_assets,
+        externalize_character_images, externalize_situation_images, inline_character_images,
+        inline_situation_images, prune_orphaned_image_assets, sync_character_image_assets,
+        sync_situation_image_assets,
     },
     json::{query_json_values, required_i64, required_string, serialize},
 };
@@ -69,29 +70,46 @@ pub(super) fn upsert_character(
     Ok(())
 }
 
-pub(super) fn get_all_situations(connection: &Connection) -> AppResult<Vec<Value>> {
-    query_json_values(
+pub(super) fn get_all_situations(
+    connection: &Connection,
+    include_images: bool,
+) -> AppResult<Vec<Value>> {
+    let mut situations = query_json_values(
         connection,
         "SELECT data_json FROM situations ORDER BY id",
         [],
-    )
-}
-
-pub(super) fn put_situation(connection: &Connection, situation: Value) -> AppResult<()> {
-    upsert_situation(connection, situation)
-}
-
-pub(super) fn delete_situation(connection: &Connection, situation_id: &str) -> AppResult<()> {
-    connection.execute(
-        "DELETE FROM situations WHERE id = ?1",
-        params![situation_id],
     )?;
+    if include_images {
+        for situation in &mut situations {
+            inline_situation_images(connection, situation)?;
+        }
+    }
+    Ok(situations)
+}
+
+pub(super) fn put_situation(connection: &mut Connection, situation: Value) -> AppResult<()> {
+    let transaction = connection.transaction()?;
+    upsert_situation(&transaction, situation)?;
+    prune_orphaned_image_assets(&transaction)?;
+    transaction.commit()?;
     Ok(())
 }
 
-pub(super) fn upsert_situation(connection: &Connection, situation: Value) -> AppResult<()> {
+pub(super) fn delete_situation(connection: &mut Connection, situation_id: &str) -> AppResult<()> {
+    let transaction = connection.transaction()?;
+    transaction.execute(
+        "DELETE FROM situations WHERE id = ?1",
+        params![situation_id],
+    )?;
+    prune_orphaned_image_assets(&transaction)?;
+    transaction.commit()?;
+    Ok(())
+}
+
+pub(super) fn upsert_situation(connection: &Connection, mut situation: Value) -> AppResult<()> {
     let id = required_string(&situation, "id")?;
     let updated_at = required_i64(&situation, "updatedAt")?;
+    let (asset_ids, _) = externalize_situation_images(connection, &mut situation)?;
     connection.execute(
         "INSERT INTO situations(id, updated_at, data_json) VALUES (?1, ?2, ?3)
          ON CONFLICT(id) DO UPDATE SET
@@ -99,5 +117,6 @@ pub(super) fn upsert_situation(connection: &Connection, situation: Value) -> App
              data_json = excluded.data_json",
         params![id, updated_at, serialize(&situation)?],
     )?;
+    sync_situation_image_assets(connection, &id, &asset_ids)?;
     Ok(())
 }

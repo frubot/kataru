@@ -1450,6 +1450,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     fallbackCharacterName={character?.name}
                     speakerName={vnSpeakerName}
                     castCharacters={situationVnCastCharacters}
+                    backgroundImage={situation?.backgroundImage}
                     expressionImage={vnExpressionImage}
                     bounceActive={vnBounceActive}
                     onCharacterImageLoad={triggerVnBounce}

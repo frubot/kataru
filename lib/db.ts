@@ -76,6 +76,10 @@ export async function getAllGroups(): Promise<Situation[]> {
     return storage<Situation[]>({ op: 'get_all_situations' });
 }
 
+export async function getAllGroupsWithImages(): Promise<Situation[]> {
+    return storage<Situation[]>({ op: 'get_all_situations_with_images' });
+}
+
 export async function putGroup(value: Situation): Promise<void> {
     await storage<null>({ op: 'put_situation', value });
 }

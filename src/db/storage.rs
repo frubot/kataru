@@ -23,7 +23,7 @@ use super::Database;
 
 pub use command::StorageCommand;
 pub use conversation::{persist_conversation_result, persist_conversation_submission};
-pub use images::migrate_character_images;
+pub use images::{migrate_character_images, migrate_situation_images};
 
 pub async fn handle_storage_command(
     State(state): State<crate::AppState>,

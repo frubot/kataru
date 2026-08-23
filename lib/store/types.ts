@@ -163,6 +163,7 @@ export interface Situation {
     id: string;
     name: string;
     favorite?: boolean;
+    backgroundImage?: string;
     situationPrompt?: string;
     priorMessages?: SituationPriorMessage[];
     actors: SituationActor[];
@@ -183,6 +184,7 @@ export type SituationParticipant = Character & {
 
 export type CreateSituationInput = {
     name?: string;
+    backgroundImage?: string;
     situationPrompt?: string;
     priorMessages?: SituationPriorMessage[];
     actors: SituationActor[];
@@ -362,7 +364,7 @@ export interface AppState {
     deleteSituation: (id: string) => void;
     duplicateSituation: (id: string) => string;
     setCurrentRoom: (id: string | null) => Promise<void>;
-    updateSituation: (id: string, updates: Partial<Pick<Situation, 'name' | 'favorite' | 'situationPrompt' | 'priorMessages' | 'actors' | 'director' | 'memoryMode' | 'maxHistory'>>) => void;
+    updateSituation: (id: string, updates: Partial<Pick<Situation, 'name' | 'favorite' | 'backgroundImage' | 'situationPrompt' | 'priorMessages' | 'actors' | 'director' | 'memoryMode' | 'maxHistory'>>) => void;
     updateRoomName: (id: string, name: string) => void;
     updateRoomSettings: (id: string, updates: Partial<Pick<Room, 'maxMentionChain' | 'viewMode' | 'costumeSelections'>>) => void;
     setRoomReplySuggestions: (id: string, replySuggestions?: RoomReplySuggestions) => void;

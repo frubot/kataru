@@ -33,6 +33,7 @@ pub enum StorageCommand {
 
     #[serde(alias = "get_all_groups")]
     GetAllSituations,
+    GetAllSituationsWithImages,
     #[serde(alias = "put_group")]
     PutSituation {
         #[serde(alias = "group", alias = "value")]
@@ -203,6 +204,7 @@ impl StorageCommand {
             Self::PutCharacter { .. } => "put_character",
             Self::DeleteCharacter { .. } => "delete_character",
             Self::GetAllSituations => "get_all_situations",
+            Self::GetAllSituationsWithImages => "get_all_situations_with_images",
             Self::PutSituation { .. } => "put_situation",
             Self::DeleteSituation { .. } => "delete_situation",
             Self::GetAllRooms => "get_all_rooms",
@@ -276,7 +278,10 @@ pub(super) fn execute(connection: &mut Connection, command: StorageCommand) -> A
         }
 
         StorageCommand::GetAllSituations => {
-            characters::get_all_situations(connection).map(Value::Array)
+            characters::get_all_situations(connection, false).map(Value::Array)
+        }
+        StorageCommand::GetAllSituationsWithImages => {
+            characters::get_all_situations(connection, true).map(Value::Array)
         }
         StorageCommand::PutSituation { situation } => {
             characters::put_situation(connection, situation)?;

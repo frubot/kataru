@@ -15,13 +15,15 @@ use rusqlite::{
 use crate::error::{AppError, AppResult};
 
 pub use storage::{
-    handle_storage_command, migrate_character_images, persist_conversation_result,
-    persist_conversation_submission,
+    handle_storage_command, migrate_character_images, migrate_situation_images,
+    persist_conversation_result, persist_conversation_submission,
 };
 
 const INITIAL_MIGRATION: &str = include_str!("../../migrations/0001_initial.sql");
 const IMAGE_ASSET_MIGRATION: &str = include_str!("../../migrations/0002_image_assets.sql");
-pub const CURRENT_SCHEMA_VERSION: i64 = 2;
+const SITUATION_IMAGE_ASSET_MIGRATION: &str =
+    include_str!("../../migrations/0003_situation_image_assets.sql");
+pub const CURRENT_SCHEMA_VERSION: i64 = 3;
 
 // 自動バックアップはDBと同じデータディレクトリ内に5世代だけ保持する。
 // ファイル名のUnixミリ秒と連番で、同一ミリ秒の起動でも世代を上書きしない。
@@ -58,7 +60,9 @@ impl Database {
         let transaction = connection.transaction()?;
         transaction.execute_batch(INITIAL_MIGRATION)?;
         transaction.execute_batch(IMAGE_ASSET_MIGRATION)?;
+        transaction.execute_batch(SITUATION_IMAGE_ASSET_MIGRATION)?;
         migrate_character_images(&transaction)?;
+        migrate_situation_images(&transaction)?;
         transaction.commit()?;
         Ok(Self {
             inner: Arc::new(Mutex::new(connection)),
@@ -424,7 +428,7 @@ mod tests {
                 .expect("reopen migrated database")
                 .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
                 .expect("read migrated version"),
-            2
+            CURRENT_SCHEMA_VERSION
         );
     }
 

@@ -938,6 +938,60 @@ function CharacterSelectionModal({
     );
 }
 
+interface TemporaryActorDeleteDialogProps {
+    actor: TemporaryActorDraft;
+    onCancel: () => void;
+    onConfirm: () => void;
+}
+
+function TemporaryActorDeleteDialog({ actor, onCancel, onConfirm }: TemporaryActorDeleteDialogProps) {
+    const modalRef = useRef<HTMLDivElement>(null);
+
+    useModalKeyboard({
+        isOpen: true,
+        containerRef: modalRef,
+        onClose: onCancel,
+    });
+
+    return (
+        <div
+            className="modal-overlay"
+            onPointerDown={(event) => {
+                if (event.target === event.currentTarget) onCancel();
+            }}
+        >
+            <div
+                ref={modalRef}
+                className="modal-content"
+                onClick={(event) => event.stopPropagation()}
+                style={{ maxWidth: 400 }}
+                role="alertdialog"
+                aria-modal="true"
+                aria-labelledby="temporary-actor-delete-title"
+                aria-describedby="temporary-actor-delete-description"
+            >
+                <div className="modal-body">
+                    <div id="temporary-actor-delete-title" style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>
+                        本当に削除しますか？
+                    </div>
+                    <p id="temporary-actor-delete-description" style={{ margin: 0, fontSize: '0.8125rem', lineHeight: 1.6, color: 'var(--text-secondary)' }}>
+                        「{actor.name}」をその他の登場人物から削除します。
+                    </p>
+                </div>
+                <div className="modal-footer">
+                    <button type="button" className="btn btn-secondary" onClick={onCancel} autoFocus>
+                        キャンセル
+                    </button>
+                    <button type="button" className="btn btn-danger" onClick={onConfirm}>
+                        <Trash2 size={16} />
+                        削除
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omit<SituationSettingsModalProps, 'isOpen'>) {
     const {
         characters,
@@ -964,6 +1018,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
     const [temporaryActors, setTemporaryActors] = useState<TemporaryActorDraft[]>(initial.temporaryActors);
     const [descriptionGeneratorOpen, setDescriptionGeneratorOpen] = useState(false);
     const [characterSelectionOpen, setCharacterSelectionOpen] = useState(false);
+    const [temporaryActorPendingDelete, setTemporaryActorPendingDelete] = useState<TemporaryActorDraft | null>(null);
     const [temporaryActorModal, setTemporaryActorModal] = useState<{
         actor: TemporaryActorDraft;
         isNew: boolean;
@@ -1042,6 +1097,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
 
     const removeTemporaryActor = (id: string) => {
         setTemporaryActors((prev) => prev.filter((actor) => actor.id !== id));
+        setTemporaryActorPendingDelete(null);
     };
 
     const addPriorMessage = (role: SituationPriorMessage['role']) => {
@@ -1215,7 +1271,10 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
         isOpen: true,
         containerRef: modalRef,
         onClose: isEditing ? saveAndClose : onClose,
-        canClose: !descriptionGeneratorOpen && !characterSelectionOpen && temporaryActorModal === null,
+        canClose: !descriptionGeneratorOpen
+            && !characterSelectionOpen
+            && temporaryActorPendingDelete === null
+            && temporaryActorModal === null,
     });
 
     return (
@@ -1565,18 +1624,14 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                         </div>
 
                         {temporaryActors.length > 0 && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, 5.5rem)', gap: '0.5rem', justifyContent: 'start' }}>
                                 {temporaryActors.map((actor) => (
                                     <div
                                         key={actor.id}
                                         style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: '0.375rem',
-                                            border: '1px solid var(--border-color)',
-                                            borderRadius: '0.5rem',
-                                            background: 'var(--bg-secondary)',
-                                            padding: '0.25rem',
+                                            position: 'relative',
+                                            width: '5.5rem',
+                                            minWidth: 0,
                                         }}
                                     >
                                         <button
@@ -1584,43 +1639,59 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                                             onClick={() => editTemporaryActor(actor)}
                                             aria-label={`${actor.name}の設定を編集`}
                                             style={{
-                                                flex: 1,
+                                                width: '100%',
                                                 minWidth: 0,
                                                 display: 'flex',
+                                                flexDirection: 'column',
                                                 alignItems: 'center',
-                                                gap: '0.5rem',
-                                                padding: '0.625rem 0.75rem',
+                                                justifyContent: 'center',
+                                                gap: '0.375rem',
+                                                minHeight: '6.75rem',
+                                                padding: '0.625rem 0.375rem 0.5rem',
                                                 border: 'none',
                                                 background: 'transparent',
                                                 color: 'var(--text-primary)',
                                                 cursor: 'pointer',
-                                                textAlign: 'left',
+                                                textAlign: 'center',
                                                 font: 'inherit',
-                                                overflow: 'hidden',
-                                                textOverflow: 'ellipsis',
-                                                whiteSpace: 'nowrap',
                                             }}
                                         >
-                                            <div style={{ width: 24, height: 24, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: 'var(--bg-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                            <div style={{ width: 56, height: 56, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                                 {actor.icon ? (
                                                     <StoredImage src={actor.icon} alt={actor.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                                 ) : (
-                                                    <User size={15} style={{ color: 'var(--text-muted)' }} />
+                                                    <User size={28} style={{ color: 'var(--text-muted)' }} />
                                                 )}
                                             </div>
-                                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            <span title={actor.name} style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.75rem', lineHeight: 1.25 }}>
                                                 {actor.name}
                                             </span>
                                         </button>
                                         <button
                                             type="button"
-                                            className="btn btn-ghost"
-                                            onClick={() => removeTemporaryActor(actor.id)}
-                                            style={{ padding: '0.5rem', color: 'var(--error)', flexShrink: 0 }}
-                                            title={`${actor.name}を削除`}
-                                            aria-label={`${actor.name}を削除`}
+                                            onClick={() => setTemporaryActorPendingDelete(actor)}
+                                            style={{
+                                                position: 'absolute',
+                                                top: '0.25rem',
+                                                right: '0.125rem',
+                                                zIndex: 1,
+                                                width: 22,
+                                                height: 22,
+                                                padding: 0,
+                                                borderRadius: '50%',
+                                                border: '1px solid var(--border-color)',
+                                                background: 'var(--bg-primary)',
+                                                color: 'var(--text-secondary)',
+                                                cursor: 'pointer',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                boxShadow: '0 1px 4px rgba(0, 0, 0, 0.25)',
+                                            }}
+                                            title={`${actor.name}を削除する`}
+                                            aria-label={`${actor.name}を削除する`}
                                         >
-                                            <Trash2 size={16} />
+                                            <X size={13} />
                                         </button>
                                     </div>
                                 ))}
@@ -1667,6 +1738,14 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                     selectedCharacterIds={selectedCharacterIds}
                     onToggle={toggleCharacter}
                     onClose={() => setCharacterSelectionOpen(false)}
+                />
+            )}
+
+            {temporaryActorPendingDelete && (
+                <TemporaryActorDeleteDialog
+                    actor={temporaryActorPendingDelete}
+                    onCancel={() => setTemporaryActorPendingDelete(null)}
+                    onConfirm={() => removeTemporaryActor(temporaryActorPendingDelete.id)}
                 />
             )}
 

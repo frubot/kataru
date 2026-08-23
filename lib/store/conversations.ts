@@ -36,6 +36,22 @@ import type {
 
 const SUMMARY_HISTORY_LIMIT = 20;
 
+export function mergeStoredConversationRoom(
+    room: Room,
+    storedRoom: db.StoredRoom,
+    messages: Message[],
+    loadMessages: boolean,
+): Room {
+    return {
+        ...room,
+        ...storedRoom,
+        // Finding the room in SQLite is authoritative: a stale Safari tab may still carry
+        // the draft marker after its first persistence request.
+        isDraft: undefined,
+        messages: loadMessages ? messages : room.messages,
+    };
+}
+
 export function createSummaryRevision(
     text: string,
     checkpointUserMessageId: string | undefined,
@@ -771,11 +787,12 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
             set((state) => ({
                 rooms: state.rooms.map((room) => {
                     if (room.id !== roomId) return room;
-                    return {
-                        ...room,
-                        ...storedRoom,
-                        messages: state.currentRoomId === roomId ? messages : room.messages,
-                    };
+                    return mergeStoredConversationRoom(
+                        room,
+                        storedRoom,
+                        messages,
+                        state.currentRoomId === roomId,
+                    );
                 }),
                 usageRecords,
             }));

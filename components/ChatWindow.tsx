@@ -512,8 +512,13 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         resumedJobsRef.current.add(job.jobId);
         const sourceRoom = useStore.getState().rooms.find((candidate) => candidate.id === job.roomId);
         if (job.status === 'completed') {
-            recordJobDebugLogs(job.result, sourceRoom);
-            await refreshConversationRoom(job.roomId);
+            try {
+                recordJobDebugLogs(job.result, sourceRoom);
+                await refreshConversationRoom(job.roomId);
+            } catch (error) {
+                resumedJobsRef.current.delete(job.jobId);
+                throw error;
+            }
             return;
         }
         if (job.status === 'failed') {
@@ -524,7 +529,10 @@ export default function ChatWindow({ room, character, situation, groupName, grou
 
         const session = startGenerationSession(job.roomId, job.jobId);
         const controller = new AbortController();
-        if (!attachGenerationController(session, controller)) return;
+        if (!attachGenerationController(session, controller)) {
+            resumedJobsRef.current.delete(job.jobId);
+            return;
+        }
         let keepStreamingPreview = false;
         try {
             const completed = await pollConversationJob(session, controller);
@@ -551,6 +559,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 }
             }
         } catch (error) {
+            resumedJobsRef.current.delete(job.jobId);
             if (!(error instanceof Error && error.name === 'AbortError')) {
                 logChatError('Conversation job recovery failed:', error);
                 if (getCurrentRoom()?.id === job.roomId) {
@@ -582,24 +591,46 @@ export default function ChatWindow({ room, character, situation, groupName, grou
 
     useEffect(() => {
         let disposed = false;
-        void listConversationJobs<RustTurnResponse>()
-            .then((jobs) => {
-                if (disposed) return;
-                for (const job of jobs) {
-                    void resumeConversationJob(job).catch((error) => {
-                        console.warn('Conversation job synchronization failed:', error);
+        const synchronizeJobs = (refreshActiveRoom = false) => {
+            if (refreshActiveRoom) {
+                const activeRoom = useStore.getState().getCurrentRoom();
+                if (activeRoom && activeRoom.secretMode !== true && activeRoom.isDraft !== true) {
+                    void refreshConversationRoom(activeRoom.id).catch((error) => {
+                        if (!disposed) console.warn('Conversation room synchronization failed:', error);
                     });
                 }
-            })
-            .catch((error) => {
-                if (!disposed) {
-                    console.warn('Conversation job discovery failed:', error);
-                }
-            });
+            }
+            void listConversationJobs<RustTurnResponse>()
+                .then((jobs) => {
+                    if (disposed) return;
+                    for (const job of jobs) {
+                        void resumeConversationJob(job).catch((error) => {
+                            console.warn('Conversation job synchronization failed:', error);
+                        });
+                    }
+                })
+                .catch((error) => {
+                    if (!disposed) {
+                        console.warn('Conversation job discovery failed:', error);
+                    }
+                });
+        };
+        const handlePageShow = () => synchronizeJobs(true);
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') synchronizeJobs(true);
+        };
+
+        synchronizeJobs();
+        window.addEventListener('pageshow', handlePageShow);
+        window.addEventListener('online', handlePageShow);
+        document.addEventListener('visibilitychange', handleVisibilityChange);
         return () => {
             disposed = true;
+            window.removeEventListener('pageshow', handlePageShow);
+            window.removeEventListener('online', handlePageShow);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
-    }, [resumeConversationJob]);
+    }, [refreshConversationRoom, resumeConversationJob]);
 
     useEffect(() => {
         dismissChatNotice();
@@ -781,6 +812,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             }
             if (job.status === 'failed') {
                 recordJobDebugLogs(job.partialResult, sourceRoom, isSecretMode);
+                resumedJobsRef.current.add(session.jobId);
                 throw new ChatGenerationJobError(job.error);
             }
             if (job.status !== 'completed' || !job.result) {
@@ -822,6 +854,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             );
             keepStreamingPreview = retainSituationStreamingPreview
                 && appliedResult.assistantMessageIds.length > 0;
+            resumedJobsRef.current.add(session.jobId);
             return {
                 status: 'success',
                 message: appliedResult.message,

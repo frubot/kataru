@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import { useStore, type Character, type Room, type Situation } from '../lib/store';
 import { normalizeCharacters } from '../lib/store/characters';
+import { mergeStoredConversationRoom } from '../lib/store/conversations';
 import {
     createMemoryRecord,
     inferMemoryKind,
@@ -63,6 +64,34 @@ describe('store pure helpers', () => {
         expect(toPreview('[emotion:happy] こんにちは <memory>非表示の記憶</memory>   世界'))
             .toBe('こんにちは 世界');
         expect(toPreview('a'.repeat(60))).toHaveLength(50);
+    });
+
+    test('clears a stale draft marker after the room is found in SQLite', () => {
+        const draft: Room = {
+            id: 'room-1',
+            characterId: 'character-1',
+            name: '',
+            messages: [],
+            isDraft: true,
+            createdAt: 1,
+            updatedAt: 1,
+        };
+        const merged = mergeStoredConversationRoom(
+            draft,
+            {
+                id: draft.id,
+                characterId: draft.characterId,
+                name: 'Saved room',
+                createdAt: 1,
+                updatedAt: 2,
+            },
+            [{ id: 'message-1', role: 'assistant', content: 'Saved', timestamp: 2 }],
+            true,
+        );
+
+        expect(merged.isDraft).toBeUndefined();
+        expect(merged.name).toBe('Saved room');
+        expect(merged.messages).toHaveLength(1);
     });
 
     test('normalizes theme values independently', () => {

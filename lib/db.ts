@@ -1,4 +1,5 @@
 import type { Character, MemoryRecord, Message, Room, Situation, UsageRecord } from './store/types';
+import { fetchWithTransientRetry } from './fetchRetry';
 
 export type StoredRoom = Omit<Room, 'messages' | 'secretMode'>;
 export type StoredMessage = Message & { roomId: string };
@@ -22,12 +23,18 @@ type BulkWriteParams = {
 };
 
 async function storage<T>(request: StorageRequest): Promise<T> {
-    const response = await fetch('/api/storage', {
+    const requestInit: RequestInit = {
         method: 'POST',
+        cache: 'no-store',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(request),
-    });
+    };
+    // Storage commands are state-setting operations and safe to repeat, except touch_memories,
+    // which increments a counter. Safari can fail the first fetch after a long suspension.
+    const response = request.op === 'touch_memories'
+        ? await fetch('/api/storage', requestInit)
+        : await fetchWithTransientRetry('/api/storage', requestInit);
     if (!response.ok) {
         const data = await response.json().catch(() => null) as { error?: unknown } | null;
         const detail = typeof data?.error === 'string' ? data.error : `HTTP ${response.status}`;

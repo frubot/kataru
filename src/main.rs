@@ -233,6 +233,15 @@ fn api_router() -> Router<AppState> {
             "/conversation/jobs/{job_id}",
             get(conversation::jobs::get).delete(conversation::jobs::cancel),
         )
+        .layer(middleware::from_fn(disable_api_caching))
+}
+
+async fn disable_api_caching(request: Request<Body>, next: Next) -> Response {
+    let mut response = next.run(request).await;
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
 }
 
 async fn image_asset(
@@ -479,6 +488,10 @@ mod tests {
 
         server.abort();
         assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get(header::CACHE_CONTROL),
+            Some(&HeaderValue::from_static("no-store"))
+        );
     }
 
     #[tokio::test]

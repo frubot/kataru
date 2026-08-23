@@ -321,7 +321,7 @@ impl ConversationJobs {
         prune_jobs(&mut jobs);
         jobs.values()
             .filter(|job| job.recoverable)
-            .map(|job| job.snapshot(job.status == JobStatus::Failed))
+            .map(|job| job.snapshot(job.status.is_terminal()))
             .collect()
     }
 
@@ -716,6 +716,9 @@ mod tests {
         let secret = jobs.get("job-secret").await.expect("secret job");
         assert_eq!(recoverable["status"], "cancelled");
         assert_eq!(secret["status"], "running");
+        let listed = jobs.list_recoverable().await;
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0]["jobId"], "job-recoverable");
     }
 
     #[tokio::test]
@@ -760,6 +763,36 @@ mod tests {
         assert_eq!(
             listed[0]["partialResult"]["fullJsonLogs"],
             snapshot["partialResult"]["fullJsonLogs"]
+        );
+    }
+
+    #[tokio::test]
+    async fn completed_jobs_expose_results_when_listed_for_recovery() {
+        let jobs = ConversationJobs::default();
+        let job_id = "job-completed-with-debug-logs";
+        jobs.insert(job_id.to_owned(), "room-1".to_owned(), true)
+            .await
+            .expect("insert job");
+        jobs.complete(
+            job_id,
+            json!({
+                "messages": [{ "id": "message-1", "content": "reply" }],
+                "fullJsonLogs": [{
+                    "status": "success",
+                    "source": "chat-json",
+                    "json": "{\"reply\":\"reply\"}",
+                }],
+            }),
+        )
+        .await;
+
+        let listed = jobs.list_recoverable().await;
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0]["status"], "completed");
+        assert_eq!(listed[0]["result"]["messages"][0]["id"], "message-1");
+        assert_eq!(
+            listed[0]["result"]["fullJsonLogs"][0]["source"],
+            "chat-json"
         );
     }
 

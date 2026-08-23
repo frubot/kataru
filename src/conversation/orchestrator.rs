@@ -69,10 +69,47 @@ pub async fn turn(
     State(state): State<AppState>,
     Json(payload): Json<Value>,
 ) -> AppResult<Json<Value>> {
-    Ok(Json(run_turn(state, payload).await?))
+    match run_turn(state, payload).await {
+        Ok(result) => Ok(Json(result)),
+        Err(failure) => Err(failure.error),
+    }
 }
 
-pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value> {
+pub(crate) struct ConversationTurnFailure {
+    pub(crate) error: AppError,
+    pub(crate) full_json_logs: Vec<Value>,
+}
+
+pub(crate) async fn run_turn(
+    state: AppState,
+    payload: Value,
+) -> Result<Value, ConversationTurnFailure> {
+    let secret_mode = payload
+        .get("secretMode")
+        .and_then(Value::as_bool)
+        .or_else(|| payload.pointer("/room/secretMode").and_then(Value::as_bool))
+        .unwrap_or(false);
+    let mut full_json_logs = Vec::new();
+    match run_turn_inner(state, payload, secret_mode, &mut full_json_logs).await {
+        Ok(result) => Ok(result),
+        Err(error) => {
+            if secret_mode {
+                full_json_logs.clear();
+            }
+            Err(ConversationTurnFailure {
+                error,
+                full_json_logs,
+            })
+        }
+    }
+}
+
+async fn run_turn_inner(
+    state: AppState,
+    payload: Value,
+    secret_mode: bool,
+    full_json_logs: &mut Vec<Value>,
+) -> AppResult<Value> {
     let room = object_field(&payload, "room")?.clone();
     let situation = payload.get("situation").filter(|value| value.is_object());
     let previous_summary = string(&room, "summary");
@@ -90,10 +127,6 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
         ));
     }
 
-    let secret_mode = payload
-        .get("secretMode")
-        .and_then(Value::as_bool)
-        .unwrap_or_else(|| boolean(&room, "secretMode"));
     let participants = payload
         .get("groupCharacters")
         .and_then(Value::as_array)
@@ -205,7 +238,6 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
 
     let mut generated = Vec::new();
     let mut usages = Vec::new();
-    let mut full_json_logs = Vec::new();
     let mut used_memory_ids = Vec::new();
     let mut extraction_context: Option<ExtractionContext> = None;
 
@@ -263,7 +295,7 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
                     secret_mode,
                     &room,
                     &mut usages,
-                    &mut full_json_logs,
+                    full_json_logs,
                 )
                 .await?
             };
@@ -323,7 +355,7 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
                 use_message_mode,
                 secret_mode,
                 &mut usages,
-                &mut full_json_logs,
+                full_json_logs,
                 generated.len(),
                 streaming_preview,
             )
@@ -369,7 +401,7 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
             use_message_mode,
             secret_mode,
             &mut usages,
-            &mut full_json_logs,
+            full_json_logs,
             0,
             streaming_preview,
         )
@@ -409,6 +441,7 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
         full_json_logs.clear();
         used_memory_ids.clear();
     }
+    let full_json_logs = std::mem::take(full_json_logs);
     Ok(json!({
         "messages": generated,
         "usages": usages,
@@ -417,6 +450,81 @@ pub(crate) async fn run_turn(state: AppState, payload: Value) -> AppResult<Value
         "memoryCandidates": memory_candidates,
         "usedMemoryIds": used_memory_ids,
     }))
+}
+
+struct GenerationDebugContext<'a> {
+    room: &'a Value,
+    character_id: String,
+    character_name: String,
+    model: String,
+    prompt: &'a str,
+}
+
+fn error_http_status(error: &AppError) -> Option<u16> {
+    match error {
+        AppError::Upstream(_, status) => Some(status.as_u16()),
+        AppError::Http(error) => error.status().map(|status| status.as_u16()),
+        _ => None,
+    }
+}
+
+fn is_response_parse_error(error: &AppError) -> bool {
+    match error {
+        AppError::Json(_) => true,
+        AppError::Http(error) => error.is_decode() || error.is_body(),
+        AppError::Upstream(message, status) => {
+            *status == axum::http::StatusCode::BAD_GATEWAY
+                && (message.contains("JSON") || message.contains("解析"))
+        }
+        _ => false,
+    }
+}
+
+fn chat_error_source(error: &AppError) -> &'static str {
+    if is_response_parse_error(error) {
+        "chat-response-parse-error"
+    } else if matches!(error, AppError::Upstream(..) | AppError::Http(_)) {
+        "chat-http-error"
+    } else {
+        "chat-error"
+    }
+}
+
+fn push_error_debug_log(
+    logs: &mut Vec<Value>,
+    context: &GenerationDebugContext<'_>,
+    source: &str,
+    response_text: Option<&str>,
+    error: &AppError,
+    elapsed_ms: u64,
+) {
+    let output = response_text
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| {
+            serde_json::to_string_pretty(&json!({
+                "error": error.to_string(),
+                "classification": error.diagnostic_class(),
+            }))
+            .expect("debug error must be serializable")
+        });
+    let mut log = json!({
+        "roomId": string(context.room, "id"),
+        "roomName": string(context.room, "name"),
+        "characterId": context.character_id,
+        "characterName": context.character_name,
+        "model": context.model,
+        "status": "error",
+        "source": source,
+        "prompt": context.prompt,
+        "json": output,
+        "elapsedMs": elapsed_ms,
+        "errorName": error.diagnostic_class(),
+    });
+    if let Some(status) = error_http_status(error) {
+        log["httpStatus"] = json!(status);
+    }
+    logs.push(log);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -483,25 +591,63 @@ async fn generate_for_character(
     let prompt = serde_json::to_string_pretty(&body["messages"])
         .expect("completion messages must be serializable");
     let started = now_ms();
-    let raw = if let Some((jobs, job_id)) = streaming_preview {
+    let debug_context = GenerationDebugContext {
+        room,
+        character_id: actor_id(character),
+        character_name: string(character, "name"),
+        model: string(character, "model"),
+        prompt: &prompt,
+    };
+    let mut partial_content = String::new();
+    let completion = if let Some((jobs, job_id)) = streaming_preview {
         structured_completion_streaming(api_client, body, schema, 120, |partial| {
+            partial_content.clear();
+            partial_content.push_str(partial);
             let preview = assistant_response_preview(partial, message_mode, max_characters);
             jobs.update_preview(
                 job_id,
                 &preview,
-                &actor_id(character),
-                &string(character, "name"),
+                &debug_context.character_id,
+                &debug_context.character_name,
             );
         })
-        .await?
+        .await
     } else {
-        structured_completion(api_client, body, schema, 120).await?
+        structured_completion(api_client, body, schema, 120).await
+    };
+    let raw = match completion {
+        Ok(raw) => raw,
+        Err(error) => {
+            if !secret_mode {
+                push_error_debug_log(
+                    full_json_logs,
+                    &debug_context,
+                    chat_error_source(&error),
+                    Some(&partial_content),
+                    &error,
+                    now_ms().saturating_sub(started),
+                );
+            }
+            return Err(error);
+        }
     };
     let content = extract_message_text(&raw);
-    let envelope = limit_assistant_reply_characters(
-        parse_assistant_response(&content, &expression_names, message_mode)?,
-        max_characters,
-    );
+    let envelope = match parse_assistant_response(&content, &expression_names, message_mode) {
+        Ok(envelope) => limit_assistant_reply_characters(envelope, max_characters),
+        Err(error) => {
+            if !secret_mode {
+                push_error_debug_log(
+                    full_json_logs,
+                    &debug_context,
+                    "chat-response-parse-error",
+                    Some(&content),
+                    &error,
+                    now_ms().saturating_sub(started),
+                );
+            }
+            return Err(error);
+        }
+    };
     if let Some((jobs, job_id)) = streaming_preview {
         jobs.finalize_preview(
             job_id,
@@ -518,9 +664,9 @@ async fn generate_for_character(
         full_json_logs.push(json!({
             "roomId": string(room, "id"),
             "roomName": string(room, "name"),
-            "characterId": actor_id(character),
-            "characterName": string(character, "name"),
-            "model": string(character, "model"),
+            "characterId": debug_context.character_id,
+            "characterName": debug_context.character_name,
+            "model": debug_context.model,
             "status": "success",
             "source": "assistant-json",
             "prompt": prompt,
@@ -637,9 +783,47 @@ async fn request_director(
     }
     let prompt = serde_json::to_string_pretty(&request["messages"])
         .expect("director messages must be serializable");
-    let raw = structured_completion(api_client, request, schema, 120).await?;
+    let started = now_ms();
+    let debug_context = GenerationDebugContext {
+        room,
+        character_id: format!("{}:director", string(situation, "id")),
+        character_name: "指揮役".to_owned(),
+        model: model.to_owned(),
+        prompt: &prompt,
+    };
+    let raw = match structured_completion(api_client, request, schema, 120).await {
+        Ok(raw) => raw,
+        Err(error) => {
+            if !secret_mode {
+                push_error_debug_log(
+                    full_json_logs,
+                    &debug_context,
+                    "director-error",
+                    None,
+                    &error,
+                    now_ms().saturating_sub(started),
+                );
+            }
+            return Err(error);
+        }
+    };
     let content = extract_message_text(&raw);
-    let mut decision = parse_director_decision(&content, &eligible_ids)?;
+    let mut decision = match parse_director_decision(&content, &eligible_ids) {
+        Ok(decision) => decision,
+        Err(error) => {
+            if !secret_mode {
+                push_error_debug_log(
+                    full_json_logs,
+                    &debug_context,
+                    "director-error",
+                    Some(&content),
+                    &error,
+                    now_ms().saturating_sub(started),
+                );
+            }
+            return Err(error);
+        }
+    };
     if let Some(banned) = banned_actor_id {
         decision.candidates.retain(|(id, _)| id != banned);
         if decision.actor_id.as_deref() == Some(banned) {
@@ -662,13 +846,14 @@ async fn request_director(
         full_json_logs.push(json!({
             "roomId": string(room, "id"),
             "roomName": string(room, "name"),
-            "characterId": format!("{}:director", string(situation, "id")),
-            "characterName": "指揮役",
-            "model": model,
+            "characterId": debug_context.character_id,
+            "characterName": debug_context.character_name,
+            "model": debug_context.model,
             "status": "success",
             "source": "director-json",
             "prompt": prompt,
             "json": content,
+            "elapsedMs": now_ms().saturating_sub(started),
         }));
     }
     Ok(decision)
@@ -1509,6 +1694,54 @@ mod tests {
             256
         );
         assert_eq!(character_max_characters(&json!({"maxCharacters": 0})), 1);
+    }
+
+    #[test]
+    fn generation_errors_create_displayable_debug_entries() {
+        let room = json!({"id": "room-1", "name": "Room 1"});
+        let context = GenerationDebugContext {
+            room: &room,
+            character_id: "character-1".to_owned(),
+            character_name: "葵".to_owned(),
+            model: "test-model".to_owned(),
+            prompt: "[]",
+        };
+        let error = AppError::Upstream(
+            "upstream rejected the request".to_owned(),
+            axum::http::StatusCode::TOO_MANY_REQUESTS,
+        );
+        let mut logs = Vec::new();
+
+        push_error_debug_log(
+            &mut logs,
+            &context,
+            chat_error_source(&error),
+            None,
+            &error,
+            123,
+        );
+
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0]["status"], "error");
+        assert_eq!(logs[0]["source"], "chat-http-error");
+        assert_eq!(logs[0]["httpStatus"], 429);
+        assert_eq!(logs[0]["elapsedMs"], 123);
+        assert_eq!(logs[0]["errorName"], "upstream_rate_limit");
+        assert!(
+            logs[0]["json"]
+                .as_str()
+                .is_some_and(|value| value.contains("upstream rejected"))
+        );
+    }
+
+    #[test]
+    fn malformed_completion_errors_use_the_response_parse_source() {
+        let error = AppError::Upstream(
+            "ストリーミング応答のJSONを解析できませんでした".to_owned(),
+            axum::http::StatusCode::BAD_GATEWAY,
+        );
+
+        assert_eq!(chat_error_source(&error), "chat-response-parse-error");
     }
 
     #[test]

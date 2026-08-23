@@ -124,4 +124,52 @@ describe('conversation result application', () => {
 
         expect(operations.playTypewriter).not.toHaveBeenCalled();
     });
+
+    test('records debug logs before refreshing the persisted room', async () => {
+        const operations = createOperations(sourceRoom);
+        operations.refreshConversationRoom.mockRejectedValueOnce(new Error('refresh failed'));
+
+        await expect(applyConversationResult(
+            {
+                data: {
+                    messages: [{
+                        id: 'server-message',
+                        role: 'assistant',
+                        content: '保存済みの返答',
+                        characterId: 'character-1',
+                        timestamp: 1,
+                    }],
+                    fullJsonLogs: [{
+                        characterId: 'character-1',
+                        characterName: '葵',
+                        model: 'test-model',
+                        status: 'error',
+                        source: 'chat-http-error',
+                        prompt: '[{"role":"user","content":"こんにちは"}]',
+                        json: '{"error":"upstream failed"}',
+                        httpStatus: 502,
+                    }],
+                },
+                sourceRoom,
+                jobId: 'job-1',
+                character: null,
+                isSecretMode: false,
+                isMessageMode: false,
+                shouldStreamPreview: false,
+                typingSpeed: 'default',
+                debugEnabled: true,
+            },
+            operations,
+        )).rejects.toThrow('refresh failed');
+
+        expect(operations.addFullJsonDebugLog).toHaveBeenCalledWith(expect.objectContaining({
+            roomId: 'room-1',
+            characterId: 'character-1',
+            status: 'error',
+            source: 'chat-http-error',
+            httpStatus: 502,
+        }));
+        expect(operations.addFullJsonDebugLog.mock.invocationCallOrder[0])
+            .toBeLessThan(operations.refreshConversationRoom.mock.invocationCallOrder[0]);
+    });
 });

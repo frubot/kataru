@@ -48,7 +48,7 @@ import ChatWelcome from './chat/ChatWelcome';
 import DebugLogModal from './chat/DebugLogModal';
 import DeveloperInspectorsModal from './chat/DeveloperInspectorsModal';
 import ReplySuggestions from './chat/ReplySuggestions';
-import { applyConversationResult } from './chat/applyConversationResult';
+import { applyConversationResult, recordConversationDebugLogs } from './chat/applyConversationResult';
 import { useChatGenerationSessions } from './chat/useChatGenerationSessions';
 import type { ChatGenerationSession } from './chat/useChatGenerationSessions';
 import { useChatMentions } from './chat/useChatMentions';
@@ -425,6 +425,23 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         console.error(context, getChatErrorMessage(error));
     }, [detailedErrorLoggingEnabled]);
 
+    const recordJobDebugLogs = useCallback((
+        data: RustTurnResponse | undefined,
+        sourceRoom: Room | undefined,
+        secretMode?: boolean,
+    ) => {
+        if (!data || !sourceRoom) return;
+        recordConversationDebugLogs(
+            {
+                data,
+                sourceRoom,
+                isSecretMode: secretMode ?? sourceRoom.secretMode === true,
+                debugEnabled: fullJsonDebugEnabled,
+            },
+            { addFullJsonDebugLog, getCurrentRoom },
+        );
+    }, [addFullJsonDebugLog, fullJsonDebugEnabled, getCurrentRoom]);
+
     const generateInitialRoomTitle = useRoomTitleGeneration({
         groupCharacters,
         model: titleGenerationModel,
@@ -482,8 +499,14 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             return;
         }
         resumedJobsRef.current.add(job.jobId);
+        const sourceRoom = useStore.getState().rooms.find((candidate) => candidate.id === job.roomId);
         if (job.status === 'completed') {
+            recordJobDebugLogs(job.result, sourceRoom);
             await refreshConversationRoom(job.roomId);
+            return;
+        }
+        if (job.status === 'failed') {
+            recordJobDebugLogs(job.partialResult, sourceRoom);
             return;
         }
         if (job.status !== 'running') return;
@@ -495,6 +518,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         try {
             const completed = await pollConversationJob(session, controller);
             if (completed.status === 'completed') {
+                recordJobDebugLogs(completed.result, sourceRoom);
                 if (vnTypingSpeedRef.current === 'streaming') {
                     rememberStreamedFinalMessageIds(
                         completed.result?.messages
@@ -507,10 +531,13 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 keepStreamingPreview = vnTypingSpeedRef.current === 'streaming'
                     && isSituationVisualNovelMode
                     && (completed.result?.messages?.length ?? 0) > 0;
-            } else if (completed.status === 'failed' && getCurrentRoom()?.id === job.roomId) {
-                const error = completed.error || 'バックグラウンド生成に失敗しました。';
-                logChatError('Conversation job failed:', error);
-                showChatErrorNotice(error);
+            } else if (completed.status === 'failed') {
+                recordJobDebugLogs(completed.partialResult, sourceRoom);
+                if (getCurrentRoom()?.id === job.roomId) {
+                    const error = completed.error || 'バックグラウンド生成に失敗しました。';
+                    logChatError('Conversation job failed:', error);
+                    showChatErrorNotice(error);
+                }
             }
         } catch (error) {
             if (!(error instanceof Error && error.name === 'AbortError')) {
@@ -534,6 +561,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         isSituationVisualNovelMode,
         logChatError,
         pollConversationJob,
+        recordJobDebugLogs,
         refreshConversationRoom,
         rememberStreamedFinalMessageIds,
         showChatErrorNotice,
@@ -737,6 +765,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 return { status: 'aborted' };
             }
             if (job.status === 'failed') {
+                recordJobDebugLogs(job.partialResult, sourceRoom, isSecretMode);
                 throw new ChatGenerationJobError(job.error);
             }
             if (job.status !== 'completed' || !job.result) {

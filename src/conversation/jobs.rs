@@ -38,6 +38,7 @@ struct ConversationJob {
     room_id: String,
     status: JobStatus,
     result: Option<Value>,
+    partial_result: Option<Value>,
     error: Option<String>,
     preview: Option<Value>,
     created_at: u64,
@@ -84,6 +85,9 @@ impl ConversationJob {
         if include_result && let Some(result) = &self.result {
             value.insert("result".to_owned(), result.clone());
         }
+        if include_result && let Some(partial_result) = &self.partial_result {
+            value.insert("partialResult".to_owned(), partial_result.clone());
+        }
         if let Some(preview) = &self.preview {
             value.insert("preview".to_owned(), preview.clone());
         }
@@ -104,7 +108,7 @@ impl ConversationJobs {
         let mut jobs = self.inner.lock().await;
         prune_jobs(&mut jobs);
         if let Some(existing) = jobs.get(&job_id) {
-            return Ok((existing.snapshot(false), false));
+            return Ok((existing.snapshot(existing.status.is_terminal()), false));
         }
         if jobs
             .values()
@@ -120,6 +124,7 @@ impl ConversationJobs {
             room_id,
             status: JobStatus::Running,
             result: None,
+            partial_result: None,
             error: None,
             preview: None,
             created_at: now,
@@ -158,16 +163,22 @@ impl ConversationJobs {
         {
             job.status = JobStatus::Completed;
             job.result = Some(result);
+            job.partial_result = None;
             job.updated_at = now_millis();
             job.abort_handle = None;
         }
     }
 
-    async fn fail(&self, job_id: &str, error: String) {
+    async fn fail(&self, job_id: &str, error: String, full_json_logs: Vec<Value>) {
         if let Some(job) = self.inner.lock().await.get_mut(job_id)
             && job.status == JobStatus::Running
         {
             job.status = JobStatus::Failed;
+            job.partial_result = (!full_json_logs.is_empty()).then(|| {
+                json!({
+                    "fullJsonLogs": full_json_logs,
+                })
+            });
             job.error = Some(error);
             job.updated_at = now_millis();
             job.abort_handle = None;
@@ -310,7 +321,7 @@ impl ConversationJobs {
         prune_jobs(&mut jobs);
         jobs.values()
             .filter(|job| job.recoverable)
-            .map(|job| job.snapshot(false))
+            .map(|job| job.snapshot(job.status == JobStatus::Failed))
             .collect()
     }
 
@@ -324,6 +335,7 @@ impl ConversationJobs {
                 room_id: String::new(),
                 status: JobStatus::Cancelled,
                 result: None,
+                partial_result: None,
                 error: None,
                 preview: None,
                 created_at: now,
@@ -432,7 +444,7 @@ pub async fn start(
         );
         state
             .conversation_jobs
-            .fail(&job_id, error.to_string())
+            .fail(&job_id, error.to_string(), Vec::new())
             .await;
         return Err(error);
     }
@@ -496,7 +508,15 @@ pub async fn start(
                         );
                         job_state
                             .conversation_jobs
-                            .fail(&task_job_id, error.to_string())
+                            .fail(
+                                &task_job_id,
+                                error.to_string(),
+                                result
+                                    .get("fullJsonLogs")
+                                    .and_then(Value::as_array)
+                                    .cloned()
+                                    .unwrap_or_default(),
+                            )
                             .await;
                         return;
                     }
@@ -511,15 +531,19 @@ pub async fn start(
                         .await;
                     tracing::debug!(stage = "completed", "Conversation job completed");
                 }
-                Err(error) => {
+                Err(failure) => {
                     tracing::warn!(
                         stage = "generation_failed",
-                        classification = error.diagnostic_class(),
+                        classification = failure.error.diagnostic_class(),
                         "Conversation generation failed"
                     );
                     job_state
                         .conversation_jobs
-                        .fail(&task_job_id, error.to_string())
+                        .fail(
+                            &task_job_id,
+                            failure.error.to_string(),
+                            failure.full_json_logs,
+                        )
                         .await;
                 }
             }
@@ -692,6 +716,51 @@ mod tests {
         let secret = jobs.get("job-secret").await.expect("secret job");
         assert_eq!(recoverable["status"], "cancelled");
         assert_eq!(secret["status"], "running");
+    }
+
+    #[tokio::test]
+    async fn failed_jobs_expose_all_collected_debug_logs() {
+        let jobs = ConversationJobs::default();
+        let job_id = "job-failed-with-debug-logs";
+        jobs.insert(job_id.to_owned(), "room-1".to_owned(), true)
+            .await
+            .expect("insert job");
+        let logs = vec![
+            json!({
+                "status": "success",
+                "source": "director-json",
+                "json": "{\"actorId\":\"actor-1\"}",
+            }),
+            json!({
+                "status": "error",
+                "source": "chat-http-error",
+                "json": "{\"error\":\"upstream failed\"}",
+            }),
+        ];
+
+        jobs.fail(job_id, "generation failed".to_owned(), logs.clone())
+            .await;
+
+        let snapshot = jobs.get(job_id).await.expect("failed job");
+        assert_eq!(snapshot["status"], "failed");
+        assert_eq!(snapshot["partialResult"]["fullJsonLogs"], json!(logs));
+
+        let (duplicate, inserted) = jobs
+            .insert(job_id.to_owned(), "room-1".to_owned(), true)
+            .await
+            .expect("read existing failed job");
+        assert!(!inserted);
+        assert_eq!(
+            duplicate["partialResult"]["fullJsonLogs"],
+            snapshot["partialResult"]["fullJsonLogs"]
+        );
+
+        let listed = jobs.list_recoverable().await;
+        assert_eq!(listed.len(), 1);
+        assert_eq!(
+            listed[0]["partialResult"]["fullJsonLogs"],
+            snapshot["partialResult"]["fullJsonLogs"]
+        );
     }
 
     #[tokio::test]

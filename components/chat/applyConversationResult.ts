@@ -47,6 +47,44 @@ type ApplyConversationResultOperations = {
     playTypewriter: (messageId: string, content: string) => Promise<void>;
 };
 
+type RecordConversationDebugLogsOptions = Pick<
+    ApplyConversationResultOptions,
+    'data' | 'sourceRoom' | 'isSecretMode' | 'debugEnabled'
+>;
+
+type RecordConversationDebugLogsOperations = Pick<
+    ApplyConversationResultOperations,
+    'addFullJsonDebugLog' | 'getCurrentRoom'
+>;
+
+export function recordConversationDebugLogs(
+    options: RecordConversationDebugLogsOptions,
+    operations: RecordConversationDebugLogsOperations,
+): void {
+    const { data, sourceRoom, isSecretMode, debugEnabled } = options;
+    if (isSecretMode || !debugEnabled) return;
+
+    const currentRoom = operations.getCurrentRoom();
+    const roomName = currentRoom?.id === sourceRoom.id ? currentRoom.name : sourceRoom.name;
+    for (const log of data.fullJsonLogs ?? []) {
+        if (!log.json?.trim()) continue;
+        operations.addFullJsonDebugLog({
+            roomId: sourceRoom.id,
+            roomName,
+            characterId: log.characterId,
+            characterName: log.characterName,
+            model: log.model,
+            status: log.status,
+            source: log.source,
+            prompt: log.prompt,
+            json: log.json,
+            httpStatus: log.httpStatus,
+            elapsedMs: log.elapsedMs,
+            errorName: log.errorName,
+        });
+    }
+}
+
 export async function applyConversationResult(
     options: ApplyConversationResultOptions,
     operations: ApplyConversationResultOperations,
@@ -61,9 +99,9 @@ export async function applyConversationResult(
         shouldStreamPreview,
         deferTypewriter = false,
         typingSpeed,
-        debugEnabled,
     } = options;
     const assistantMessages = Array.isArray(data.messages) ? data.messages : [];
+    recordConversationDebugLogs(options, operations);
 
     if (isSecretMode && data.summary?.text) {
         operations.updateRoomSummary(
@@ -110,25 +148,6 @@ export async function applyConversationResult(
     operations.clearStreamingPreview(jobId);
 
     if (!isSecretMode) {
-        if (debugEnabled) {
-            for (const log of data.fullJsonLogs ?? []) {
-                if (!log.json?.trim()) continue;
-                operations.addFullJsonDebugLog({
-                    roomId: sourceRoom.id,
-                    roomName: operations.getCurrentRoom()?.name ?? sourceRoom.name,
-                    characterId: log.characterId,
-                    characterName: log.characterName,
-                    model: log.model,
-                    status: log.status,
-                    source: log.source,
-                    prompt: log.prompt,
-                    json: log.json,
-                    httpStatus: log.httpStatus,
-                    elapsedMs: log.elapsedMs,
-                    errorName: log.errorName,
-                });
-            }
-        }
         operations.markMemoriesUsed(data.usedMemoryIds ?? []);
     }
 

@@ -2303,7 +2303,7 @@ body {
 
 .chat-input-area {
   padding: 0 1.5rem 1rem;
-  background: var(--bg-primary);
+  background: transparent;
 }
 
 .chat-container:not(.vn-mode) .chat-input-area {
@@ -2750,18 +2750,12 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  overflow: hidden;
+  overflow: visible;
   background: transparent;
 }
 
 .chat-container.vn-mode .chat-input-area {
   padding-top: 0.25rem;
-  background: color-mix(in srgb, var(--bg-primary) 64%, transparent);
-  backdrop-filter: blur(10px);
-}
-
-.mode-light .chat-container.vn-mode .chat-input-area {
-  background: color-mix(in srgb, var(--bg-primary) 58%, transparent);
 }
 
 .chat-container.vn-mode .chat-notice {
@@ -2775,7 +2769,7 @@ body {
 }
 
 .chat-container.vn-mode .chat-input {
-  background: color-mix(in srgb, var(--bg-secondary) 68%, transparent);
+  background: color-mix(in srgb, var(--bg-secondary) 78%, transparent);
   backdrop-filter: blur(6px);
 }
 
@@ -2786,7 +2780,7 @@ body {
   justify-content: center;
   align-items: flex-end;
   padding: 0.25rem 1.5rem 0;
-  overflow: hidden;
+  overflow: visible;
   pointer-events: none;
 }
 

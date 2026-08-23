@@ -178,6 +178,40 @@ describe('store pure helpers', () => {
         expect(normalized.changedRooms).toHaveLength(1);
     });
 
+    test('repairs blank room names with stable default names', () => {
+        const character: Character = {
+            id: 'character-1',
+            name: '葵',
+            systemPrompt: '',
+            model: 'model-1',
+            createdAt: 1,
+            updatedAt: 1,
+        };
+        const rooms: Room[] = [
+            {
+                id: 'room-2',
+                characterId: character.id,
+                name: '   ',
+                messages: [],
+                createdAt: 2,
+                updatedAt: 2,
+            },
+            {
+                id: 'room-1',
+                characterId: character.id,
+                name: '',
+                messages: [],
+                createdAt: 1,
+                updatedAt: 1,
+            },
+        ];
+
+        const normalized = normalizeGroupData({ characters: [character], groups: [], rooms });
+
+        expect(normalized.rooms.map((room) => room.name)).toEqual(['葵 2', '葵 1']);
+        expect(normalized.changedRooms).toHaveLength(2);
+    });
+
     test('keeps default and temporary situation actors out of costume selections', () => {
         expect(getSituationCostumeSelections([
             { id: 'actor-1', type: 'character', characterId: 'character-1', costumeName: 'default' },

@@ -457,7 +457,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         groupCharacters,
         model: titleGenerationModel,
         getAiApiConfig,
-        getCurrentRoom,
+        getRoom: (roomId) => useStore.getState().rooms.find((candidate) => candidate.id === roomId),
         updateRoomName,
     });
 

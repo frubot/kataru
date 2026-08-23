@@ -21,6 +21,10 @@ export function defaultGroupRoomName(_groupName: string, index: number): string 
     return `チャット ${index}`;
 }
 
+export function defaultCharacterRoomName(characterName: string | undefined, index: number): string {
+    return `${characterName?.trim() || 'Chat'} ${index}`;
+}
+
 export function createDefaultSituationDirector(model: string): SituationDirector {
     return {
         enabled: true,
@@ -287,13 +291,37 @@ export function normalizeGroupData(params: {
         if (JSON.stringify(normalizedGroup) !== JSON.stringify(group)) changedGroups.push(normalizedGroup);
     }
 
+    const characterNames = new Map(
+        params.characters.map((character) => [character.id, character.name]),
+    );
+    const roomOrdinals = new Map<string, number>();
+    const roomCounts = new Map<string, number>();
+    for (const room of [...params.rooms].sort((left, right) => (
+        left.createdAt - right.createdAt || left.id.localeCompare(right.id)
+    ))) {
+        const scope = room.groupId ? `situation:${room.groupId}` : `character:${room.characterId}`;
+        const ordinal = (roomCounts.get(scope) ?? 0) + 1;
+        roomCounts.set(scope, ordinal);
+        roomOrdinals.set(room.id, ordinal);
+    }
+
     const rooms = params.rooms.map((room) => {
+        const ordinal = roomOrdinals.get(room.id) ?? 1;
+        const trimmedName = typeof room.name === 'string' ? room.name.trim() : '';
+        const normalizedName = trimmedName || (room.groupId
+            ? defaultGroupRoomName(groupsById.get(room.groupId)?.name ?? '', ordinal)
+            : defaultCharacterRoomName(characterNames.get(room.characterId), ordinal));
+        let next: Room = normalizedName === room.name
+            ? room
+            : { ...room, name: normalizedName };
+        let changed = next !== room;
+
         if (room.groupId && groupsById.has(room.groupId)) {
             const group = groupsById.get(room.groupId)!;
             const actorIds = getSituationActorIds(group);
             const costumeSelections = getSituationCostumeSelections(group.actors);
-            const next: Room = {
-                ...room,
+            next = {
+                ...next,
                 characterId: actorIds[0],
                 costumeSelections,
             };
@@ -301,9 +329,12 @@ export function normalizeGroupData(params: {
                 next.characterId !== room.characterId
                 || JSON.stringify(next.costumeSelections ?? {}) !== JSON.stringify(room.costumeSelections ?? {})
             ) {
-                changedRooms.push(next);
-                return next;
+                changed = true;
             }
+        }
+        if (changed) {
+            changedRooms.push(next);
+            return next;
         }
         return room;
     });

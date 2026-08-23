@@ -1,7 +1,16 @@
-import { describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 
-import { buildPromptRequestMessages } from '../lib/chatAuxiliaryClient';
+import {
+    buildPromptRequestMessages,
+    requestRoomTitleWithRetry,
+} from '../lib/chatAuxiliaryClient';
+import { normalizeAiApiConfig } from '../lib/aiApi';
 import type { Message, SituationParticipant } from '../lib/store';
+
+afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+});
 
 describe('auxiliary chat prompt messages', () => {
     test('drops archived and blank messages and adds participant names', () => {
@@ -17,5 +26,47 @@ describe('auxiliary chat prompt messages', () => {
             { role: 'user', content: '質問' },
             { role: 'assistant', content: '回答', name: 'アリス' },
         ]);
+    });
+});
+
+describe('room title generation', () => {
+    const input = {
+        messages: [
+            { role: 'user' as const, content: 'こんにちは' },
+            { role: 'assistant' as const, content: 'こんにちは！' },
+        ],
+        model: 'model-1',
+        aiApiConfig: normalizeAiApiConfig({ aiApiType: 'openrouter' }),
+    };
+
+    test('retries unsuccessful responses and returns the generated title', async () => {
+        const fetchMock = vi.fn()
+            .mockResolvedValueOnce(new Response('', { status: 502 }))
+            .mockResolvedValueOnce(new Response(JSON.stringify({ title: '' }), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+            }))
+            .mockResolvedValueOnce(new Response(JSON.stringify({ title: ' はじめての挨拶 ' }), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+            }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        await expect(requestRoomTitleWithRetry(input, {
+            retryDelaysMs: [0, 0],
+            attemptTimeoutMs: 1_000,
+        })).resolves.toBe('はじめての挨拶');
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
+    test('returns null after every response is unsuccessful', async () => {
+        const fetchMock = vi.fn().mockResolvedValue(new Response('', { status: 503 }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        await expect(requestRoomTitleWithRetry(input, {
+            retryDelaysMs: [0, 0],
+            attemptTimeoutMs: 1_000,
+        })).resolves.toBeNull();
+        expect(fetchMock).toHaveBeenCalledTimes(3);
     });
 });

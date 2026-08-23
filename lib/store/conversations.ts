@@ -13,6 +13,7 @@ import {
 } from './persistence';
 import {
     createDefaultSituationDirector,
+    defaultCharacterRoomName,
     defaultGroupRoomName,
     getSituationActorIds,
     getSituationCostumeSelections,
@@ -138,7 +139,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
             const room: Room = {
                 id,
                 characterId,
-                name: explicitName || (get().generateTitleOnFirstReply ? '' : `${character?.name || 'Chat'} ${roomCountForChar + 1}`),
+                name: explicitName || defaultCharacterRoomName(character?.name, roomCountForChar + 1),
                 messages: [],
                 viewMode: options?.viewMode,
                 isDraft: true,
@@ -194,7 +195,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
                 id: roomId,
                 characterId: actorIds[0],
                 groupId,
-                name: explicitRoomName || (get().generateTitleOnFirstReply ? '' : defaultGroupRoomName(resolvedGroupName, 1)),
+                name: explicitRoomName || defaultGroupRoomName(resolvedGroupName, 1),
                 messages: [],
                 ...(costumeSelections ? { costumeSelections } : {}),
                 isDraft: true,
@@ -224,7 +225,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
                 id,
                 characterId: actorIds[0],
                 groupId,
-                name: explicitName || (get().generateTitleOnFirstReply ? '' : defaultGroupRoomName(group.name, roomCountForGroup + 1)),
+                name: explicitName || defaultGroupRoomName(group.name, roomCountForGroup + 1),
                 messages: [],
                 viewMode: options?.viewMode,
                 ...(costumeSelections ? { costumeSelections } : {}),
@@ -442,11 +443,13 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
         },
 
         updateRoomName: (id, name) => {
+            const normalizedName = name.trim();
+            if (!normalizedName) return;
             let updated: Room | undefined;
             set((state) => ({
                 rooms: state.rooms.map((r) => {
                     if (r.id !== id) return r;
-                    updated = { ...r, name, updatedAt: Date.now() };
+                    updated = { ...r, name: normalizedName, updatedAt: Date.now() };
                     return updated;
                 }),
             }));

@@ -3,7 +3,7 @@ import { useCallback } from 'react';
 import type { AiApiConfig } from '../../lib/aiApi';
 import {
     buildPromptRequestMessages,
-    requestRoomTitle,
+    requestRoomTitleWithRetry,
 } from '../../lib/chatAuxiliaryClient';
 import type { Room, SituationParticipant } from '../../lib/store';
 
@@ -11,7 +11,7 @@ type UseRoomTitleGenerationOptions = {
     groupCharacters?: SituationParticipant[] | null;
     model: string;
     getAiApiConfig: () => AiApiConfig;
-    getCurrentRoom: () => Room | null | undefined;
+    getRoom: (roomId: string) => Room | null | undefined;
     updateRoomName: (roomId: string, name: string) => void;
 };
 
@@ -19,11 +19,11 @@ export function useRoomTitleGeneration({
     groupCharacters,
     model,
     getAiApiConfig,
-    getCurrentRoom,
+    getRoom,
     updateRoomName,
 }: UseRoomTitleGenerationOptions) {
     return useCallback(async (roomId: string, originalRoomName: string) => {
-        const latestRoom = getCurrentRoom();
+        const latestRoom = getRoom(roomId);
         if (
             latestRoom?.id !== roomId
             || latestRoom.secretMode === true
@@ -33,17 +33,15 @@ export function useRoomTitleGeneration({
         const messages = buildPromptRequestMessages(latestRoom.messages, groupCharacters);
         if (!messages.some((message) => message.role === 'assistant')) return;
 
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 60_000);
         try {
-            const title = await requestRoomTitle({
+            const title = await requestRoomTitleWithRetry({
                 messages,
                 model: model.trim(),
                 aiApiConfig: getAiApiConfig(),
-            }, controller.signal);
+            });
             if (!title || title === originalRoomName) return;
 
-            const roomBeforeUpdate = getCurrentRoom();
+            const roomBeforeUpdate = getRoom(roomId);
             if (
                 roomBeforeUpdate?.id !== roomId
                 || roomBeforeUpdate.secretMode === true
@@ -54,8 +52,6 @@ export function useRoomTitleGeneration({
             if (!(error instanceof Error && error.name === 'AbortError')) {
                 console.warn('Room title generation failed:', error);
             }
-        } finally {
-            clearTimeout(timeoutId);
         }
-    }, [getAiApiConfig, getCurrentRoom, groupCharacters, model, updateRoomName]);
+    }, [getAiApiConfig, getRoom, groupCharacters, model, updateRoomName]);
 }

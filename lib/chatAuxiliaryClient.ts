@@ -46,6 +46,46 @@ export async function requestRoomTitle(
     return typeof data.title === 'string' && data.title.trim() ? data.title.trim() : null;
 }
 
+const DEFAULT_TITLE_RETRY_DELAYS_MS = [500, 1_500] as const;
+const DEFAULT_TITLE_ATTEMPT_TIMEOUT_MS = 60_000;
+
+function waitForTitleRetry(delayMs: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+export async function requestRoomTitleWithRetry(
+    input: Parameters<typeof requestRoomTitle>[0],
+    options: {
+        retryDelaysMs?: readonly number[];
+        attemptTimeoutMs?: number;
+    } = {},
+): Promise<string | null> {
+    const retryDelaysMs = options.retryDelaysMs ?? DEFAULT_TITLE_RETRY_DELAYS_MS;
+    const attemptTimeoutMs = options.attemptTimeoutMs ?? DEFAULT_TITLE_ATTEMPT_TIMEOUT_MS;
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt <= retryDelaysMs.length; attempt += 1) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), attemptTimeoutMs);
+        try {
+            const title = await requestRoomTitle(input, controller.signal);
+            lastError = undefined;
+            if (title) return title;
+        } catch (error) {
+            lastError = error;
+        } finally {
+            clearTimeout(timeoutId);
+        }
+
+        if (attempt < retryDelaysMs.length) {
+            await waitForTitleRetry(retryDelaysMs[attempt]);
+        }
+    }
+
+    if (lastError) throw lastError;
+    return null;
+}
+
 export async function requestReplySuggestions(
     input: {
         messages: PromptRequestMessage[];

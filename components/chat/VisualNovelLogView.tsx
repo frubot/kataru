@@ -195,10 +195,7 @@ export default function VisualNovelLogView({
             <header className="vn-log-header">
                 <div className="vn-log-heading">
                     <History size={19} aria-hidden="true" />
-                    <div>
-                        <h2>会話ログ</h2>
-                        <span>BACK LOG</span>
-                    </div>
+                    <h2>会話ログ</h2>
                 </div>
                 <button
                     type="button"

@@ -2522,20 +2522,10 @@ body {
   line-height: 1.2;
 }
 
-.vn-log-heading span {
-  display: block;
-  margin-top: 0.16rem;
-  color: var(--text-muted);
-  font-size: 0.625rem;
-  font-weight: 650;
-  letter-spacing: 0.18em;
-}
-
 .vn-log-close {
   width: 2.25rem;
   height: 2.25rem;
   padding: 0;
-  border: 1px solid color-mix(in srgb, var(--text-primary) 16%, transparent);
   border-radius: 50%;
 }
 

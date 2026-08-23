@@ -1036,6 +1036,7 @@ function CharacterSelectionModal({
                                     <button
                                         key={character.id}
                                         type="button"
+                                        className={`situation-character-selection-card${checked ? ' selected' : ''}`}
                                         onClick={() => onToggle(character)}
                                         aria-pressed={checked}
                                         style={{
@@ -1047,8 +1048,6 @@ function CharacterSelectionModal({
                                             width: '5.5rem',
                                             minHeight: '6.75rem',
                                             padding: '0.625rem 0.375rem 0.5rem',
-                                            border: 'none',
-                                            background: 'transparent',
                                             cursor: 'pointer',
                                             minWidth: 0,
                                             textAlign: 'center',
@@ -1056,14 +1055,21 @@ function CharacterSelectionModal({
                                             font: 'inherit',
                                         }}
                                     >
-                                        <div style={{ width: 56, height: 56, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: `2px solid ${checked ? 'var(--accent-primary)' : 'transparent'}`, boxShadow: checked ? '0 0 0 2px rgba(var(--accent-primary-rgb), 0.25)' : 'none', transition: 'border-color 0.15s ease, box-shadow 0.15s ease' }}>
-                                            {character.icon ? (
-                                                <StoredImage src={character.icon} alt={character.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                            ) : (
-                                                <User size={28} style={{ color: 'var(--text-muted)' }} />
+                                        <div className="situation-character-selection-avatar-wrap">
+                                            <div style={{ width: 56, height: 56, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: `2px solid ${checked ? 'var(--accent-primary)' : 'transparent'}`, boxShadow: checked ? '0 0 0 2px rgba(var(--accent-primary-rgb), 0.25)' : 'none', transition: 'border-color 0.15s ease, box-shadow 0.15s ease' }}>
+                                                {character.icon ? (
+                                                    <StoredImage src={character.icon} alt={character.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                ) : (
+                                                    <User size={28} style={{ color: 'var(--text-muted)' }} />
+                                                )}
+                                            </div>
+                                            {checked && (
+                                                <span className="situation-character-selection-check" aria-hidden="true">
+                                                    <Check size={13} strokeWidth={3} />
+                                                </span>
                                             )}
                                         </div>
-                                        <span title={character.name} style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.75rem', lineHeight: 1.25 }}>
+                                        <span className="situation-character-selection-name" title={character.name} style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.75rem', lineHeight: 1.25 }}>
                                             {character.name}
                                         </span>
                                     </button>

@@ -913,6 +913,63 @@ body {
   display: none;
 }
 
+.situation-character-selection-card {
+  position: relative;
+  border: 1px solid transparent;
+  border-radius: 0.75rem;
+  background: transparent;
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.situation-character-selection-card:hover {
+  border-color: color-mix(in srgb, var(--text-primary) 14%, transparent);
+  background: var(--bg-tertiary);
+}
+
+.situation-character-selection-card:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.situation-character-selection-card.selected {
+  border-color: color-mix(in srgb, var(--accent-primary) 55%, transparent);
+  background: color-mix(in srgb, var(--accent-primary) 11%, var(--bg-secondary));
+  box-shadow: 0 2px 10px rgba(var(--accent-primary-rgb), 0.12);
+}
+
+.situation-character-selection-card.selected:hover {
+  border-color: var(--accent-primary);
+  background: color-mix(in srgb, var(--accent-primary) 15%, var(--bg-secondary));
+}
+
+.situation-character-selection-avatar-wrap {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  flex: 0 0 auto;
+}
+
+.situation-character-selection-check {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 1.25rem;
+  height: 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--bg-secondary);
+  border-radius: 50%;
+  background: var(--accent-solid);
+  color: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
+}
+
+.situation-character-selection-card.selected .situation-character-selection-name {
+  color: var(--text-primary);
+  font-weight: 650;
+}
+
 .settings-form-modal-actions {
   display: flex;
   align-items: center;

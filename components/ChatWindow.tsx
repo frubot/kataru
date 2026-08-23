@@ -1036,9 +1036,9 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         if (cutFrom == null) return;
         const messagesToDelete = room.messages.slice(cutFrom);
 
-        const removedMemoryRecords = await deleteMessagesFrom(room.id, cutFrom);
         const session = startGenerationSession(room.id);
         try {
+            const removedMemoryRecords = await deleteMessagesFrom(room.id, cutFrom);
             const latestRoom = getCurrentRoom();
             const result = latestRoom
                 ? await generateRustTurn(session, latestRoom)

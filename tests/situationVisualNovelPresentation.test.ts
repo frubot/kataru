@@ -12,6 +12,7 @@ import {
     reconcileSituationVisualNovelPreviewItems,
     resolveSituationVisualNovelInitialCharacterId,
     syncSituationVisualNovelPreviewItems,
+    syncSituationVisualNovelRoomItems,
     unlockSituationVisualNovelPresentation,
 } from '../lib/situationVisualNovelPresentation';
 
@@ -199,5 +200,54 @@ describe('situation visual novel presentation', () => {
             id: 'assistant-a',
             content: 'こんにちは',
         });
+    });
+
+    test('shows the regenerated response instead of falling back one message', () => {
+        const previousMessage = roomMessage(
+            'assistant-previous',
+            'assistant',
+            '一つ前の返答',
+            'actor-a',
+        );
+        const regeneratedMessage = roomMessage(
+            'assistant-regenerated',
+            'assistant',
+            '再生成対象の返答',
+            'actor-b',
+        );
+        let state = createSituationVisualNovelPresentationState({
+            hasRoomHistory: true,
+            priorItems: [],
+            roomItems: buildSituationVisualNovelRoomItems([
+                previousMessage,
+                regeneratedMessage,
+            ]),
+            isLoading: false,
+        });
+
+        state = syncSituationVisualNovelRoomItems(state, {
+            hasRoomHistory: true,
+            priorItems: [],
+            roomItems: buildSituationVisualNovelRoomItems([previousMessage]),
+            isLoading: true,
+        });
+
+        expect(state.current).toBeNull();
+        expect(state.locked).toBe(true);
+
+        const preview = buildSituationVisualNovelPreviewItems('regeneration-job', [{
+            turnIndex: 0,
+            content: '新しい返答',
+            characterId: 'actor-b',
+            characterName: 'B',
+            complete: false,
+        }]);
+        state = appendSituationVisualNovelItems(state, preview);
+
+        expect(state.current).toMatchObject({
+            source: 'preview',
+            content: '新しい返答',
+        });
+        expect(state.pending).toEqual([]);
     });
 });

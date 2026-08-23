@@ -357,7 +357,7 @@ export function syncSituationVisualNovelRoomItems(
             : params.hasRoomHistory
                 ? []
                 : params.priorItems;
-        const current = fallbackItems.at(-1) ?? null;
+        const current = params.isLoading ? null : fallbackItems.at(-1) ?? null;
         const scene = sceneFromItems(fallbackItems);
         return {
             current,

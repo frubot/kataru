@@ -2052,6 +2052,10 @@ body {
   color: var(--text-muted);
 }
 
+.sidebar-search-input::-webkit-search-cancel-button {
+  display: none;
+}
+
 .sidebar-search-results {
   min-height: 174px;
   flex: 1;

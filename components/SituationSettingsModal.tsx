@@ -738,9 +738,6 @@ function TemporaryActorSettingsModal({
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
                                 <div>
                                     <div style={{ ...labelStyle, marginBottom: '0.25rem' }}>考える</div>
-                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                        返答前の思考をJSONのthoughtフィールドに含めます。会話には表示されません。
-                                    </div>
                                 </div>
                                 <button
                                     type="button"

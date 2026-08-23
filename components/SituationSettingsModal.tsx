@@ -1,11 +1,12 @@
 import { useCallback, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { ChevronDown, ChevronRight, ChevronUp, MessagesSquare, Plus, RotateCcw, Sparkles, Trash2, User, Users, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronUp, MessagesSquare, Plus, RotateCcw, Smile, Sparkles, Trash2, User, Users, X } from 'lucide-react';
 import {
     Character,
     DEFAULT_CHARACTER_MAX_HISTORY,
     DEFAULT_CHARACTER_TEMPERATURE,
     DEFAULT_CHARACTER_TOP_P,
     DEFAULT_CHARACTER_TOP_K,
+    Expression,
     Room,
     Situation,
     SituationActor,
@@ -15,6 +16,7 @@ import {
 } from '@/lib/store';
 import { generateId } from '@/lib/id';
 import CharacterGeneratorModal from './CharacterGeneratorModal';
+import ExpressionDiffModal from './ExpressionDiffModal';
 import ImageGenerationModal from './ImageGenerationModal';
 import SituationDescriptionGeneratorModal from './SituationDescriptionGeneratorModal';
 import StoredImage from './StoredImage';
@@ -29,6 +31,7 @@ type TemporaryActorDraft = {
     userConstraints: string;
     model: string;
     icon: string | null;
+    expressions: Expression[];
     temperature: number | null;
     topP: number | null;
     topK: number | null;
@@ -68,6 +71,8 @@ const sectionLabelStyle: CSSProperties = {
     fontWeight: 500,
 };
 
+const NEUTRAL_EXPRESSION_NAME = 'neutral';
+
 type TemporaryActorParamKey = 'temperature' | 'topP' | 'topK';
 
 interface TemporaryActorSliderParam {
@@ -104,6 +109,7 @@ function createTemporaryDraft(): TemporaryActorDraft {
         userConstraints: '',
         model: '',
         icon: null,
+        expressions: [],
         temperature: null,
         topP: null,
         topK: null,
@@ -488,6 +494,7 @@ function TemporaryActorSettingsModal({
     const [parametersOpen, setParametersOpen] = useState(false);
     const [generatorOpen, setGeneratorOpen] = useState(false);
     const [imageGenOpen, setImageGenOpen] = useState(false);
+    const [expressionsOpen, setExpressionsOpen] = useState(false);
     const modalRef = useRef<HTMLDivElement>(null);
     const hasCustomParams = draft.temperature !== null || draft.topP !== null || draft.topK !== null;
 
@@ -511,7 +518,7 @@ function TemporaryActorSettingsModal({
         isOpen: true,
         containerRef: modalRef,
         onClose: isNew ? onClose : saveAndClose,
-        canClose: !generatorOpen && !imageGenOpen,
+        canClose: !generatorOpen && !imageGenOpen && !expressionsOpen,
     });
 
     const labelStyle: CSSProperties = {
@@ -610,7 +617,7 @@ function TemporaryActorSettingsModal({
                                     <User size={28} style={{ color: 'var(--text-muted)' }} />
                                 )}
                             </button>
-                            <div style={{ minWidth: 0 }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
                                 <div style={{ ...labelStyle, marginBottom: '0.25rem' }}>アイコン画像</div>
                                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                                     クリックして画像を追加・変更できます
@@ -633,6 +640,21 @@ function TemporaryActorSettingsModal({
                                     </button>
                                 )}
                             </div>
+                            <button
+                                type="button"
+                                className="btn btn-secondary"
+                                onClick={() => setExpressionsOpen(true)}
+                                title={!draft.expressions.some((expression) => expression.name === NEUTRAL_EXPRESSION_NAME)
+                                    ? 'デフォルトの立ち絵が登録されていない場合でも追加できます'
+                                    : undefined}
+                                style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8125rem', flexShrink: 0 }}
+                            >
+                                <Smile size={14} />
+                                表情差分
+                                {draft.expressions.length > 0 && (
+                                    <span style={{ fontSize: '0.6875rem', opacity: 0.7 }}>({draft.expressions.length})</span>
+                                )}
+                            </button>
                         </div>
 
                         <div style={sectionStyle}>
@@ -764,9 +786,40 @@ function TemporaryActorSettingsModal({
             <ImageGenerationModal
                 isOpen={imageGenOpen}
                 onClose={() => setImageGenOpen(false)}
-                onComplete={(avatar) => {
-                    updateDraft({ icon: avatar });
+                transparentFullBody
+                onComplete={(avatar, fullBody) => {
+                    setDraft((current) => {
+                        const expressions = current.expressions.filter(
+                            (expression) => expression.name !== NEUTRAL_EXPRESSION_NAME,
+                        );
+                        expressions.unshift({ name: NEUTRAL_EXPRESSION_NAME, image: fullBody });
+                        return { ...current, icon: avatar, expressions };
+                    });
                     setImageGenOpen(false);
+                }}
+            />
+
+            <ExpressionDiffModal
+                isOpen={expressionsOpen}
+                onClose={() => setExpressionsOpen(false)}
+                expressions={draft.expressions}
+                costumes={[]}
+                onUpsert={(expression) => {
+                    setDraft((current) => {
+                        const index = current.expressions.findIndex((item) => item.name === expression.name);
+                        if (index < 0) {
+                            return { ...current, expressions: [...current.expressions, expression] };
+                        }
+                        const expressions = [...current.expressions];
+                        expressions[index] = expression;
+                        return { ...current, expressions };
+                    });
+                }}
+                onRemove={(name) => {
+                    setDraft((current) => ({
+                        ...current,
+                        expressions: current.expressions.filter((expression) => expression.name !== name),
+                    }));
                 }}
             />
         </>
@@ -798,6 +851,7 @@ function buildInitialState(
                 userConstraints: actor.userConstraints ?? '',
                 model: actor.model ?? '',
                 icon: actor.icon ?? null,
+                expressions: actor.expressions ?? [],
                 temperature: typeof actor.temperature === 'number' ? actor.temperature : null,
                 topP: typeof actor.topP === 'number' ? actor.topP : null,
                 topK: typeof actor.topK === 'number' ? actor.topK : null,
@@ -1195,6 +1249,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
             ...(actor.userConstraints.trim() ? { userConstraints: actor.userConstraints.trim() } : {}),
             model: actor.model.trim() || defaultChatModel,
             ...(actor.icon ? { icon: actor.icon } : {}),
+            ...(actor.expressions.length > 0 ? { expressions: actor.expressions } : {}),
             ...(actor.temperature !== null ? { temperature: actor.temperature } : {}),
             ...(actor.topP !== null ? { topP: actor.topP } : {}),
             ...(actor.topK !== null ? { topK: actor.topK } : {}),

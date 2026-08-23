@@ -2172,8 +2172,8 @@ body {
 }
 
 .chat-container.vn-mode > .chat-header {
+  z-index: 4;
   background: color-mix(in srgb, var(--bg-primary) 58%, transparent);
-  backdrop-filter: blur(10px);
 }
 
 .vn-background {

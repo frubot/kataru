@@ -283,13 +283,11 @@ function ParagraphRow({
   text,
   onChange,
   onDelete,
-  onInsertAfter,
   placeholder,
 }: {
   text: string;
   onChange: (v: string) => void;
   onDelete: () => void;
-  onInsertAfter: (block: PromptBlock) => void;
   placeholder?: string;
 }) {
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -302,11 +300,6 @@ function ParagraphRow({
   }, [text]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      onInsertAfter({ type: 'paragraph', text: '' });
-      setTimeout(() => focusNextInput(e.currentTarget, 'next'), 0);
-    }
     if (e.key === 'Backspace' && text === '') {
       e.preventDefault();
       const el = e.currentTarget;
@@ -502,14 +495,12 @@ function BlockRow({
   block,
   onUpdate,
   onDelete,
-  onInsertAfter,
   onConvertType,
   placeholder,
 }: {
   block: BlockItem;
   onUpdate: (next: BlockItem) => void;
   onDelete: () => void;
-  onInsertAfter: (block: PromptBlock) => void;
   onConvertType: () => void;
   placeholder?: string;
 }) {
@@ -537,7 +528,6 @@ function BlockRow({
             text={block.text}
             onChange={(text) => onUpdate({ ...block, text })}
             onDelete={onDelete}
-            onInsertAfter={onInsertAfter}
             placeholder={placeholder}
           />
         )}
@@ -913,7 +903,6 @@ export default function PromptBlockEditor({
                           block={b}
                           onUpdate={(next) => updateBlock(b.id, next as PromptBlock)}
                           onDelete={() => deleteBlock(b.id)}
-                          onInsertAfter={(block) => insertAfter(b.id, block)}
                           onConvertType={() => convertBlockType(b.id)}
                           placeholder={placeholder}
                         />

@@ -60,6 +60,7 @@ import { useVisualNovelPresentation } from './chat/useVisualNovelPresentation';
 import { useSituationVisualNovelPresentation } from './chat/useSituationVisualNovelPresentation';
 import VisualNovelLogView from './chat/VisualNovelLogView';
 import VisualNovelView from './chat/VisualNovelView';
+import StoredImage from './StoredImage';
 
 interface ChatWindowProps {
     room: Room | null;
@@ -1377,6 +1378,16 @@ export default function ChatWindow({ room, character, situation, groupName, grou
 
     return (
         <div className={`chat-container ${isVisualNovelMode ? 'vn-mode' : ''} ${isMessageMode ? 'message-mode' : ''}`}>
+            {isVisualNovelMode && situation?.backgroundImage && (
+                <div className="vn-background" aria-hidden="true">
+                    <StoredImage
+                        src={situation.backgroundImage}
+                        alt=""
+                        className="vn-background-image"
+                        loading="eager"
+                    />
+                </div>
+            )}
             {!isVisualNovelLogOpen && (
                 <ChatHeader
                     roomId={room.id}
@@ -1450,7 +1461,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     fallbackCharacterName={character?.name}
                     speakerName={vnSpeakerName}
                     castCharacters={situationVnCastCharacters}
-                    backgroundImage={situation?.backgroundImage}
                     expressionImage={vnExpressionImage}
                     bounceActive={vnBounceActive}
                     onCharacterImageLoad={triggerVnBounce}

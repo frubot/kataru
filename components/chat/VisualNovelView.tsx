@@ -14,7 +14,6 @@ type VisualNovelViewProps = {
     fallbackCharacterName?: string;
     speakerName?: string;
     castCharacters?: Character[];
-    backgroundImage?: string;
     expressionImage: string | null;
     bounceActive: boolean;
     onCharacterImageLoad: () => void;
@@ -50,7 +49,6 @@ export default function VisualNovelView({
     fallbackCharacterName,
     speakerName,
     castCharacters,
-    backgroundImage,
     expressionImage,
     bounceActive,
     onCharacterImageLoad,
@@ -118,14 +116,6 @@ export default function VisualNovelView({
     return (
         <div className={`vn-stage${hasReplySuggestions ? ' has-reply-suggestions' : ''}`}>
             <div className="vn-scene">
-                {backgroundImage && (
-                    <StoredImage
-                        src={backgroundImage}
-                        alt=""
-                        className="vn-background-image"
-                        loading="eager"
-                    />
-                )}
                 {character ? (
                     <div className={`vn-character-wrap ${bounceActive ? 'vn-character-bounce' : ''}`}>
                         {expressionImage ? (

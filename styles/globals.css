@@ -2159,7 +2159,40 @@ body {
 }
 
 .chat-container.vn-mode {
+  position: relative;
+  isolation: isolate;
   background: var(--bg-primary);
+}
+
+.chat-container.vn-mode > .chat-header,
+.chat-container.vn-mode > .vn-stage,
+.chat-container.vn-mode > .chat-input-area {
+  position: relative;
+  z-index: 1;
+}
+
+.chat-container.vn-mode > .chat-header {
+  background: color-mix(in srgb, var(--bg-primary) 58%, transparent);
+  backdrop-filter: blur(10px);
+}
+
+.vn-background {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.vn-background::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
+}
+
+.mode-light .vn-background::after {
+  background: color-mix(in srgb, var(--accent-primary) 6%, transparent);
 }
 
 .chat-header {
@@ -2723,11 +2756,12 @@ body {
 
 .chat-container.vn-mode .chat-input-area {
   padding-top: 0.25rem;
-  background: color-mix(in srgb, var(--accent-primary) 8%, var(--bg-primary));
+  background: color-mix(in srgb, var(--bg-primary) 64%, transparent);
+  backdrop-filter: blur(10px);
 }
 
 .mode-light .chat-container.vn-mode .chat-input-area {
-  background: color-mix(in srgb, var(--accent-primary) 6%, var(--bg-primary));
+  background: color-mix(in srgb, var(--bg-primary) 58%, transparent);
 }
 
 .chat-container.vn-mode .chat-notice {
@@ -2756,26 +2790,13 @@ body {
   pointer-events: none;
 }
 
-.vn-scene::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
-  pointer-events: none;
-}
-
-.mode-light .vn-scene::before {
-  background: color-mix(in srgb, var(--accent-primary) 6%, transparent);
-}
-
 .vn-background-image {
   position: absolute;
   inset: 0;
-  z-index: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: center;
 }
 
 .vn-character-wrap {

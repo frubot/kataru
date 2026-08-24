@@ -171,11 +171,10 @@ async fn run() -> AppResult<()> {
 }
 
 fn api_router() -> Router<AppState> {
-    Router::new()
+    let uncached_api = Router::new()
         .route("/health", get(health))
         .route("/update-status", get(update_status))
         .route("/update", post(install_update))
-        .route("/assets/{asset_id}", get(image_asset))
         .route(
             "/storage",
             post(handle_storage_command).layer(DefaultBodyLimit::max(STORAGE_REQUEST_BODY_LIMIT)),
@@ -233,7 +232,11 @@ fn api_router() -> Router<AppState> {
             "/conversation/jobs/{job_id}",
             get(conversation::jobs::get).delete(conversation::jobs::cancel),
         )
-        .layer(middleware::from_fn(disable_api_caching))
+        .layer(middleware::from_fn(disable_api_caching));
+
+    Router::new()
+        .route("/assets/{asset_id}", get(image_asset))
+        .merge(uncached_api)
 }
 
 async fn disable_api_caching(request: Request<Body>, next: Next) -> Response {
@@ -395,7 +398,9 @@ mod tests {
     use std::path::Path;
 
     use axum::http::{StatusCode, header};
+    use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
     use serde_json::json;
+    use sha2::{Digest, Sha256};
 
     use super::*;
 
@@ -447,6 +452,64 @@ mod tests {
             .body(Body::from(vec![0_u8; 64]))
             .expect("build JavaScript response");
         assert!(response_compression_predicate().should_compress(&javascript_response));
+    }
+
+    #[tokio::test]
+    async fn image_assets_keep_immutable_cache_header() {
+        let state = AppState {
+            database: Database::open(Path::new(":memory:")).expect("open in-memory database"),
+            http_client: Client::new(),
+            application_origin: "http://127.0.0.1".to_owned(),
+            configuration_origins: Arc::from(["http://127.0.0.1".to_owned()]),
+            ai_config: ai_config::AiConfigManager::in_memory(),
+            conversation_jobs: conversation::jobs::ConversationJobs::default(),
+            update_shutdown: Arc::new(Notify::new()),
+            pending_update_marker: Arc::new(Mutex::new(None)),
+        };
+        let app = api_router().with_state(state);
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind test server");
+        let address = listener.local_addr().expect("read test server address");
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("serve test app");
+        });
+
+        let image_data = b"cacheable-image";
+        let asset_id = Sha256::digest(image_data)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        let client = Client::new();
+        let storage_response = client
+            .post(format!("http://{address}/storage"))
+            .json(&json!({
+                "op": "bulk_write",
+                "characters": [{
+                    "id": "character-1",
+                    "updatedAt": 1,
+                    "icon": format!("data:image/png;base64,{}", BASE64.encode(image_data)),
+                }],
+            }))
+            .send()
+            .await
+            .expect("store image asset");
+        assert_eq!(storage_response.status(), StatusCode::OK);
+
+        let response = client
+            .get(format!("http://{address}/assets/{asset_id}"))
+            .send()
+            .await
+            .expect("fetch image asset");
+
+        server.abort();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get(header::CACHE_CONTROL),
+            Some(&HeaderValue::from_static(
+                "private, max-age=31536000, immutable"
+            ))
+        );
     }
 
     #[tokio::test]

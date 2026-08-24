@@ -544,11 +544,7 @@ async fn generate_for_character(
     id_offset: usize,
     streaming_preview: Option<(&ConversationJobs, &str)>,
 ) -> AppResult<Vec<Value>> {
-    let expression_names = expression_names(
-        character,
-        room,
-        string(room, "viewMode") == "vn",
-    );
+    let expression_names = expression_names(character, room, string(room, "viewMode") == "vn");
     let max_characters = character_max_characters(character);
     let schema = assistant_schema(
         &expression_names,
@@ -1301,11 +1297,7 @@ fn with_speaker_names(
         .collect()
 }
 
-fn expression_names(
-    character: &Value,
-    room: &Value,
-    visual_novel_mode: bool,
-) -> Vec<String> {
+fn expression_names(character: &Value, room: &Value, visual_novel_mode: bool) -> Vec<String> {
     if !visual_novel_mode {
         return Vec::new();
     }

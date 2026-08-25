@@ -2916,6 +2916,8 @@ body {
   height: 100%;
   object-fit: contain;
   object-position: bottom center;
+  transform: translateY(clamp(8rem, 3vh, 9rem)) scale(1.4);
+  transform-origin: center;
   filter: drop-shadow(0 18px 22px rgba(0, 0, 0, 0.35));
 }
 

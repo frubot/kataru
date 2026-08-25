@@ -9,7 +9,7 @@ import StoredImage from './StoredImage';
 import ModelSelector from './ModelSelector';
 import { useModalKeyboard } from './useModalKeyboard';
 
-const MAX_EDGE = 1024;
+const MAX_EDGE = 1536;
 const COSTUME_ASPECT_RATIO = '2:3';
 const COSTUME_ASPECT = 2 / 3;
 const NEW_BUSY_KEY = '__new__';

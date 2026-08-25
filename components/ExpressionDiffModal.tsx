@@ -11,7 +11,7 @@ import { useModalKeyboard } from './useModalKeyboard';
 
 const NEUTRAL_NAME = 'neutral';
 const DEFAULT_COSTUME_NAME = 'default';
-const MAX_EDGE = 1024;
+const MAX_EDGE = 1536;
 const EXPRESSION_ASPECT_RATIO = '2:3';
 const EXPRESSION_ASPECT = 2 / 3;
 const NEW_BUSY_KEY = '__new__';

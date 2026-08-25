@@ -9,7 +9,7 @@ import { CropArea, createInitialCrop, type CropBox } from './ImageCropArea';
 import { useStore } from '@/lib/store';
 import ModelSelector from './ModelSelector';
 import { useModalKeyboard } from './useModalKeyboard';
-const MAX_EDGE = 1024;
+const MAX_EDGE = 1536;
 const AVATAR_SIZE = 128;
 const IMAGE_ASPECT_RATIO = '2:3';
 const AVATAR_ASPECT = 1;

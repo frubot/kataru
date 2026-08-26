@@ -22,7 +22,7 @@ use crate::{
     error::{AppError, AppResult},
 };
 
-use super::orchestrator::run_turn;
+use super::{GenerationMode, orchestrator::run_turn};
 
 const COMPLETED_JOB_RETENTION: Duration = Duration::from_secs(10 * 60);
 
@@ -373,6 +373,7 @@ pub async fn start(
     State(state): State<AppState>,
     Json(payload): Json<Value>,
 ) -> AppResult<(StatusCode, Json<Value>)> {
+    let generation_mode = GenerationMode::from_payload(&payload)?;
     let job_id = payload
         .get("jobId")
         .and_then(Value::as_str)
@@ -433,8 +434,13 @@ pub async fn start(
         stage = "persisting_submission",
         "Conversation job is persisting the submitted turn"
     );
-    if let Err(error) =
-        persist_conversation_submission(&state.database, &payload, secret_mode).await
+    if let Err(error) = persist_conversation_submission(
+        &state.database,
+        &payload,
+        secret_mode,
+        generation_mode.is_continue(),
+    )
+    .await
     {
         tracing::warn!(
             job_id,

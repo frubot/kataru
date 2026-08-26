@@ -20,6 +20,7 @@ use crate::{
 };
 
 use super::{
+    GenerationMode,
     jobs::ConversationJobs,
     prompts::{
         DIRECTOR_TRANSCRIPT_USER_HISTORY, SUMMARY_RECENT_USER_TURNS_TO_KEEP, actor_id,
@@ -43,6 +44,7 @@ const MEMORY_LIMIT: usize = 8;
 const MEMORY_MIN_IMPORTANCE: f64 = 0.4;
 const MEMORY_MIN_CONFIDENCE: f64 = 0.7;
 const MEMORY_MAX_CANDIDATES: usize = 5;
+const CONTINATUION_TRIGGER: &str = "[内部指示] これは主人公の発言ではありません。主人公から新しい発言や行動はありません。直前の場面を繰り返さず、あなた自身が自発的に発言または行動して、自然な続きを作成してください。";
 
 fn character_max_characters(character: &Value) -> usize {
     usize::try_from(number_u64(character, "maxCharacters", DEFAULT_MAX_CHARACTERS).max(1))
@@ -111,6 +113,7 @@ async fn run_turn_inner(
     full_json_logs: &mut Vec<Value>,
 ) -> AppResult<Value> {
     let room = object_field(&payload, "room")?.clone();
+    let generation_mode = GenerationMode::from_payload(&payload)?;
     let situation = payload.get("situation").filter(|value| value.is_object());
     let previous_summary = string(&room, "summary");
     let mut history = array_field_or(&payload, "messages", &room, "messages");
@@ -125,6 +128,21 @@ async fn run_turn_inner(
         return Err(AppError::BadRequest(
             "messages に会話履歴が必要です。".into(),
         ));
+    }
+    if generation_mode.is_continue() {
+        if string(&room, "viewMode") != "vn" {
+            return Err(AppError::BadRequest(
+                "続きを生成できるのはゲームモードだけです。".into(),
+            ));
+        }
+        if history
+            .last()
+            .is_none_or(|message| string(message, "role") != "assistant")
+        {
+            return Err(AppError::BadRequest(
+                "続きを生成するには直前のキャラクター返答が必要です。".into(),
+            ));
+        }
     }
 
     let participants = payload
@@ -229,12 +247,16 @@ async fn run_turn_inner(
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty());
     let streaming_preview = preview_job_id.map(|job_id| (&state.conversation_jobs, job_id));
-    let latest_user_message = active_history
-        .iter()
-        .rev()
-        .find(|message| string(message, "role") == "user")
-        .map(|message| string(message, "content"))
-        .unwrap_or_default();
+    let latest_user_message = if generation_mode.is_continue() {
+        String::new()
+    } else {
+        active_history
+            .iter()
+            .rev()
+            .find(|message| string(message, "role") == "user")
+            .map(|message| string(message, "content"))
+            .unwrap_or_default()
+    };
 
     let mut generated = Vec::new();
     let mut usages = Vec::new();
@@ -291,6 +313,7 @@ async fn run_turn_inner(
                     turn_index,
                     max_turns,
                     banned_actor_id.as_deref(),
+                    generation_mode.is_continue(),
                     director_model,
                     secret_mode,
                     &room,
@@ -343,10 +366,14 @@ async fn run_turn_inner(
                 &mut used_memory_ids,
                 relevant.iter().map(|memory| memory.id.clone()),
             );
+            let generation_history = with_continuation_trigger(
+                actor_history,
+                generation_mode.is_continue() && turn_index == 0,
+            );
             let generated_messages = generate_for_character(
                 &api_client,
                 actor,
-                &actor_history,
+                &generation_history,
                 &room,
                 Some(situation),
                 &participants,
@@ -389,10 +416,14 @@ async fn run_turn_inner(
             &mut used_memory_ids,
             relevant.iter().map(|memory| memory.id.clone()),
         );
+        let character_history = with_continuation_trigger(
+            slice_by_user_history(&active_history, history_limit),
+            generation_mode.is_continue(),
+        );
         generated = generate_for_character(
             &api_client,
             character,
-            &slice_by_user_history(&active_history, history_limit),
+            &character_history,
             &room,
             None,
             &[],
@@ -732,6 +763,7 @@ async fn request_director(
     turn_index: usize,
     max_turns: usize,
     banned_actor_id: Option<&str>,
+    continuation_generation: bool,
     model: &str,
     secret_mode: bool,
     room: &Value,
@@ -761,6 +793,7 @@ async fn request_director(
         turn_index,
         max_turns,
         banned_actor_id,
+        continuation_generation,
     );
     let schema = director_schema(&eligible_ids);
     let mut request = json!({
@@ -1466,6 +1499,17 @@ fn slice_by_user_history(messages: &[Value], limit: usize) -> Vec<Value> {
     messages[cut..].to_vec()
 }
 
+fn with_continuation_trigger(mut messages: Vec<Value>, enabled: bool) -> Vec<Value> {
+    if enabled {
+        messages.push(json!({
+            "role": "user",
+            "content": CONTINATUION_TRIGGER,
+            "internal": true,
+        }));
+    }
+    messages
+}
+
 fn summary_cut(messages: &[Value], prior_message_count: usize) -> usize {
     cut_before_last_user_messages(messages, SUMMARY_RECENT_USER_TURNS_TO_KEEP)
         .max(prior_message_count.min(messages.len()))
@@ -1762,6 +1806,33 @@ mod tests {
         ];
         assert_eq!(slice_by_user_history(&messages, 1).len(), 2);
         assert_eq!(cut_before_last_user_messages(&messages, 1), 2);
+    }
+
+    #[test]
+    fn continuation_trigger_is_transient_and_ends_generation_history_with_user() {
+        let history = vec![
+            json!({"role":"user","content":"今日は寒いね"}),
+            json!({"role":"assistant","content":"雪になるかも"}),
+        ];
+
+        let request_history = with_continuation_trigger(history.clone(), true);
+
+        assert_eq!(history.len(), 2);
+        assert_eq!(request_history.len(), 3);
+        assert_eq!(request_history[2]["role"], "user");
+        assert_eq!(request_history[2]["internal"], true);
+        assert!(
+            request_history[2]["content"]
+                .as_str()
+                .is_some_and(|content| content.contains("主人公から新しい発言や行動はありません"))
+        );
+    }
+
+    #[test]
+    fn regular_generation_history_does_not_receive_a_continuation_trigger() {
+        let history = vec![json!({"role":"user","content":"こんにちは"})];
+
+        assert_eq!(with_continuation_trigger(history.clone(), false), history);
     }
 
     #[test]

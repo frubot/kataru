@@ -9,6 +9,7 @@ import {
     buildSituationVisualNovelRoomItems,
     completeSituationVisualNovelItem,
     createSituationVisualNovelPresentationState,
+    getSituationVisualNovelResponseMessages,
     reconcileSituationVisualNovelPreviewItems,
     resolveSituationVisualNovelInitialCharacterId,
     syncSituationVisualNovelPreviewItems,
@@ -41,6 +42,19 @@ function roomMessage(
 }
 
 describe('situation visual novel presentation', () => {
+    test('isolates a continuation response without requiring a new user message', () => {
+        const messages = [
+            roomMessage('user-1', 'user', '今日は寒いね'),
+            roomMessage('assistant-1', 'assistant', '雪になるかも', 'actor-a'),
+            roomMessage('assistant-2', 'assistant', '窓を閉めよう', 'actor-a'),
+        ];
+
+        expect(getSituationVisualNovelResponseMessages(
+            messages,
+            ['user-1', 'assistant-1'],
+        ).map((message) => message.id)).toEqual(['assistant-2']);
+    });
+
     test('uses the first speaking actor as the initial character', () => {
         expect(resolveSituationVisualNovelInitialCharacterId(priorMessages, [
             { id: 'actor-b', expressions: [{ name: 'neutral', image: 'portrait-b' }] },

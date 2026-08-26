@@ -15,8 +15,9 @@ pub async fn persist_conversation_submission(
     database: &Database,
     payload: &Value,
     secret_mode: bool,
+    continuation_generation: bool,
 ) -> AppResult<()> {
-    if secret_mode {
+    if secret_mode || continuation_generation {
         return Ok(());
     }
     let room = payload
@@ -224,7 +225,7 @@ mod tests {
                 "timestamp": 10
             }]
         });
-        persist_conversation_submission(&database, &payload, false)
+        persist_conversation_submission(&database, &payload, false, false)
             .await
             .expect("persist submitted message");
 
@@ -286,5 +287,43 @@ mod tests {
             })
             .await
             .expect("verify background result");
+    }
+
+    #[tokio::test]
+    async fn continuation_generation_does_not_persist_an_internal_submission() {
+        let database = Database::open(Path::new(":memory:")).expect("open continuation database");
+        let payload = json!({
+            "generationMode": "continue",
+            "room": test_room("room-continuation"),
+            "messages": [{
+                "id": "message-assistant",
+                "role": "assistant",
+                "content": "continue from here",
+                "timestamp": 10
+            }]
+        });
+
+        persist_conversation_submission(&database, &payload, false, true)
+            .await
+            .expect("skip internal continuation submission");
+
+        database
+            .call(|connection| {
+                let room_count = connection.query_row(
+                    "SELECT COUNT(*) FROM rooms WHERE id = 'room-continuation'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                let message_count = connection.query_row(
+                    "SELECT COUNT(*) FROM messages WHERE room_id = 'room-continuation'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                assert_eq!(room_count, 0);
+                assert_eq!(message_count, 0);
+                Ok(())
+            })
+            .await
+            .expect("verify continuation submission was transient");
     }
 }

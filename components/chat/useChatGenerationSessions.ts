@@ -9,6 +9,7 @@ export type ChatGenerationSession = {
     cancelled: boolean;
     detached: boolean;
     controller: AbortController | null;
+    generationBaselineMessageIds?: string[];
 };
 
 type UseChatGenerationSessionsOptions = {

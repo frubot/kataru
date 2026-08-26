@@ -107,6 +107,22 @@ export function buildSituationVisualNovelRoomItems(messages: Message[]): Situati
         }));
 }
 
+export function getSituationVisualNovelResponseMessages(
+    messages: Message[],
+    generationBaselineMessageIds?: string[],
+): Message[] {
+    if (generationBaselineMessageIds) {
+        const baselineIds = new Set(generationBaselineMessageIds);
+        return messages.filter((message) => !baselineIds.has(message.id));
+    }
+    const lastUserIndex = messages.findLastIndex((message) => (
+        message.role === 'user'
+        && !message.archived
+        && message.content.trim()
+    ));
+    return messages.slice(lastUserIndex + 1);
+}
+
 export function buildSituationVisualNovelPreviewItems(
     jobId: string | undefined,
     turns: ConversationJobPreviewTurn[] | undefined,

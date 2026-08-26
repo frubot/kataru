@@ -10,6 +10,7 @@ import {
     buildSituationVisualNovelRoomItems,
     completeSituationVisualNovelItem,
     createSituationVisualNovelPresentationState,
+    getSituationVisualNovelResponseMessages,
     lockSituationVisualNovelPresentation,
     reconcileSituationVisualNovelPreviewItems,
     syncSituationVisualNovelPreviewItems,
@@ -53,17 +54,15 @@ export function useSituationVisualNovelPresentation({
         () => buildSituationVisualNovelRoomItems(messages),
         [messages],
     );
-    const currentRoundAssistantItems = useMemo(() => {
-        const lastUserIndex = messages.findLastIndex((message) => (
-            message.role === 'user'
-            && !message.archived
-            && message.content.trim()
-        ));
-        return buildSituationVisualNovelRoomItems(messages.slice(lastUserIndex + 1));
-    }, [messages]);
     const activeStreamingPreview = streamingPreview?.roomId === roomId
         ? streamingPreview
         : null;
+    const currentRoundAssistantItems = useMemo(() => {
+        return buildSituationVisualNovelRoomItems(getSituationVisualNovelResponseMessages(
+            messages,
+            activeStreamingPreview?.generationBaselineMessageIds,
+        ));
+    }, [activeStreamingPreview?.generationBaselineMessageIds, messages]);
     const previewItems = useMemo(
         () => buildSituationVisualNovelPreviewItems(
             activeStreamingPreview?.jobId,

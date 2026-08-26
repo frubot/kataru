@@ -23,7 +23,7 @@ import { useModalKeyboard } from './useModalKeyboard';
 const NEUTRAL_NAME = 'neutral';
 const DEFAULT_COSTUME_NAME = 'default';
 const CHARACTER_PROMPT_SECTION_TITLE = 'キャラクターについて';
-const SPEECH_STYLE_SECTION_TITLE = '口調';
+const SPEECH_STYLE_SECTION_TITLE = 'キャラクターの口調';
 const PROTAGONIST_PROMPT_SECTION_TITLE = '主人公について';
 const USER_CONSTRAINTS_SECTION_TITLE = '追加の制約';
 
@@ -620,7 +620,7 @@ function CharacterSettingsModalContent({ isOpen, onClose, character, isNew = fal
                     {/* システムプロンプト */}
                     <div style={sectionStyle}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                            <label style={{ ...labelStyle, marginBottom: 0 }}>{useBlockEditor ? '設定プロンプト' : 'キャラクターについて'}</label>
+                            <label style={{ ...labelStyle, marginBottom: 0 }}>{useBlockEditor ? '設定' : 'キャラクターについて'}</label>
                             <button
                                 type="button"
                                 onClick={() => setUseBlockEditor((v) => !v)}
@@ -704,7 +704,7 @@ function CharacterSettingsModalContent({ isOpen, onClose, character, isNew = fal
                     {!useBlockEditor && (
                         <>
                             <div style={sectionStyle}>
-                                <label style={labelStyle}>口調</label>
+                                <label style={labelStyle}>キャラクターの口調</label>
                                 <textarea
                                     className="input textarea"
                                     value={speechStyle}

@@ -457,9 +457,9 @@ export default function ChatMessagesView({
                     ) : (
                         <>
                             <MessageSquare size={48} style={{ marginBottom: '0.5rem', opacity: 0.5 }} />
-                            <h2 className="empty-state-title">まずは一言、話しかけてみましょう</h2>
+                            <h2 className="empty-state-title">まずは一言。</h2>
                             <p className="empty-state-description">
-                                例：「こんにちは。今日は何をしていたの？」
+                                例：「聞いて、今日はこんなことをしてたよ」
                             </p>
                         </>
                     )}
@@ -584,7 +584,7 @@ export default function ChatMessagesView({
                     alignSelf: 'flex-start',
                 }}>
                     <div className="spinner" style={{ width: '12px', height: '12px', borderWidth: '2px' }} />
-                    古い会話を要約中...
+                    古い会話を整理中…
                 </div>
             )}
         </div>

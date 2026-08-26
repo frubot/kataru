@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
+import { useRef, useEffect, useLayoutEffect, useCallback, useState, useMemo } from 'react';
 import {
     useStore,
     Room,
@@ -44,7 +44,9 @@ import {
     getVisualNovelCostumeOptions,
     resolveVisualNovelCostumeName,
     resolveVisualNovelExpressionImage,
+    shouldTriggerVisualNovelBounce,
 } from '@/lib/visualNovelPresentation';
+import type { VisualNovelBounceSnapshot } from '@/lib/visualNovelPresentation';
 import ChatComposer from './chat/ChatComposer';
 import ChatHeader from './chat/ChatHeader';
 import ChatMessagesView from './chat/ChatMessagesView';
@@ -311,6 +313,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const retrySubmissionRef = useRef<ChatRetryRequest | null>(null);
     const chatNoticeActionRunningRef = useRef(false);
     const messagePointerDragRef = useRef(false);
+    const previousVnBounceSnapshotRef = useRef<VisualNovelBounceSnapshot | null>(null);
     const {
         bounceActive: vnBounceActive,
         typingMessageId,
@@ -318,13 +321,15 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         isTypewriterActive,
         typingSpeedRef: vnTypingSpeedRef,
         triggerBounce: triggerVnBounce,
+        stopBounce: stopVnBounce,
         stopTypewriter,
         playTypewriter,
     } = useVisualNovelPresentation({ typingSpeed: vnTypingSpeed });
     const openVisualNovelLog = useCallback(() => {
         stopTypewriter(true);
+        stopVnBounce();
         setVnLogOpen(true);
-    }, [stopTypewriter]);
+    }, [stopTypewriter, stopVnBounce]);
     const closeVisualNovelLog = useCallback(() => {
         setVnLogOpen(false);
     }, []);
@@ -1293,26 +1298,38 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         ],
     );
     const latestAssistantMessageId = latestAssistantMessage?.id;
-    const latestAssistantEmotion = latestAssistantMessage?.emotion;
     const latestAssistantHasText = !!latestAssistantMessage?.displayContent.trim();
     const situationVnAssistantBounceKey = situationVnCurrentItem?.role === 'assistant'
         ? `${situationVnCurrentItem.key}:${situationVnCurrentItem.expression ?? ''}`
         : null;
+    const vnBounceContextKey = isVisualNovelMode && !isVisualNovelLogOpen && currentRoomId
+        ? `${currentRoomId}:${isSituationVisualNovelMode ? 'situation' : 'solo'}`
+        : null;
+    const vnBounceMessageKey = isSituationVisualNovelMode
+        ? situationVnAssistantBounceKey
+        : latestAssistantHasText
+            ? latestAssistantMessageId ?? null
+            : null;
 
-    useEffect(() => {
-        const bounceKey = isSituationVisualNovelMode
-            ? situationVnAssistantBounceKey
-            : latestAssistantMessageId;
-        if (!isVisualNovelMode || !bounceKey || (!isSituationVisualNovelMode && !latestAssistantHasText)) return;
-        triggerVnBounce();
+    useLayoutEffect(() => {
+        const current: VisualNovelBounceSnapshot = {
+            contextKey: vnBounceContextKey,
+            messageKey: vnBounceMessageKey,
+        };
+        const previous = previousVnBounceSnapshotRef.current;
+        previousVnBounceSnapshotRef.current = current;
+
+        if (previous?.contextKey !== current.contextKey || current.messageKey == null) {
+            stopVnBounce();
+        }
+        if (shouldTriggerVisualNovelBounce(previous, current)) {
+            triggerVnBounce();
+        }
     }, [
-        isSituationVisualNovelMode,
-        isVisualNovelMode,
-        latestAssistantEmotion,
-        latestAssistantHasText,
-        latestAssistantMessageId,
-        situationVnAssistantBounceKey,
+        stopVnBounce,
         triggerVnBounce,
+        vnBounceContextKey,
+        vnBounceMessageKey,
     ]);
 
     const lastRoomMessage = room
@@ -1580,7 +1597,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     castCharacters={situationVnCastCharacters}
                     expressionImage={vnExpressionImage}
                     bounceActive={vnBounceActive}
-                    onCharacterImageLoad={triggerVnBounce}
                     replySuggestions={replySuggestions}
                     hasReplySuggestions={showReplySuggestions}
                     isSummarizing={isSummarizing}

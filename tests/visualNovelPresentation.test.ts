@@ -7,6 +7,7 @@ import {
     getVisualNovelTypingDelay,
     resolveVisualNovelCostumeName,
     resolveVisualNovelExpressionImage,
+    shouldTriggerVisualNovelBounce,
     splitVisualNovelMessage,
 } from '../lib/visualNovelPresentation';
 
@@ -121,5 +122,38 @@ describe('visual novel typewriter presentation', () => {
 
         expect(pages.join('')).toBe(content);
         expect(pages.some((page) => page.includes('*とても長い仕草*'))).toBe(true);
+    });
+});
+
+describe('visual novel character bounce', () => {
+    test('runs when a new assistant message appears in the active conversation', () => {
+        expect(shouldTriggerVisualNovelBounce(
+            { contextKey: 'room-1:solo', messageKey: null },
+            { contextKey: 'room-1:solo', messageKey: 'assistant-1' },
+        )).toBe(true);
+        expect(shouldTriggerVisualNovelBounce(
+            { contextKey: 'room-1:solo', messageKey: 'assistant-1' },
+            { contextKey: 'room-1:solo', messageKey: 'assistant-2' },
+        )).toBe(true);
+    });
+
+    test('does not run for initial display, chat navigation, or returning from the log', () => {
+        expect(shouldTriggerVisualNovelBounce(
+            null,
+            { contextKey: 'room-1:solo', messageKey: 'assistant-1' },
+        )).toBe(false);
+        expect(shouldTriggerVisualNovelBounce(
+            { contextKey: 'room-1:solo', messageKey: 'assistant-1' },
+            { contextKey: 'room-2:solo', messageKey: 'assistant-2' },
+        )).toBe(false);
+        expect(shouldTriggerVisualNovelBounce(
+            { contextKey: null, messageKey: 'assistant-1' },
+            { contextKey: 'room-1:solo', messageKey: 'assistant-1' },
+        )).toBe(false);
+    });
+
+    test('does not run again when only the character image reloads', () => {
+        const snapshot = { contextKey: 'room-1:solo', messageKey: 'assistant-1' };
+        expect(shouldTriggerVisualNovelBounce(snapshot, snapshot)).toBe(false);
     });
 });

@@ -21,6 +21,22 @@ export type VisualNovelCostumeOption = {
     expressionCount: number;
 };
 
+export type VisualNovelBounceSnapshot = {
+    contextKey: string | null;
+    messageKey: string | null;
+};
+
+export function shouldTriggerVisualNovelBounce(
+    previous: VisualNovelBounceSnapshot | null,
+    current: VisualNovelBounceSnapshot,
+): boolean {
+    return previous != null
+        && current.contextKey != null
+        && current.messageKey != null
+        && previous.contextKey === current.contextKey
+        && previous.messageKey !== current.messageKey;
+}
+
 function findCostume(character: Character | null | undefined, costumeName: string | null | undefined) {
     if (!character || !costumeName || costumeName === DEFAULT_COSTUME_NAME) return null;
     return (character.costumes ?? []).find((costume) => costume.name === costumeName) ?? null;

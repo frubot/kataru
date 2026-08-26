@@ -25,7 +25,7 @@ export function useVisualNovelPresentation({ typingSpeed }: UseVisualNovelPresen
         typingSpeedRef.current = typingSpeed;
     }, [typingSpeed]);
 
-    const triggerBounce = useCallback(() => {
+    const clearBounceTimers = useCallback(() => {
         if (bounceStartRef.current) {
             clearTimeout(bounceStartRef.current);
             bounceStartRef.current = null;
@@ -34,7 +34,15 @@ export function useVisualNovelPresentation({ typingSpeed }: UseVisualNovelPresen
             clearTimeout(bounceStopRef.current);
             bounceStopRef.current = null;
         }
+    }, []);
+
+    const stopBounce = useCallback(() => {
+        clearBounceTimers();
         setBounceActive(false);
+    }, [clearBounceTimers]);
+
+    const triggerBounce = useCallback(() => {
+        stopBounce();
         bounceStartRef.current = setTimeout(() => {
             setBounceActive(true);
             bounceStopRef.current = setTimeout(() => {
@@ -43,7 +51,7 @@ export function useVisualNovelPresentation({ typingSpeed }: UseVisualNovelPresen
             }, 620);
             bounceStartRef.current = null;
         }, 20);
-    }, []);
+    }, [stopBounce]);
 
     const releaseTypeDelay = useCallback(() => {
         const pendingDelay = typeDelayRef.current;
@@ -126,11 +134,10 @@ export function useVisualNovelPresentation({ typingSpeed }: UseVisualNovelPresen
     });
 
     useEffect(() => () => {
-        if (bounceStartRef.current) clearTimeout(bounceStartRef.current);
-        if (bounceStopRef.current) clearTimeout(bounceStopRef.current);
+        clearBounceTimers();
         typewriterRef.current = null;
         releaseTypeDelay();
-    }, [releaseTypeDelay]);
+    }, [clearBounceTimers, releaseTypeDelay]);
 
     return {
         bounceActive,
@@ -139,6 +146,7 @@ export function useVisualNovelPresentation({ typingSpeed }: UseVisualNovelPresen
         isTypewriterActive,
         typingSpeedRef,
         triggerBounce,
+        stopBounce,
         stopTypewriter,
         playTypewriter,
     };

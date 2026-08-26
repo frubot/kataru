@@ -16,7 +16,6 @@ type VisualNovelViewProps = {
     castCharacters?: Character[];
     expressionImage: string | null;
     bounceActive: boolean;
-    onCharacterImageLoad: () => void;
     replySuggestions: ReactNode;
     hasReplySuggestions: boolean;
     isSummarizing: boolean;
@@ -51,7 +50,6 @@ export default function VisualNovelView({
     castCharacters,
     expressionImage,
     bounceActive,
-    onCharacterImageLoad,
     replySuggestions,
     hasReplySuggestions,
     isSummarizing,
@@ -123,7 +121,6 @@ export default function VisualNovelView({
                                 src={expressionImage}
                                 alt={character.name}
                                 className="vn-character-image"
-                                onLoad={onCharacterImageLoad}
                             />
                         ) : (
                             <div className="vn-character-placeholder">

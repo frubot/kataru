@@ -1382,6 +1382,26 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             handleInputChange(e);
         }
     };
+    const handleInsertAsterisk = () => {
+        if (chatInputDisabled) return;
+        const textarea = textareaRef.current;
+        const selectionStart = textarea?.selectionStart ?? chatInputValue.length;
+        const selectionEnd = textarea?.selectionEnd ?? selectionStart;
+        const nextValue = `${chatInputValue.slice(0, selectionStart)}*${chatInputValue.slice(selectionEnd)}`;
+        if (isInlineVnEditing) {
+            handleEditMessageChange(nextValue);
+        } else {
+            setInput(nextValue);
+            closeMention();
+        }
+        setTimeout(() => {
+            const inputElement = textareaRef.current;
+            if (!inputElement) return;
+            const nextCursorPosition = selectionStart + 1;
+            inputElement.focus();
+            inputElement.setSelectionRange(nextCursorPosition, nextCursorPosition);
+        }, 0);
+    };
     if (!room) {
         return (
             <ChatWelcome
@@ -1595,6 +1615,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     focusKey={room.id}
                     value={chatInputValue}
                     onChange={handleChatInputChange}
+                    onInsertAsterisk={handleInsertAsterisk}
                     placeholder={chatInputPlaceholder}
                     disabled={chatInputDisabled}
                     redirectDisabled={

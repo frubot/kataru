@@ -72,11 +72,7 @@ function LogEntry({ entry }: { entry: VisualNovelLogEntry }) {
                         className="vn-log-content"
                         {...(entry.isStreaming ? { role: 'status', 'aria-live': 'polite' as const } : {})}
                     >
-                        <ReactMarkdown>
-                            {entry.role === 'assistant'
-                                ? formatAssistantMarkdown(entry.content)
-                                : entry.content}
-                        </ReactMarkdown>
+                        <ReactMarkdown>{formatAssistantMarkdown(entry.content)}</ReactMarkdown>
                     </div>
                 </div>
             </article>

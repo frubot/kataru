@@ -87,6 +87,7 @@ export default memo(function MessageBubble({
 
     const assistantContent = displayContent || '...';
     const assistantSegments = splitAssistantMarkdownActions(assistantContent);
+    const userSegments = splitAssistantMarkdownActions(content);
     const formatAssistantSegment = (segmentContent: string) => (
         formatAssistantActions ? formatAssistantMarkdown(segmentContent) : segmentContent
     );
@@ -188,9 +189,23 @@ export default memo(function MessageBubble({
                             </div>
                         </form>
                     ) : (
-                        <div className="message-bubble user animate-slide-up">
-                            {content}
-                        </div>
+                        userSegments.map((segment, segmentIndex) => (
+                            segment.type === 'action' ? (
+                                <div
+                                    key={`${messageId}-segment-${segmentIndex}`}
+                                    className="assistant-action-description animate-slide-up"
+                                >
+                                    <ReactMarkdown>{segment.content}</ReactMarkdown>
+                                </div>
+                            ) : (
+                                <div
+                                    key={`${messageId}-segment-${segmentIndex}`}
+                                    className={`message-bubble user animate-slide-up${segmentIndex > 0 ? ' user-segment-continuation' : ''}`}
+                                >
+                                    <ReactMarkdown>{formatAssistantSegment(segment.content)}</ReactMarkdown>
+                                </div>
+                            )
+                        ))
                     )}
                     <div
                         className="edit-btn-wrapper"

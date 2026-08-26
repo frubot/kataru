@@ -6,9 +6,8 @@ import {
 } from '../lib/chatContinuation';
 
 describe('chat continuation', () => {
-    test('is available only for an empty game-mode input after an assistant response', () => {
+    test('is available for an empty input after an assistant response', () => {
         expect(isChatContinuationAvailable({
-            visualNovelMode: true,
             input: '   ',
             messages: [
                 { role: 'user' },
@@ -18,22 +17,14 @@ describe('chat continuation', () => {
         })).toBe(true);
     });
 
-    test('is unavailable while typing, outside game mode, or while blocked', () => {
+    test('is unavailable while typing or blocked', () => {
         const messages = [{ role: 'assistant' as const }];
         expect(isChatContinuationAvailable({
-            visualNovelMode: true,
             input: '続きを指定する',
             messages,
             blocked: false,
         })).toBe(false);
         expect(isChatContinuationAvailable({
-            visualNovelMode: false,
-            input: '',
-            messages,
-            blocked: false,
-        })).toBe(false);
-        expect(isChatContinuationAvailable({
-            visualNovelMode: true,
             input: '',
             messages,
             blocked: true,
@@ -48,7 +39,6 @@ describe('chat continuation', () => {
 
         expect(getLatestActiveChatMessage(messages)?.role).toBe('assistant');
         expect(isChatContinuationAvailable({
-            visualNovelMode: true,
             input: '',
             messages,
             blocked: false,
@@ -57,13 +47,11 @@ describe('chat continuation', () => {
 
     test('is unavailable when the active history ends with the user or is empty', () => {
         expect(isChatContinuationAvailable({
-            visualNovelMode: true,
             input: '',
             messages: [{ role: 'user' }],
             blocked: false,
         })).toBe(false);
         expect(isChatContinuationAvailable({
-            visualNovelMode: true,
             input: '',
             messages: [],
             blocked: false,

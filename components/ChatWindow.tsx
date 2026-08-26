@@ -902,7 +902,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         if (
             !latestRoom
             || !isChatContinuationAvailable({
-                visualNovelMode: resolveRoomViewMode(latestRoom) === 'vn',
                 input,
                 messages: latestRoom.messages,
                 blocked: continuationBlocked,
@@ -1439,7 +1438,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         || situationVnInputLocked
         || (isEditingMessage && !isInlineVnEditing);
     const canContinue = isChatContinuationAvailable({
-        visualNovelMode: isVisualNovelMode,
         input,
         messages: room?.messages ?? EMPTY_MESSAGES,
         blocked: chatInputDisabled || isEditingMessage,

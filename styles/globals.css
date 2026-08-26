@@ -1639,6 +1639,11 @@ body {
   margin-left: auto;
 }
 
+.message-bubble.user.user-segment-continuation {
+  margin-top: 0.25rem;
+  border-radius: 1rem;
+}
+
 .message-bubble.assistant {
   display: inline-block;
   width: fit-content;

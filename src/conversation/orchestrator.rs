@@ -130,11 +130,6 @@ async fn run_turn_inner(
         ));
     }
     if generation_mode.is_continue() {
-        if string(&room, "viewMode") != "vn" {
-            return Err(AppError::BadRequest(
-                "続きを生成できるのはゲームモードだけです。".into(),
-            ));
-        }
         if history
             .last()
             .is_none_or(|message| string(message, "role") != "assistant")

@@ -1349,7 +1349,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     : ''
         : isWaitingForAssistant
             ? '...'
-            : '...（話しかけてみましょう）';
+            : '...（話しかけてみよう）';
     const vnDialogueContent = activeStreamingPreview && !isSituationVisualNovelMode
         ? activeStreamingPreview.content
         : situationVnDialogueContent;

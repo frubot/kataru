@@ -683,19 +683,19 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
                     <button
                         className="btn btn-primary sidebar-main-action"
                         onClick={() => onOpenCharacterSettings(null, true)}
-                        title="新しいキャラクター"
+                        title="キャラクターを作る"
                     >
                         <User size={18} className="sidebar-action-icon" />
-                        <span className="sidebar-label">新しいキャラクター</span>
+                        <span className="sidebar-label">キャラクターを作る</span>
                     </button>
                     <button
                         className="btn btn-secondary sidebar-secondary-action"
                         onClick={handleCreateSituation}
-                        title="シチュエーション"
-                        aria-label="シチュエーション"
+                        title="シチュエーションを作る"
+                        aria-label="シチュエーションを作る"
                     >
                         <Users size={18} className="sidebar-action-icon" />
-                        <span className="sidebar-label">シチュエーション</span>
+                        <span className="sidebar-label">シチュエーションを作る</span>
                     </button>
                 </div>
 

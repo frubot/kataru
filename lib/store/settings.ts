@@ -50,6 +50,7 @@ export const DEFAULT_CHARACTER_MAX_HISTORY: number | undefined = 7;
 export const DEFAULT_CHARACTER_TEMPERATURE = 1.0;
 export const DEFAULT_CHARACTER_TOP_P: number | undefined = 0.95;
 export const DEFAULT_CHARACTER_TOP_K = 15;
+export const DEFAULT_CONVERSATION_COMPRESSION_ENABLED = true;
 
 export function getThemeClassName(mode: ThemeMode, palette: ThemePalette): string {
     return `mode-${mode} palette-${palette}`;
@@ -187,6 +188,7 @@ type SettingsSlice = Pick<
     | 'memoryExtractionModel'
     | 'memoryEmbeddingModel'
     | 'modelDefaultsByApiType'
+    | 'conversationCompressionEnabled'
     | 'generateTitleOnFirstReply'
     | 'replySuggestionsEnabled'
     | 'aiApiType'
@@ -216,6 +218,7 @@ type SettingsSlice = Pick<
     | 'setDefaultImageModel'
     | 'setMemoryExtractionModel'
     | 'setMemoryEmbeddingModel'
+    | 'setConversationCompressionEnabled'
     | 'setGenerateTitleOnFirstReply'
     | 'setReplySuggestionsEnabled'
     | 'setAiApiType'
@@ -248,6 +251,7 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         memoryExtractionModel: DEFAULT_MEMORY_EXTRACTION_MODEL,
         memoryEmbeddingModel: DEFAULT_MEMORY_EMBEDDING_MODEL,
         modelDefaultsByApiType: normalizeModelDefaultsByApiType(undefined),
+        conversationCompressionEnabled: DEFAULT_CONVERSATION_COMPRESSION_ENABLED,
         generateTitleOnFirstReply: false,
         replySuggestionsEnabled: false,
         aiApiType: DEFAULT_AI_API_TYPE,
@@ -329,6 +333,10 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         },
         setMemoryEmbeddingModel: (memoryEmbeddingModel) => {
             updateModelDefault(set, get, 'memoryEmbeddingModel', memoryEmbeddingModel);
+        },
+        setConversationCompressionEnabled: (conversationCompressionEnabled) => {
+            set({ conversationCompressionEnabled });
+            fire(db.setMeta('conversationCompressionEnabled', conversationCompressionEnabled));
         },
         setGenerateTitleOnFirstReply: (generateTitleOnFirstReply) => {
             set({ generateTitleOnFirstReply });

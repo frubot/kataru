@@ -30,7 +30,10 @@ export interface FullBackup {
     };
 }
 
-export type SharedCharacter = Omit<Character, 'id' | 'favorite' | 'createdAt' | 'updatedAt'>;
+export type SharedCharacter = Omit<
+    Character,
+    'id' | 'favorite' | 'createdAt' | 'updatedAt' | 'enableThinking'
+>;
 
 export interface CharacterBackup {
     version: 1;
@@ -46,7 +49,7 @@ export interface ParsedImport {
     data: ParsedBackup;
 }
 
-function copySharedCharacter(character: SharedCharacter): SharedCharacter {
+function copySharedCharacter(character: Character | SharedCharacter): SharedCharacter {
     return {
         name: character.name,
         systemPrompt: character.systemPrompt,
@@ -60,9 +63,7 @@ function copySharedCharacter(character: SharedCharacter): SharedCharacter {
         ...(character.temperature !== undefined ? { temperature: character.temperature } : {}),
         ...(character.topP !== undefined ? { topP: character.topP } : {}),
         ...(character.topK !== undefined ? { topK: character.topK } : {}),
-        ...(character.enableThinking !== undefined ? { enableThinking: character.enableThinking } : {}),
         ...(character.enableMemory !== undefined ? { enableMemory: character.enableMemory } : {}),
-        ...(character.enableSummary !== undefined ? { enableSummary: character.enableSummary } : {}),
         ...(character.expressions !== undefined ? {
             expressions: character.expressions.map((expression) => ({ ...expression })),
         } : {}),
@@ -388,9 +389,7 @@ function isValidSharedCharacter(value: unknown): value is SharedCharacter {
         && isOptionalNumber(value.temperature, { min: 0, max: 2 })
         && isOptionalNumber(value.topP, { min: 0, max: 1 })
         && isOptionalNumber(value.topK, { min: 0, max: 100, integer: true })
-        && isOptionalBoolean(value.enableThinking)
         && isOptionalBoolean(value.enableMemory)
-        && isOptionalBoolean(value.enableSummary)
         && (value.expressions === undefined
             || (Array.isArray(value.expressions) && value.expressions.every(isValidExpression)))
         && (value.costumes === undefined

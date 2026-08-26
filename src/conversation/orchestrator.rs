@@ -189,7 +189,7 @@ async fn run_turn_inner(
         &api_client,
         &history,
         previous_summary,
-        summary_character.is_some_and(|value| boolean(value, "enableSummary")),
+        boolean(&payload, "conversationCompressionEnabled"),
         history_limit,
         prior_message_count,
         situation.is_some(),

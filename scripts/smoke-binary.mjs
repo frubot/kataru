@@ -185,9 +185,9 @@ try {
       model: "mock-model",
       maxCharacters: 256,
       maxHistory: 7,
-      enableSummary: false,
       enableMemory: false,
     },
+    conversationCompressionEnabled: false,
     messages: [{
       id: "smoke-user-message",
       role: "user",

@@ -34,6 +34,7 @@ import { normalizeCharacters } from './characters';
 import { fire, nextRoomLoadSequence, toStoredRoom } from './persistence';
 import {
     clearThemeCache,
+    DEFAULT_CONVERSATION_COMPRESSION_ENABLED,
     DEFAULT_THEME_SELECTION,
     DEFAULT_VN_TYPING_SPEED,
     isVnTypingSpeed,
@@ -69,7 +70,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
         hydrate: async () => {
             if (get().hydrated) return;
             await db.migrateLegacyDatabase();
-            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, currentRoomId, vnTypingSpeed, storedKeyboardShortcuts, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion] = await Promise.all([
+            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, currentRoomId, vnTypingSpeed, storedKeyboardShortcuts, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedConversationCompressionEnabled, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion] = await Promise.all([
                 db.getAllCharacters(),
                 db.getAllGroups(),
                 db.getAllRooms(),
@@ -93,6 +94,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 db.getMeta<string>('memoryEmbeddingModel'),
                 db.getMeta<ModelDefaultsByApiType>('modelDefaultsByApiType'),
                 db.getMeta<unknown>('modelDefaultsByProvider'),
+                db.getMeta<boolean>('conversationCompressionEnabled'),
                 db.getMeta<boolean>('generateTitleOnFirstReply'),
                 db.getMeta<boolean>('replySuggestionsEnabled'),
                 db.getMeta<AiApiType>('aiApiType'),
@@ -206,6 +208,9 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
             if (JSON.stringify(storedKeyboardShortcuts) !== JSON.stringify(resolvedKeyboardShortcuts)) {
                 fire(db.setMeta('keyboardShortcuts', resolvedKeyboardShortcuts));
             }
+            const resolvedConversationCompressionEnabled = typeof storedConversationCompressionEnabled === 'boolean'
+                ? storedConversationCompressionEnabled
+                : DEFAULT_CONVERSATION_COMPRESSION_ENABLED;
             const resolvedGenerateTitleOnFirstReply = storedGenerateTitleOnFirstReply === true;
             const resolvedReplySuggestionsEnabled = storedReplySuggestionsEnabled === true;
             const resolvedOpenRouterIgnoredProviders = normalizeOpenRouterIgnoredProviders(storedOpenRouterIgnoredProviders);
@@ -226,6 +231,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
             if (aiSettingsMigration.shouldPersistModelDefaultsByApiType) {
                 persistModelDefaultsByApiType(modelDefaultsByApiType);
             }
+            if (storedConversationCompressionEnabled !== resolvedConversationCompressionEnabled) fire(db.setMeta('conversationCompressionEnabled', resolvedConversationCompressionEnabled));
             if (storedGenerateTitleOnFirstReply !== resolvedGenerateTitleOnFirstReply) fire(db.setMeta('generateTitleOnFirstReply', resolvedGenerateTitleOnFirstReply));
             if (storedReplySuggestionsEnabled !== resolvedReplySuggestionsEnabled) fire(db.setMeta('replySuggestionsEnabled', resolvedReplySuggestionsEnabled));
             if (aiSettingsMigration.shouldPersistAiApiType) {
@@ -254,6 +260,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 keyboardShortcuts: resolvedKeyboardShortcuts,
                 ...activeModelDefaults,
                 modelDefaultsByApiType,
+                conversationCompressionEnabled: resolvedConversationCompressionEnabled,
                 generateTitleOnFirstReply: resolvedGenerateTitleOnFirstReply,
                 replySuggestionsEnabled: resolvedReplySuggestionsEnabled,
                 aiApiType: resolvedAiApiType,
@@ -297,6 +304,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 memoryExtractionModel: DEFAULT_MEMORY_EXTRACTION_MODEL,
                 memoryEmbeddingModel: DEFAULT_MEMORY_EMBEDDING_MODEL,
                 modelDefaultsByApiType: normalizeModelDefaultsByApiType(undefined),
+                conversationCompressionEnabled: DEFAULT_CONVERSATION_COMPRESSION_ENABLED,
                 generateTitleOnFirstReply: false,
                 replySuggestionsEnabled: false,
                 aiApiType: DEFAULT_AI_API_TYPE,

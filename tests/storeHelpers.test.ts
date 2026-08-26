@@ -29,6 +29,7 @@ describe('store composition', () => {
         expect(state.usageRecords).toEqual([]);
         expect(state.themeMode).toBe('dark');
         expect(state.themePalette).toBe('mono');
+        expect(state.conversationCompressionEnabled).toBe(true);
 
         for (const action of [
             'hydrate',
@@ -59,6 +60,20 @@ describe('store pure helpers', () => {
 
         expect(character).not.toHaveProperty('maxTokens');
         expect(character.maxCharacters).toBeUndefined();
+    });
+
+    test('removes the former per-character conversation compression setting', () => {
+        const [character] = normalizeCharacters([{
+            id: 'character-1',
+            name: '葵',
+            systemPrompt: '',
+            model: 'model-1',
+            enableSummary: false,
+            createdAt: 1,
+            updatedAt: 1,
+        } as Character & { enableSummary: boolean }], 'fallback-model');
+
+        expect(character).not.toHaveProperty('enableSummary');
     });
 
     test('builds a safe conversation preview', () => {

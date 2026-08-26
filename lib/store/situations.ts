@@ -255,7 +255,6 @@ export function resolveSituationParticipants(
                 topK: actor.topK,
                 enableThinking: actor.enableThinking,
                 enableMemory: false,
-                enableSummary: false,
                 expressions: actor.expressions,
                 costumes: actor.costumes,
                 createdAt: situation.createdAt ?? now,

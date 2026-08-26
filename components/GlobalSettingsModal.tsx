@@ -334,6 +334,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         defaultImageModel, setDefaultImageModel,
         memoryExtractionModel, setMemoryExtractionModel,
         memoryEmbeddingModel, setMemoryEmbeddingModel,
+        conversationCompressionEnabled, setConversationCompressionEnabled,
         generateTitleOnFirstReply, setGenerateTitleOnFirstReply,
         replySuggestionsEnabled, setReplySuggestionsEnabled,
         aiApiType, setAiApiType,
@@ -1455,13 +1456,53 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
 
                         {activeTab === 'general' && (
                             <>
-                        {/* Title Generation Section */}
+                        {/* Feature Section */}
                         <div style={{ marginBottom: '1.5rem' }}>
                             <h3 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '0.75rem' }}>
                                 機能
                             </h3>
                             <div>
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+                                    <div>
+                                        <div style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
+                                            会話圧縮
+                                        </div>
+                                        <div style={{ marginTop: '0.25rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                            長い会話でコンテキストを節約します。
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setConversationCompressionEnabled(!conversationCompressionEnabled)}
+                                        style={{
+                                            position: 'relative',
+                                            width: '44px',
+                                            height: '24px',
+                                            borderRadius: '12px',
+                                            border: 'none',
+                                            cursor: 'pointer',
+                                            background: conversationCompressionEnabled ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
+                                            transition: 'background 0.2s ease',
+                                            padding: 0,
+                                            flexShrink: 0,
+                                        }}
+                                        aria-label="会話圧縮を有効化"
+                                        aria-pressed={conversationCompressionEnabled}
+                                    >
+                                        <span style={{
+                                            position: 'absolute',
+                                            top: '2px',
+                                            left: conversationCompressionEnabled ? '22px' : '2px',
+                                            width: '20px',
+                                            height: '20px',
+                                            borderRadius: '50%',
+                                            background: '#fff',
+                                            transition: 'left 0.2s ease',
+                                            boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                                        }} />
+                                    </button>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', marginTop: '1rem' }}>
                                     <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
                                         タイトルの自動生成
                                     </span>

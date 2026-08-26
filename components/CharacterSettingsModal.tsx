@@ -45,7 +45,6 @@ function buildInitialCharacterDraft(character: Character | null, defaultChatMode
         model: character?.model.trim() || defaultChatModel,
         enableThinking: character?.enableThinking ?? false,
         enableMemory: character?.enableMemory ?? true,
-        enableSummary: character?.enableSummary ?? true,
         maxCharacters: character?.maxCharacters != null ? String(character.maxCharacters) : '',
         maxHistory: character?.maxHistory != null ? String(character.maxHistory) : '',
         temperature: character?.temperature ?? null,
@@ -321,9 +320,6 @@ function CharacterSettingsModalContent({ isOpen, onClose, character, isNew = fal
     // Thinking settings
     const [enableThinking, setEnableThinking] = useState(initialDraft.enableThinking);
 
-    // Summary / compression settings
-    const [enableSummary, setEnableSummary] = useState(initialDraft.enableSummary);
-
     // Memory settings
     const [enableMemory, setEnableMemory] = useState(initialDraft.enableMemory);
 
@@ -358,7 +354,6 @@ function CharacterSettingsModalContent({ isOpen, onClose, character, isNew = fal
             model,
             enableThinking,
             enableMemory,
-            enableSummary,
             maxCharacters,
             maxHistory,
             temperature,
@@ -391,7 +386,6 @@ function CharacterSettingsModalContent({ isOpen, onClose, character, isNew = fal
             model: resolvedModel,
             enableThinking,
             enableMemory,
-            enableSummary,
             maxCharacters: maxCharacters ? Math.max(1, Math.round(Number(maxCharacters))) : undefined,
             maxHistory: maxHistory ? Math.min(100, Math.max(1, Number(maxHistory))) : undefined,
             temperature: temperature ?? undefined,
@@ -408,7 +402,7 @@ function CharacterSettingsModalContent({ isOpen, onClose, character, isNew = fal
             updateCharacter(character.id, updates);
         }
         onClose();
-    }, [character, costumes, createCharacter, defaultChatModel, enableMemory, enableSummary, enableThinking, expressions, icon, initialDraft, isNew, maxCharacters, maxHistory, model, name, onClose, protagonistPrompt, speechStyle, systemPrompt, temperature, topK, topP, updateCharacter, userConstraints]);
+    }, [character, costumes, createCharacter, defaultChatModel, enableMemory, enableThinking, expressions, icon, initialDraft, isNew, maxCharacters, maxHistory, model, name, onClose, protagonistPrompt, speechStyle, systemPrompt, temperature, topK, topP, updateCharacter, userConstraints]);
 
     const childModalOpen = imageGenOpen || characterGeneratorOpen || expressionsOpen || costumesOpen;
     useModalKeyboard({
@@ -766,46 +760,6 @@ function CharacterSettingsModalContent({ isOpen, onClose, character, isNew = fal
                                     position: 'absolute',
                                     top: '2px',
                                     left: enableThinking ? '22px' : '2px',
-                                    width: '20px',
-                                    height: '20px',
-                                    borderRadius: '50%',
-                                    background: '#fff',
-                                    transition: 'left 0.2s ease',
-                                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-                                }} />
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* 会話圧縮トグル */}
-                    <div style={sectionStyle}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <div>
-                                {renderLabelWithInfo('会話圧縮', '長い会話でコンテキストを節約できます。', {
-                                    marginBottom: 0,
-                                })}
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => setEnableSummary(!enableSummary)}
-                                style={{
-                                    position: 'relative',
-                                    width: '44px',
-                                    height: '24px',
-                                    borderRadius: '12px',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    background: enableSummary ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
-                                    transition: 'background 0.2s ease',
-                                    padding: 0,
-                                    flexShrink: 0,
-                                }}
-                                aria-label="会話圧縮を有効化"
-                            >
-                                <span style={{
-                                    position: 'absolute',
-                                    top: '2px',
-                                    left: enableSummary ? '22px' : '2px',
                                     width: '20px',
                                     height: '20px',
                                     borderRadius: '50%',

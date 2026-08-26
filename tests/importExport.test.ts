@@ -239,9 +239,11 @@ describe('createFullBackup and parseFullBackup', () => {
 
 describe('character sharing', () => {
     test('exports one character with inline images and without local metadata', async () => {
-        const source: Character = {
+        const source: Character & { enableSummary: boolean } = {
             ...character('character-a', 'アリス'),
             favorite: true,
+            enableThinking: true,
+            enableSummary: false,
             icon: 'data:image/png;base64,AA==',
             expressions: [{ name: 'neutral', image: 'data:image/png;base64,AQ==' }],
         };
@@ -270,6 +272,8 @@ describe('character sharing', () => {
         });
         expect(envelope.data.character).not.toHaveProperty('id');
         expect(envelope.data.character).not.toHaveProperty('favorite');
+        expect(envelope.data.character).not.toHaveProperty('enableThinking');
+        expect(envelope.data.character).not.toHaveProperty('enableSummary');
         expect(envelope.data.character).not.toHaveProperty('createdAt');
         expect(envelope.data.character).not.toHaveProperty('updatedAt');
         expect(fetchMock).toHaveBeenCalledTimes(1);

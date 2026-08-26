@@ -107,7 +107,6 @@ type ConversationCharacter = {
     topK?: number;
     enableThinking?: boolean;
     enableMemory?: boolean;
-    enableSummary?: boolean;
     expressions?: { name: string }[];
     costumes?: {
         name: string;
@@ -139,7 +138,6 @@ function toConversationCharacter(character: Character | null): ConversationChara
         topK: character.topK,
         enableThinking: character.enableThinking,
         enableMemory: character.enableMemory,
-        enableSummary: character.enableSummary,
         expressions: character.expressions?.map(({ name }) => ({ name })),
         costumes: character.costumes?.map(({ name, expressions }) => ({
             name,
@@ -267,6 +265,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         branchRoomFromMessage,
         vnTypingSpeed,
         summaryModel: globalSummaryModel,
+        conversationCompressionEnabled,
         memoryExtractionModel,
         memoryEmbeddingModel,
         generateTitleOnFirstReply,
@@ -816,6 +815,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     messages: sourceRoom.messages,
                     secretMode: isSecretMode,
                     summaryModel: globalSummaryModel,
+                    conversationCompressionEnabled,
                     memoryExtractionModel,
                     memoryEmbeddingModel,
                     aiApiConfig: getAiApiConfig(),

@@ -38,7 +38,6 @@ export interface Character {
     topK?: number;
     enableThinking?: boolean;
     enableMemory?: boolean;
-    enableSummary?: boolean;
     expressions?: Expression[];
     costumes?: Costume[];
     createdAt: number;
@@ -284,6 +283,7 @@ export interface AppState {
     memoryExtractionModel: string;
     memoryEmbeddingModel: string;
     modelDefaultsByApiType: ModelDefaultsByApiType;
+    conversationCompressionEnabled: boolean;
     generateTitleOnFirstReply: boolean;
     replySuggestionsEnabled: boolean;
     aiApiType: AiApiType;
@@ -322,6 +322,7 @@ export interface AppState {
     setDefaultImageModel: (model: string) => void;
     setMemoryExtractionModel: (model: string) => void;
     setMemoryEmbeddingModel: (model: string) => void;
+    setConversationCompressionEnabled: (enabled: boolean) => void;
     setGenerateTitleOnFirstReply: (enabled: boolean) => void;
     setReplySuggestionsEnabled: (enabled: boolean) => void;
     setAiApiType: (apiType: AiApiType) => void;
@@ -336,7 +337,7 @@ export interface AppState {
     setSummaryInspectorEnabled: (enabled: boolean) => void;
 
     createCharacter: (name: string, systemPrompt?: string, model?: string, extras?: CharacterExtras) => string;
-    updateCharacter: (id: string, updates: Partial<Pick<Character, 'name' | 'systemPrompt' | 'favorite' | 'speechStyle' | 'protagonistPrompt' | 'userConstraints' | 'model' | 'icon' | 'maxCharacters' | 'maxHistory' | 'temperature' | 'topP' | 'topK' | 'enableThinking' | 'enableMemory' | 'enableSummary' | 'expressions' | 'costumes'>>) => void;
+    updateCharacter: (id: string, updates: Partial<Pick<Character, 'name' | 'systemPrompt' | 'favorite' | 'speechStyle' | 'protagonistPrompt' | 'userConstraints' | 'model' | 'icon' | 'maxCharacters' | 'maxHistory' | 'temperature' | 'topP' | 'topK' | 'enableThinking' | 'enableMemory' | 'expressions' | 'costumes'>>) => void;
     deleteCharacter: (id: string) => void;
     duplicateCharacter: (id: string) => string;
     getCharacter: (id: string) => Character | undefined;

@@ -26,12 +26,15 @@ export function normalizeCharacterModel(character: Character, fallbackModel: str
     const normalized = { ...character } as Character & {
         thinkModeEnabled?: boolean;
         maxTokens?: number;
+        enableSummary?: boolean;
     };
     const hadLegacyThinkMode = 'thinkModeEnabled' in normalized;
     const hadLegacyMaxTokens = 'maxTokens' in normalized;
+    const hadLegacyEnableSummary = 'enableSummary' in normalized;
     delete normalized.thinkModeEnabled;
     delete normalized.maxTokens;
-    return model === character.model && !hadLegacyThinkMode && !hadLegacyMaxTokens
+    delete normalized.enableSummary;
+    return model === character.model && !hadLegacyThinkMode && !hadLegacyMaxTokens && !hadLegacyEnableSummary
         ? character
         : { ...normalized, model };
 }

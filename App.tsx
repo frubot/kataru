@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
+import type { GeneratedCharacterDraft } from '@/lib/characterGeneration';
 import { CURRENT_ONBOARDING_VERSION, useStore, Character, getThemeClassName, resolveSituationParticipants } from '@/lib/store';
 import ChatSidebar from '@/components/ChatSidebar';
 import ChatWindow from '@/components/ChatWindow';
@@ -106,7 +107,7 @@ export default function Home() {
     const [characterModalOpen, setCharacterModalOpen] = useState(false);
     const [editingCharacter, setEditingCharacter] = useState<Character | null>(null);
     const [isNewCharacter, setIsNewCharacter] = useState(false);
-    const [openCharacterGeneratorOnStart, setOpenCharacterGeneratorOnStart] = useState(false);
+    const [initialGeneratedCharacterDraft, setInitialGeneratedCharacterDraft] = useState<GeneratedCharacterDraft | null>(null);
 
     // Memory list modal state
     const [memoryListOpen, setMemoryListOpen] = useState(false);
@@ -182,11 +183,11 @@ export default function Home() {
     const handleOpenCharacterSettings = (
         character: Character | null,
         isNew: boolean,
-        openGeneratorOnStart = false,
+        generatedDraft: GeneratedCharacterDraft | null = null,
     ) => {
         setEditingCharacter(character);
         setIsNewCharacter(isNew);
-        setOpenCharacterGeneratorOnStart(openGeneratorOnStart);
+        setInitialGeneratedCharacterDraft(generatedDraft);
         setCharacterModalOpen(true);
     };
 
@@ -194,7 +195,7 @@ export default function Home() {
         setCharacterModalOpen(false);
         setEditingCharacter(null);
         setIsNewCharacter(false);
-        setOpenCharacterGeneratorOnStart(false);
+        setInitialGeneratedCharacterDraft(null);
     };
 
     const handleOpenMemoryList = (character?: Character | null) => {
@@ -260,9 +261,9 @@ export default function Home() {
                         setCharacterAddModalOpen(false);
                         handleOpenCharacterSettings(null, true);
                     }}
-                    onGenerate={() => {
+                    onGenerated={(draft) => {
                         setCharacterAddModalOpen(false);
-                        handleOpenCharacterSettings(null, true, true);
+                        handleOpenCharacterSettings(null, true, draft);
                     }}
                 />
             </ErrorBoundary>
@@ -282,7 +283,7 @@ export default function Home() {
                     onClose={handleCloseCharacterSettings}
                     character={editingCharacter}
                     isNew={isNewCharacter}
-                    openGeneratorOnStart={openCharacterGeneratorOnStart}
+                    initialGeneratedDraft={initialGeneratedCharacterDraft}
                     onOpenMemoryList={() => handleOpenMemoryList(editingCharacter)}
                 />
             </ErrorBoundary>

@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
-import { X, Brain, ChevronDown, ChevronRight, RotateCcw, User, Smile, Shirt, Info, Sparkles, FileText, LayoutList } from 'lucide-react';
+import { X, Brain, ChevronDown, ChevronRight, RotateCcw, User, Smile, Shirt, Info, FileText, LayoutList } from 'lucide-react';
+import type { GeneratedCharacterDraft } from '@/lib/characterGeneration';
 import {
     useStore,
     Character,
@@ -14,7 +15,6 @@ import {
 import ImageGenerationModal from './ImageGenerationModal';
 import ExpressionDiffModal from './ExpressionDiffModal';
 import CostumeDiffModal from './CostumeDiffModal';
-import CharacterGeneratorModal from './CharacterGeneratorModal';
 import PromptBlockEditor from './PromptBlockEditor';
 import StoredImage from './StoredImage';
 import ModelSelector from './ModelSelector';
@@ -32,16 +32,20 @@ interface CharacterSettingsModalProps {
     onClose: () => void;
     character: Character | null;
     isNew?: boolean;
-    openGeneratorOnStart?: boolean;
+    initialGeneratedDraft?: GeneratedCharacterDraft | null;
     onOpenMemoryList?: () => void;
 }
 
-function buildInitialCharacterDraft(character: Character | null, defaultChatModel: string) {
+function buildInitialCharacterDraft(
+    character: Character | null,
+    defaultChatModel: string,
+    generatedDraft?: GeneratedCharacterDraft | null,
+) {
     return {
-        name: character?.name ?? '',
-        systemPrompt: character?.systemPrompt ?? '',
+        name: generatedDraft?.name ?? character?.name ?? '',
+        systemPrompt: generatedDraft?.systemPrompt ?? character?.systemPrompt ?? '',
         speechStyle: character?.speechStyle ?? '',
-        protagonistPrompt: character?.protagonistPrompt ?? '',
+        protagonistPrompt: generatedDraft?.protagonistPrompt ?? character?.protagonistPrompt ?? '',
         userConstraints: character?.userConstraints ?? '',
         model: character?.model.trim() || defaultChatModel,
         enableThinking: character?.enableThinking ?? false,
@@ -313,11 +317,15 @@ function CharacterSettingsModalContent({
     onClose,
     character,
     isNew = false,
-    openGeneratorOnStart = false,
+    initialGeneratedDraft,
     onOpenMemoryList,
 }: CharacterSettingsModalProps) {
     const { createCharacter, updateCharacter, defaultChatModel } = useStore();
-    const [initialDraft] = useState(() => buildInitialCharacterDraft(character, defaultChatModel));
+    const [initialDraft] = useState(() => buildInitialCharacterDraft(
+        character,
+        defaultChatModel,
+        initialGeneratedDraft,
+    ));
     const [name, setName] = useState(initialDraft.name);
     const [systemPrompt, setSystemPrompt] = useState(initialDraft.systemPrompt);
     const [speechStyle, setSpeechStyle] = useState(initialDraft.speechStyle);
@@ -351,7 +359,6 @@ function CharacterSettingsModalContent({
     const [expressions, setExpressions] = useState<Expression[]>(initialDraft.expressions);
     const [costumes, setCostumes] = useState<Costume[]>(initialDraft.costumes);
     const [imageGenOpen, setImageGenOpen] = useState(false);
-    const [characterGeneratorOpen, setCharacterGeneratorOpen] = useState(openGeneratorOnStart);
     const [expressionsOpen, setExpressionsOpen] = useState(false);
     const [costumesOpen, setCostumesOpen] = useState(false);
     const modalRef = useRef<HTMLDivElement>(null);
@@ -418,7 +425,7 @@ function CharacterSettingsModalContent({
         onClose();
     }, [character, costumes, createCharacter, defaultChatModel, enableMemory, enableSummary, enableThinking, expressions, icon, initialDraft, isNew, maxCharacters, maxHistory, model, name, onClose, protagonistPrompt, speechStyle, systemPrompt, temperature, topK, topP, updateCharacter, userConstraints]);
 
-    const childModalOpen = imageGenOpen || characterGeneratorOpen || expressionsOpen || costumesOpen;
+    const childModalOpen = imageGenOpen || expressionsOpen || costumesOpen;
     useModalKeyboard({
         isOpen,
         containerRef: modalRef,
@@ -505,17 +512,6 @@ function CharacterSettingsModalContent({
                 aria-label={isNew ? '新しいキャラクター' : 'キャラクター設定'}
             >
                 <div className="settings-form-modal-actions">
-                    {isNew && (
-                        <button
-                            type="button"
-                            className="btn btn-ghost"
-                            onClick={() => setCharacterGeneratorOpen(true)}
-                            title="AIでキャラクター生成"
-                            aria-label="AIでキャラクター生成"
-                        >
-                            <Sparkles size={16} />
-                        </button>
-                    )}
                     {isNew || !character ? (
                         <button
                             className="btn btn-primary settings-form-modal-save"
@@ -1114,17 +1110,6 @@ function CharacterSettingsModalContent({
                         });
                         return next;
                     });
-                }}
-            />
-
-            <CharacterGeneratorModal
-                isOpen={characterGeneratorOpen}
-                onClose={() => setCharacterGeneratorOpen(false)}
-                onApply={(draft) => {
-                    setName(draft.name);
-                    setSystemPrompt(draft.systemPrompt);
-                    setProtagonistPrompt(draft.protagonistPrompt);
-                    setCharacterGeneratorOpen(false);
                 }}
             />
 

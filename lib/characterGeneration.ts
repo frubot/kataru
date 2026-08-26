@@ -7,6 +7,12 @@ export interface GeneratedCharacterProfile {
     details: string;
 }
 
+export interface GeneratedCharacterDraft {
+    name: string;
+    systemPrompt: string;
+    protagonistPrompt: string;
+}
+
 const CHARACTER_FIELD_LABELS: Array<[keyof GeneratedCharacterProfile, string]> = [
     ['name', '名前'],
     ['gender', '性別'],

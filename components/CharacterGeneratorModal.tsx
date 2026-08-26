@@ -4,17 +4,12 @@ import {
     formatGeneratedCharacterPrompt,
     formatGeneratedProtagonistPrompt,
     normalizeGeneratedCharacterProfile,
+    type GeneratedCharacterDraft,
     type GeneratedCharacterProfile,
 } from '@/lib/characterGeneration';
 import { useStore } from '@/lib/store';
 import ModelSelector from './ModelSelector';
 import { useModalKeyboard } from './useModalKeyboard';
-
-interface GeneratedCharacterDraft {
-    name: string;
-    systemPrompt: string;
-    protagonistPrompt: string;
-}
 
 interface Props {
     isOpen: boolean;

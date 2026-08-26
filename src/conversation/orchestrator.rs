@@ -129,15 +129,14 @@ async fn run_turn_inner(
             "messages に会話履歴が必要です。".into(),
         ));
     }
-    if generation_mode.is_continue() {
-        if history
+    if generation_mode.is_continue()
+        && history
             .last()
             .is_none_or(|message| string(message, "role") != "assistant")
-        {
-            return Err(AppError::BadRequest(
-                "続きを生成するには直前のキャラクター返答が必要です。".into(),
-            ));
-        }
+    {
+        return Err(AppError::BadRequest(
+            "続きを生成するには直前のキャラクター返答が必要です。".into(),
+        ));
     }
 
     let participants = payload

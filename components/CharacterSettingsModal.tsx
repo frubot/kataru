@@ -32,6 +32,7 @@ interface CharacterSettingsModalProps {
     onClose: () => void;
     character: Character | null;
     isNew?: boolean;
+    openGeneratorOnStart?: boolean;
     onOpenMemoryList?: () => void;
 }
 
@@ -307,7 +308,14 @@ export default function CharacterSettingsModal(props: CharacterSettingsModalProp
     return <CharacterSettingsModalContent key={draftKey} {...props} />;
 }
 
-function CharacterSettingsModalContent({ isOpen, onClose, character, isNew = false, onOpenMemoryList }: CharacterSettingsModalProps) {
+function CharacterSettingsModalContent({
+    isOpen,
+    onClose,
+    character,
+    isNew = false,
+    openGeneratorOnStart = false,
+    onOpenMemoryList,
+}: CharacterSettingsModalProps) {
     const { createCharacter, updateCharacter, defaultChatModel } = useStore();
     const [initialDraft] = useState(() => buildInitialCharacterDraft(character, defaultChatModel));
     const [name, setName] = useState(initialDraft.name);
@@ -343,7 +351,7 @@ function CharacterSettingsModalContent({ isOpen, onClose, character, isNew = fal
     const [expressions, setExpressions] = useState<Expression[]>(initialDraft.expressions);
     const [costumes, setCostumes] = useState<Costume[]>(initialDraft.costumes);
     const [imageGenOpen, setImageGenOpen] = useState(false);
-    const [characterGeneratorOpen, setCharacterGeneratorOpen] = useState(false);
+    const [characterGeneratorOpen, setCharacterGeneratorOpen] = useState(openGeneratorOnStart);
     const [expressionsOpen, setExpressionsOpen] = useState(false);
     const [costumesOpen, setCostumesOpen] = useState(false);
     const modalRef = useRef<HTMLDivElement>(null);

@@ -4,6 +4,7 @@ import { CURRENT_ONBOARDING_VERSION, useStore, Character, getThemeClassName, res
 import ChatSidebar from '@/components/ChatSidebar';
 import ChatWindow from '@/components/ChatWindow';
 import GlobalSettingsModal from '@/components/GlobalSettingsModal';
+import CharacterAddModal from '@/components/CharacterAddModal';
 import CharacterSettingsModal from '@/components/CharacterSettingsModal';
 import MemoryListModal from '@/components/MemoryListModal';
 import ErrorBoundary from '@/components/ErrorBoundary';
@@ -101,9 +102,11 @@ export default function Home() {
     const [showOnboardingAgain, setShowOnboardingAgain] = useState(false);
 
     // Character settings modal state
+    const [characterAddModalOpen, setCharacterAddModalOpen] = useState(false);
     const [characterModalOpen, setCharacterModalOpen] = useState(false);
     const [editingCharacter, setEditingCharacter] = useState<Character | null>(null);
     const [isNewCharacter, setIsNewCharacter] = useState(false);
+    const [openCharacterGeneratorOnStart, setOpenCharacterGeneratorOnStart] = useState(false);
 
     // Memory list modal state
     const [memoryListOpen, setMemoryListOpen] = useState(false);
@@ -176,9 +179,14 @@ export default function Home() {
         setShowOnboardingAgain(false);
     };
 
-    const handleOpenCharacterSettings = (character: Character | null, isNew: boolean) => {
+    const handleOpenCharacterSettings = (
+        character: Character | null,
+        isNew: boolean,
+        openGeneratorOnStart = false,
+    ) => {
         setEditingCharacter(character);
         setIsNewCharacter(isNew);
+        setOpenCharacterGeneratorOnStart(openGeneratorOnStart);
         setCharacterModalOpen(true);
     };
 
@@ -186,6 +194,7 @@ export default function Home() {
         setCharacterModalOpen(false);
         setEditingCharacter(null);
         setIsNewCharacter(false);
+        setOpenCharacterGeneratorOnStart(false);
     };
 
     const handleOpenMemoryList = (character?: Character | null) => {
@@ -215,6 +224,7 @@ export default function Home() {
                 <ChatSidebar
                     onOpenSettings={() => setShowSettings(true)}
                     onOpenCharacterSettings={handleOpenCharacterSettings}
+                    onOpenCharacterAdd={() => setCharacterAddModalOpen(true)}
                     isOpen={mobileSidebarOpen}
                     isDesktopOpen={desktopSidebarOpen}
                     onClose={() => setMobileSidebarOpen(false)}
@@ -237,10 +247,24 @@ export default function Home() {
                         groupCharacters={situationParticipants}
                         onOpenSidebar={() => setMobileSidebarOpen(true)}
                         onOpenMemoryList={handleOpenMemoryList}
-                        onCreateCharacter={() => handleOpenCharacterSettings(null, true)}
+                        onCreateCharacter={() => setCharacterAddModalOpen(true)}
                         onOpenSettings={() => setShowSettings(true)}
                     />
                 )}
+            </ErrorBoundary>
+            <ErrorBoundary>
+                <CharacterAddModal
+                    isOpen={characterAddModalOpen}
+                    onClose={() => setCharacterAddModalOpen(false)}
+                    onCreate={() => {
+                        setCharacterAddModalOpen(false);
+                        handleOpenCharacterSettings(null, true);
+                    }}
+                    onGenerate={() => {
+                        setCharacterAddModalOpen(false);
+                        handleOpenCharacterSettings(null, true, true);
+                    }}
+                />
             </ErrorBoundary>
             <ErrorBoundary>
                 <GlobalSettingsModal
@@ -258,6 +282,7 @@ export default function Home() {
                     onClose={handleCloseCharacterSettings}
                     character={editingCharacter}
                     isNew={isNewCharacter}
+                    openGeneratorOnStart={openCharacterGeneratorOnStart}
                     onOpenMemoryList={() => handleOpenMemoryList(editingCharacter)}
                 />
             </ErrorBoundary>

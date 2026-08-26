@@ -89,6 +89,13 @@ export interface SummaryRevision {
     source: 'automatic' | 'manual';
 }
 
+export interface RoomCompressionSnapshot {
+    archivedMessages: Message[];
+    summary?: string;
+    summaryCheckpointUserMessageId?: string;
+    summaryHistory?: SummaryRevision[];
+}
+
 export type AddMemoryOptions = {
     scope?: MemoryScope;
     kind?: MemoryKind;
@@ -376,6 +383,8 @@ export interface AppState {
     deleteLastMessage: (roomId: string) => void;
     deleteMessagesFrom: (roomId: string, fromIndex: number) => Promise<MemoryRecord[]>;
     restoreMessagesAt: (roomId: string, fromIndex: number, messages: Message[], memories?: MemoryRecord[]) => Promise<void>;
+    rewindRoomCompression: (roomId: string) => Promise<RoomCompressionSnapshot | null>;
+    restoreRoomCompression: (roomId: string, snapshot: RoomCompressionSnapshot) => Promise<void>;
     attachMemoriesToMessage: (roomId: string, messageId: string, memories: string[]) => void;
     updateLastAssistantMessage: (roomId: string, content: string, meta?: Pick<Message, 'expression' | 'memories' | 'toCharacterIds'>) => void;
     flushLastAssistantMessage: (roomId: string) => void;

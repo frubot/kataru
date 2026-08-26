@@ -6,6 +6,7 @@ import {
     Message,
     Situation,
     SituationParticipant,
+    RoomCompressionSnapshot,
 } from '@/lib/store';
 import type { MemoryRecord, SituationPriorMessage } from '@/lib/store';
 import {
@@ -251,6 +252,8 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         addMemory,
         deleteMessagesFrom,
         restoreMessagesAt,
+        rewindRoomCompression,
+        restoreRoomCompression,
         attachMemoriesToMessage,
         getCurrentRoom,
         refreshConversationRoom,
@@ -960,28 +963,33 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         const originalRoomName = room.name;
         const previousReplySuggestionState = replySuggestionState;
         let editCutIndex = -1;
+        let editTargetsCompressedHistory = false;
         let editDeletedMessages: Message[] = [];
         let editDeletedMemories: MemoryRecord[] = [];
+        let editCompressionSnapshot: RoomCompressionSnapshot | null = null;
 
         if (editDraft) {
             const latestRoom = getCurrentRoom();
             if (latestRoom?.id !== room.id) return;
             editCutIndex = latestRoom.messages.findIndex((message) =>
                 message.id === editDraft.messageId &&
-                message.role === 'user' &&
-                !message.archived
+                message.role === 'user'
             );
             if (editCutIndex < 0) {
                 showChatNotice('編集対象のメッセージが見つかりませんでした。');
                 setEditingMessage(null);
                 return;
             }
+            editTargetsCompressedHistory = latestRoom.messages[editCutIndex].archived === true;
             editDeletedMessages = latestRoom.messages.slice(editCutIndex);
         }
 
         dismissChatNotice();
         setReplySuggestionState(null);
         if (editDraft) {
+            if (editTargetsCompressedHistory) {
+                editCompressionSnapshot = await rewindRoomCompression(room.id);
+            }
             editDeletedMemories = await deleteMessagesFrom(room.id, editCutIndex);
             setEditingMessage(null);
         } else {
@@ -1010,6 +1018,9 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 );
                 if (isCurrentRoomActive) {
                     setEditingMessage({ ...editDraft, content: submittedInput });
+                }
+                if (editCompressionSnapshot) {
+                    await restoreRoomCompression(room.id, editCompressionSnapshot);
                 }
                 return;
             }

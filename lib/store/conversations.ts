@@ -1,4 +1,8 @@
 import * as db from '../db';
+import {
+    restoreRoomCompressionState,
+    rewindRoomCompressionState,
+} from '../conversationCompressionRewind';
 import { buildConversationBranch } from '../conversationBranch';
 import { generateId } from '../id';
 import { normalizeMemoryContent } from './memories';
@@ -106,6 +110,8 @@ type ConversationSlice = Pick<
     | 'deleteLastMessage'
     | 'deleteMessagesFrom'
     | 'restoreMessagesAt'
+    | 'rewindRoomCompression'
+    | 'restoreRoomCompression'
     | 'attachMemoriesToMessage'
     | 'updateLastAssistantMessage'
     | 'flushLastAssistantMessage'
@@ -691,6 +697,53 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
                     db.putRoom(toStoredRoom(updatedRoom)),
                     db.putMessages(roomId, messages),
                     db.putMemories(memories),
+                ]);
+            }
+        },
+
+        rewindRoomCompression: async (roomId) => {
+            let snapshot = null;
+            let changedMessages: Message[] = [];
+            let updatedRoom: Room | undefined;
+            set((state) => ({
+                rooms: state.rooms.map((room) => {
+                    if (room.id !== roomId) return room;
+                    const rewind = rewindRoomCompressionState(room);
+                    snapshot = rewind.snapshot;
+                    changedMessages = rewind.changedMessages;
+                    updatedRoom = rewind.room;
+                    return updatedRoom;
+                }),
+            }));
+            if (shouldPersistRoom(updatedRoom)) {
+                await Promise.all([
+                    db.putRoom(toStoredRoom(updatedRoom)),
+                    db.putMessages(roomId, changedMessages),
+                ]);
+            }
+            return snapshot;
+        },
+
+        restoreRoomCompression: async (roomId, snapshot) => {
+            let changedMessages: Message[] = [];
+            let updatedRoom: Room | undefined;
+            set((state) => ({
+                rooms: state.rooms.map((room) => {
+                    if (room.id !== roomId) return room;
+                    const restored = restoreRoomCompressionState(room, snapshot);
+                    changedMessages = restored.changedMessages;
+                    updatedRoom = restored.room;
+                    return updatedRoom;
+                }),
+            }));
+            if (shouldPersistRoom(updatedRoom)) {
+                const messagesToPersist = [...new Map([
+                    ...snapshot.archivedMessages,
+                    ...changedMessages,
+                ].map((message) => [message.id, message])).values()];
+                await Promise.all([
+                    db.putRoom(toStoredRoom(updatedRoom)),
+                    db.putMessages(roomId, messagesToPersist),
                 ]);
             }
         },

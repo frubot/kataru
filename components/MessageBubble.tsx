@@ -239,10 +239,9 @@ export default memo(function MessageBubble({
                             onClick={() => onEdit(messageId, index, content)}
                             style={{
                                 color: 'var(--text-muted)',
-                                display: isArchived ? 'none' : undefined,
                             }}
-                            title="メッセージを編集"
-                            aria-label="メッセージを編集"
+                            title={isArchived ? 'ここまで巻き戻して編集' : 'メッセージを編集'}
+                            aria-label={isArchived ? 'ここまで巻き戻して編集' : 'メッセージを編集'}
                             disabled={isLoading}
                         >
                             <Pencil size={12} />

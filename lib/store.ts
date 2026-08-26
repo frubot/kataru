@@ -66,6 +66,7 @@ export type {
     MemorySearchParams,
     Message,
     Room,
+    RoomCompressionSnapshot,
     RoomReplySuggestions,
     Situation,
     SituationActor,

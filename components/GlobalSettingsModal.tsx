@@ -1467,9 +1467,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         <div style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
                                             会話圧縮
                                         </div>
-                                        <div style={{ marginTop: '0.25rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                            長い会話でコンテキストを節約します。
-                                        </div>
                                     </div>
                                     <button
                                         type="button"

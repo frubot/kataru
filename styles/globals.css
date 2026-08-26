@@ -3136,7 +3136,7 @@ body {
   resize: none;
   border-radius: 1.5rem;
   padding-top: 14px;
-  padding-right: 52px;
+  padding-right: 94px;
   font-size: 1rem;
   scrollbar-width: none;
 }
@@ -3146,7 +3146,7 @@ body {
 }
 
 .chat-input-wrapper.editing .chat-input {
-  padding-right: 94px;
+  padding-right: 136px;
 }
 
 .chat-input::-webkit-scrollbar {
@@ -3172,9 +3172,27 @@ body {
   transform: translateY(-50%);
 }
 
-.chat-input-wrapper .chat-input-cancel {
+.chat-input-wrapper .chat-input-asterisk {
   position: absolute;
   right: 48px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 50%;
+  z-index: 2;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.chat-input-wrapper .chat-input-asterisk:hover:not(:disabled) {
+  transform: translateY(-50%);
+}
+
+.chat-input-wrapper .chat-input-cancel {
+  position: absolute;
+  right: 90px;
   top: 50%;
   transform: translateY(-50%);
   width: 38px;

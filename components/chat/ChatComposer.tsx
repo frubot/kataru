@@ -24,6 +24,7 @@ type ChatComposerProps<TMention extends MentionCandidate> = {
     focusKey: string;
     value: string;
     onChange: (event: ChangeEvent<HTMLTextAreaElement>) => void;
+    onInsertAsterisk: () => void;
     placeholder: string;
     disabled: boolean;
     redirectDisabled: boolean;
@@ -57,6 +58,7 @@ export default function ChatComposer<TMention extends MentionCandidate>({
     focusKey,
     value,
     onChange,
+    onInsertAsterisk,
     placeholder,
     disabled,
     redirectDisabled,
@@ -197,6 +199,17 @@ export default function ChatComposer<TMention extends MentionCandidate>({
                     disabled={disabled}
                     rows={1}
                 />
+                <button
+                    type="button"
+                    className="btn btn-ghost chat-input-asterisk"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={onInsertAsterisk}
+                    disabled={disabled}
+                    title="* を入力"
+                    aria-label="アスタリスクを入力"
+                >
+                    ＊
+                </button>
                 {isBusy ? (
                     <button
                         type="button"

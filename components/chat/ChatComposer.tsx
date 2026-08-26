@@ -7,7 +7,7 @@ import type {
     RefObject,
     SetStateAction,
 } from 'react';
-import { ArrowUp, ChevronsDown, Square, X } from 'lucide-react';
+import { ArrowUp, ChevronsDown, Play, Square, X } from 'lucide-react';
 import StoredImage from '../StoredImage';
 import ChatNoticeBanner from './ChatNoticeBanner';
 import type { ChatNotice } from './useChatNotice';
@@ -29,6 +29,7 @@ type ChatComposerProps<TMention extends MentionCandidate> = {
     disabled: boolean;
     redirectDisabled: boolean;
     submitDisabled: boolean;
+    submitMode: 'send' | 'continue';
     isMobile: boolean;
     isInlineEditing: boolean;
     isBusy: boolean;
@@ -63,6 +64,7 @@ export default function ChatComposer<TMention extends MentionCandidate>({
     disabled,
     redirectDisabled,
     submitDisabled,
+    submitMode,
     isMobile,
     isInlineEditing,
     isBusy,
@@ -239,9 +241,20 @@ export default function ChatComposer<TMention extends MentionCandidate>({
                             type="submit"
                             className="btn btn-primary chat-input-send"
                             disabled={submitDisabled}
-                            title={isInlineEditing ? '編集して送信' : '送信'}
+                            title={isInlineEditing
+                                ? '編集して送信'
+                                : submitMode === 'continue'
+                                    ? '続きを生成'
+                                    : '送信'}
+                            aria-label={isInlineEditing
+                                ? '編集して送信'
+                                : submitMode === 'continue'
+                                    ? '続きを生成'
+                                    : '送信'}
                         >
-                            <ArrowUp size={16} />
+                            {submitMode === 'continue' && !isInlineEditing
+                                ? <Play size={16} fill="currentColor" />
+                                : <ArrowUp size={16} />}
                         </button>
                     </>
                 )}

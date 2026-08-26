@@ -33,6 +33,10 @@ import {
 } from '@/lib/conversationJobClient';
 import type { ConversationJobStatus } from '@/lib/conversationJobClient';
 import type { RustTurnResponse } from '@/lib/conversationResult';
+import {
+    getLatestActiveChatMessage,
+    isChatContinuationAvailable,
+} from '@/lib/chatContinuation';
 import { formatAssistantMarkdown } from '@/lib/markdownUtils';
 import { resolveSituationVisualNovelInitialCharacterId } from '@/lib/situationVisualNovelPresentation';
 import {
@@ -199,12 +203,20 @@ function waitForMessageModeBubbleDelay(): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, MESSAGE_MODE_BUBBLE_DELAY_MS));
 }
 
-type ChatRetryRequest = {
-    roomId: string;
-    input: string;
-    editDraft?: EditingMessageDraft;
-    suggestedReply?: string;
-};
+type ChatRetryRequest =
+    | {
+        kind: 'submit';
+        roomId: string;
+        input: string;
+        editDraft?: EditingMessageDraft;
+        suggestedReply?: string;
+    }
+    | {
+        kind: 'continue';
+        roomId: string;
+    };
+
+type ChatGenerationMode = 'reply' | 'continue';
 
 type ChatGenerationResult = {
     status: 'success' | 'aborted' | 'detached' | 'error';
@@ -498,6 +510,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     formattedMessages: job.preview.formattedMessages,
                     expression: job.preview.expression,
                     turns: job.preview.turns,
+                    generationBaselineMessageIds: session.generationBaselineMessageIds,
                 });
             }
             if (job.status !== 'running') return job;
@@ -528,6 +541,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         if (job.status !== 'running') return;
 
         const session = startGenerationSession(job.roomId, job.jobId);
+        session.generationBaselineMessageIds = sourceRoom?.messages.map((message) => message.id);
         const controller = new AbortController();
         if (!attachGenerationController(session, controller)) {
             resumedJobsRef.current.delete(job.jobId);
@@ -770,8 +784,10 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const generateRustTurn = async (
         session: ChatGenerationSession,
         sourceRoom: Room,
+        generationMode: ChatGenerationMode = 'reply',
     ): Promise<ChatGenerationResult> => {
         if (!isGenerationSessionActive(session)) return { status: 'aborted' };
+        session.generationBaselineMessageIds = sourceRoom.messages.map((message) => message.id);
         const shouldStreamPreview = vnTypingSpeedRef.current === 'streaming';
         const retainSituationStreamingPreview = shouldStreamPreview
             && isSituationVisualNovelMode;
@@ -799,6 +815,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     memoryEmbeddingModel,
                     aiApiConfig: getAiApiConfig(),
                     streamingPreview: shouldStreamPreview,
+                    generationMode,
                 }, controller.signal);
             if (!isGenerationSessionActive(session) || controller.signal.aborted) {
                 throw new DOMException('Generation stopped', 'AbortError');
@@ -868,6 +885,48 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         } finally {
             if (!keepStreamingPreview) clearStreamingPreview(session.jobId);
             clearGenerationController(session, controller);
+        }
+    };
+
+    const handleContinue = async () => {
+        const latestRoom = getCurrentRoom();
+        const continuationBlocked = isLoading
+            || isSummarizing
+            || situationVnPresentation.locked
+            || isEditingMessage;
+        if (
+            !latestRoom
+            || !isChatContinuationAvailable({
+                visualNovelMode: resolveRoomViewMode(latestRoom) === 'vn',
+                input,
+                messages: latestRoom.messages,
+                blocked: continuationBlocked,
+            })
+        ) return;
+        if (!isGroupRoom && !character) return;
+        if (isGroupRoom && (!groupCharacters || groupCharacters.length === 0)) return;
+
+        dismissChatNotice();
+        setReplySuggestionState(null);
+        const session = startGenerationSession(latestRoom.id);
+        const generationResult = await generateRustTurn(session, latestRoom, 'continue');
+        finishGenerationSession(session);
+        setIsSummarizing(false);
+
+        if (
+            generationResult.status === 'error'
+            && generationResult.error
+            && getCurrentRoom()?.id === latestRoom.id
+        ) {
+            if (isRetryableGenerationError(generationResult.error)) {
+                retrySubmissionRef.current = {
+                    kind: 'continue',
+                    roomId: latestRoom.id,
+                };
+                showChatErrorNotice(generationResult.error, { type: 'retry', label: '再試行' });
+            } else {
+                showChatErrorNotice(generationResult.error);
+            }
         }
     };
 
@@ -978,6 +1037,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             if (generationResult.status === 'error' && generationResult.error && getCurrentRoom()?.id === room.id) {
                 if (isRetryableGenerationError(generationResult.error)) {
                     retrySubmissionRef.current = {
+                        kind: 'submit',
                         roomId: room.id,
                         input: userMessage,
                         editDraft: editDraft ? { ...editDraft, content: submittedInput } : undefined,
@@ -1013,7 +1073,10 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         chatNoticeActionRunningRef.current = true;
         retrySubmissionRef.current = null;
         dismissChatNotice();
-        void handleSubmit(undefined, retry.editDraft, retry.suggestedReply, retry.input)
+        const retryPromise = retry.kind === 'continue'
+            ? handleContinue()
+            : handleSubmit(undefined, retry.editDraft, retry.suggestedReply, retry.input);
+        void retryPromise
             .catch((error) => {
                 logChatError('Chat retry failed:', error);
                 showChatNotice('再試行の準備中にエラーが発生しました。');
@@ -1252,7 +1315,9 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         triggerVnBounce,
     ]);
 
-    const lastRoomMessage = room ? room.messages[room.messages.length - 1] : undefined;
+    const lastRoomMessage = room
+        ? getLatestActiveChatMessage(room.messages)
+        : undefined;
     const isWaitingForAssistant = isVisualNovelMode
         ? situationVnPresentation.isWaitingForResponse
             && !(activeStreamingPreview && !isSituationVisualNovelMode)
@@ -1356,9 +1421,15 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         || isSummarizing
         || situationVnInputLocked
         || (isEditingMessage && !isInlineVnEditing);
+    const canContinue = isChatContinuationAvailable({
+        visualNovelMode: isVisualNovelMode,
+        input,
+        messages: room?.messages ?? EMPTY_MESSAGES,
+        blocked: chatInputDisabled || isEditingMessage,
+    });
     const chatInputSubmitDisabled = chatInputDisabled || (isInlineVnEditing
         ? !editingMessage?.content.trim()
-        : !input.trim() || isEditingMessage);
+        : (!input.trim() && !canContinue) || isEditingMessage);
 
     useEffect(() => {
         const wasLocked = previousSituationVnInputLockedRef.current;
@@ -1624,6 +1695,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                         || (isEditingMessage && !isInlineVnEditing)
                     }
                     submitDisabled={chatInputSubmitDisabled}
+                    submitMode={canContinue ? 'continue' : 'send'}
                     isMobile={isMobile}
                     isInlineEditing={isInlineVnEditing}
                     isBusy={
@@ -1633,7 +1705,11 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     }
                     isTypewriterActive={isTypewriterActive}
                     onSubmit={() => {
-                        void handleSubmit();
+                        if (canContinue) {
+                            void handleContinue();
+                        } else {
+                            void handleSubmit();
+                        }
                     }}
                     onSubmitEdit={handleSubmitEditMessage}
                     onCancelEdit={handleCancelEditMessage}

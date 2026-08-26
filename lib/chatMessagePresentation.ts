@@ -18,6 +18,7 @@ export type ChatStreamingPreview = {
     formattedMessages?: string[];
     expression?: string;
     turns?: ConversationJobPreviewTurn[];
+    generationBaselineMessageIds?: string[];
 };
 
 export type PriorMessagePresentation = {

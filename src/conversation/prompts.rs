@@ -283,6 +283,7 @@ pub fn director_prompts(
     turn_index: usize,
     max_turns: usize,
     banned_actor_id: Option<&str>,
+    continuation_generation: bool,
 ) -> (String, String) {
     let banned = banned_actor_id
         .map(|id| format!("\n直前の発言者 actorId={id} は candidates に含めないでください。"))
@@ -313,13 +314,20 @@ candidates は自然さ順の候補です。主人公が発言すべき場合や
         })
         .collect::<Vec<_>>()
         .join("\n");
-    let first_policy = if turn_index == 0 {
+    let latest_message = if continuation_generation {
+        "主人公からの新しい発言や行動はありません。場面の継続を要求されています。"
+    } else {
+        latest_user_message
+    };
+    let first_policy = if continuation_generation && turn_index == 0 {
+        "会話履歴の末尾から自然に場面を進めるのに最適な一人を、必ず候補の先頭にしてください。"
+    } else if turn_index == 0 {
         "主人公の最新発言に反応するのに最適な一人を必ず候補の先頭にしてください。"
     } else {
         "次の発言が自然なキャラクターを選ぶか、主人公に発言させるなら空配列にしてください。"
     };
     let user = format!(
-        "シチュエーション名: {}\n\n## シチュエーション\n{}\n\n## 役者\n{actor_lines}\n\n## 最新のメッセージ\n{latest_user_message}\n\n## 選び方\n{first_policy}\n\n## 会話履歴\n{}\n\n自動発言ターン: {} / {max_turns}",
+        "シチュエーション名: {}\n\n## シチュエーション\n{}\n\n## 役者\n{actor_lines}\n\n## 最新のメッセージ\n{latest_message}\n\n## 選び方\n{first_policy}\n\n## 会話履歴\n{}\n\n自動発言ターン: {} / {max_turns}",
         string(situation, "name"),
         string(situation, "situationPrompt"),
         if transcript.trim().is_empty() {
@@ -543,5 +551,29 @@ mod tests {
             schema["json_schema"]["schema"]["properties"]["messages"]["items"]["maxLength"],
             256
         );
+    }
+
+    #[test]
+    fn continuation_director_prompt_does_not_treat_the_previous_user_message_as_new() {
+        let situation = json!({
+            "name": "放課後",
+            "situationPrompt": "教室で話している"
+        });
+        let actors = vec![json!({"actorId": "actor-aoi", "name": "葵"})];
+
+        let (_, prompt) = director_prompts(
+            &situation,
+            &actors,
+            "主人公: 今日は寒いね\n葵: 雪になるかも",
+            "今日は寒いね",
+            0,
+            1,
+            None,
+            true,
+        );
+
+        assert!(prompt.contains("主人公からの新しい発言や行動はありません"));
+        assert!(prompt.contains("会話履歴の末尾から自然に場面を進める"));
+        assert!(!prompt.contains("## 最新のメッセージ\n今日は寒いね"));
     }
 }

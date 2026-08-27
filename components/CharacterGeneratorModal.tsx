@@ -179,10 +179,14 @@ export default function CharacterGeneratorModal({ isOpen, onClose, onApply }: Pr
                         }}>
                             <PreviewRow label="名前" value={generated.name} />
                             <PreviewRow label="性別" value={generated.gender} />
+                            <PreviewRow label="職業" value={generated.occupation} />
                             <PreviewRow label="一人称" value={generated.firstPerson} />
+                            <PreviewRow label="口調" value={generated.speechStyle} />
+                            <PreviewRow label="性格" value={generated.personality} />
+                            <PreviewRow label="特徴" value={generated.traits} />
                             <PreviewRow label="主人公への呼び方" value={generated.protagonistAddress} />
                             <PreviewRow label="主人公から見た関係性" value={generated.relationship} />
-                            <PreviewRow label="詳細" value={generated.details} />
+                            <PreviewRow label="主人公に対する印象" value={generated.protagonistImpression} />
                         </div>
                     )}
                 </div>

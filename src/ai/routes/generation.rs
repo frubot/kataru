@@ -155,14 +155,30 @@ fn normalize_character(value: &Value) -> Option<Value> {
         ],
     );
     let relationship = pick_string(source, &["relationship", "主人公から見た関係性", "関係性"]);
-    let details = pick_string(source, &["details", "詳細"]);
+    let protagonist_impression = pick_string(
+        source,
+        &[
+            "protagonistImpression",
+            "protagonist_impression",
+            "主人公に対する印象",
+            "主人公への印象",
+        ],
+    );
+    let occupation = pick_string(source, &["occupation", "job", "職業"]);
+    let speech_style = pick_string(source, &["speechStyle", "speech_style", "口調", "話し方"]);
+    let personality = pick_string(source, &["personality", "性格"]);
+    let traits = pick_string(source, &["traits", "features", "特徴"]);
     if [
         &name,
         &gender,
         &first_person,
         &protagonist_address,
         &relationship,
-        &details,
+        &protagonist_impression,
+        &occupation,
+        &speech_style,
+        &personality,
+        &traits,
     ]
     .iter()
     .any(|value| value.is_empty())
@@ -175,7 +191,11 @@ fn normalize_character(value: &Value) -> Option<Value> {
         "firstPerson": first_person,
         "protagonistAddress": protagonist_address,
         "relationship": relationship,
-        "details": details
+        "protagonistImpression": protagonist_impression,
+        "occupation": occupation,
+        "speechStyle": speech_style,
+        "personality": personality,
+        "traits": traits
     }))
 }
 
@@ -192,14 +212,18 @@ fn character_schema() -> Value {
                 "firstPerson",
                 "protagonistAddress",
                 "relationship",
-                "details"
+                "protagonistImpression",
+                "occupation",
+                "speechStyle",
+                "personality",
+                "traits"
             ],
             "properties": {
                 "name": {
                     "type": "string",
                     "description": "キャラクターの名前"
                 },
-                "gender": { 
+                "gender": {
                     "type": "string",
                     "description": "キャラクターの性別"
                 },
@@ -209,13 +233,32 @@ fn character_schema() -> Value {
                 },
                 "protagonistAddress": {
                     "type": "string",
-                    "description": "主人公に対する呼び方（複数可。ユーザーからの指定がない場合、○○で代用しても良い。例: ○○くん）" 
+                    "description": "主人公に対する呼び名（複数可。ユーザーからの指定がない場合、○○で代用しても良い。例: ○○くん）"
                 },
                 "relationship": {
                     "type": "string",
                     "description": "キャラクターとの関係性（主人公目線）"
                 },
-                "details": { "type": "string" }
+                "protagonistImpression": {
+                    "type": "string",
+                    "description": "キャラクターが主人公に対して抱いている印象や感情"
+                },
+                "occupation": {
+                    "type": "string",
+                    "description": "キャラクターの職業、学生の場合は立場や所属"
+                },
+                "speechStyle": {
+                    "type": "string",
+                    "description": "キャラクターの語彙、語尾、話すテンポなどの口調"
+                },
+                "personality": {
+                    "type": "string",
+                    "description": "キャラクターの内面的な性格"
+                },
+                "traits": {
+                    "type": "string",
+                    "description": "経歴、振る舞い、嗜好など、キャラクターを特徴づける要素"
+                }
             }
         }
     })
@@ -229,12 +272,18 @@ pub async fn generate_character(
     let direction = optional_trimmed_string(&input, "direction").unwrap_or_default();
     let model = resolve_model(&input, "model", "defaultAutoGenerationModel")?;
     let system_prompt = r#"
-完全にオリジナルなキャラクター概要を説明文として作成してください。
-出力はJSONのみで、Markdownを使用しないでください。値は全て日本語である必要があります。
-details には、キャラクター情報の詳細（プロフィール。職業または学生、経歴、性格、振る舞い、周りからの印象等）について記載してください。すでに記述した内容は不要です。
-detailsのそれぞれのカテゴリは"職業:"のように区切り、一行分空白にしてください。"#;
+あなたは完全にオリジナルなキャラクター概要を作成するAIです。
+キャラクターとして応答するのではなく、JSON形式で説明文を出力してください。
+日本語で応答してください。
+各項目の役割を分け、同じ内容を複数の項目に重複させないでください。
+protagonistImpression には、キャラクターが主人公に対して抱いている印象や感情を記載してください。
+occupation には職業を、学生の場合は立場や所属を記載してください。
+speechStyle には語彙、語尾、話すテンポなど、会話で再現できる口調を記載してください。
+personality には内面的な性格を記載してください。
+traits には経歴、特徴的な振る舞い、嗜好など、その他の個性を記載してください。"#;
     let user_prompt = if direction.is_empty() {
-        "完全におまかせで、ロールプレイに使いやすい特徴的なキャラクターを1人作成してください。".to_owned()
+        "完全におまかせで、ロールプレイに使いやすい特徴的なキャラクターを1人作成してください。"
+            .to_owned()
     } else {
         format!("次の方向性でキャラクターを1人作成してください。\n\n方向性:\n{direction}")
     };
@@ -709,6 +758,38 @@ pub async fn generate_title(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn character_profile_uses_explicit_fields_instead_of_details() {
+        let normalized = normalize_character(&json!({
+            "name": "ミナ",
+            "gender": "女性",
+            "firstPerson": "私",
+            "protagonistAddress": "先輩",
+            "relationship": "同じ部活の後輩",
+            "protagonistImpression": "頼りになるが、少し無理をしすぎる人",
+            "occupation": "高校生・天文部員",
+            "speechStyle": "明るくテンポが速い",
+            "personality": "好奇心旺盛で世話焼き",
+            "traits": "星座に詳しい"
+        }))
+        .expect("explicit profile fields should normalize");
+
+        assert_eq!(normalized["occupation"], "高校生・天文部員");
+        assert_eq!(
+            normalized["protagonistImpression"],
+            "頼りになるが、少し無理をしすぎる人"
+        );
+        assert!(normalized.get("details").is_none());
+
+        let schema = character_schema();
+        let required = schema["schema"]["required"]
+            .as_array()
+            .expect("schema required fields");
+        assert!(required.contains(&json!("traits")));
+        assert!(!required.contains(&json!("details")));
+        assert!(schema["schema"]["properties"].get("details").is_none());
+    }
 
     #[test]
     fn reply_suggestions_require_three_distinct_values() {

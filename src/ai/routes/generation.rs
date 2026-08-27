@@ -195,11 +195,26 @@ fn character_schema() -> Value {
                 "details"
             ],
             "properties": {
-                "name": { "type": "string" },
-                "gender": { "type": "string" },
-                "firstPerson": { "type": "string" },
-                "protagonistAddress": { "type": "string" },
-                "relationship": { "type": "string" },
+                "name": {
+                    "type": "string",
+                    "description": "キャラクターの名前"
+                },
+                "gender": { 
+                    "type": "string",
+                    "description": "キャラクターの性別"
+                },
+                "firstPerson": {
+                    "type": "string",
+                    "description": "キャラクターの一人称"
+                },
+                "protagonistAddress": {
+                    "type": "string",
+                    "description": "主人公に対する呼び方（複数可。ユーザーからの指定がない場合、○○で代用しても良い。例: ○○くん）" 
+                },
+                "relationship": {
+                    "type": "string",
+                    "description": "キャラクターとの関係性（主人公目線）"
+                },
                 "details": { "type": "string" }
             }
         }
@@ -216,11 +231,10 @@ pub async fn generate_character(
     let system_prompt = r#"
 完全にオリジナルなキャラクター概要を説明文として作成してください。
 出力はJSONのみで、Markdownを使用しないでください。値は全て日本語である必要があります。
-ユーザーのことは主人公と表記してください。
 details には、キャラクター情報の詳細（プロフィール。職業または学生、経歴、性格、振る舞い、周りからの印象等）について記載してください。すでに記述した内容は不要です。
 detailsのそれぞれのカテゴリは"職業:"のように区切り、一行分空白にしてください。"#;
     let user_prompt = if direction.is_empty() {
-        "完全におまかせで、ロールプレイに使いやすいキャラクターを1人作成してください。".to_owned()
+        "完全におまかせで、ロールプレイに使いやすい特徴的なキャラクターを1人作成してください。".to_owned()
     } else {
         format!("次の方向性でキャラクターを1人作成してください。\n\n方向性:\n{direction}")
     };

@@ -325,7 +325,7 @@ JSON形式で出力してください。
         "max_tokens": 1200
     });
     if api_client.is_openrouter() {
-        request["reasoning"] = json!({ "effort": "none" });
+        request["reasoning"] = json!({ "effort": "low" });
     }
     let data = structured_completion(&api_client, request, character_schema(), 60).await?;
     let content = extract_message_text(&data);

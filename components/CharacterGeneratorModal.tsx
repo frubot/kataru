@@ -3,6 +3,7 @@ import { Loader2, Sparkles, X } from 'lucide-react';
 import {
     formatGeneratedCharacterPrompt,
     formatGeneratedProtagonistPrompt,
+    formatGeneratedSpeechStyle,
     normalizeGeneratedCharacterProfile,
     type GeneratedCharacterDraft,
     type GeneratedCharacterProfile,
@@ -105,6 +106,7 @@ export default function CharacterGeneratorModal({ isOpen, onClose, onApply }: Pr
         onApply({
             name: generated.name,
             systemPrompt: formatGeneratedCharacterPrompt(generated),
+            speechStyle: formatGeneratedSpeechStyle(generated),
             protagonistPrompt: formatGeneratedProtagonistPrompt(generated),
         });
     };
@@ -181,7 +183,7 @@ export default function CharacterGeneratorModal({ isOpen, onClose, onApply }: Pr
                             <PreviewRow label="性別" value={generated.gender} />
                             <PreviewRow label="職業" value={generated.occupation} />
                             <PreviewRow label="一人称" value={generated.firstPerson} />
-                            <PreviewRow label="口調" value={generated.speechStyle} />
+                            <PreviewRow label="口調の具体例" value={formatGeneratedSpeechStyle(generated)} />
                             <PreviewRow label="性格" value={generated.personality} />
                             <PreviewRow label="特徴" value={generated.traits} />
                             <PreviewRow label="主人公への呼び方" value={generated.protagonistAddress} />

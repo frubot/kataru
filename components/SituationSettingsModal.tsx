@@ -830,6 +830,7 @@ function TemporaryActorSettingsModal({
                     updateDraft({
                         name: generated.name,
                         systemPrompt: generated.systemPrompt,
+                        speechStyle: generated.speechStyle,
                     });
                     setGeneratorOpen(false);
                 }}

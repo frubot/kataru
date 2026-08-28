@@ -44,7 +44,7 @@ function buildInitialCharacterDraft(
     return {
         name: generatedDraft?.name ?? character?.name ?? '',
         systemPrompt: generatedDraft?.systemPrompt ?? character?.systemPrompt ?? '',
-        speechStyle: character?.speechStyle ?? '',
+        speechStyle: generatedDraft?.speechStyle ?? character?.speechStyle ?? '',
         protagonistPrompt: generatedDraft?.protagonistPrompt ?? character?.protagonistPrompt ?? '',
         userConstraints: character?.userConstraints ?? '',
         model: character?.model.trim() || defaultChatModel,

@@ -165,7 +165,16 @@ fn normalize_character(value: &Value) -> Option<Value> {
         ],
     );
     let occupation = pick_string(source, &["occupation", "job", "職業"]);
-    let speech_style = pick_string(source, &["speechStyle", "speech_style", "口調", "話し方"]);
+    let speech_examples = source
+        .get("speechExamples")?
+        .as_array()?
+        .iter()
+        .map(Value::as_str)
+        .map(|value| value.map(str::trim).filter(|value| !value.is_empty()))
+        .collect::<Option<Vec<_>>>()?;
+    if speech_examples.len() != 3 {
+        return None;
+    }
     let personality = pick_string(source, &["personality", "性格"]);
     let traits = pick_string(source, &["traits", "features", "特徴"]);
     if [
@@ -176,7 +185,6 @@ fn normalize_character(value: &Value) -> Option<Value> {
         &relationship,
         &protagonist_impression,
         &occupation,
-        &speech_style,
         &personality,
         &traits,
     ]
@@ -193,7 +201,7 @@ fn normalize_character(value: &Value) -> Option<Value> {
         "relationship": relationship,
         "protagonistImpression": protagonist_impression,
         "occupation": occupation,
-        "speechStyle": speech_style,
+        "speechExamples": speech_examples,
         "personality": personality,
         "traits": traits
     }))
@@ -214,7 +222,7 @@ fn character_schema() -> Value {
                 "relationship",
                 "protagonistImpression",
                 "occupation",
-                "speechStyle",
+                "speechExamples",
                 "personality",
                 "traits"
             ],
@@ -260,9 +268,16 @@ fn character_schema() -> Value {
                     "description": "職業、学生の場合は立場や所属",
                     "maxLength": 15,
                 },
-                "speechStyle": {
-                    "type": "string",
-                    "description": "語彙、語尾、話すテンポなどの口調"
+                "speechExamples": {
+                    "type": "array",
+                    "description": "具体的なセリフ例",
+                    "minItems": 3,
+                    "maxItems": 3,
+                    "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 100
+                    }
                 },
                 "personality": {
                     "type": "string",
@@ -272,9 +287,9 @@ fn character_schema() -> Value {
                 },
                 "traits": {
                     "type": "string",
-                    "description": "経歴、振る舞い、嗜好など、キャラクターを特徴づける要素",
-                    "maxLength": 100,
-                    "minLength": 20
+                    "description": "外観、経歴、振る舞い、嗜好などの詳細な特徴",
+                    "maxLength": 150,
+                    "minLength": 50
                 }
             }
         }
@@ -291,7 +306,8 @@ pub async fn generate_character(
     let system_prompt = r#"
 あなたは魅力的なオリジナルキャラクター設定を作成するAIです。
 JSON形式で出力してください。
-主人公の名前が提示されていない場合は、主人公の呼び名を代わりに"○○"と表記してください。
+主人公の名前が提示されていない場合は、主人公の呼び名を"○○"と仮定して表記してください。
+キャラクター本人が実際に発する具体的なセリフを3つ作成してください。
 他項目と重複した内容は記述しないでください。"#;
     let user_prompt = if direction.is_empty() {
         "完全におまかせで、ロールプレイに使いやすい特徴的なキャラクターを1人作成してください。"
@@ -781,13 +797,18 @@ mod tests {
             "relationship": "同じ部活の後輩",
             "protagonistImpression": "頼りになるが、少し無理をしすぎる人",
             "occupation": "高校生・天文部員",
-            "speechStyle": "明るくテンポが速い",
+            "speechExamples": [
+                "先輩、今夜は流星群が見られるんですよ！",
+                "もう、また無理してるじゃないですか",
+                "ほら、こっちです。早く早く！"
+            ],
             "personality": "好奇心旺盛で世話焼き",
             "traits": "星座に詳しい"
         }))
         .expect("explicit profile fields should normalize");
 
         assert_eq!(normalized["occupation"], "高校生・天文部員");
+        assert_eq!(normalized["speechExamples"].as_array().unwrap().len(), 3);
         assert_eq!(
             normalized["protagonistImpression"],
             "頼りになるが、少し無理をしすぎる人"
@@ -799,6 +820,15 @@ mod tests {
             .as_array()
             .expect("schema required fields");
         assert!(required.contains(&json!("traits")));
+        assert!(required.contains(&json!("speechExamples")));
+        assert_eq!(
+            schema["schema"]["properties"]["speechExamples"]["minItems"],
+            3
+        );
+        assert_eq!(
+            schema["schema"]["properties"]["speechExamples"]["maxItems"],
+            3
+        );
         assert!(!required.contains(&json!("details")));
         assert!(schema["schema"]["properties"].get("details").is_none());
     }

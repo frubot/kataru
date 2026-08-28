@@ -139,7 +139,7 @@ export default function CharacterGeneratorModal({ isOpen, onClose, onApply }: Pr
 
                 <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                     <div>
-                        <label style={labelStyle}>どんなキャラクターにしたい？</label>
+                        <label style={labelStyle}>どんなキャラクターにしたい？主人公との関係性は？</label>
                         <textarea
                             className="input textarea"
                             value={direction}

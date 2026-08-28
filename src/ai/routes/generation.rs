@@ -221,43 +221,60 @@ fn character_schema() -> Value {
             "properties": {
                 "name": {
                     "type": "string",
-                    "description": "キャラクターの名前"
+                    "description": "フルネーム",
+                    "maxLength": 15,
+                    "minLength": 1
                 },
                 "gender": {
                     "type": "string",
-                    "description": "キャラクターの性別"
+                    "description": "性別",
+                    "maxLength": 10,
+                    "minLength": 1
                 },
                 "firstPerson": {
                     "type": "string",
-                    "description": "キャラクターの一人称"
+                    "description": "一人称",
+                    "maxLength": 5,
+                    "minLength": 1
                 },
                 "protagonistAddress": {
                     "type": "string",
-                    "description": "主人公に対する呼び名（複数可。ユーザーからの指定がない場合、○○で代用しても良い。例: ○○くん）"
+                    "description": "主人公に対する呼び名（例: ○○くん)",
+                    "maxLength": 5,
+                    "minLength": 1
                 },
                 "relationship": {
                     "type": "string",
-                    "description": "キャラクターとの関係性（主人公目線）"
+                    "description": "キャラクターとの関係性（主人公目線）",
+                    "maxLength": 50,
+                    "minLength": 5
                 },
                 "protagonistImpression": {
                     "type": "string",
-                    "description": "キャラクターが主人公に対して抱いている印象や感情"
+                    "description": "主人公に対して抱いている印象や感情",
+                    "maxLength": 50,
+                    "minLength": 10
                 },
                 "occupation": {
                     "type": "string",
-                    "description": "キャラクターの職業、学生の場合は立場や所属"
+                    "description": "職業、学生の場合は立場や所属",
+                    "maxLength": 15,
                 },
                 "speechStyle": {
                     "type": "string",
-                    "description": "キャラクターの語彙、語尾、話すテンポなどの口調"
+                    "description": "語彙、語尾、話すテンポなどの口調"
                 },
                 "personality": {
                     "type": "string",
-                    "description": "キャラクターの内面的な性格"
+                    "description": "性格",
+                    "maxLength": 100,
+                    "minLength": 20
                 },
                 "traits": {
                     "type": "string",
-                    "description": "経歴、振る舞い、嗜好など、キャラクターを特徴づける要素"
+                    "description": "経歴、振る舞い、嗜好など、キャラクターを特徴づける要素",
+                    "maxLength": 100,
+                    "minLength": 20
                 }
             }
         }
@@ -272,15 +289,10 @@ pub async fn generate_character(
     let direction = optional_trimmed_string(&input, "direction").unwrap_or_default();
     let model = resolve_model(&input, "model", "defaultAutoGenerationModel")?;
     let system_prompt = r#"
-あなたは完全にオリジナルなキャラクター概要を作成するAIです。
-キャラクターとして応答するのではなく、JSON形式で説明文を出力してください。
-日本語で応答してください。
-各項目の役割を分け、同じ内容を複数の項目に重複させないでください。
-protagonistImpression には、キャラクターが主人公に対して抱いている印象や感情を記載してください。
-occupation には職業を、学生の場合は立場や所属を記載してください。
-speechStyle には語彙、語尾、話すテンポなど、会話で再現できる口調を記載してください。
-personality には内面的な性格を記載してください。
-traits には経歴、特徴的な振る舞い、嗜好など、その他の個性を記載してください。"#;
+あなたは魅力的なオリジナルキャラクター設定を作成するAIです。
+JSON形式で出力してください。
+主人公の名前が提示されていない場合は、主人公の呼び名を代わりに"○○"と表記してください。
+他項目と重複した内容は記述しないでください。"#;
     let user_prompt = if direction.is_empty() {
         "完全におまかせで、ロールプレイに使いやすい特徴的なキャラクターを1人作成してください。"
             .to_owned()

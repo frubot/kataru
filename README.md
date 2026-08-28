@@ -182,7 +182,7 @@ kataru config get openai.base-url
 kataru config unset openai.api-key
 ```
 
-モデル一覧はデータディレクトリ内の`model-cache.json`に保存されます。「設定」→「モデル」の「既定のモデル」右側にある更新ボタン、またはCLIから更新できます。
+モデル一覧はデータディレクトリ内の`model-cache.json`に保存されます。各モデルセレクター内の「モデル一覧を再取得」、またはCLIから更新できます。
 
 ```bash
 kataru models refresh

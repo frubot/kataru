@@ -1241,52 +1241,8 @@ body {
   gap: 1rem;
 }
 
-.model-cache-heading {
-  display: flex;
-  min-height: 2rem;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  margin-bottom: 0.75rem;
-}
-
-.model-cache-refresh {
-  display: inline-flex;
-  width: 2rem;
-  height: 2rem;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 0.5rem;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-}
-
-.model-cache-refresh:hover:not(:disabled) {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.model-cache-refresh:focus-visible {
-  outline: 2px solid var(--accent-primary);
-  outline-offset: 2px;
-}
-
-.model-cache-refresh:disabled {
-  cursor: wait;
-  opacity: 0.6;
-}
-
-.model-cache-refresh .spin,
 .model-selector-refresh .spin {
   animation: spin 0.8s linear infinite;
-}
-
-.model-cache-refresh-status {
-  margin: -0.375rem 0 0.75rem;
-  font-size: 0.75rem;
-  line-height: 1.5;
 }
 
 .global-settings-selector-row-divider {

@@ -8,7 +8,6 @@ import ModelSelector from '@/components/ModelSelector';
 import ProviderSelector from '@/components/ProviderSelector';
 import KeyboardSettingsPanel from '@/components/KeyboardSettingsPanel';
 import { useModalKeyboard } from '@/components/useModalKeyboard';
-import { getAvailableModels, type ModelOutputModality } from '@/lib/availableModels';
 
 interface GlobalSettingsModalProps {
     isOpen: boolean;
@@ -345,7 +344,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         setFullJsonDebugEnabled, setDetailedErrorLoggingEnabled, clearFullJsonDebugLogs,
         setMemoryInspectorEnabled, setSummaryInspectorEnabled,
         clearAllHistory, resetApplication, mergeBackup, restoreBackup,
-        getAiApiConfig,
     } = useStore();
     const apiTypeDefaults = getDefaultModelDefaults(aiApiType);
     const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -366,9 +364,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
     const [isThemeModeMenuOpen, setThemeModeMenuOpen] = useState(false);
     const [isPaletteMenuOpen, setPaletteMenuOpen] = useState(false);
     const [isAiApiTypeMenuOpen, setAiApiTypeMenuOpen] = useState(false);
-    const [isRefreshingModels, setIsRefreshingModels] = useState(false);
-    const [modelRefreshMessage, setModelRefreshMessage] = useState<string | null>(null);
-    const [modelRefreshToken, setModelRefreshToken] = useState(0);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const themeModeMenuRef = useRef<HTMLDivElement>(null);
     const paletteMenuRef = useRef<HTMLDivElement>(null);
@@ -521,29 +516,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
             setUpdateError(error instanceof Error ? error.message : 'アップデートを確認できませんでした。');
         } finally {
             setIsCheckingUpdate(false);
-        }
-    };
-
-    const handleRefreshModels = async () => {
-        if (isRefreshingModels) return;
-        setIsRefreshingModels(true);
-        setModelRefreshMessage(null);
-        try {
-            const modalities: ModelOutputModality[] = aiApiType === 'openrouter'
-                ? ['text', 'image', 'embeddings']
-                : ['text'];
-            const config = getAiApiConfig();
-            await Promise.all(modalities.map((outputModality) => (
-                getAvailableModels(config, outputModality, { force: true })
-            )));
-            setModelRefreshToken((token) => token + 1);
-            setModelRefreshMessage('モデル一覧を更新しました。');
-        } catch (error) {
-            setModelRefreshMessage(error instanceof Error
-                ? error.message
-                : 'モデル一覧を更新できませんでした。');
-        } finally {
-            setIsRefreshingModels(false);
         }
     };
 
@@ -1228,38 +1200,9 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
 
                         {/* Conversation Section */}
                         <div style={{ marginBottom: '1.5rem' }}>
-                            <div className="model-cache-heading">
-                                <h3 style={{ fontSize: '0.875rem', fontWeight: 700 }}>
-                                    既定のモデル
-                                </h3>
-                                <button
-                                    type="button"
-                                    className="model-cache-refresh"
-                                    aria-label="モデル一覧を更新"
-                                    title="モデル一覧を更新"
-                                    disabled={isRefreshingModels}
-                                    onClick={() => void handleRefreshModels()}
-                                >
-                                    <RefreshCw
-                                        size={16}
-                                        className={isRefreshingModels ? 'spin' : undefined}
-                                        aria-hidden="true"
-                                    />
-                                </button>
-                            </div>
-                            {modelRefreshMessage && (
-                                <p
-                                    className="model-cache-refresh-status"
-                                    role="status"
-                                    style={{
-                                        color: modelRefreshMessage === 'モデル一覧を更新しました。'
-                                            ? 'var(--text-muted)'
-                                            : 'var(--error)',
-                                    }}
-                                >
-                                    {modelRefreshMessage}
-                                </p>
-                            )}
+                            <h3 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '0.75rem' }}>
+                                既定のモデル
+                            </h3>
                             <div style={{
                                 display: 'flex',
                                 flexDirection: 'column',
@@ -1280,7 +1223,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                             value={defaultChatModel}
                                             onChange={setDefaultChatModel}
                                             outputModality="text"
-                                            refreshToken={modelRefreshToken}
                                             placeholder={`例: ${apiTypeDefaults.defaultChatModel}`}
                                         />
                                     </div>
@@ -1300,7 +1242,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                             value={defaultDirectorModel}
                                             onChange={setDefaultDirectorModel}
                                             outputModality="text"
-                                            refreshToken={modelRefreshToken}
                                             placeholder={`例: ${apiTypeDefaults.defaultDirectorModel}`}
                                         />
                                     </div>
@@ -1320,7 +1261,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                             value={defaultAutoGenerationModel}
                                             onChange={setDefaultAutoGenerationModel}
                                             outputModality="text"
-                                            refreshToken={modelRefreshToken}
                                             placeholder={`例: ${apiTypeDefaults.defaultAutoGenerationModel}`}
                                         />
                                     </div>
@@ -1340,7 +1280,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                             value={titleGenerationModel}
                                             onChange={setTitleGenerationModel}
                                             outputModality="text"
-                                            refreshToken={modelRefreshToken}
                                             placeholder={`例: ${apiTypeDefaults.titleGenerationModel}`}
                                         />
                                     </div>
@@ -1360,7 +1299,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                             value={replySuggestionModel}
                                             onChange={setReplySuggestionModel}
                                             outputModality="text"
-                                            refreshToken={modelRefreshToken}
                                             placeholder={`例: ${apiTypeDefaults.replySuggestionModel}`}
                                         />
                                     </div>
@@ -1380,7 +1318,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                             value={summaryModel}
                                             onChange={setSummaryModel}
                                             outputModality="text"
-                                            refreshToken={modelRefreshToken}
                                             placeholder={`例: ${apiTypeDefaults.summaryModel}`}
                                         />
                                     </div>
@@ -1401,7 +1338,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                                 value={defaultImageModel}
                                                 onChange={setDefaultImageModel}
                                                 outputModality="image"
-                                                refreshToken={modelRefreshToken}
                                                 placeholder={`例: ${apiTypeDefaults.defaultImageModel}`}
                                             />
                                         </div>
@@ -1422,7 +1358,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                             value={memoryExtractionModel}
                                             onChange={setMemoryExtractionModel}
                                             outputModality="text"
-                                            refreshToken={modelRefreshToken}
                                             placeholder={`例: ${apiTypeDefaults.memoryExtractionModel}`}
                                         />
                                     </div>
@@ -1443,7 +1378,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                                 value={memoryEmbeddingModel}
                                                 onChange={setMemoryEmbeddingModel}
                                                 outputModality="embeddings"
-                                                refreshToken={modelRefreshToken}
                                                 placeholder={`例: ${apiTypeDefaults.memoryEmbeddingModel}`}
                                             />
                                         </div>

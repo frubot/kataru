@@ -105,12 +105,12 @@ export default function CharacterAddModal({
                     onClick={(event) => event.stopPropagation()}
                     role="dialog"
                     aria-modal="true"
-                    aria-label="キャラクターを追加"
+                    aria-label="追加方法を選択"
                     aria-busy={busy}
                 >
                     <div className="modal-header">
                         <h2 className="character-add-modal-title">
-                            <User size={18} /> キャラクターを追加
+                            <User size={18} /> 追加方法を選択
                         </h2>
                         <button
                             type="button"

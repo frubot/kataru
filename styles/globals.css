@@ -867,6 +867,10 @@ body {
   overflow: hidden;
 }
 
+.character-add-modal .modal-header {
+  border-bottom: 0;
+}
+
 .character-add-modal-title {
   display: flex;
   align-items: center;
@@ -888,21 +892,16 @@ body {
   align-items: center;
   gap: 0.75rem;
   padding: 0.875rem 1rem;
-  border: 1px solid var(--border-color);
+  border: 0;
   border-radius: 0.625rem;
-  background: var(--bg-primary);
+  background: transparent;
   color: var(--text-primary);
   font: inherit;
   font-size: 0.9rem;
   font-weight: 600;
   text-align: left;
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-}
-
-.character-add-option:hover:not(:disabled) {
-  background: var(--bg-hover);
-  border-color: var(--accent-primary);
+  transition: color 0.15s ease;
 }
 
 .character-add-option:focus-visible {

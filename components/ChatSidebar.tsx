@@ -91,13 +91,14 @@ function GroupAvatarStack({ chars }: { chars: { icon?: string; name: string }[] 
 interface ChatSidebarProps {
     onOpenSettings: () => void;
     onOpenCharacterSettings: (character: Character | null, isNew: boolean) => void;
+    onOpenCharacterAdd: () => void;
     isOpen: boolean;
     isDesktopOpen: boolean;
     onClose: () => void;
     onToggleDesktop: () => void;
 }
 
-export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, isOpen, isDesktopOpen, onClose, onToggleDesktop }: ChatSidebarProps) {
+export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, onOpenCharacterAdd, isOpen, isDesktopOpen, onClose, onToggleDesktop }: ChatSidebarProps) {
     const { characters, groups, rooms, currentRoomId, createRoom, createRoomForSituation, setCurrentRoom, deleteRoom, deleteSituation, duplicateSituation, deleteCharacter, duplicateCharacter, updateCharacter, updateSituation, defaultChatModel } = useStore();
     const [expandedCharacters, setExpandedCharacters] = useState<Set<string>>(new Set());
     const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set(groups.map((g) => g.id)));
@@ -682,11 +683,12 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
                     )}
                     <button
                         className="btn btn-primary sidebar-main-action"
-                        onClick={() => onOpenCharacterSettings(null, true)}
-                        title="キャラクターを作る"
+                        onClick={onOpenCharacterAdd}
+                        title="キャラクターを追加"
+                        aria-label="キャラクターを追加"
                     >
                         <User size={18} className="sidebar-action-icon" />
-                        <span className="sidebar-label">キャラクターを作る</span>
+                        <span className="sidebar-label">キャラクターを追加</span>
                     </button>
                     <button
                         className="btn btn-secondary sidebar-secondary-action"
@@ -765,7 +767,7 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, i
                                 <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-muted)' }}>
                                     <User size={32} style={{ margin: '0 auto 0.5rem', opacity: 0.5 }} />
                                     <p style={{ fontSize: '0.875rem' }}>キャラクターがいません</p>
-                                    <p style={{ fontSize: '0.75rem', marginTop: '0.25rem' }}>「新しいキャラクター」をクリックして作成してください</p>
+                                    <p style={{ fontSize: '0.75rem', marginTop: '0.25rem' }}>「キャラクターを追加」から作成してください</p>
                                 </div>
                             ) : (
                                 <>

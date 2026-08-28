@@ -3,18 +3,14 @@ import { Loader2, Sparkles, X } from 'lucide-react';
 import {
     formatGeneratedCharacterPrompt,
     formatGeneratedProtagonistPrompt,
+    formatGeneratedSpeechStyle,
     normalizeGeneratedCharacterProfile,
+    type GeneratedCharacterDraft,
     type GeneratedCharacterProfile,
 } from '@/lib/characterGeneration';
 import { useStore } from '@/lib/store';
 import ModelSelector from './ModelSelector';
 import { useModalKeyboard } from './useModalKeyboard';
-
-interface GeneratedCharacterDraft {
-    name: string;
-    systemPrompt: string;
-    protagonistPrompt: string;
-}
 
 interface Props {
     isOpen: boolean;
@@ -110,6 +106,7 @@ export default function CharacterGeneratorModal({ isOpen, onClose, onApply }: Pr
         onApply({
             name: generated.name,
             systemPrompt: formatGeneratedCharacterPrompt(generated),
+            speechStyle: formatGeneratedSpeechStyle(generated),
             protagonistPrompt: formatGeneratedProtagonistPrompt(generated),
         });
     };
@@ -144,7 +141,7 @@ export default function CharacterGeneratorModal({ isOpen, onClose, onApply }: Pr
 
                 <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                     <div>
-                        <label style={labelStyle}>方向性</label>
+                        <label style={labelStyle}>どんなキャラクターにしたい？主人公との関係性は？</label>
                         <textarea
                             className="input textarea"
                             value={direction}
@@ -156,7 +153,7 @@ export default function CharacterGeneratorModal({ isOpen, onClose, onApply }: Pr
                     </div>
 
                     <div>
-                        <label style={labelStyle}>生成モデル</label>
+                        <label style={labelStyle}>モデル</label>
                         <ModelSelector
                             value={model}
                             onChange={setModel}
@@ -184,10 +181,14 @@ export default function CharacterGeneratorModal({ isOpen, onClose, onApply }: Pr
                         }}>
                             <PreviewRow label="名前" value={generated.name} />
                             <PreviewRow label="性別" value={generated.gender} />
+                            <PreviewRow label="職業" value={generated.occupation} />
                             <PreviewRow label="一人称" value={generated.firstPerson} />
+                            <PreviewRow label="口調の具体例" value={formatGeneratedSpeechStyle(generated)} />
+                            <PreviewRow label="性格" value={generated.personality} />
+                            <PreviewRow label="特徴" value={generated.traits} />
                             <PreviewRow label="主人公への呼び方" value={generated.protagonistAddress} />
                             <PreviewRow label="主人公から見た関係性" value={generated.relationship} />
-                            <PreviewRow label="詳細" value={generated.details} />
+                            <PreviewRow label="主人公に対する印象" value={generated.protagonistImpression} />
                         </div>
                     )}
                 </div>

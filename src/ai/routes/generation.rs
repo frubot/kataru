@@ -155,14 +155,38 @@ fn normalize_character(value: &Value) -> Option<Value> {
         ],
     );
     let relationship = pick_string(source, &["relationship", "主人公から見た関係性", "関係性"]);
-    let details = pick_string(source, &["details", "詳細"]);
+    let protagonist_impression = pick_string(
+        source,
+        &[
+            "protagonistImpression",
+            "protagonist_impression",
+            "主人公に対する印象",
+            "主人公への印象",
+        ],
+    );
+    let occupation = pick_string(source, &["occupation", "job", "職業"]);
+    let speech_examples = source
+        .get("speechExamples")?
+        .as_array()?
+        .iter()
+        .map(Value::as_str)
+        .map(|value| value.map(str::trim).filter(|value| !value.is_empty()))
+        .collect::<Option<Vec<_>>>()?;
+    if speech_examples.len() != 3 {
+        return None;
+    }
+    let personality = pick_string(source, &["personality", "性格"]);
+    let traits = pick_string(source, &["traits", "features", "特徴"]);
     if [
         &name,
         &gender,
         &first_person,
         &protagonist_address,
         &relationship,
-        &details,
+        &protagonist_impression,
+        &occupation,
+        &personality,
+        &traits,
     ]
     .iter()
     .any(|value| value.is_empty())
@@ -175,7 +199,11 @@ fn normalize_character(value: &Value) -> Option<Value> {
         "firstPerson": first_person,
         "protagonistAddress": protagonist_address,
         "relationship": relationship,
-        "details": details
+        "protagonistImpression": protagonist_impression,
+        "occupation": occupation,
+        "speechExamples": speech_examples,
+        "personality": personality,
+        "traits": traits
     }))
 }
 
@@ -192,15 +220,77 @@ fn character_schema() -> Value {
                 "firstPerson",
                 "protagonistAddress",
                 "relationship",
-                "details"
+                "protagonistImpression",
+                "occupation",
+                "speechExamples",
+                "personality",
+                "traits"
             ],
             "properties": {
-                "name": { "type": "string" },
-                "gender": { "type": "string" },
-                "firstPerson": { "type": "string" },
-                "protagonistAddress": { "type": "string" },
-                "relationship": { "type": "string" },
-                "details": { "type": "string" }
+                "name": {
+                    "type": "string",
+                    "description": "フルネーム",
+                    "maxLength": 15,
+                    "minLength": 1
+                },
+                "gender": {
+                    "type": "string",
+                    "description": "性別",
+                    "maxLength": 10,
+                    "minLength": 1
+                },
+                "firstPerson": {
+                    "type": "string",
+                    "description": "一人称",
+                    "maxLength": 5,
+                    "minLength": 1
+                },
+                "protagonistAddress": {
+                    "type": "string",
+                    "description": "主人公に対する呼び名（例: ○○くん)",
+                    "maxLength": 5,
+                    "minLength": 1
+                },
+                "relationship": {
+                    "type": "string",
+                    "description": "キャラクターとの関係性（主人公目線）",
+                    "maxLength": 50,
+                    "minLength": 5
+                },
+                "protagonistImpression": {
+                    "type": "string",
+                    "description": "主人公に対して抱いている印象や感情",
+                    "maxLength": 50,
+                    "minLength": 10
+                },
+                "occupation": {
+                    "type": "string",
+                    "description": "職業、学生の場合は立場や所属",
+                    "maxLength": 15,
+                },
+                "speechExamples": {
+                    "type": "array",
+                    "description": "具体的なセリフ例",
+                    "minItems": 3,
+                    "maxItems": 3,
+                    "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 100
+                    }
+                },
+                "personality": {
+                    "type": "string",
+                    "description": "性格",
+                    "maxLength": 100,
+                    "minLength": 20
+                },
+                "traits": {
+                    "type": "string",
+                    "description": "外観、経歴、振る舞い、嗜好などの詳細な特徴",
+                    "maxLength": 150,
+                    "minLength": 50
+                }
             }
         }
     })
@@ -214,13 +304,14 @@ pub async fn generate_character(
     let direction = optional_trimmed_string(&input, "direction").unwrap_or_default();
     let model = resolve_model(&input, "model", "defaultAutoGenerationModel")?;
     let system_prompt = r#"
-完全にオリジナルなキャラクター概要を説明文として作成してください。
-出力はJSONのみで、Markdownを使用しないでください。値は全て日本語である必要があります。
-ユーザーのことは主人公と表記してください。
-details には、キャラクター情報の詳細（プロフィール。職業または学生、経歴、性格、振る舞い、周りからの印象等）について記載してください。すでに記述した内容は不要です。
-detailsのそれぞれのカテゴリは"職業:"のように区切り、一行分空白にしてください。"#;
+あなたは魅力的なオリジナルキャラクター設定を作成するAIです。
+JSON形式で出力してください。
+主人公の名前が提示されていない場合は、主人公の呼び名を"○○"と仮定して表記してください。
+キャラクター本人が実際に発する具体的なセリフを3つ作成してください。
+他項目と重複した内容は記述しないでください。"#;
     let user_prompt = if direction.is_empty() {
-        "完全におまかせで、ロールプレイに使いやすいキャラクターを1人作成してください。".to_owned()
+        "完全におまかせで、ロールプレイに使いやすい特徴的なキャラクターを1人作成してください。"
+            .to_owned()
     } else {
         format!("次の方向性でキャラクターを1人作成してください。\n\n方向性:\n{direction}")
     };
@@ -234,7 +325,7 @@ detailsのそれぞれのカテゴリは"職業:"のように区切り、一行�
         "max_tokens": 1200
     });
     if api_client.is_openrouter() {
-        request["reasoning"] = json!({ "effort": "none" });
+        request["reasoning"] = json!({ "effort": "low" });
     }
     let data = structured_completion(&api_client, request, character_schema(), 60).await?;
     let content = extract_message_text(&data);
@@ -695,6 +786,52 @@ pub async fn generate_title(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn character_profile_uses_explicit_fields_instead_of_details() {
+        let normalized = normalize_character(&json!({
+            "name": "ミナ",
+            "gender": "女性",
+            "firstPerson": "私",
+            "protagonistAddress": "先輩",
+            "relationship": "同じ部活の後輩",
+            "protagonistImpression": "頼りになるが、少し無理をしすぎる人",
+            "occupation": "高校生・天文部員",
+            "speechExamples": [
+                "先輩、今夜は流星群が見られるんですよ！",
+                "もう、また無理してるじゃないですか",
+                "ほら、こっちです。早く早く！"
+            ],
+            "personality": "好奇心旺盛で世話焼き",
+            "traits": "星座に詳しい"
+        }))
+        .expect("explicit profile fields should normalize");
+
+        assert_eq!(normalized["occupation"], "高校生・天文部員");
+        assert_eq!(normalized["speechExamples"].as_array().unwrap().len(), 3);
+        assert_eq!(
+            normalized["protagonistImpression"],
+            "頼りになるが、少し無理をしすぎる人"
+        );
+        assert!(normalized.get("details").is_none());
+
+        let schema = character_schema();
+        let required = schema["schema"]["required"]
+            .as_array()
+            .expect("schema required fields");
+        assert!(required.contains(&json!("traits")));
+        assert!(required.contains(&json!("speechExamples")));
+        assert_eq!(
+            schema["schema"]["properties"]["speechExamples"]["minItems"],
+            3
+        );
+        assert_eq!(
+            schema["schema"]["properties"]["speechExamples"]["maxItems"],
+            3
+        );
+        assert!(!required.contains(&json!("details")));
+        assert!(schema["schema"]["properties"].get("details").is_none());
+    }
 
     #[test]
     fn reply_suggestions_require_three_distinct_values() {

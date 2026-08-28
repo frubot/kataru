@@ -3,6 +3,7 @@ import { ArrowLeft, CheckCircle2, Loader2, Menu, Sparkles } from 'lucide-react';
 import {
     formatGeneratedCharacterPrompt,
     formatGeneratedProtagonistPrompt,
+    formatGeneratedSpeechStyle,
     normalizeGeneratedCharacterProfile,
 } from '@/lib/characterGeneration';
 import {
@@ -84,6 +85,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
     const [connectionMessage, setConnectionMessage] = useState('');
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
+    const [speechStyle, setSpeechStyle] = useState('');
     const [relationship, setRelationship] = useState('');
     const [isGenerating, setGenerating] = useState(false);
     const [generationError, setGenerationError] = useState('');
@@ -281,6 +283,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
             if (!generated) throw new Error('作成結果を読み取れませんでした。');
             setName(generated.name);
             setDescription(formatGeneratedCharacterPrompt(generated));
+            setSpeechStyle(formatGeneratedSpeechStyle(generated));
             setRelationship(formatGeneratedProtagonistPrompt(generated));
         } catch (error) {
             setGenerationError(error instanceof Error ? error.message : 'キャラクターを作成できませんでした。');
@@ -293,6 +296,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
         const trimmedName = name.trim();
         if (!trimmedName) return;
         const characterId = createCharacter(trimmedName, description.trim(), defaultChatModel, {
+            speechStyle: speechStyle.trim() || undefined,
             protagonistPrompt: relationship.trim() || undefined,
         });
         createRoom(characterId);

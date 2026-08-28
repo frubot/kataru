@@ -164,6 +164,14 @@ impl AiApiClient {
         self.kind == AiApiKind::Anthropic
     }
 
+    pub fn api_type_name(&self) -> &'static str {
+        self.kind.as_str()
+    }
+
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
     pub fn embeddings_enabled(&self) -> bool {
         self.is_openrouter() || (self.is_openai_compatible() && self.embeddings_enabled)
     }

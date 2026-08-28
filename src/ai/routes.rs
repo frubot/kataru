@@ -7,7 +7,9 @@ mod image;
 mod memory;
 mod structured;
 
-pub use catalog::{connection_status, models, providers};
+pub use catalog::{
+    ModelCatalogCache, connection_status, models, providers, run_models_cli_command_if_requested,
+};
 pub use chat::chat;
 pub use embeddings::embeddings;
 pub use generation::{

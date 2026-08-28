@@ -56,6 +56,7 @@ fn response_compression_predicate() -> impl Predicate {
 pub struct AppState {
     pub database: Database,
     pub http_client: Client,
+    pub model_catalog_cache: ai::ModelCatalogCache,
     pub application_origin: String,
     pub configuration_origins: Arc<[String]>,
     pub ai_config: ai_config::AiConfigManager,
@@ -89,6 +90,9 @@ async fn run() -> AppResult<()> {
     if ai_config::run_cli_command_if_requested()? {
         return Ok(());
     }
+    if ai::run_models_cli_command_if_requested().await? {
+        return Ok(());
+    }
     if let Some(exit_code) = doctor::run_cli_command_if_requested().await? {
         if exit_code != 0 {
             std::process::exit(exit_code);
@@ -99,6 +103,7 @@ async fn run() -> AppResult<()> {
     let config = Config::from_args()?;
     let database = Database::open(&config.database_path)?;
     let ai_config = ai_config::AiConfigManager::open(&config.data_dir)?;
+    let model_catalog_cache = ai::ModelCatalogCache::open(&config.data_dir)?;
     let http_client = Client::builder()
         .user_agent(format!("Kataru/{}", env!("CARGO_PKG_VERSION")))
         .build()?;
@@ -111,6 +116,7 @@ async fn run() -> AppResult<()> {
     let state = AppState {
         database,
         http_client,
+        model_catalog_cache,
         application_origin: config.origin(),
         configuration_origins: allowed_origins.clone(),
         ai_config,
@@ -459,6 +465,7 @@ mod tests {
         let state = AppState {
             database: Database::open(Path::new(":memory:")).expect("open in-memory database"),
             http_client: Client::new(),
+            model_catalog_cache: ai::ModelCatalogCache::in_memory(),
             application_origin: "http://127.0.0.1".to_owned(),
             configuration_origins: Arc::from(["http://127.0.0.1".to_owned()]),
             ai_config: ai_config::AiConfigManager::in_memory(),
@@ -517,6 +524,7 @@ mod tests {
         let state = AppState {
             database: Database::open(Path::new(":memory:")).expect("open in-memory database"),
             http_client: Client::new(),
+            model_catalog_cache: ai::ModelCatalogCache::in_memory(),
             application_origin: "http://127.0.0.1".to_owned(),
             configuration_origins: Arc::from(["http://127.0.0.1".to_owned()]),
             ai_config: ai_config::AiConfigManager::in_memory(),
@@ -562,6 +570,7 @@ mod tests {
         let state = AppState {
             database: Database::open(Path::new(":memory:")).expect("open in-memory database"),
             http_client: Client::new(),
+            model_catalog_cache: ai::ModelCatalogCache::in_memory(),
             application_origin: "http://127.0.0.1".to_owned(),
             configuration_origins: Arc::from(["http://127.0.0.1".to_owned()]),
             ai_config: ai_config::AiConfigManager::in_memory(),

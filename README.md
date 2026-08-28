@@ -165,6 +165,7 @@ npm run smoke:binary
 version, --version, -V 現在のバージョンを表示
 update                最新版を確認し、利用可能なら自動インストール
 config                AI接続設定を表示・変更
+models                モデル一覧キャッシュを更新
 --host <HOST>         待受ホスト（既定: 127.0.0.1）
 --port <PORT>         待受ポート（既定: 37371）
 --data-dir <PATH>     データ保存先
@@ -180,6 +181,15 @@ kataru config show
 kataru config get openai.base-url
 kataru config unset openai.api-key
 ```
+
+モデル一覧はデータディレクトリ内の`model-cache.json`に保存されます。各モデルセレクター内の「モデル一覧を再取得」、またはCLIから更新できます。
+
+```bash
+kataru models refresh
+kataru models refresh openrouter
+```
+
+接続先を省略すると、設定済みの接続先をすべて更新します。`openai`、`anthropic`も個別に指定できます。
 
 CLIで変更した設定は次回起動時に読み込まれます。Kataruがすでに起動している場合は再起動してください。Web UIからの変更は直ちに反映されます。
 

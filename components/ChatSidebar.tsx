@@ -693,11 +693,11 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, o
                     <button
                         className="btn btn-secondary sidebar-secondary-action"
                         onClick={handleCreateSituation}
-                        title="シチュエーションを作る"
-                        aria-label="シチュエーションを作る"
+                        title="シチュエーションを追加"
+                        aria-label="シチュエーションを追加"
                     >
                         <Users size={18} className="sidebar-action-icon" />
-                        <span className="sidebar-label">シチュエーションを作る</span>
+                        <span className="sidebar-label">シチュエーションを追加</span>
                     </button>
                 </div>
 

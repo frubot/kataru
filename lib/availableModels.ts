@@ -13,6 +13,7 @@ interface ModelsResponse {
 
 const modelCache = new Map<string, AvailableModel[]>();
 const pendingRequests = new Map<string, Promise<AvailableModel[]>>();
+const keyGenerations = new Map<string, number>();
 let cacheGeneration = 0;
 
 function cacheKey(config: AiApiConfig, outputModality: ModelOutputModality): string {
@@ -40,13 +41,14 @@ function isModelsResponse(value: unknown): value is ModelsResponse {
 async function requestAvailableModels(
     config: AiApiConfig,
     outputModality: ModelOutputModality,
+    forceRefresh: boolean,
 ): Promise<AvailableModel[]> {
     const response = await fetch('/api/ai/models', {
         method: 'POST',
         cache: 'no-store',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ aiApiConfig: config, outputModality }),
+        body: JSON.stringify({ aiApiConfig: config, outputModality, forceRefresh }),
     });
     const body: unknown = await response.json().catch(() => null);
     if (!response.ok) {
@@ -69,7 +71,7 @@ export function getAvailableModels(
 ): Promise<AvailableModel[]> {
     const key = cacheKey(config, outputModality);
     if (options.force) {
-        cacheGeneration += 1;
+        keyGenerations.set(key, (keyGenerations.get(key) ?? 0) + 1);
         modelCache.delete(key);
         pendingRequests.delete(key);
     }
@@ -79,9 +81,13 @@ export function getAvailableModels(
     if (pending) return pending;
 
     const requestGeneration = cacheGeneration;
-    const request = requestAvailableModels(config, outputModality)
+    const requestKeyGeneration = keyGenerations.get(key) ?? 0;
+    const request = requestAvailableModels(config, outputModality, options.force === true)
         .then((models) => {
-            if (requestGeneration === cacheGeneration) {
+            if (
+                requestGeneration === cacheGeneration
+                && requestKeyGeneration === (keyGenerations.get(key) ?? 0)
+            ) {
                 modelCache.set(key, models);
             }
             return models;
@@ -99,4 +105,5 @@ export function clearAvailableModelsCache(): void {
     cacheGeneration += 1;
     modelCache.clear();
     pendingRequests.clear();
+    keyGenerations.clear();
 }

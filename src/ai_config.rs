@@ -743,7 +743,7 @@ fn save_persisted_config(path: &Path, config: &PersistedConfig) -> AppResult<()>
     Ok(())
 }
 
-fn parse_config_data_dir(args: &mut Vec<String>) -> AppResult<PathBuf> {
+pub(crate) fn parse_config_data_dir(args: &mut Vec<String>) -> AppResult<PathBuf> {
     let mut data_dir = None;
     let mut portable = false;
     let mut index = 0;

@@ -17,6 +17,7 @@ interface ModelSelectorProps {
     placeholder?: string;
     ariaLabel?: string;
     style?: CSSProperties;
+    refreshToken?: number;
 }
 
 export default function ModelSelector({
@@ -28,6 +29,7 @@ export default function ModelSelector({
     placeholder = 'モデルを選択',
     ariaLabel = 'モデル',
     style,
+    refreshToken = 0,
 }: ModelSelectorProps) {
     const generatedId = useId();
     const triggerId = id ?? `model-selector-${generatedId}`;
@@ -67,7 +69,7 @@ export default function ModelSelector({
         setLoading(false);
         setError(null);
         void loadModels();
-    }, [aiApiType, loadModels]);
+    }, [aiApiType, loadModels, refreshToken]);
 
     useEffect(() => {
         if (isOpen) void loadModels();

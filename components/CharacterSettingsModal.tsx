@@ -419,11 +419,42 @@ function CharacterSettingsModalContent({
         onClose();
     }, [character, costumes, createCharacter, defaultChatModel, enableMemory, enableThinking, expressions, icon, initialDraft, isNew, maxCharacters, maxHistory, model, name, onClose, protagonistPrompt, speechStyle, systemPrompt, temperature, topK, topP, updateCharacter, userConstraints]);
 
+    const attemptClose = useCallback(() => {
+        const currentDraft = {
+            name,
+            systemPrompt,
+            speechStyle,
+            protagonistPrompt,
+            userConstraints,
+            model,
+            enableThinking,
+            enableMemory,
+            maxCharacters,
+            maxHistory,
+            temperature,
+            topP,
+            topK,
+            icon,
+            expressions,
+            costumes,
+        };
+        const blankDraft = buildInitialCharacterDraft(null, defaultChatModel);
+        const hasInput = JSON.stringify(currentDraft) !== JSON.stringify(blankDraft);
+
+        if ((isNew || !character)
+            && hasInput
+            && !window.confirm('入力した内容はまだ保存されていません。保存せずに閉じますか？')) {
+            return;
+        }
+
+        onClose();
+    }, [character, costumes, defaultChatModel, enableMemory, enableThinking, expressions, icon, isNew, maxCharacters, maxHistory, model, name, onClose, protagonistPrompt, speechStyle, systemPrompt, temperature, topK, topP, userConstraints]);
+
     const childModalOpen = imageGenOpen || expressionsOpen || costumesOpen;
     useModalKeyboard({
         isOpen,
         containerRef: modalRef,
-        onClose: isNew || !character ? onClose : saveAndClose,
+        onClose: isNew || !character ? attemptClose : saveAndClose,
         canClose: !childModalOpen,
     });
 
@@ -490,7 +521,7 @@ function CharacterSettingsModalContent({
             onPointerDown={(e) => {
                 if (e.target === e.currentTarget) {
                     if (isNew || !character) {
-                        onClose();
+                        attemptClose();
                     } else {
                         saveAndClose();
                     }

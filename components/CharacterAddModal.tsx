@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, ChevronRight, Loader2, Sparkles, Upload, User, X } from 'lucide-react';
+import { AlertTriangle, ChevronRight, Loader2, Plus, Sparkles, Upload, User, X } from 'lucide-react';
 import type { GeneratedCharacterDraft } from '@/lib/characterGeneration';
 import { resolveCharacterImportPreviewImage } from '@/lib/characterImportPreview';
 import { parseCharacterBackup, type ParsedBackup } from '@/lib/importExport';
@@ -149,7 +149,7 @@ export default function CharacterAddModal({
                                     onClick={onCreate}
                                     disabled={busy}
                                 >
-                                    <span className="character-add-option-icon"><User size={19} /></span>
+                                    <span className="character-add-option-icon"><Plus size={20} /></span>
                                     <span>新しく作る</span>
                                     <ChevronRight size={18} aria-hidden="true" />
                                 </button>

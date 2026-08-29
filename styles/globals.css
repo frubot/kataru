@@ -1240,6 +1240,21 @@ body {
   gap: 1rem;
 }
 
+.global-settings-model-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.global-settings-model-reset {
+  flex: 0 0 auto;
+  min-height: 2rem;
+  padding: 0.375rem 0.625rem;
+  font-size: 0.75rem;
+}
+
 .model-selector-refresh .spin {
   animation: spin 0.8s linear infinite;
 }

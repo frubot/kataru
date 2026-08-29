@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
-import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Check, ChevronDown, RefreshCw, ExternalLink, type LucideIcon } from 'lucide-react';
+import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Check, ChevronDown, RefreshCw, RotateCcw, ExternalLink, type LucideIcon } from 'lucide-react';
 import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, getDefaultModelDefaults, type AiApiType } from '@/lib/store';
 import { createFullBackup, downloadJson, parseImportFile, reassignIds, type ParsedImport } from '@/lib/importExport';
 import StatisticsPanel from '@/components/StatisticsPanel';
@@ -335,6 +335,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         expressionDetectionModel, setExpressionDetectionModel,
         memoryExtractionModel, setMemoryExtractionModel,
         memoryEmbeddingModel, setMemoryEmbeddingModel,
+        resetModelDefaults,
         conversationCompressionEnabled, setConversationCompressionEnabled,
         generateTitleOnFirstReply, setGenerateTitleOnFirstReply,
         replySuggestionsEnabled, setReplySuggestionsEnabled,
@@ -348,6 +349,16 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         clearAllHistory, resetApplication, mergeBackup, restoreBackup,
     } = useStore();
     const apiTypeDefaults = getDefaultModelDefaults(aiApiType);
+    const modelDefaultsAreUnchanged = summaryModel === apiTypeDefaults.summaryModel
+        && defaultChatModel === apiTypeDefaults.defaultChatModel
+        && defaultDirectorModel === apiTypeDefaults.defaultDirectorModel
+        && defaultAutoGenerationModel === apiTypeDefaults.defaultAutoGenerationModel
+        && titleGenerationModel === apiTypeDefaults.titleGenerationModel
+        && replySuggestionModel === apiTypeDefaults.replySuggestionModel
+        && defaultImageModel === apiTypeDefaults.defaultImageModel
+        && expressionDetectionModel === apiTypeDefaults.expressionDetectionModel
+        && memoryExtractionModel === apiTypeDefaults.memoryExtractionModel
+        && memoryEmbeddingModel === apiTypeDefaults.memoryEmbeddingModel;
     const [showClearConfirm, setShowClearConfirm] = useState(false);
     const [showResetConfirm, setShowResetConfirm] = useState(false);
     const [importData, setImportData] = useState<ParsedImport | null>(null);
@@ -1202,9 +1213,21 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
 
                         {/* Conversation Section */}
                         <div style={{ marginBottom: '1.5rem' }}>
-                            <h3 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '0.75rem' }}>
-                                既定のモデル
-                            </h3>
+                            <div className="global-settings-model-heading-row">
+                                <h3 style={{ fontSize: '0.875rem', fontWeight: 700 }}>
+                                    既定のモデル
+                                </h3>
+                                <button
+                                    type="button"
+                                    className="btn btn-secondary global-settings-model-reset"
+                                    onClick={resetModelDefaults}
+                                    disabled={modelDefaultsAreUnchanged}
+                                    title="現在の接続先のモデル設定を初期値に戻す"
+                                >
+                                    <RotateCcw size={14} aria-hidden="true" />
+                                    リセット
+                                </button>
+                            </div>
                             <div style={{
                                 display: 'flex',
                                 flexDirection: 'column',

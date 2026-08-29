@@ -213,6 +213,7 @@ type SettingsSlice = Pick<
     | 'setKeyboardShortcut'
     | 'resetKeyboardShortcut'
     | 'resetKeyboardShortcuts'
+    | 'resetModelDefaults'
     | 'setSummaryModel'
     | 'setDefaultChatModel'
     | 'setDefaultDirectorModel'
@@ -312,6 +313,16 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
             const keyboardShortcuts = createDefaultKeyboardShortcuts();
             set({ keyboardShortcuts });
             fire(db.setMeta('keyboardShortcuts', keyboardShortcuts));
+        },
+        resetModelDefaults: () => {
+            const state = get();
+            const modelDefaults = { ...getDefaultModelDefaults(state.aiApiType) };
+            const modelDefaultsByApiType = {
+                ...state.modelDefaultsByApiType,
+                [state.aiApiType]: modelDefaults,
+            };
+            set({ ...modelDefaults, modelDefaultsByApiType });
+            persistModelDefaultsByApiType(modelDefaultsByApiType);
         },
         setSummaryModel: (summaryModel) => {
             updateModelDefault(set, get, 'summaryModel', summaryModel);

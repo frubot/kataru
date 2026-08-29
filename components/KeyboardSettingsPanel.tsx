@@ -1,5 +1,4 @@
 import { useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { RotateCcw } from 'lucide-react';
 import {
     DEFAULT_KEYBOARD_SHORTCUTS,
     getKeyboardShortcutLabels,
@@ -122,7 +121,6 @@ export default function KeyboardSettingsPanel() {
                     }}
                     disabled={allDefaults}
                 >
-                    <RotateCcw size={15} />
                     すべて初期設定に戻す
                 </button>
             </div>

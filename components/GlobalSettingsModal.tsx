@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
-import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Check, ChevronDown, RefreshCw, RotateCcw, ExternalLink, type LucideIcon } from 'lucide-react';
+import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Check, ChevronDown, RefreshCw, ExternalLink, type LucideIcon } from 'lucide-react';
 import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, getDefaultModelDefaults, type AiApiType } from '@/lib/store';
 import { createFullBackup, downloadJson, parseImportFile, reassignIds, type ParsedImport } from '@/lib/importExport';
 import StatisticsPanel from '@/components/StatisticsPanel';
@@ -1224,7 +1224,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     disabled={modelDefaultsAreUnchanged}
                                     title="現在の接続先のモデル設定を初期値に戻す"
                                 >
-                                    <RotateCcw size={14} aria-hidden="true" />
                                     リセット
                                 </button>
                             </div>

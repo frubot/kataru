@@ -29,8 +29,6 @@ type VisualNovelLogEntry = {
     content: string;
     speakerName: string;
     characterIcon?: string;
-    archived?: boolean;
-    showArchiveDivider?: boolean;
     isStreaming?: boolean;
 };
 
@@ -56,27 +54,20 @@ function LogAvatar({ entry }: { entry: VisualNovelLogEntry }) {
 
 function LogEntry({ entry }: { entry: VisualNovelLogEntry }) {
     return (
-        <>
-            {entry.showArchiveDivider && (
-                <div className="vn-log-divider" role="separator">
-                    現在の会話
+        <article
+            className={`vn-log-entry ${entry.role}${entry.isStreaming ? ' streaming' : ''}`}
+        >
+            <LogAvatar entry={entry} />
+            <div className="vn-log-entry-body">
+                <div className="vn-log-speaker">{entry.speakerName}</div>
+                <div
+                    className="vn-log-content"
+                    {...(entry.isStreaming ? { role: 'status', 'aria-live': 'polite' as const } : {})}
+                >
+                    <ReactMarkdown>{formatAssistantMarkdown(entry.content)}</ReactMarkdown>
                 </div>
-            )}
-            <article
-                className={`vn-log-entry ${entry.role}${entry.archived ? ' archived' : ''}${entry.isStreaming ? ' streaming' : ''}`}
-            >
-                <LogAvatar entry={entry} />
-                <div className="vn-log-entry-body">
-                    <div className="vn-log-speaker">{entry.speakerName}</div>
-                    <div
-                        className="vn-log-content"
-                        {...(entry.isStreaming ? { role: 'status', 'aria-live': 'polite' as const } : {})}
-                    >
-                        <ReactMarkdown>{formatAssistantMarkdown(entry.content)}</ReactMarkdown>
-                    </div>
-                </div>
-            </article>
-        </>
+            </div>
+        </article>
     );
 }
 
@@ -116,8 +107,6 @@ export default function VisualNovelLogView({
             characterIcon: message.role === 'assistant'
                 ? message.msgCharacterIcon ?? character?.icon
                 : undefined,
-            archived: message.isArchived,
-            showArchiveDivider: message.showArchiveDivider,
         }));
         const previewTurns = activeStreamingPreview?.turns;
         const streamingEntries = previewTurns && previewTurns.length > 0

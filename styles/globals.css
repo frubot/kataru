@@ -2885,14 +2885,10 @@ body {
 
 .vn-log-speaker {
   margin-bottom: 0.35rem;
-  color: var(--accent-primary);
+  color: var(--text-secondary);
   font-size: 0.78rem;
   font-weight: 700;
   letter-spacing: 0.035em;
-}
-
-.vn-log-entry.user .vn-log-speaker {
-  color: var(--text-secondary);
 }
 
 .vn-log-content {

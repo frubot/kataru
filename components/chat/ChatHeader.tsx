@@ -7,10 +7,10 @@ import {
     Gamepad2,
     HatGlasses,
     Menu,
-    MessageSquare,
     MessagesSquare,
     SquarePen,
     ScanSearch,
+    User,
 } from 'lucide-react';
 import type { Room } from '@/lib/store';
 import KeyboardShortcutsHelp from './KeyboardShortcutsHelp';
@@ -30,7 +30,7 @@ function getRoomViewModeLabel(viewMode: RoomViewMode): string {
 function renderRoomViewModeIcon(viewMode: RoomViewMode, size = 18) {
     if (viewMode === 'message') return <MessagesSquare size={size} />;
     if (viewMode === 'vn') return <Gamepad2 size={size} />;
-    return <MessageSquare size={size} />;
+    return <User size={size} />;
 }
 
 type ChatHeaderProps = {

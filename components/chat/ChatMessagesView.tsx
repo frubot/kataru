@@ -448,7 +448,6 @@ export default function ChatMessagesView({
                 <div className="empty-state" style={{ opacity: 0.7 }}>
                     {isSecretMode ? (
                         <>
-                            <HatGlasses size={48} style={{ marginBottom: '0.75rem', opacity: 0.72 }} />
                             <h2 className="empty-state-title">シークレットモード</h2>
                             <p className="empty-state-description">
                                 メモリ機能は無効になり、会話は保存されません
@@ -456,11 +455,7 @@ export default function ChatMessagesView({
                         </>
                     ) : (
                         <>
-                            <MessageSquare size={48} style={{ marginBottom: '0.5rem', opacity: 0.5 }} />
-                            <h2 className="empty-state-title">まずは一言。</h2>
-                            <p className="empty-state-description">
-                                例：「聞いて、今日はこんなことをしてたよ」
-                            </p>
+                            <h2 className="empty-state-title">何を話しますか？</h2>
                         </>
                     )}
                 </div>

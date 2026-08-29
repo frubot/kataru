@@ -203,7 +203,6 @@ export default function ChatHeader({
                             title={`表示モード: ${modeLabel}`}
                             aria-haspopup="menu"
                             aria-expanded={modeMenuOpen}
-                            style={{ color: currentViewMode !== 'chat' ? 'var(--accent-primary)' : undefined }}
                         >
                             {renderRoomViewModeIcon(currentViewMode)}
                             <span className="desktop-only">{modeLabel}</span>

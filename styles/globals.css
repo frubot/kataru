@@ -698,11 +698,6 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 1rem 1.5rem;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.keyboard-shortcuts-modal .modal-header {
-  border-bottom: none;
 }
 
 .keyboard-shortcuts-modal {
@@ -859,16 +854,11 @@ body {
   justify-content: flex-end;
   gap: 0.75rem;
   padding: 1rem 1.5rem;
-  border-top: 1px solid var(--border-color);
 }
 
 .character-add-modal {
   max-width: 480px;
   overflow: hidden;
-}
-
-.character-add-modal .modal-header {
-  border-bottom: 0;
 }
 
 .character-add-modal-title {
@@ -2238,7 +2228,6 @@ body {
   gap: 0.75rem;
   min-height: 61px;
   padding: 0.75rem 1rem 0.75rem 1.25rem;
-  border-bottom: 1px solid var(--border-color);
   color: var(--text-muted);
 }
 

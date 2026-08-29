@@ -2,6 +2,10 @@ import { useState, useEffect, useRef } from 'react';
 import { Check, X, Loader2, Pencil, Trash2, RefreshCw, Smile, Sparkles, Upload } from 'lucide-react';
 import type { Costume, Expression } from '@/lib/store';
 import { useStore } from '@/lib/store';
+import {
+    createExpressionNameRegistry,
+    reserveUniqueExpressionName,
+} from '@/lib/expressionName';
 import { buildBaseImageRequest } from '@/lib/imageSource';
 import {
     cropRectToPng,
@@ -61,9 +65,12 @@ export default function ExpressionDiffModal({
     const fileInputRef = useRef<HTMLInputElement>(null);
     const uploadImgRef = useRef<HTMLImageElement>(null);
     const modalRef = useRef<HTMLDivElement>(null);
+    const reservedDetectedNamesRef = useRef<Set<string>>(new Set());
     const [uploadImage, setUploadImage] = useState<string | null>(null);
     const [uploadNatural, setUploadNatural] = useState<{ w: number; h: number } | null>(null);
     const [uploadCrop, setUploadCrop] = useState<CropBox | null>(null);
+    const [uploadFiles, setUploadFiles] = useState<File[]>([]);
+    const [uploadIndex, setUploadIndex] = useState(0);
     const [editingName, setEditingName] = useState<string | null>(null);
     const [editingNameValue, setEditingNameValue] = useState('');
 
@@ -80,6 +87,9 @@ export default function ExpressionDiffModal({
             setUploadImage(null);
             setUploadNatural(null);
             setUploadCrop(null);
+            setUploadFiles([]);
+            setUploadIndex(0);
+            reservedDetectedNamesRef.current.clear();
             setEditingName(null);
             setEditingNameValue('');
             abortRef.current?.abort();
@@ -127,6 +137,27 @@ export default function ExpressionDiffModal({
         setUploadCrop(null);
     };
 
+    const clearUploadQueue = () => {
+        clearUploadDraft();
+        setUploadFiles([]);
+        setUploadIndex(0);
+        reservedDetectedNamesRef.current.clear();
+    };
+
+    const prepareUpload = async (file: File) => {
+        const dataUrl: string = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = () => reject(new Error(`${file.name} の読み込みに失敗しました。`));
+            reader.readAsDataURL(file);
+        });
+        const resized = await resizeToMaxEdge(dataUrl, MAX_EDGE);
+        const img = await loadImage(resized);
+        setUploadImage(resized);
+        setUploadNatural({ w: img.width, h: img.height });
+        setUploadCrop(createInitialCrop(img.width, img.height, EXPRESSION_ASPECT));
+    };
+
     const nameExists = (name: string, currentName?: string) => displayExpressions.some((expression) => (
         expression.name !== currentName
         && expression.name.toLowerCase() === name.toLowerCase()
@@ -147,22 +178,11 @@ export default function ExpressionDiffModal({
         return name;
     };
 
-    const makeUniqueDetectedName = (detectedName: string) => {
-        if (!nameExists(detectedName)) return detectedName;
-        let suffixNumber = 2;
-        while (suffixNumber < 1000) {
-            const suffix = `_${suffixNumber}`;
-            const base = detectedName
-                .slice(0, 64 - suffix.length)
-                .replace(/_+$/, '');
-            const candidate = `${base}${suffix}`;
-            if (!nameExists(candidate)) return candidate;
-            suffixNumber += 1;
-        }
-        throw new Error('重複しない表情名を作成できませんでした。');
-    };
-
-    const detectExpressionName = async (image: string, signal?: AbortSignal) => {
+    const detectExpressionName = async (
+        image: string,
+        signal?: AbortSignal,
+        reservedNames = createExpressionNameRegistry(displayExpressions.map((expression) => expression.name)),
+    ) => {
         const analysisImage = await resizeToMaxEdgeAsJpeg(
             image,
             EXPRESSION_DETECTION_MAX_EDGE,
@@ -184,7 +204,7 @@ export default function ExpressionDiffModal({
         if (typeof data?.name !== 'string' || !/^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/.test(data.name)) {
             throw new Error('表情名の自動判定結果が不正です。');
         }
-        return makeUniqueDetectedName(data.name);
+        return reserveUniqueExpressionName(data.name, reservedNames);
     };
 
     const buildPrompt = (name: string, promptDetail?: string) => {
@@ -270,31 +290,30 @@ export default function ExpressionDiffModal({
     };
 
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
+        const selectedFiles = Array.from(e.target.files ?? []);
         e.target.value = '';
-        if (!file) return;
+        const files = autoDetectName ? selectedFiles : selectedFiles.slice(0, 1);
+        if (files.length === 0) return;
 
         if (!autoDetectName && !validateManualName()) return;
-        if (!file.type.startsWith('image/')) {
-            setError('画像ファイルを選択してください。');
+        const invalidFile = files.find((file) => !file.type.startsWith('image/'));
+        if (invalidFile) {
+            setError(`${invalidFile.name} は画像ファイルではありません。`);
             return;
         }
 
         setBusy(UPLOAD_BUSY_KEY);
+        setError(null);
         clearUploadDraft();
         try {
-            const dataUrl: string = await new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = () => resolve(reader.result as string);
-                reader.onerror = () => reject(new Error('画像の読み込みに失敗しました'));
-                reader.readAsDataURL(file);
-            });
-            const resized = await resizeToMaxEdge(dataUrl, MAX_EDGE);
-            const img = await loadImage(resized);
-            setUploadImage(resized);
-            setUploadNatural({ w: img.width, h: img.height });
-            setUploadCrop(createInitialCrop(img.width, img.height, EXPRESSION_ASPECT));
+            setUploadFiles(files);
+            setUploadIndex(0);
+            reservedDetectedNamesRef.current = createExpressionNameRegistry(
+                displayExpressions.map((expression) => expression.name),
+            );
+            await prepareUpload(files[0]);
         } catch (e) {
+            clearUploadQueue();
             setError(e instanceof Error ? e.message : '画像の読み込みに失敗しました');
         } finally {
             setBusy(null);
@@ -318,12 +337,28 @@ export default function ExpressionDiffModal({
                 uploadCrop.height,
             );
             const name = autoDetectName
-                ? await detectExpressionName(cropped, controller.signal)
+                ? await detectExpressionName(
+                    cropped,
+                    controller.signal,
+                    reservedDetectedNamesRef.current,
+                )
                 : manualName!;
             onUpsert({ name, image: cropped }, selectedCostume?.name);
             setNewName('');
             setNewPromptDetail('');
-            clearUploadDraft();
+            const nextIndex = uploadIndex + 1;
+            if (autoDetectName && nextIndex < uploadFiles.length) {
+                setUploadIndex(nextIndex);
+                clearUploadDraft();
+                try {
+                    await prepareUpload(uploadFiles[nextIndex]);
+                } catch (nextError) {
+                    clearUploadQueue();
+                    throw nextError;
+                }
+            } else {
+                clearUploadQueue();
+            }
         } catch (e) {
             setError(e instanceof Error ? e.message : '画像の切り取りに失敗しました');
         } finally {
@@ -399,7 +434,7 @@ export default function ExpressionDiffModal({
                                 value={selectedCostumeName}
                                 onChange={(e) => {
                                     setSelectedCostumeName(e.target.value);
-                                    clearUploadDraft();
+                                    clearUploadQueue();
                                     setEditingName(null);
                                     setEditingNameValue('');
                                     setError(null);
@@ -429,7 +464,7 @@ export default function ExpressionDiffModal({
                                 className={addMode === 'generate' ? 'btn btn-primary' : 'btn btn-ghost'}
                                 onClick={() => {
                                     setAddMode('generate');
-                                    clearUploadDraft();
+                                    clearUploadQueue();
                                 }}
                                 disabled={!!busy || !canGenerateDiffs}
                                 style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
@@ -464,6 +499,7 @@ export default function ExpressionDiffModal({
                                 checked={autoDetectName}
                                 onChange={(event) => {
                                     setAutoDetectName(event.target.checked);
+                                    clearUploadQueue();
                                     setError(null);
                                 }}
                                 disabled={!!busy}
@@ -517,12 +553,24 @@ export default function ExpressionDiffModal({
                         ) : (
                             <p style={hintStyle}>
                                 {uploadImage
-                                    ? '切り取り範囲を調整してから追加します'
-                                    : '画像を選択すると 2:3 の切り取り範囲を調整できます'}
+                                    ? uploadFiles.length > 1
+                                        ? '切り取り範囲を調整して追加すると、次の画像に進みます'
+                                        : '切り取り範囲を調整してから追加します'
+                                    : autoDetectName
+                                        ? '複数の画像を選択し、1枚ずつ 2:3 の切り取り範囲を調整できます'
+                                        : '画像を選択すると 2:3 の切り取り範囲を調整できます'}
                             </p>
                         )}
                         {addMode === 'upload' && uploadImage && uploadNatural && uploadCrop && (
                             <div style={{ marginTop: 8 }}>
+                                {autoDetectName && uploadFiles.length > 0 && (
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 8, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={uploadFiles[uploadIndex]?.name}>
+                                            {uploadFiles[uploadIndex]?.name}
+                                        </span>
+                                        <span style={{ flexShrink: 0 }}>{uploadIndex + 1} / {uploadFiles.length}</span>
+                                    </div>
+                                )}
                                 <CropArea
                                     key={uploadImage}
                                     imgRef={uploadImgRef}
@@ -539,6 +587,7 @@ export default function ExpressionDiffModal({
                             ref={fileInputRef}
                             type="file"
                             accept="image/*"
+                            multiple={autoDetectName}
                             onChange={handleFileUpload}
                             style={{ display: 'none' }}
                         />
@@ -582,7 +631,15 @@ export default function ExpressionDiffModal({
                                     style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                                 >
                                     {busy === UPLOAD_BUSY_KEY && <Loader2 size={16} className="animate-spin" />}
-                                    {busy === UPLOAD_BUSY_KEY ? (autoDetectName ? '処理・判定中...' : '処理中...') : uploadImage ? '追加' : '選択'}
+                                    {busy === UPLOAD_BUSY_KEY
+                                        ? autoDetectName && uploadFiles.length > 1
+                                            ? `処理・判定中... (${uploadIndex + 1}/${uploadFiles.length})`
+                                            : autoDetectName ? '処理・判定中...' : '処理中...'
+                                        : uploadImage && autoDetectName && uploadIndex + 1 < uploadFiles.length
+                                            ? `追加して次へ (${uploadIndex + 1}/${uploadFiles.length})`
+                                            : uploadImage && autoDetectName && uploadFiles.length > 1
+                                                ? `追加 (${uploadIndex + 1}/${uploadFiles.length})`
+                                                : uploadImage ? '追加' : '選択'}
                                 </button>
                             </>
                         )}

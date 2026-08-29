@@ -690,7 +690,7 @@ function CharacterSettingsModalContent({
                                     <PromptBlockEditor
                                         markdown={speechStyle}
                                         onChange={setSpeechStyle}
-                                        placeholder="例: 丁寧語で話す。親しい相手には少しくだけた表現を使う。"
+                                        placeholder="例: 「それ、めっちゃいいじゃん！あとで私にも分けて？」"
                                         frame={false}
                                         minHeight="72px"
                                         maxHeight={null}

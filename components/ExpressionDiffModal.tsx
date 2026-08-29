@@ -508,7 +508,7 @@ export default function ExpressionDiffModal({
                         </label>
                         {autoDetectName ? (
                             <p style={{ ...hintStyle, marginTop: 0, marginBottom: 8 }}>
-                                注意: 画像はAPIへ送信されます。機密情報が入った画像を選択しないでください。
+                                注意: 画像はAPIへ送信されます。機密情報が入った画像を選択しないでください
                             </p>
                         ) : (
                             <div style={{ marginBottom: 8 }}>
@@ -544,21 +544,16 @@ export default function ExpressionDiffModal({
                                     ? '選択中のAPIでは元画像を使う差分生成に対応していません。アップロードで追加してください。'
                                     : neutral
                                     ? autoDetectName
-                                        ? '補足をもとに差分を生成し、完成した画像から表情名を判定します。補足が空の場合は異なる表情をおまかせで生成します'
-                                        : selectedCostume
-                                            ? '選択中の衣装画像をベースに、表情名と補足プロンプトを使って衣装専用差分を生成します'
-                                            : 'デフォルトの立ち絵をベースに、表情名と補足プロンプトを使って差分を生成します'
+                                        && '説明が空の場合は異なる表情をおまかせで生成します'
                                     : '生成には「アバター画像」から立ち絵の登録が必要です。アップロードなら neutral(デフォルトの表情) や表情差分を直接追加できます。'}
                             </p>
                         ) : (
                             <p style={hintStyle}>
                                 {uploadImage
-                                    ? uploadFiles.length > 1
+                                    && uploadFiles.length > 1
                                         ? '切り取り範囲を調整して追加すると、次の画像に進みます'
-                                        : '切り取り範囲を調整してから追加します'
-                                    : autoDetectName
-                                        ? '複数の画像を選択し、1枚ずつ 2:3 の切り取り範囲を調整できます'
-                                        : '画像を選択すると 2:3 の切り取り範囲を調整できます'}
+                                        : '切り取り範囲を調整してください'
+                                    }
                             </p>
                         )}
                         {addMode === 'upload' && uploadImage && uploadNatural && uploadCrop && (

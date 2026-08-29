@@ -287,6 +287,7 @@ export interface AppState {
     titleGenerationModel: string;
     replySuggestionModel: string;
     defaultImageModel: string;
+    expressionDetectionModel: string;
     memoryExtractionModel: string;
     memoryEmbeddingModel: string;
     modelDefaultsByApiType: ModelDefaultsByApiType;
@@ -327,6 +328,7 @@ export interface AppState {
     setTitleGenerationModel: (model: string) => void;
     setReplySuggestionModel: (model: string) => void;
     setDefaultImageModel: (model: string) => void;
+    setExpressionDetectionModel: (model: string) => void;
     setMemoryExtractionModel: (model: string) => void;
     setMemoryEmbeddingModel: (model: string) => void;
     setConversationCompressionEnabled: (enabled: boolean) => void;

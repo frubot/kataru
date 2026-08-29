@@ -332,6 +332,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         titleGenerationModel, setTitleGenerationModel,
         replySuggestionModel, setReplySuggestionModel,
         defaultImageModel, setDefaultImageModel,
+        expressionDetectionModel, setExpressionDetectionModel,
         memoryExtractionModel, setMemoryExtractionModel,
         memoryEmbeddingModel, setMemoryEmbeddingModel,
         conversationCompressionEnabled, setConversationCompressionEnabled,
@@ -1344,6 +1345,25 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         </div>
                                     </div>
                                 )}
+
+                                {/* Expression detection model */}
+                                <div className="global-settings-selector-row global-settings-selector-row-divider">
+                                    <label
+                                        htmlFor="expression-detection-model-input"
+                                        style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
+                                    >
+                                        表情の自動判定
+                                    </label>
+                                    <div className="global-settings-selector-control global-settings-model-selector-control">
+                                        <ModelSelector
+                                            id="expression-detection-model-input"
+                                            value={expressionDetectionModel}
+                                            onChange={setExpressionDetectionModel}
+                                            outputModality="text"
+                                            placeholder={`例: ${apiTypeDefaults.expressionDetectionModel}`}
+                                        />
+                                    </div>
+                                </div>
 
                                 {/* Memory extraction model */}
                                 <div className="global-settings-selector-row global-settings-selector-row-divider">

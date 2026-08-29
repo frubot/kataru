@@ -11,6 +11,7 @@ const fields = [
     'titleGenerationModel',
     'replySuggestionModel',
     'defaultImageModel',
+    'expressionDetectionModel',
     'memoryExtractionModel',
     'memoryEmbeddingModel',
 ];
@@ -33,8 +34,8 @@ function migrate(overrides = {}) {
         legacyModelDefaultsByProvider: undefined,
         defaultAiApiType: 'openrouter',
         defaultModelDefaultsByApiType,
-        storedSchemaVersion: 2,
-        currentSchemaVersion: 2,
+        storedSchemaVersion: 3,
+        currentSchemaVersion: 3,
         ...overrides,
     });
 }
@@ -46,7 +47,7 @@ test('migrates legacy aiProvider to aiApiType and advances the schema version', 
     });
 
     assert.equal(result.aiApiType, 'anthropic');
-    assert.equal(result.schemaVersion, 2);
+    assert.equal(result.schemaVersion, 3);
     assert.equal(result.shouldPersistAiApiType, true);
     assert.equal(result.shouldPersistSchemaVersion, true);
 });

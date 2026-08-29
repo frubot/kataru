@@ -1,9 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, Loader2, Trash2, RefreshCw, Smile, Sparkles, Upload } from 'lucide-react';
+import { Check, X, Loader2, Pencil, Trash2, RefreshCw, Smile, Sparkles, Upload } from 'lucide-react';
 import type { Costume, Expression } from '@/lib/store';
 import { useStore } from '@/lib/store';
 import { buildBaseImageRequest } from '@/lib/imageSource';
-import { cropRectToPng, loadImage, resizeToMaxEdge } from '@/lib/imageUtils';
+import {
+    cropRectToPng,
+    loadImage,
+    resizeToMaxEdge,
+    resizeToMaxEdgeAsJpeg,
+} from '@/lib/imageUtils';
 import { CropArea, createInitialCrop, type CropBox } from './ImageCropArea';
 import StoredImage from './StoredImage';
 import ModelSelector from './ModelSelector';
@@ -14,6 +19,8 @@ const DEFAULT_COSTUME_NAME = 'default';
 const MAX_EDGE = 1536;
 const EXPRESSION_ASPECT_RATIO = '2:3';
 const EXPRESSION_ASPECT = 2 / 3;
+const EXPRESSION_DETECTION_MAX_EDGE = 768;
+const EXPRESSION_DETECTION_JPEG_QUALITY = 0.85;
 const NEW_BUSY_KEY = '__new__';
 const UPLOAD_BUSY_KEY = '__upload__';
 
@@ -26,6 +33,7 @@ interface Props {
     costumes: Costume[];
     showCostumeSettings?: boolean;
     onUpsert: (expression: Expression, costumeName?: string) => void;
+    onRename: (currentName: string, nextName: string, costumeName?: string) => void;
     onRemove: (name: string, costumeName?: string) => void;
 }
 
@@ -36,6 +44,7 @@ export default function ExpressionDiffModal({
     costumes,
     showCostumeSettings = true,
     onUpsert,
+    onRename,
     onRemove,
 }: Props) {
     const { defaultImageModel, aiApiType, getAiApiConfig } = useStore();
@@ -43,6 +52,7 @@ export default function ExpressionDiffModal({
     const [selectedCostumeName, setSelectedCostumeName] = useState(DEFAULT_COSTUME_NAME);
     const [newName, setNewName] = useState('');
     const [newPromptDetail, setNewPromptDetail] = useState('');
+    const [autoDetectName, setAutoDetectName] = useState(false);
     const [addMode, setAddMode] = useState<AddMode>('generate');
     const [model, setModel] = useState(defaultImageModel);
     const [busy, setBusy] = useState<string | null>(null); // expression name being generated, or internal busy key
@@ -54,12 +64,15 @@ export default function ExpressionDiffModal({
     const [uploadImage, setUploadImage] = useState<string | null>(null);
     const [uploadNatural, setUploadNatural] = useState<{ w: number; h: number } | null>(null);
     const [uploadCrop, setUploadCrop] = useState<CropBox | null>(null);
+    const [editingName, setEditingName] = useState<string | null>(null);
+    const [editingNameValue, setEditingNameValue] = useState('');
 
     useEffect(() => {
         if (!isOpen) {
             setSelectedCostumeName(DEFAULT_COSTUME_NAME);
             setNewName('');
             setNewPromptDetail('');
+            setAutoDetectName(false);
             setAddMode(canGenerateDiffs ? 'generate' : 'upload');
             setModel(defaultImageModel);
             setBusy(null);
@@ -67,6 +80,8 @@ export default function ExpressionDiffModal({
             setUploadImage(null);
             setUploadNatural(null);
             setUploadCrop(null);
+            setEditingName(null);
+            setEditingNameValue('');
             abortRef.current?.abort();
             abortRef.current = null;
         }
@@ -97,7 +112,6 @@ export default function ExpressionDiffModal({
     const selectedCostumeExpressions = selectedCostume
         ? (selectedCostume.expressions ?? []).filter((e) => e.name !== NEUTRAL_NAME)
         : [];
-    const activeExpressions = selectedCostume ? selectedCostumeExpressions : expressions;
     const defaultNeutral = expressions.find((e) => e.name === NEUTRAL_NAME);
     const selectedCostumeNeutral: Expression | null = selectedCostume
         ? { name: NEUTRAL_NAME, image: selectedCostume.image }
@@ -113,16 +127,85 @@ export default function ExpressionDiffModal({
         setUploadCrop(null);
     };
 
+    const nameExists = (name: string, currentName?: string) => displayExpressions.some((expression) => (
+        expression.name !== currentName
+        && expression.name.toLowerCase() === name.toLowerCase()
+    ));
+
+    const validateManualName = () => {
+        const name = newName.trim();
+        if (!name || busy) return null;
+        if (selectedCostume && name.toLowerCase() === NEUTRAL_NAME) {
+            setError('衣装選択中の neutral は衣装画像そのものです。別の表情名を使ってください。');
+            return null;
+        }
+        if (nameExists(name)) {
+            setError(`「${name}」は既に存在します。`);
+            return null;
+        }
+        setError(null);
+        return name;
+    };
+
+    const makeUniqueDetectedName = (detectedName: string) => {
+        if (!nameExists(detectedName)) return detectedName;
+        let suffixNumber = 2;
+        while (suffixNumber < 1000) {
+            const suffix = `_${suffixNumber}`;
+            const base = detectedName
+                .slice(0, 64 - suffix.length)
+                .replace(/_+$/, '');
+            const candidate = `${base}${suffix}`;
+            if (!nameExists(candidate)) return candidate;
+            suffixNumber += 1;
+        }
+        throw new Error('重複しない表情名を作成できませんでした。');
+    };
+
+    const detectExpressionName = async (image: string, signal?: AbortSignal) => {
+        const analysisImage = await resizeToMaxEdgeAsJpeg(
+            image,
+            EXPRESSION_DETECTION_MAX_EDGE,
+            EXPRESSION_DETECTION_JPEG_QUALITY,
+        );
+        const response = await fetch('/api/detect-expression-name', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                image: analysisImage,
+                aiApiConfig: getAiApiConfig(),
+            }),
+            signal,
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data?.error || `表情名の自動判定に失敗しました (${response.status})`);
+        }
+        if (typeof data?.name !== 'string' || !/^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/.test(data.name)) {
+            throw new Error('表情名の自動判定結果が不正です。');
+        }
+        return makeUniqueDetectedName(data.name);
+    };
+
     const buildPrompt = (name: string, promptDetail?: string) => {
         const detail = promptDetail?.trim();
         return [
-            `Change the facial expression to ${name}.`,
+            name
+                ? `Change the facial expression to ${name}.`
+                : detail
+                    ? 'Change the facial expression according to the character-specific guidance below.'
+                    : 'Change the facial expression to a distinct, clearly readable expression.',
             detail ? `Character-specific expression guidance: ${detail}` : null,
             'Keep everything else (character, outfit, background, art style) identical.',
         ].filter(Boolean).join('\n');
     };
 
-    const generate = async (name: string, busyKey: string, promptDetail?: string) => {
+    const generate = async (
+        name: string,
+        busyKey: string,
+        promptDetail?: string,
+        shouldDetectName = false,
+    ) => {
         if (!canGenerateDiffs) {
             setError('選択中のAPIでは元画像を使う表情差分生成に対応していません。アップロードを使ってください。');
             return;
@@ -156,7 +239,10 @@ export default function ExpressionDiffModal({
             }
             const data = await res.json();
             const resized = await resizeToMaxEdge(data.image, MAX_EDGE);
-            onUpsert({ name, promptDetail: normalizedPromptDetail, image: resized }, selectedCostume?.name);
+            const resolvedName = shouldDetectName
+                ? await detectExpressionName(resized, controller.signal)
+                : name;
+            onUpsert({ name: resolvedName, promptDetail: normalizedPromptDetail, image: resized }, selectedCostume?.name);
             if (busyKey === NEW_BUSY_KEY) {
                 setNewName('');
                 setNewPromptDetail('');
@@ -172,36 +258,14 @@ export default function ExpressionDiffModal({
     };
 
     const handleAdd = () => {
-        const name = newName.trim();
-        if (!name || busy || !model.trim() || !canGenerateDiffs) return;
-        if (selectedCostume && name.toLowerCase() === NEUTRAL_NAME) {
-            setError('衣装選択中の neutral は衣装画像そのものです。別の表情名を使ってください。');
-            return;
-        }
-        if (activeExpressions.some((e) => e.name.toLowerCase() === name.toLowerCase())) {
-            setError(`「${name}」は既に存在します。`);
-            return;
-        }
-        generate(name, NEW_BUSY_KEY, newPromptDetail);
-    };
-
-    const validateUpload = () => {
-        const name = newName.trim();
-        if (!name || busy) return null;
-        if (selectedCostume && name.toLowerCase() === NEUTRAL_NAME) {
-            setError('衣装選択中の neutral は衣装画像そのものです。別の表情名を使ってください。');
-            return null;
-        }
-        if (activeExpressions.some((e) => e.name.toLowerCase() === name.toLowerCase())) {
-            setError(`「${name}」は既に存在します。`);
-            return null;
-        }
-        setError(null);
-        return name;
+        if (busy || !model.trim() || !canGenerateDiffs) return;
+        const name = autoDetectName ? '' : validateManualName();
+        if (!autoDetectName && !name) return;
+        void generate(name ?? '', NEW_BUSY_KEY, newPromptDetail, autoDetectName);
     };
 
     const handleUploadClick = () => {
-        if (!validateUpload()) return;
+        if (!autoDetectName && !validateManualName()) return;
         fileInputRef.current?.click();
     };
 
@@ -210,7 +274,7 @@ export default function ExpressionDiffModal({
         e.target.value = '';
         if (!file) return;
 
-        if (!validateUpload()) return;
+        if (!autoDetectName && !validateManualName()) return;
         if (!file.type.startsWith('image/')) {
             setError('画像ファイルを選択してください。');
             return;
@@ -238,10 +302,13 @@ export default function ExpressionDiffModal({
     };
 
     const handleConfirmUpload = async () => {
-        const name = validateUpload();
-        if (!name || !uploadImage || !uploadCrop) return;
+        const manualName = autoDetectName ? null : validateManualName();
+        if ((!autoDetectName && !manualName) || !uploadImage || !uploadCrop) return;
 
         setBusy(UPLOAD_BUSY_KEY);
+        setError(null);
+        const controller = new AbortController();
+        abortRef.current = controller;
         try {
             const cropped = await cropRectToPng(
                 uploadImage,
@@ -250,6 +317,9 @@ export default function ExpressionDiffModal({
                 uploadCrop.width,
                 uploadCrop.height,
             );
+            const name = autoDetectName
+                ? await detectExpressionName(cropped, controller.signal)
+                : manualName!;
             onUpsert({ name, image: cropped }, selectedCostume?.name);
             setNewName('');
             setNewPromptDetail('');
@@ -258,7 +328,26 @@ export default function ExpressionDiffModal({
             setError(e instanceof Error ? e.message : '画像の切り取りに失敗しました');
         } finally {
             setBusy(null);
+            abortRef.current = null;
         }
+    };
+
+    const saveExpressionName = (currentName: string) => {
+        const nextName = editingNameValue.trim();
+        if (!nextName) {
+            setError('表情名を入力してください。');
+            return;
+        }
+        if (nameExists(nextName, currentName)) {
+            setError(`「${nextName}」は既に存在します。`);
+            return;
+        }
+        if (nextName !== currentName) {
+            onRename(currentName, nextName, selectedCostume?.name);
+        }
+        setEditingName(null);
+        setEditingNameValue('');
+        setError(null);
     };
 
     const handleCancelBusy = () => {
@@ -311,6 +400,8 @@ export default function ExpressionDiffModal({
                                 onChange={(e) => {
                                     setSelectedCostumeName(e.target.value);
                                     clearUploadDraft();
+                                    setEditingName(null);
+                                    setEditingNameValue('');
                                     setError(null);
                                 }}
                                 disabled={!!busy}
@@ -367,21 +458,39 @@ export default function ExpressionDiffModal({
                                 />
                             </div>
                         )}
-                        <div style={{ marginBottom: 8 }}>
-                            <label style={fieldLabelStyle}>表情</label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontSize: '0.8125rem', cursor: busy ? 'default' : 'pointer' }}>
                             <input
-                                type="text"
-                                className="input"
-                                value={newName}
-                                onChange={(e) => setNewName(e.target.value)}
-                                placeholder="例: smile, sad, angry"
+                                type="checkbox"
+                                checked={autoDetectName}
+                                onChange={(event) => {
+                                    setAutoDetectName(event.target.checked);
+                                    setError(null);
+                                }}
                                 disabled={!!busy}
-                                data-modal-enter-submit={addMode === 'generate' ? 'true' : undefined}
                             />
-                        </div>
+                            表情名を自動判定
+                        </label>
+                        {autoDetectName ? (
+                            <p style={{ ...hintStyle, marginTop: 0, marginBottom: 8 }}>
+                                注意: 画像はAPIへ送信されます。機密情報が入った画像を選択しないでください。
+                            </p>
+                        ) : (
+                            <div style={{ marginBottom: 8 }}>
+                                <label style={fieldLabelStyle}>表情</label>
+                                <input
+                                    type="text"
+                                    className="input"
+                                    value={newName}
+                                    onChange={(e) => setNewName(e.target.value)}
+                                    placeholder="例: smile, sad, angry"
+                                    disabled={!!busy}
+                                    data-modal-enter-submit={addMode === 'generate' ? 'true' : undefined}
+                                />
+                            </div>
+                        )}
                         {addMode === 'generate' && (
                             <>
-                                <label style={fieldLabelStyle}>補足</label>
+                                <label style={fieldLabelStyle}>画像の説明</label>
                                 <textarea
                                     className="input"
                                     value={newPromptDetail}
@@ -398,9 +507,11 @@ export default function ExpressionDiffModal({
                                 {!canGenerateDiffs
                                     ? '選択中のAPIでは元画像を使う差分生成に対応していません。アップロードで追加してください。'
                                     : neutral
-                                    ? selectedCostume
-                                        ? '選択中の衣装画像をベースに、表情名と補足プロンプトを使って衣装専用差分を生成します'
-                                        : 'デフォルトの立ち絵をベースに、表情名と補足プロンプトを使って差分を生成します'
+                                    ? autoDetectName
+                                        ? '補足をもとに差分を生成し、完成した画像から表情名を判定します。補足が空の場合は異なる表情をおまかせで生成します'
+                                        : selectedCostume
+                                            ? '選択中の衣装画像をベースに、表情名と補足プロンプトを使って衣装専用差分を生成します'
+                                            : 'デフォルトの立ち絵をベースに、表情名と補足プロンプトを使って差分を生成します'
                                     : '生成には「アバター画像」から立ち絵の登録が必要です。アップロードなら neutral(デフォルトの表情) や表情差分を直接追加できます。'}
                             </p>
                         ) : (
@@ -445,11 +556,11 @@ export default function ExpressionDiffModal({
                             <button
                                 className="btn btn-primary"
                                 onClick={handleAdd}
-                                disabled={!!busy || !canGenerateDiffs || !newName.trim() || !model.trim() || !neutral}
+                                disabled={!!busy || !canGenerateDiffs || (!autoDetectName && !newName.trim()) || !model.trim() || !neutral}
                                 style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                             >
                                 {busy === NEW_BUSY_KEY && <Loader2 size={16} className="animate-spin" />}
-                                {busy === NEW_BUSY_KEY ? '生成中...' : '生成'}
+                                {busy === NEW_BUSY_KEY ? (autoDetectName ? '生成・判定中...' : '生成中...') : '生成'}
                             </button>
                         ) : (
                             <>
@@ -458,7 +569,7 @@ export default function ExpressionDiffModal({
                                         type="button"
                                         className="btn btn-ghost"
                                         onClick={handleUploadClick}
-                                        disabled={!!busy || !newName.trim()}
+                                        disabled={!!busy || (!autoDetectName && !newName.trim())}
                                     >
                                         選び直す
                                     </button>
@@ -467,11 +578,11 @@ export default function ExpressionDiffModal({
                                     type="button"
                                     className="btn btn-primary"
                                     onClick={uploadImage ? () => { void handleConfirmUpload(); } : handleUploadClick}
-                                    disabled={!!busy || !newName.trim() || (!!uploadImage && !uploadCrop)}
+                                    disabled={!!busy || (!autoDetectName && !newName.trim()) || (!!uploadImage && !uploadCrop)}
                                     style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                                 >
                                     {busy === UPLOAD_BUSY_KEY && <Loader2 size={16} className="animate-spin" />}
-                                    {busy === UPLOAD_BUSY_KEY ? '処理中...' : uploadImage ? '追加' : '選択'}
+                                    {busy === UPLOAD_BUSY_KEY ? (autoDetectName ? '処理・判定中...' : '処理中...') : uploadImage ? '追加' : '選択'}
                                 </button>
                             </>
                         )}
@@ -510,9 +621,78 @@ export default function ExpressionDiffModal({
                                         )}
                                     </div>
                                     <div style={{ padding: '8px 10px' }}>
-                                        <div style={{ fontSize: '0.8125rem', fontWeight: 500, marginBottom: 6, wordBreak: 'break-all' }}>
-                                            {exp.name}
-                                        </div>
+                                        {editingName === exp.name ? (
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+                                                <input
+                                                    type="text"
+                                                    className="input"
+                                                    value={editingNameValue}
+                                                    onChange={(event) => setEditingNameValue(event.target.value)}
+                                                    onKeyDown={(event) => {
+                                                        if (event.key === 'Enter') {
+                                                            event.preventDefault();
+                                                            saveExpressionName(exp.name);
+                                                        } else if (event.key === 'Escape') {
+                                                            event.preventDefault();
+                                                            setEditingName(null);
+                                                            setEditingNameValue('');
+                                                        }
+                                                    }}
+                                                    disabled={!!busy}
+                                                    autoFocus
+                                                    aria-label={`${exp.name}の表情名`}
+                                                    style={{ minWidth: 0, fontSize: '0.75rem' }}
+                                                />
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-ghost"
+                                                    title="変更を保存"
+                                                    aria-label="変更を保存"
+                                                    disabled={!!busy || !editingNameValue.trim()}
+                                                    onClick={() => saveExpressionName(exp.name)}
+                                                    style={{ padding: '4px 6px' }}
+                                                >
+                                                    <Check size={14} />
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-ghost"
+                                                    title="変更をキャンセル"
+                                                    aria-label="変更をキャンセル"
+                                                    disabled={!!busy}
+                                                    onClick={() => {
+                                                        setEditingName(null);
+                                                        setEditingNameValue('');
+                                                    }}
+                                                    style={{ padding: '4px 6px' }}
+                                                >
+                                                    <X size={14} />
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4, marginBottom: 6 }}>
+                                                <div style={{ flex: 1, minWidth: 0, fontSize: '0.8125rem', fontWeight: 500, wordBreak: 'break-all' }}>
+                                                    {exp.name}
+                                                </div>
+                                                {!(selectedCostume && exp.name === NEUTRAL_NAME) && (
+                                                    <button
+                                                        type="button"
+                                                        className="btn btn-ghost"
+                                                        title="表情名を変更"
+                                                        aria-label={`${exp.name}の表情名を変更`}
+                                                        disabled={!!busy}
+                                                        onClick={() => {
+                                                            setEditingName(exp.name);
+                                                            setEditingNameValue(exp.name);
+                                                            setError(null);
+                                                        }}
+                                                        style={{ padding: '3px 5px', flexShrink: 0 }}
+                                                    >
+                                                        <Pencil size={13} />
+                                                    </button>
+                                                )}
+                                            </div>
+                                        )}
                                         {exp.name !== NEUTRAL_NAME && (
                                             <textarea
                                                 className="input"

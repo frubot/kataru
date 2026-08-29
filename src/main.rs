@@ -45,6 +45,8 @@ use crate::{
 const STORAGE_REQUEST_BODY_LIMIT: usize = 512 * 1024 * 1024;
 // 長い会話履歴を許容しつつ、画像data URLの誤送信などによる過剰なメモリ消費は制限する。
 const CONVERSATION_REQUEST_BODY_LIMIT: usize = 64 * 1024 * 1024;
+// 判定用の縮小JPEGだけを受け付け、元画像の誤送信はルート単位でも制限する。
+const EXPRESSION_DETECTION_REQUEST_BODY_LIMIT: usize = 5 * 1024 * 1024;
 
 fn response_compression_predicate() -> impl Predicate {
     // 巨大な画像data URLを含むJSONは、圧縮コストの方が高い。
@@ -219,6 +221,12 @@ fn api_router() -> Router<AppState> {
             post(ai::generate_situation_description),
         )
         .route("/generate-title", post(ai::generate_title))
+        .route(
+            "/detect-expression-name",
+            post(ai::detect_expression_name).layer(DefaultBodyLimit::max(
+                EXPRESSION_DETECTION_REQUEST_BODY_LIMIT,
+            )),
+        )
         .route(
             "/generate-reply-suggestions",
             post(ai::generate_reply_suggestions),

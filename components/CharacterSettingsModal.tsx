@@ -1095,6 +1095,28 @@ function CharacterSettingsModalContent({
                         return [...prev, exp];
                     });
                 }}
+                onRename={(currentName, nextName, costumeName) => {
+                    if (costumeName) {
+                        setCostumes((prev) => prev.map((costume) => (
+                            costume.name === costumeName
+                                ? {
+                                    ...costume,
+                                    expressions: (costume.expressions ?? []).map((expression) => (
+                                        expression.name === currentName
+                                            ? { ...expression, name: nextName }
+                                            : expression
+                                    )),
+                                }
+                                : costume
+                        )));
+                        return;
+                    }
+                    setExpressions((prev) => prev.map((expression) => (
+                        expression.name === currentName
+                            ? { ...expression, name: nextName }
+                            : expression
+                    )));
+                }}
                 onRemove={(name, costumeName) => {
                     if (costumeName) {
                         setCostumes((prev) => prev.map((costume) => (

@@ -869,6 +869,16 @@ function TemporaryActorSettingsModal({
                         return { ...current, expressions };
                     });
                 }}
+                onRename={(currentName, nextName) => {
+                    setDraft((current) => ({
+                        ...current,
+                        expressions: current.expressions.map((expression) => (
+                            expression.name === currentName
+                                ? { ...expression, name: nextName }
+                                : expression
+                        )),
+                    }));
+                }}
                 onRemove={(name) => {
                     setDraft((current) => ({
                         ...current,

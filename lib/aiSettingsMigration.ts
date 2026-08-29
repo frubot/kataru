@@ -8,6 +8,7 @@ export interface MigratableModelDefaults {
     titleGenerationModel: string;
     replySuggestionModel: string;
     defaultImageModel: string;
+    expressionDetectionModel: string;
     memoryExtractionModel: string;
     memoryEmbeddingModel: string;
 }
@@ -49,6 +50,7 @@ const MODEL_FIELDS: readonly (keyof MigratableModelDefaults)[] = [
     'titleGenerationModel',
     'replySuggestionModel',
     'defaultImageModel',
+    'expressionDetectionModel',
     'memoryExtractionModel',
     'memoryEmbeddingModel',
 ];

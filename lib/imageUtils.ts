@@ -13,6 +13,20 @@ export async function resizeToMaxEdge(dataUrl: string, maxEdge: number): Promise
     return drawToCanvas(img, w, h).toDataURL('image/png');
 }
 
+// Create a metadata-free JPEG copy for lightweight image analysis requests.
+export async function resizeToMaxEdgeAsJpeg(
+    dataUrl: string,
+    maxEdge: number,
+    quality = 0.85,
+): Promise<string> {
+    const img = await loadImage(dataUrl);
+    const longest = Math.max(img.width, img.height);
+    const scale = longest > maxEdge ? maxEdge / longest : 1;
+    const width = Math.max(1, Math.round(img.width * scale));
+    const height = Math.max(1, Math.round(img.height * scale));
+    return drawToCanvas(img, width, height).toDataURL('image/jpeg', quality);
+}
+
 // Crop a square region (in original image coordinates) and downscale to outSize x outSize JPEG.
 export async function cropSquareToJpeg(
     dataUrl: string,

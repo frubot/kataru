@@ -12,9 +12,13 @@ use crate::{
 };
 
 use super::{
-    common::{ai_api_client_for, optional_trimmed_string, resolve_model, take_chars},
+    common::{
+        ai_api_client_for, optional_trimmed_string, required_string, resolve_model, take_chars,
+    },
     structured::{extract_message_text, plain_completion, structured_completion},
 };
+
+const MAX_INLINE_EXPRESSION_IMAGE_LENGTH: usize = 4 * 1024 * 1024;
 
 pub async fn summarize(
     State(state): State<AppState>,
@@ -114,6 +118,115 @@ fn parse_json_object_text(content: &str) -> Option<Value> {
     serde_json::from_str::<Value>(&trimmed[start..=end])
         .ok()
         .filter(Value::is_object)
+}
+
+fn normalize_expression_identifier(value: &str) -> Option<String> {
+    let words = value
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .map(str::to_ascii_lowercase)
+        .collect::<Vec<_>>();
+    let mut identifier = words.join("_");
+    if identifier.is_empty() {
+        return None;
+    }
+    if identifier.starts_with(|character: char| character.is_ascii_digit()) {
+        identifier.insert_str(0, "expression_");
+    }
+    identifier.truncate(identifier.len().min(64));
+    while identifier.ends_with('_') {
+        identifier.pop();
+    }
+    (!identifier.is_empty()).then_some(identifier)
+}
+
+fn expression_identifier_schema() -> Value {
+    json!({
+        "name": "facial_expression_identifier",
+        "strict": true,
+        "schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name"],
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "A concise English snake_case identifier for the visible facial expression",
+                    "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+                    "minLength": 1,
+                    "maxLength": 64
+                }
+            }
+        }
+    })
+}
+
+pub async fn detect_expression_name(
+    State(state): State<AppState>,
+    Json(input): Json<Value>,
+) -> AppResult<Response> {
+    let api_client = ai_api_client_for(&state, &input)?;
+    let image = required_string(&input, "image", "image は必須です。")?;
+    if image.len() > MAX_INLINE_EXPRESSION_IMAGE_LENGTH {
+        return Err(AppError::BadRequest(
+            "表情判定に使用する画像が大きすぎます。".to_owned(),
+        ));
+    }
+    if !image.starts_with("data:image/jpeg;base64,") {
+        return Err(AppError::BadRequest(
+            "image はJPEGのbase64画像データである必要があります。".to_owned(),
+        ));
+    }
+    let model = resolve_model(&input, "model", "expressionDetectionModel")?;
+    let system_prompt = r#"You assign short identifiers to facial expressions in character images.
+Analyze the face rather than the character identity, clothing, pose, background, or art style.
+Use concise English snake_case identifiers.
+Choose the most visually apparent expression. Output JSON only."#;
+    let mut request = json!({
+        "model": model,
+        "messages": [
+            { "role": "system", "content": system_prompt },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": { "url": image, "detail": "low" }
+                    },
+                    {
+                        "type": "text",
+                        "text": "Return the snake_case identifier for this character's visible facial expression."
+                    }
+                ]
+            }
+        ],
+        "temperature": 0.0,
+        "max_tokens": 64
+    });
+    if api_client.is_openrouter() {
+        request["reasoning"] = json!({ "effort": "none" });
+    }
+    let data =
+        structured_completion(&api_client, request, expression_identifier_schema(), 60).await?;
+    let content = extract_message_text(&data);
+    let name = parse_json_object_text(&content)
+        .and_then(|value| {
+            ["name", "expression", "identifier"]
+                .into_iter()
+                .find_map(|key| value.get(key).and_then(Value::as_str))
+                .and_then(normalize_expression_identifier)
+        })
+        .ok_or_else(|| {
+            AppError::Upstream(
+                "表情の自動判定結果の形式が不正でした。".to_owned(),
+                StatusCode::BAD_GATEWAY,
+            )
+        })?;
+    Ok(Json(json!({
+        "name": name,
+        "usage": data.get("usage").cloned().unwrap_or(Value::Null)
+    }))
+    .into_response())
 }
 
 fn pick_string(source: &Map<String, Value>, keys: &[&str]) -> String {
@@ -851,5 +964,18 @@ mod tests {
             )
             .is_none()
         );
+    }
+
+    #[test]
+    fn expression_identifiers_are_normalized_to_ascii_snake_case() {
+        assert_eq!(
+            normalize_expression_identifier(" Gentle Smile! ").as_deref(),
+            Some("gentle_smile")
+        );
+        assert_eq!(
+            normalize_expression_identifier("3/4 grin").as_deref(),
+            Some("expression_3_4_grin")
+        );
+        assert_eq!(normalize_expression_identifier("笑顔"), None);
     }
 }

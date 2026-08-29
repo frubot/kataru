@@ -19,6 +19,7 @@ import {
     DEFAULT_AUTO_GENERATION_MODEL,
     DEFAULT_CHAT_MODEL,
     DEFAULT_DIRECTOR_MODEL,
+    DEFAULT_EXPRESSION_DETECTION_MODEL,
     DEFAULT_IMAGE_MODEL,
     DEFAULT_MEMORY_EMBEDDING_MODEL,
     DEFAULT_MEMORY_EXTRACTION_MODEL,
@@ -146,6 +147,7 @@ type AiConfigState = Pick<
     | 'titleGenerationModel'
     | 'replySuggestionModel'
     | 'defaultImageModel'
+    | 'expressionDetectionModel'
     | 'memoryExtractionModel'
     | 'memoryEmbeddingModel'
 >;
@@ -159,6 +161,7 @@ export function getAiApiConfigFromState(state: AiConfigState): AiApiConfig {
         titleGenerationModel: state.titleGenerationModel,
         replySuggestionModel: state.replySuggestionModel,
         defaultImageModel: state.defaultImageModel,
+        expressionDetectionModel: state.expressionDetectionModel,
         memoryExtractionModel: state.memoryExtractionModel,
         memoryEmbeddingModel: state.memoryEmbeddingModel,
     }, getDefaultModelDefaults(state.aiApiType));
@@ -185,6 +188,7 @@ type SettingsSlice = Pick<
     | 'titleGenerationModel'
     | 'replySuggestionModel'
     | 'defaultImageModel'
+    | 'expressionDetectionModel'
     | 'memoryExtractionModel'
     | 'memoryEmbeddingModel'
     | 'modelDefaultsByApiType'
@@ -216,6 +220,7 @@ type SettingsSlice = Pick<
     | 'setTitleGenerationModel'
     | 'setReplySuggestionModel'
     | 'setDefaultImageModel'
+    | 'setExpressionDetectionModel'
     | 'setMemoryExtractionModel'
     | 'setMemoryEmbeddingModel'
     | 'setConversationCompressionEnabled'
@@ -248,6 +253,7 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         titleGenerationModel: DEFAULT_TITLE_GENERATION_MODEL,
         replySuggestionModel: DEFAULT_REPLY_SUGGESTION_MODEL,
         defaultImageModel: DEFAULT_IMAGE_MODEL,
+        expressionDetectionModel: DEFAULT_EXPRESSION_DETECTION_MODEL,
         memoryExtractionModel: DEFAULT_MEMORY_EXTRACTION_MODEL,
         memoryEmbeddingModel: DEFAULT_MEMORY_EMBEDDING_MODEL,
         modelDefaultsByApiType: normalizeModelDefaultsByApiType(undefined),
@@ -327,6 +333,9 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         },
         setDefaultImageModel: (defaultImageModel) => {
             updateModelDefault(set, get, 'defaultImageModel', defaultImageModel);
+        },
+        setExpressionDetectionModel: (expressionDetectionModel) => {
+            updateModelDefault(set, get, 'expressionDetectionModel', expressionDetectionModel);
         },
         setMemoryExtractionModel: (memoryExtractionModel) => {
             updateModelDefault(set, get, 'memoryExtractionModel', memoryExtractionModel);

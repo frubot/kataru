@@ -13,8 +13,8 @@ pub use catalog::{
 pub use chat::chat;
 pub use embeddings::embeddings;
 pub use generation::{
-    generate_character, generate_reply_suggestions, generate_situation_description, generate_title,
-    summarize,
+    detect_expression_name, generate_character, generate_reply_suggestions,
+    generate_situation_description, generate_title, summarize,
 };
 pub use image::generate_image;
 pub use memory::extract_memories;

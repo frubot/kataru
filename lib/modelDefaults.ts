@@ -1,13 +1,14 @@
 import type { AiApiType } from './aiApi';
 
-export const DEFAULT_SUMMARY_MODEL = 'z-ai/glm-5.2';
+export const DEFAULT_SUMMARY_MODEL = 'google/gemma-4-31b-it';
 export const DEFAULT_CHAT_MODEL = 'z-ai/glm-5.2';
-export const DEFAULT_DIRECTOR_MODEL = 'deepseek/deepseek-v4-flash';
-export const DEFAULT_AUTO_GENERATION_MODEL = 'z-ai/glm-5.2';
-export const DEFAULT_TITLE_GENERATION_MODEL = 'deepseek/deepseek-v4-flash';
-export const DEFAULT_REPLY_SUGGESTION_MODEL = 'deepseek/deepseek-v4-flash';
-export const DEFAULT_IMAGE_MODEL = 'bytedance-seed/seedream-4.5';
-export const DEFAULT_MEMORY_EXTRACTION_MODEL = 'deepseek/deepseek-v4-flash';
+export const DEFAULT_DIRECTOR_MODEL = 'deepseek/deepseek-v4-flash-0731';
+export const DEFAULT_AUTO_GENERATION_MODEL = 'z-ai/glm-5.3-flash';
+export const DEFAULT_TITLE_GENERATION_MODEL = 'google/gemma-4-31b-it';
+export const DEFAULT_REPLY_SUGGESTION_MODEL = 'deepseek/deepseek-v4-flash-0731';
+export const DEFAULT_IMAGE_MODEL = 'x-ai/grok-imagine-image-2.0';
+export const DEFAULT_EXPRESSION_DETECTION_MODEL = 'google/gemma-4-31b-it';
+export const DEFAULT_MEMORY_EXTRACTION_MODEL = 'deepseek/deepseek-v4-flash-0731';
 export const DEFAULT_MEMORY_EMBEDDING_MODEL = 'qwen/qwen3-embedding-8b';
 export const DEFAULT_ANTHROPIC_TEXT_MODEL = 'claude-sonnet-4-6';
 
@@ -19,6 +20,7 @@ export interface ModelDefaults {
     titleGenerationModel: string;
     replySuggestionModel: string;
     defaultImageModel: string;
+    expressionDetectionModel: string;
     memoryExtractionModel: string;
     memoryEmbeddingModel: string;
 }
@@ -33,6 +35,7 @@ export const DEFAULT_MODEL_DEFAULTS: ModelDefaults = {
     titleGenerationModel: DEFAULT_TITLE_GENERATION_MODEL,
     replySuggestionModel: DEFAULT_REPLY_SUGGESTION_MODEL,
     defaultImageModel: DEFAULT_IMAGE_MODEL,
+    expressionDetectionModel: DEFAULT_EXPRESSION_DETECTION_MODEL,
     memoryExtractionModel: DEFAULT_MEMORY_EXTRACTION_MODEL,
     memoryEmbeddingModel: DEFAULT_MEMORY_EMBEDDING_MODEL,
 };
@@ -50,6 +53,7 @@ export const DEFAULT_MODEL_DEFAULTS_BY_API_TYPE: ModelDefaultsByApiType = {
         defaultAutoGenerationModel: DEFAULT_ANTHROPIC_TEXT_MODEL,
         titleGenerationModel: DEFAULT_ANTHROPIC_TEXT_MODEL,
         replySuggestionModel: DEFAULT_ANTHROPIC_TEXT_MODEL,
+        expressionDetectionModel: DEFAULT_ANTHROPIC_TEXT_MODEL,
         memoryExtractionModel: DEFAULT_ANTHROPIC_TEXT_MODEL,
     },
 };
@@ -74,6 +78,7 @@ export function normalizeModelDefaults(value: unknown, fallback: ModelDefaults =
         titleGenerationModel: normalizeModelName(record.titleGenerationModel, fallback.titleGenerationModel),
         replySuggestionModel: normalizeModelName(record.replySuggestionModel, fallback.replySuggestionModel),
         defaultImageModel: normalizeModelName(record.defaultImageModel, fallback.defaultImageModel),
+        expressionDetectionModel: normalizeModelName(record.expressionDetectionModel, fallback.expressionDetectionModel),
         memoryExtractionModel: normalizeModelName(record.memoryExtractionModel, fallback.memoryExtractionModel),
         memoryEmbeddingModel: normalizeModelName(record.memoryEmbeddingModel, fallback.memoryEmbeddingModel),
     };

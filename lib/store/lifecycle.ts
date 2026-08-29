@@ -19,6 +19,7 @@ import {
     DEFAULT_AUTO_GENERATION_MODEL,
     DEFAULT_CHAT_MODEL,
     DEFAULT_DIRECTOR_MODEL,
+    DEFAULT_EXPRESSION_DETECTION_MODEL,
     DEFAULT_IMAGE_MODEL,
     DEFAULT_MEMORY_EMBEDDING_MODEL,
     DEFAULT_MEMORY_EXTRACTION_MODEL,
@@ -55,7 +56,7 @@ import type {
 } from './types';
 
 export const CURRENT_ONBOARDING_VERSION = 1;
-export const CURRENT_AI_SETTINGS_SCHEMA_VERSION = 2;
+export const CURRENT_AI_SETTINGS_SCHEMA_VERSION = 3;
 
 type LifecycleSlice = Pick<
     AppState,
@@ -146,6 +147,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 defaultImageModel: typeof storedDefaultImageModel === 'string' && storedDefaultImageModel.trim()
                     ? storedDefaultImageModel.trim()
                     : DEFAULT_IMAGE_MODEL,
+                expressionDetectionModel: DEFAULT_EXPRESSION_DETECTION_MODEL,
                 memoryExtractionModel: typeof storedMemoryExtractionModel === 'string' && storedMemoryExtractionModel.trim()
                     ? storedMemoryExtractionModel.trim()
                     : DEFAULT_MEMORY_EXTRACTION_MODEL,
@@ -301,6 +303,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 titleGenerationModel: DEFAULT_TITLE_GENERATION_MODEL,
                 replySuggestionModel: DEFAULT_REPLY_SUGGESTION_MODEL,
                 defaultImageModel: DEFAULT_IMAGE_MODEL,
+                expressionDetectionModel: DEFAULT_EXPRESSION_DETECTION_MODEL,
                 memoryExtractionModel: DEFAULT_MEMORY_EXTRACTION_MODEL,
                 memoryEmbeddingModel: DEFAULT_MEMORY_EMBEDDING_MODEL,
                 modelDefaultsByApiType: normalizeModelDefaultsByApiType(undefined),

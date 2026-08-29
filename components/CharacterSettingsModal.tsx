@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
-import { X, Brain, ChevronDown, ChevronRight, RotateCcw, User, Smile, Shirt, Info, FileText, LayoutList } from 'lucide-react';
+import { X, ChevronDown, ChevronRight, RotateCcw, User, Info, FileText, LayoutList } from 'lucide-react';
 import type { GeneratedCharacterDraft } from '@/lib/characterGeneration';
 import {
     useStore,
@@ -603,10 +603,7 @@ function CharacterSettingsModalContent({
                                 title={!expressions.some((e) => e.name === NEUTRAL_NAME) ? '生成には「アバター画像」から立ち絵の登録が必要です。アップロードなら直接追加できます' : undefined}
                                 style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8125rem' }}
                             >
-                                <Shirt size={14} /> 衣装差分
-                                {costumes.length > 0 && (
-                                    <span style={{ fontSize: '0.6875rem', opacity: 0.7 }}>({costumes.length})</span>
-                                )}
+                                衣装差分
                             </button>
                             <button
                                 type="button"
@@ -615,10 +612,7 @@ function CharacterSettingsModalContent({
                                 title={!expressions.some((e) => e.name === NEUTRAL_NAME) ? 'デフォルトの立ち絵が登録されていない場合でも追加できます' : undefined}
                                 style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8125rem' }}
                             >
-                                <Smile size={14} /> 表情差分
-                                {expressions.length > 0 && (
-                                    <span style={{ fontSize: '0.6875rem', opacity: 0.7 }}>({expressions.length})</span>
-                                )}
+                                表情差分
                             </button>
                         </div>
                     </div>
@@ -637,7 +631,7 @@ function CharacterSettingsModalContent({
 
                     {/* モデル */}
                     <div style={sectionStyle}>
-                        {renderLabelWithInfo('モデル', '選択中の接続先で利用可能なモデルから選択してください')}
+                        <label style={labelStyle}>モデル</label>
                         <ModelSelector
                             value={model}
                             onChange={setModel}
@@ -1058,15 +1052,14 @@ function CharacterSettingsModalContent({
 
                     {/* 記憶 */}
                     {!isNew && character && (
-                        <div style={sectionStyle}>
-                            <label style={labelStyle}>記憶</label>
+                        <div style={{ ...sectionStyle, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+                            <label style={{ ...labelStyle, marginBottom: 0 }}>記憶</label>
                             <button
+                                type="button"
                                 className="btn btn-secondary"
                                 onClick={handleOpenMemory}
-                                style={{ width: '100%' }}
                             >
-                                <Brain size={16} />
-                                記憶を表示
+                                表示
                             </button>
                         </div>
                     )}

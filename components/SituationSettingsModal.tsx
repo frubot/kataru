@@ -1968,12 +1968,13 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                                                 <button
                                                     type="button"
                                                     onClick={(event) => {
-                                                        const rect = event.currentTarget.getBoundingClientRect();
+                                                        const anchorElement = event.currentTarget;
+                                                        const rect = anchorElement.getBoundingClientRect();
                                                         setCostumeMenu((current) => current?.characterId === character.id
                                                             ? null
                                                             : {
                                                                 characterId: character.id,
-                                                                anchorElement: event.currentTarget,
+                                                                anchorElement,
                                                                 anchorTop: rect.top,
                                                                 anchorRight: rect.right,
                                                                 anchorBottom: rect.bottom,

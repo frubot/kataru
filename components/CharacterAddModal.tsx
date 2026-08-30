@@ -160,7 +160,7 @@ export default function CharacterAddModal({
                                     disabled={busy}
                                 >
                                     <span className="character-add-option-icon"><Sparkles size={19} /></span>
-                                    <span>AIで自動作成</span>
+                                    <span>AIに作ってもらう</span>
                                     <ChevronRight size={18} aria-hidden="true" />
                                 </button>
                                 <button

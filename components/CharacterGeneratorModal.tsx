@@ -132,7 +132,7 @@ export default function CharacterGeneratorModal({ isOpen, onClose, onApply }: Pr
             >
                 <div className="modal-header">
                     <h2 style={{ fontSize: '1.125rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <Sparkles size={18} /> キャラクター生成
+                        <Sparkles size={18} /> キャラクターを作る
                     </h2>
                     <button className="btn btn-ghost" onClick={handleCancel} style={{ padding: '0.5rem' }} title="閉じる" aria-label="閉じる">
                         <X size={20} />

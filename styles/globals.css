@@ -24,9 +24,9 @@
 
 .mode-light {
   --bg-primary: #f6f7ff;
-  --bg-secondary: #ffffff;
   --bg-tertiary: #eef1ff;
-  --bg-card: #ffffff;
+  --bg-secondary: color-mix(in srgb, var(--bg-primary) 70%, var(--bg-tertiary));
+  --bg-card: color-mix(in srgb, var(--bg-primary) 45%, var(--bg-tertiary));
   --bg-hover: #e4e8ff;
   --border-color: #d3d8f0;
   --text-primary: #171827;
@@ -63,9 +63,7 @@
 
 .mode-light.palette-sakura {
   --bg-primary: #fff7fa;
-  --bg-secondary: #ffffff;
   --bg-tertiary: #ffeaf1;
-  --bg-card: #ffffff;
   --bg-hover: #ffdbe8;
   --border-color: #f8c7d6;
   --text-primary: #2d1720;
@@ -99,9 +97,7 @@
 
 .mode-light.palette-sage {
   --bg-primary: #f5fbf6;
-  --bg-secondary: #ffffff;
   --bg-tertiary: #eaf6ed;
-  --bg-card: #ffffff;
   --bg-hover: #dbefdf;
   --border-color: #c9dfcf;
   --text-primary: #14251a;
@@ -135,9 +131,7 @@
 
 .mode-light.palette-sky {
   --bg-primary: #f3f9ff;
-  --bg-secondary: #ffffff;
   --bg-tertiary: #e5f2ff;
-  --bg-card: #ffffff;
   --bg-hover: #d6eaff;
   --border-color: #c4ddf2;
   --text-primary: #112231;
@@ -171,9 +165,7 @@
 
 .mode-light.palette-amber {
   --bg-primary: #fff9ed;
-  --bg-secondary: #ffffff;
   --bg-tertiary: #fff0d3;
-  --bg-card: #ffffff;
   --bg-hover: #ffe5ad;
   --border-color: #efd4a6;
   --text-primary: #2a1d0b;
@@ -207,9 +199,7 @@
 
 .mode-light.palette-mono {
   --bg-primary: #f7f7f8;
-  --bg-secondary: #ffffff;
   --bg-tertiary: #eeeeef;
-  --bg-card: #ffffff;
   --bg-hover: #e3e3e5;
   --border-color: #d4d4d8;
   --text-primary: #18181b;

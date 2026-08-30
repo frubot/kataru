@@ -1205,7 +1205,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
 
                                 {aiApiType !== 'openrouter' && (
                                     <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                                        互換APIでは一部の機能が制限されます。OpenRouterで全ての機能をご利用いただけます。
+                                        互換APIでは一部の機能が制限されます。OpenRouterで全ての機能を利用できます。
                                     </p>
                                 )}
                             </div>

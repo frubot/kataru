@@ -732,7 +732,7 @@ function CharacterSettingsModalContent({
                                     className="input textarea"
                                     value={speechStyle}
                                     onChange={(e) => setSpeechStyle(e.target.value)}
-                                    placeholder="例: 丁寧語で話す。親しい相手には少しくだけた表現を使う。"
+                                    placeholder="例: 「それ、めっちゃいいじゃん！あとで私にも分けて？」"
                                     style={{ minHeight: '96px' }}
                                 />
                             </div>

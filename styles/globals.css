@@ -316,7 +316,7 @@ body {
   border-radius: 1.5rem;
   font-weight: 500;
   font-size: 0.875rem;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
   cursor: pointer;
   border: none;
   outline: none;
@@ -333,9 +333,7 @@ body {
 }
 
 .btn-primary:hover:not(:disabled) {
-  opacity: 0.9;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(var(--accent-primary-rgb), 0.3);
+  background: color-mix(in srgb, var(--accent-solid) 92%, white);
 }
 
 .btn-secondary {
@@ -1106,7 +1104,7 @@ body {
 }
 
 .settings-form-modal-actions .settings-form-modal-save:hover:not(:disabled) {
-  background: var(--accent-primary);
+  background: color-mix(in srgb, var(--accent-primary) 92%, white);
 }
 
 .settings-modal {

@@ -1958,7 +1958,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                                             }}
                                         >
                                             <div style={{ position: 'relative', width: 56, height: 56, flexShrink: 0 }}>
-                                                <div style={{ width: 56, height: 56, borderRadius: '50%', overflow: 'hidden', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid var(--accent-primary)', boxShadow: '0 0 0 2px rgba(var(--accent-primary-rgb), 0.25)' }}>
+                                                <div style={{ width: 56, height: 56, borderRadius: '50%', overflow: 'hidden', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                                     {character.icon ? (
                                                         <StoredImage src={character.icon} alt={character.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                                     ) : (

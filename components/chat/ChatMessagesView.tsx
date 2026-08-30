@@ -8,7 +8,6 @@ import {
     useState,
 } from 'react';
 import type { ReactNode } from 'react';
-import { HatGlasses, MessageSquare } from 'lucide-react';
 import type { Character } from '@/lib/store';
 import type {
     ChatMessagePresentation,

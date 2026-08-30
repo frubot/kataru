@@ -1686,9 +1686,6 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                                 <MessagesSquare size={16} />
                                 直前の会話
                             </div>
-                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                すべてのルームで会話履歴の先頭に使用されます。チャット画面には表示されません。
-                            </span>
                         </div>
 
                         <div

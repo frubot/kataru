@@ -30,5 +30,4 @@ Windowsのサンドボックス内ではVite buildやRust release buildが権限
 - `.env.*`の内容は読まないでください。
 - APIキーはサーバー環境変数またはOSの資格情報ストアだけから取得し、ブラウザやSQLiteへ保存しません。
 - クライアント指定のOpenAI互換base URLへサーバーAPIキーを送らないでください。
-- 待受アドレスと開発用Originはloopbackだけを許可します。
 - secret modeの会話、要約、記憶、usageは永続化しません。

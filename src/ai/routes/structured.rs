@@ -85,7 +85,7 @@ async fn structured_attempt(
                 Some("low") => "low",
                 Some("medium") => "medium",
                 Some("high") => "high",
-                _ if is_memory_extraction => "medium",
+                _ if is_memory_extraction => "low",
                 _ => "none",
             };
             body.insert("reasoning".to_owned(), json!({ "effort": effort }));

@@ -266,7 +266,7 @@ pub async fn extract_memories(
         "temperature": 0.1
     });
     if api_client.is_openrouter() {
-        request["reasoning"] = json!({ "effort": "medium" });
+        request["reasoning"] = json!({ "effort": "low" });
         request["provider"] = json!({ "data_collection": "deny" });
     }
     let data = structured_completion(&api_client, request, memory_schema(), 60).await?;

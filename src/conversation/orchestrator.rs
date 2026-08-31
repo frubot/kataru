@@ -801,7 +801,7 @@ async fn request_director(
         "stream": false,
     });
     if api_client.is_openrouter() {
-        request["reasoning"] = json!({"effort": "none"});
+        request["reasoning"] = json!({"effort": "low"});
     }
     let prompt = serde_json::to_string_pretty(&request["messages"])
         .expect("director messages must be serializable");
@@ -923,6 +923,7 @@ async fn maybe_summarize(
                 {"role": "user", "content": user},
             ],
             "max_tokens": 2048,
+            "reasoningEffort": "low",
             "stream": false,
         }),
         summary_schema(),

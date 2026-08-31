@@ -84,7 +84,7 @@ pub async fn summarize(
         "max_tokens": 2048
     });
     if api_client.is_openrouter() {
-        request["reasoning"] = json!({ "effort": "none" });
+        request["reasoning"] = json!({ "effort": "low" });
     }
     let data = plain_completion(&api_client, request, 60).await?;
     Ok(Json(json!({ "summary": extract_message_text(&data) })).into_response())

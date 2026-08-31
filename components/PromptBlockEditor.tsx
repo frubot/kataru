@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ChevronDown, Trash2, Plus, List, Type, Heading } from 'lucide-react';
 
@@ -356,7 +356,30 @@ function ListBlock({
   onChange: (next: string[]) => void;
   onDelete: () => void;
 }) {
-  const itemsRef = useRef<(HTMLInputElement | null)[]>([]);
+  const listRef = useRef<HTMLDivElement>(null);
+  const itemsRef = useRef<(HTMLTextAreaElement | null)[]>([]);
+
+  useLayoutEffect(() => {
+    const resizeItems = () => {
+      for (const textarea of itemsRef.current) {
+        if (!textarea) continue;
+        textarea.style.height = 'auto';
+        textarea.style.height = `${textarea.scrollHeight}px`;
+      }
+    };
+    resizeItems();
+
+    const list = listRef.current;
+    if (!list || typeof ResizeObserver === 'undefined') return;
+    let previousWidth = list.getBoundingClientRect().width;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry.contentRect.width === previousWidth) return;
+      previousWidth = entry.contentRect.width;
+      resizeItems();
+    });
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [items]);
 
   const updateItem = (index: number, value: string) => {
     const next = [...items];
@@ -394,13 +417,13 @@ function ListBlock({
   };
 
   return (
-    <div style={{ padding: '0.125rem 0' }}>
+    <div ref={listRef} style={{ padding: '0.125rem 0' }}>
       {items.map((item, idx) => (
         <div
           key={idx}
           style={{
             display: 'flex',
-            alignItems: 'center',
+            alignItems: 'flex-start',
             gap: '0.375rem',
             padding: '0.25rem 0',
           }}
@@ -413,17 +436,19 @@ function ListBlock({
               flexShrink: 0,
               width: '1rem',
               textAlign: 'center',
-              paddingTop: '0.125rem',
+              lineHeight: 1.6,
+              paddingTop: '1.25rem',
             }}
           >
             •
           </span>
-          <input
+          <textarea
             ref={(el) => { itemsRef.current[idx] = el; }}
             data-focusable="true"
             value={item}
-            onChange={(e) => updateItem(idx, e.target.value)}
+            onChange={(e) => updateItem(idx, e.target.value.replace(/[\r\n]/g, ''))}
             onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing) return;
               const target = e.currentTarget;
               if (e.key === 'Enter') {
                 e.preventDefault();
@@ -453,18 +478,24 @@ function ListBlock({
               }
             }}
             placeholder="リスト項目"
+            rows={1}
+            wrap="soft"
             style={{
               flex: 1,
               minWidth: 0,
+              resize: 'none',
+              overflow: 'hidden',
+              overflowWrap: 'anywhere',
               background: 'transparent',
               border: 'none',
               outline: 'none',
               color: 'var(--text-primary)',
               fontSize: '0.875rem',
+              lineHeight: 1.6,
               padding: '1.25rem 0 0.25rem 0',
               fontFamily: 'inherit',
               cursor: 'text',
-              touchAction: 'pan-x',
+              touchAction: 'pan-y',
             }}
           />
         </div>

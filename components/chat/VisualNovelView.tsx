@@ -15,6 +15,7 @@ type VisualNovelViewProps = {
     speakerName?: string;
     castCharacters?: Character[];
     expressionImage: string | null;
+    backgroundImage?: string;
     bounceActive: boolean;
     replySuggestions: ReactNode;
     hasReplySuggestions: boolean;
@@ -49,6 +50,7 @@ export default function VisualNovelView({
     speakerName,
     castCharacters,
     expressionImage,
+    backgroundImage,
     bounceActive,
     replySuggestions,
     hasReplySuggestions,
@@ -84,6 +86,7 @@ export default function VisualNovelView({
         character,
         costumeName: selectedCostumeName,
         currentImage: expressionImage,
+        backgroundImage,
     });
 
     useEffect(() => {
@@ -121,6 +124,8 @@ export default function VisualNovelView({
                                 src={expressionImage}
                                 alt={character.name}
                                 className="vn-character-image"
+                                loading="eager"
+                                fetchPriority="high"
                             />
                         ) : (
                             <div className="vn-character-placeholder">

@@ -1528,6 +1528,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                         alt=""
                         className="vn-background-image"
                         loading="eager"
+                        fetchPriority="high"
                     />
                 </div>
             )}
@@ -1605,6 +1606,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     speakerName={vnSpeakerName}
                     castCharacters={situationVnCastCharacters}
                     expressionImage={vnExpressionImage}
+                    backgroundImage={situation?.backgroundImage}
                     bounceActive={vnBounceActive}
                     replySuggestions={replySuggestions}
                     hasReplySuggestions={showReplySuggestions}

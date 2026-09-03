@@ -179,7 +179,7 @@ pub async fn detect_expression_name(
     }
     let model = resolve_model(&input, "model", "expressionDetectionModel")?;
     let system_prompt = r#"You assign short identifiers to facial expressions in character images.
-Analyze the face rather than the character identity, clothing, pose, background, or art style.
+Please analyze the pose or facial expression, rather than the character's features, clothing, background, or art style.
 Use concise English snake_case identifiers.
 Choose the most visually apparent expression. Output JSON only."#;
     let mut request = json!({
@@ -342,7 +342,7 @@ fn character_schema() -> Value {
             "properties": {
                 "name": {
                     "type": "string",
-                    "description": "フルネーム",
+                    "description": "フルネーム(例: 山田 太郎)",
                     "maxLength": 15,
                     "minLength": 1
                 },
@@ -379,6 +379,7 @@ fn character_schema() -> Value {
                 "occupation": {
                     "type": "string",
                     "description": "職業、学生の場合は立場や所属",
+                    "minLength": 1,
                     "maxLength": 15,
                 },
                 "speechExamples": {
@@ -435,7 +436,7 @@ JSON形式で出力してください。
             { "role": "user", "content": user_prompt }
         ],
         "temperature": if direction.is_empty() { 1.05 } else { 0.9 },
-        "max_tokens": 1200
+        "max_tokens": 2400
     });
     if api_client.is_openrouter() {
         request["reasoning"] = json!({ "effort": "low" });

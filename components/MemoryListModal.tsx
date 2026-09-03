@@ -64,11 +64,6 @@ export default function MemoryListModal({ isOpen, onClose, character }: MemoryLi
         }
     };
 
-    const formatDate = (timestamp?: number) => {
-        if (!timestamp) return '未使用';
-        return new Date(timestamp).toLocaleString();
-    };
-
     return (
         <div
             className="modal-overlay"
@@ -147,9 +142,6 @@ export default function MemoryListModal({ isOpen, onClose, character }: MemoryLi
                                             </div>
                                             <div style={{ marginTop: '0.5rem', display: 'flex', flexWrap: 'wrap', gap: '0.5rem', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
                                                 <span>{formatMemoryKind(memory.kind)}</span>
-                                                <span>重要度 {Math.round(memory.importance * 100)}%</span>
-                                                <span>使用 {memory.usageCount}回</span>
-                                                <span>最終使用 {formatDate(memory.lastUsedAt)}</span>
                                             </div>
                                         </div>
                                         <button

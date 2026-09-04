@@ -189,8 +189,8 @@ function getVisualNovelPageBreakPriority(segments: string[], end: number): numbe
     const previous = segments[end - 2] ?? '';
     if (current === '\n' && previous === '\n') return 4;
     if (current === '\n') return 3;
-    if ('。.!！？!?…'.includes(current)) return 3;
-    if ('」』】）》”’\"\''.includes(current) && '。.!！？!?…'.includes(previous)) return 3;
+    if ('。.!！？!?'.includes(current)) return 3;
+    if ('」』】）》”’\"\''.includes(current) && '。.!！？!?'.includes(previous)) return 3;
     if ('、,，;；:：'.includes(current) || /^\s$/u.test(current)) return 2;
     return 0;
 }

@@ -6,7 +6,7 @@ import {
     createExpressionNameRegistry,
     reserveUniqueExpressionName,
 } from '@/lib/expressionName';
-import { buildBaseImageRequest } from '@/lib/imageSource';
+import { buildBaseImageRequest, resolveStoredImageUrl } from '@/lib/imageSource';
 import {
     cropRectToPng,
     loadImage,
@@ -183,16 +183,26 @@ export default function ExpressionDiffModal({
         signal?: AbortSignal,
         reservedNames = createExpressionNameRegistry(displayExpressions.map((expression) => expression.name)),
     ) => {
-        const analysisImage = await resizeToMaxEdgeAsJpeg(
-            image,
-            EXPRESSION_DETECTION_MAX_EDGE,
-            EXPRESSION_DETECTION_JPEG_QUALITY,
-        );
+        const [analysisImage, neutralImage] = await Promise.all([
+            resizeToMaxEdgeAsJpeg(
+                image,
+                EXPRESSION_DETECTION_MAX_EDGE,
+                EXPRESSION_DETECTION_JPEG_QUALITY,
+            ),
+            neutral?.image
+                ? resizeToMaxEdgeAsJpeg(
+                    resolveStoredImageUrl(neutral.image),
+                    EXPRESSION_DETECTION_MAX_EDGE,
+                    EXPRESSION_DETECTION_JPEG_QUALITY,
+                )
+                : undefined,
+        ]);
         const response = await fetch('/api/detect-expression-name', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 image: analysisImage,
+                neutralImage,
                 aiApiConfig: getAiApiConfig(),
             }),
             signal,
@@ -508,7 +518,10 @@ export default function ExpressionDiffModal({
                         </label>
                         {autoDetectName ? (
                             <p style={{ ...hintStyle, marginTop: 0, marginBottom: 8 }}>
-                                注意: 画像はAPIへ送信されます。機密情報が入った画像を選択しないでください
+                                {neutral?.image
+                                    ? 'neutralと対象画像をAPIへ送り、表情の変化を比較して判定します。'
+                                    : '対象画像をAPIへ送り、表情を判定します。neutralを登録すると比較できます。'}
+                                機密情報が入った画像を選択しないでください
                             </p>
                         ) : (
                             <div style={{ marginBottom: 8 }}>

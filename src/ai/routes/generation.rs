@@ -161,45 +161,66 @@ fn expression_identifier_schema() -> Value {
     })
 }
 
+fn expression_detection_image(input: &Value, field: &str) -> AppResult<String> {
+    let image = required_string(input, field, &format!("{field} は必須です。"))?;
+    if image.len() > MAX_INLINE_EXPRESSION_IMAGE_LENGTH {
+        return Err(AppError::BadRequest(format!(
+            "表情判定に使用する画像（{field}）が大きすぎます。"
+        )));
+    }
+    if !image.starts_with("data:image/jpeg;base64,") {
+        return Err(AppError::BadRequest(format!(
+            "{field} はJPEGのbase64画像データである必要があります。"
+        )));
+    }
+    Ok(image)
+}
+
+fn expression_detection_messages(input: &Value) -> AppResult<Value> {
+    let image = expression_detection_image(input, "image")?;
+    let neutral_image = input
+        .get("neutralImage")
+        .filter(|value| !value.is_null())
+        .map(|_| expression_detection_image(input, "neutralImage"))
+        .transpose()?;
+    let system_prompt = r#"You assign short identifiers to facial expressions in character images.
+Analyze the target image's facial expression. Ignore clothing, background, art style, and the character's fixed facial features.
+When a neutral reference image is provided, treat it as this character's baseline, even if it already looks slightly expressive. Compare the target against that reference, focusing on changes in the eyebrows, eyes, mouth, and facial tension. Name the target expression based on those changes, not on traits already present in the reference. If there is no meaningful change in facial expression, use neutral.
+Without a neutral reference, choose the most visually apparent expression in the target image.
+Use concise English snake_case identifiers. Output JSON only."#;
+    let mut content = Vec::new();
+    if let Some(neutral_image) = neutral_image {
+        content.extend([
+            json!({ "type": "text", "text": "Neutral reference image (baseline):" }),
+            json!({
+                "type": "image_url",
+                "image_url": { "url": neutral_image, "detail": "low" }
+            }),
+        ]);
+    }
+    content.extend([
+        json!({ "type": "text", "text": "Target image (classify this expression):" }),
+        json!({
+            "type": "image_url",
+            "image_url": { "url": image, "detail": "low" }
+        }),
+    ]);
+    Ok(json!([
+        { "role": "system", "content": system_prompt },
+        { "role": "user", "content": content }
+    ]))
+}
+
 pub async fn detect_expression_name(
     State(state): State<AppState>,
     Json(input): Json<Value>,
 ) -> AppResult<Response> {
     let api_client = ai_api_client_for(&state, &input)?;
-    let image = required_string(&input, "image", "image は必須です。")?;
-    if image.len() > MAX_INLINE_EXPRESSION_IMAGE_LENGTH {
-        return Err(AppError::BadRequest(
-            "表情判定に使用する画像が大きすぎます。".to_owned(),
-        ));
-    }
-    if !image.starts_with("data:image/jpeg;base64,") {
-        return Err(AppError::BadRequest(
-            "image はJPEGのbase64画像データである必要があります。".to_owned(),
-        ));
-    }
+    let messages = expression_detection_messages(&input)?;
     let model = resolve_model(&input, "model", "expressionDetectionModel")?;
-    let system_prompt = r#"You assign short identifiers to facial expressions in character images.
-Please analyze the pose or facial expression, rather than the character's features, clothing, background, or art style.
-Use concise English snake_case identifiers.
-Choose the most visually apparent expression. Output JSON only."#;
     let mut request = json!({
         "model": model,
-        "messages": [
-            { "role": "system", "content": system_prompt },
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image_url",
-                        "image_url": { "url": image, "detail": "low" }
-                    },
-                    {
-                        "type": "text",
-                        "text": "Return the snake_case identifier for this character's visible facial expression."
-                    }
-                ]
-            }
-        ],
+        "messages": messages,
         "temperature": 0.0,
         "max_tokens": 64
     });
@@ -965,6 +986,58 @@ mod tests {
             )
             .is_none()
         );
+    }
+
+    #[test]
+    fn expression_detection_sends_labeled_reference_before_target_when_available() {
+        let target = "data:image/jpeg;base64,dGFyZ2V0";
+        let neutral = "data:image/jpeg;base64,bmV1dHJhbA==";
+        for reference in [None, Some(neutral)] {
+            let mut input = json!({ "image": target });
+            if let Some(reference) = reference {
+                input["neutralImage"] = json!(reference);
+            }
+            let messages = expression_detection_messages(&input).unwrap();
+            let content = messages[1]["content"].as_array().unwrap();
+            let images = content
+                .iter()
+                .filter_map(|part| part.pointer("/image_url/url").and_then(Value::as_str))
+                .collect::<Vec<_>>();
+            let expected = reference.into_iter().chain([target]).collect::<Vec<_>>();
+            assert_eq!(images, expected);
+            assert!(
+                content[content.len() - 2]["text"]
+                    .as_str()
+                    .unwrap()
+                    .contains("Target")
+            );
+            if reference.is_some() {
+                assert!(content[0]["text"].as_str().unwrap().contains("Neutral"));
+            }
+        }
+    }
+
+    #[test]
+    fn expression_detection_validates_both_images() {
+        let valid = "data:image/jpeg;base64,aW1hZ2U=";
+        let oversized = format!(
+            "data:image/jpeg;base64,{}",
+            "a".repeat(MAX_INLINE_EXPRESSION_IMAGE_LENGTH)
+        );
+        for field in ["image", "neutralImage"] {
+            for invalid in [
+                json!("data:image/png;base64,aW1hZ2U="),
+                json!(oversized),
+                json!(42),
+            ] {
+                let mut input = json!({ "image": valid, "neutralImage": valid });
+                input[field] = invalid;
+                assert!(matches!(
+                    expression_detection_messages(&input),
+                    Err(AppError::BadRequest(message)) if message.contains(field)
+                ));
+            }
+        }
     }
 
     #[test]

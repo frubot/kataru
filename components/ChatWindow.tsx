@@ -106,6 +106,9 @@ type ConversationCharacter = {
     temperature?: number;
     topP?: number;
     topK?: number;
+    frequencyPenalty?: number;
+    presencePenalty?: number;
+    repetitionPenalty?: number;
     enableThinking?: boolean;
     enableMemory?: boolean;
     expressions?: { name: string }[];
@@ -137,6 +140,9 @@ function toConversationCharacter(character: Character | null): ConversationChara
         temperature: character.temperature,
         topP: character.topP,
         topK: character.topK,
+        frequencyPenalty: character.frequencyPenalty,
+        presencePenalty: character.presencePenalty,
+        repetitionPenalty: character.repetitionPenalty,
         enableThinking: character.enableThinking,
         enableMemory: character.enableMemory,
         expressions: character.expressions?.map(({ name }) => ({ name })),

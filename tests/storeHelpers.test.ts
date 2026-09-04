@@ -235,18 +235,24 @@ describe('store pure helpers', () => {
         ])).toBeUndefined();
     });
 
-    test('preserves thinking mode for temporary situation actors and participants', () => {
+    test('preserves generation settings for temporary situation actors and participants', () => {
         const actor = normalizeSituationActor({
             id: 'actor-1',
             type: 'temporary',
             name: '通行人',
             systemPrompt: '街角に立っている。',
             enableThinking: true,
+            frequencyPenalty: 0,
+            presencePenalty: -0.5,
+            repetitionPenalty: 1.15,
         }, new Set(), 'fallback-model');
 
         expect(actor).toMatchObject({
             type: 'temporary',
             enableThinking: true,
+            frequencyPenalty: 0,
+            presencePenalty: -0.5,
+            repetitionPenalty: 1.15,
         });
         if (!actor) throw new Error('Expected a normalized actor');
 
@@ -269,6 +275,9 @@ describe('store pure helpers', () => {
             actorId: 'actor-1',
             actorType: 'temporary',
             enableThinking: true,
+            frequencyPenalty: 0,
+            presencePenalty: -0.5,
+            repetitionPenalty: 1.15,
         });
     });
 });

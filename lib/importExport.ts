@@ -63,6 +63,9 @@ function copySharedCharacter(character: Character | SharedCharacter): SharedChar
         ...(character.temperature !== undefined ? { temperature: character.temperature } : {}),
         ...(character.topP !== undefined ? { topP: character.topP } : {}),
         ...(character.topK !== undefined ? { topK: character.topK } : {}),
+        ...(character.frequencyPenalty !== undefined ? { frequencyPenalty: character.frequencyPenalty } : {}),
+        ...(character.presencePenalty !== undefined ? { presencePenalty: character.presencePenalty } : {}),
+        ...(character.repetitionPenalty !== undefined ? { repetitionPenalty: character.repetitionPenalty } : {}),
         ...(character.enableMemory !== undefined ? { enableMemory: character.enableMemory } : {}),
         ...(character.expressions !== undefined ? {
             expressions: character.expressions.map((expression) => ({ ...expression })),
@@ -389,6 +392,9 @@ function isValidSharedCharacter(value: unknown): value is SharedCharacter {
         && isOptionalNumber(value.temperature, { min: 0, max: 2 })
         && isOptionalNumber(value.topP, { min: 0, max: 1 })
         && isOptionalNumber(value.topK, { min: 0, max: 100, integer: true })
+        && isOptionalNumber(value.frequencyPenalty, { min: -2, max: 2 })
+        && isOptionalNumber(value.presencePenalty, { min: -2, max: 2 })
+        && isOptionalNumber(value.repetitionPenalty, { min: 0, max: 2 })
         && isOptionalBoolean(value.enableMemory)
         && (value.expressions === undefined
             || (Array.isArray(value.expressions) && value.expressions.every(isValidExpression)))

@@ -56,6 +56,9 @@ async fn structured_attempt(
         ("maxTokens", "max_tokens"),
         ("topP", "top_p"),
         ("topK", "top_k"),
+        ("frequencyPenalty", "frequency_penalty"),
+        ("presencePenalty", "presence_penalty"),
+        ("repetitionPenalty", "repetition_penalty"),
     ] {
         if !body.contains_key(snake_case)
             && let Some(value) = body.remove(camel_case)
@@ -116,6 +119,7 @@ async fn structured_attempt(
     } else if api_client.is_openai_compatible() {
         body.remove("reasoningEffort");
         body.remove("top_k");
+        body.remove("repetition_penalty");
     } else {
         body.remove("reasoningEffort");
     }

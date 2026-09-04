@@ -244,6 +244,9 @@ describe('character sharing', () => {
             favorite: true,
             enableThinking: true,
             enableSummary: false,
+            frequencyPenalty: 0,
+            presencePenalty: -0.5,
+            repetitionPenalty: 1.15,
             icon: 'data:image/png;base64,AA==',
             expressions: [{ name: 'neutral', image: 'data:image/png;base64,AQ==' }],
         };
@@ -269,7 +272,11 @@ describe('character sharing', () => {
             name: source.name,
             icon: source.icon,
             expressions: source.expressions,
+            frequencyPenalty: 0,
+            presencePenalty: -0.5,
+            repetitionPenalty: 1.15,
         });
+        expect(parseCharacterBackup(json).characters[0]).toMatchObject(envelope.data.character);
         expect(envelope.data.character).not.toHaveProperty('id');
         expect(envelope.data.character).not.toHaveProperty('favorite');
         expect(envelope.data.character).not.toHaveProperty('enableThinking');
@@ -304,6 +311,19 @@ describe('character sharing', () => {
         invalidTemperature.data.character.temperature = 3;
         expect(() => parseCharacterBackup(JSON.stringify(invalidTemperature)))
             .toThrow('キャラクターファイルの形式が正しくありません');
+
+        for (const [key, value] of [
+            ['frequencyPenalty', -2.1],
+            ['presencePenalty', 2.1],
+            ['repetitionPenalty', -0.1],
+            ['repetitionPenalty', 2.1],
+            ['frequencyPenalty', '0.5'],
+        ] as const) {
+            const invalidPenalty = validCharacterBackup();
+            Object.assign(invalidPenalty.data.character, { [key]: value });
+            expect(() => parseCharacterBackup(JSON.stringify(invalidPenalty)))
+                .toThrow('キャラクターファイルの形式が正しくありません');
+        }
 
         const localAsset = validCharacterBackup();
         localAsset.data.character.icon = `asset:${'a'.repeat(64)}`;

@@ -552,6 +552,29 @@ fn push_error_debug_log(
     logs.push(log);
 }
 
+fn character_completion_body(character: &Value, messages: Vec<Value>) -> Value {
+    let mut body = json!({
+        "model": string(character, "model"),
+        "messages": messages,
+        "max_tokens": CHAT_COMPLETION_MAX_TOKENS,
+        "temperature": number_f64(character, "temperature", DEFAULT_TEMPERATURE),
+        "top_p": number_f64(character, "topP", DEFAULT_TOP_P),
+        "top_k": number_u64(character, "topK", DEFAULT_TOP_K),
+        "stream": false,
+    });
+    // Omit unset penalties so existing characters keep the provider's defaults.
+    for (setting, parameter) in [
+        ("frequencyPenalty", "frequency_penalty"),
+        ("presencePenalty", "presence_penalty"),
+        ("repetitionPenalty", "repetition_penalty"),
+    ] {
+        if let Some(value) = character.get(setting).filter(|value| value.is_number()) {
+            body[parameter] = value.clone();
+        }
+    }
+    body
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn generate_for_character(
     api_client: &AiApiClient,
@@ -599,15 +622,7 @@ async fn generate_for_character(
             "content": history_content(message),
         })
     }));
-    let body = json!({
-        "model": string(character, "model"),
-        "messages": request_messages,
-        "max_tokens": CHAT_COMPLETION_MAX_TOKENS,
-        "temperature": number_f64(character, "temperature", DEFAULT_TEMPERATURE),
-        "top_p": number_f64(character, "topP", DEFAULT_TOP_P),
-        "top_k": number_u64(character, "topK", DEFAULT_TOP_K),
-        "stream": false,
-    });
+    let body = character_completion_body(character, request_messages);
     let prompt = serde_json::to_string_pretty(&body["messages"])
         .expect("completion messages must be serializable");
     let started = now_ms();
@@ -1711,6 +1726,41 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn character_completion_preserves_explicit_penalties_and_omits_unset_values() {
+        let body = character_completion_body(
+            &json!({
+                "model": "test-model",
+                "frequencyPenalty": 0,
+                "presencePenalty": -0.5,
+                "repetitionPenalty": 1.15,
+            }),
+            Vec::new(),
+        );
+        assert_eq!(body["frequency_penalty"], 0);
+        assert_eq!(body["presence_penalty"], -0.5);
+        assert_eq!(body["repetition_penalty"], 1.15);
+
+        for character in [
+            json!({"model": "test-model"}),
+            json!({
+                "model": "test-model",
+                "frequencyPenalty": null,
+                "presencePenalty": null,
+                "repetitionPenalty": null,
+            }),
+        ] {
+            let body = character_completion_body(&character, Vec::new());
+            for key in [
+                "frequency_penalty",
+                "presence_penalty",
+                "repetition_penalty",
+            ] {
+                assert!(body.get(key).is_none(), "unset {key} must be omitted");
+            }
+        }
+    }
 
     #[test]
     fn character_reply_length_defaults_to_512_characters() {

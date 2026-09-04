@@ -36,6 +36,9 @@ export interface Character {
     temperature?: number;
     topP?: number;
     topK?: number;
+    frequencyPenalty?: number;
+    presencePenalty?: number;
+    repetitionPenalty?: number;
     enableThinking?: boolean;
     enableMemory?: boolean;
     expressions?: Expression[];
@@ -140,6 +143,9 @@ export type SituationActor =
         temperature?: number;
         topP?: number;
         topK?: number;
+        frequencyPenalty?: number;
+        presencePenalty?: number;
+        repetitionPenalty?: number;
         enableThinking?: boolean;
         expressions?: Expression[];
         costumes?: Costume[];
@@ -347,7 +353,7 @@ export interface AppState {
     setSummaryInspectorEnabled: (enabled: boolean) => void;
 
     createCharacter: (name: string, systemPrompt?: string, model?: string, extras?: CharacterExtras) => string;
-    updateCharacter: (id: string, updates: Partial<Pick<Character, 'name' | 'systemPrompt' | 'favorite' | 'speechStyle' | 'protagonistPrompt' | 'userConstraints' | 'model' | 'icon' | 'maxCharacters' | 'maxHistory' | 'temperature' | 'topP' | 'topK' | 'enableThinking' | 'enableMemory' | 'expressions' | 'costumes'>>) => void;
+    updateCharacter: (id: string, updates: Partial<Pick<Character, 'name' | 'systemPrompt' | 'favorite' | 'speechStyle' | 'protagonistPrompt' | 'userConstraints' | 'model' | 'icon' | 'maxCharacters' | 'maxHistory' | 'temperature' | 'topP' | 'topK' | 'frequencyPenalty' | 'presencePenalty' | 'repetitionPenalty' | 'enableThinking' | 'enableMemory' | 'expressions' | 'costumes'>>) => void;
     deleteCharacter: (id: string) => void;
     duplicateCharacter: (id: string) => string;
     getCharacter: (id: string) => Character | undefined;

@@ -111,6 +111,9 @@ export function normalizeSituationActor(
             ...(typeof rawActor.temperature === 'number' ? { temperature: rawActor.temperature } : {}),
             ...(typeof rawActor.topP === 'number' ? { topP: rawActor.topP } : {}),
             ...(typeof rawActor.topK === 'number' ? { topK: rawActor.topK } : {}),
+            ...(typeof rawActor.frequencyPenalty === 'number' ? { frequencyPenalty: rawActor.frequencyPenalty } : {}),
+            ...(typeof rawActor.presencePenalty === 'number' ? { presencePenalty: rawActor.presencePenalty } : {}),
+            ...(typeof rawActor.repetitionPenalty === 'number' ? { repetitionPenalty: rawActor.repetitionPenalty } : {}),
             ...(typeof rawActor.enableThinking === 'boolean'
                 ? { enableThinking: rawActor.enableThinking }
                 : {}),
@@ -253,6 +256,9 @@ export function resolveSituationParticipants(
                 temperature: actor.temperature,
                 topP: actor.topP,
                 topK: actor.topK,
+                frequencyPenalty: actor.frequencyPenalty,
+                presencePenalty: actor.presencePenalty,
+                repetitionPenalty: actor.repetitionPenalty,
                 enableThinking: actor.enableThinking,
                 enableMemory: false,
                 expressions: actor.expressions,

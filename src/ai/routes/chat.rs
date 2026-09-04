@@ -49,6 +49,8 @@ fn build_chat_body(
     copy_if_present(&mut body, input, "maxTokens", "max_tokens");
     copy_if_present(&mut body, input, "temperature", "temperature");
     copy_if_present(&mut body, input, "topP", "top_p");
+    copy_if_present(&mut body, input, "frequencyPenalty", "frequency_penalty");
+    copy_if_present(&mut body, input, "presencePenalty", "presence_penalty");
     if use_response_format && let Some(response_format) = requested_response_format {
         body.insert("response_format".to_owned(), response_format.clone());
     }
@@ -62,6 +64,7 @@ fn build_chat_body(
         };
         body.insert("reasoning".to_owned(), json!({ "effort": effort }));
         copy_if_present(&mut body, input, "topK", "top_k");
+        copy_if_present(&mut body, input, "repetitionPenalty", "repetition_penalty");
         if should_stream {
             body.insert(
                 "stream_options".to_owned(),

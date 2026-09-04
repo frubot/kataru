@@ -7,6 +7,9 @@ import {
     DEFAULT_CHARACTER_TEMPERATURE,
     DEFAULT_CHARACTER_TOP_P,
     DEFAULT_CHARACTER_TOP_K,
+    DEFAULT_CHARACTER_FREQUENCY_PENALTY,
+    DEFAULT_CHARACTER_PRESENCE_PENALTY,
+    DEFAULT_CHARACTER_REPETITION_PENALTY,
     Expression,
     Room,
     Situation,
@@ -38,6 +41,9 @@ type TemporaryActorDraft = {
     temperature: number | null;
     topP: number | null;
     topK: number | null;
+    frequencyPenalty: number | null;
+    presencePenalty: number | null;
+    repetitionPenalty: number | null;
     enableThinking: boolean;
 };
 
@@ -86,7 +92,7 @@ const sectionLabelStyle: CSSProperties = {
 
 const NEUTRAL_EXPRESSION_NAME = 'neutral';
 
-type TemporaryActorParamKey = 'temperature' | 'topP' | 'topK';
+type TemporaryActorParamKey = 'temperature' | 'topP' | 'topK' | 'frequencyPenalty' | 'presencePenalty' | 'repetitionPenalty';
 
 interface TemporaryActorSliderParam {
     label: string;
@@ -100,6 +106,9 @@ const TEMPORARY_ACTOR_SLIDER_PARAMS: Record<TemporaryActorParamKey, TemporaryAct
     temperature: { label: 'Temperature', min: 0, max: 2, step: 0.001, defaultValue: DEFAULT_CHARACTER_TEMPERATURE },
     topP: { label: 'Top P', min: 0, max: 1, step: 0.001, defaultValue: DEFAULT_CHARACTER_TOP_P ?? 1 },
     topK: { label: 'Top K', min: 0, max: 100, step: 1, defaultValue: DEFAULT_CHARACTER_TOP_K },
+    frequencyPenalty: { label: 'Frequency Penalty', min: -2, max: 2, step: 0.001, defaultValue: DEFAULT_CHARACTER_FREQUENCY_PENALTY },
+    presencePenalty: { label: 'Presence Penalty', min: -2, max: 2, step: 0.001, defaultValue: DEFAULT_CHARACTER_PRESENCE_PENALTY },
+    repetitionPenalty: { label: 'Repetition Penalty', min: 0, max: 2, step: 0.001, defaultValue: DEFAULT_CHARACTER_REPETITION_PENALTY },
 };
 
 const MAX_HISTORY_SLIDER_MAX = 100;
@@ -126,6 +135,9 @@ function createTemporaryDraft(): TemporaryActorDraft {
         temperature: null,
         topP: null,
         topK: null,
+        frequencyPenalty: null,
+        presencePenalty: null,
+        repetitionPenalty: null,
         enableThinking: false,
     };
 }
@@ -510,7 +522,8 @@ function TemporaryActorSettingsModal({
     const [imageGenOpen, setImageGenOpen] = useState(false);
     const [expressionsOpen, setExpressionsOpen] = useState(false);
     const modalRef = useRef<HTMLDivElement>(null);
-    const hasCustomParams = draft.temperature !== null || draft.topP !== null || draft.topK !== null;
+    const hasCustomParams = draft.temperature !== null || draft.topP !== null || draft.topK !== null
+        || draft.frequencyPenalty !== null || draft.presencePenalty !== null || draft.repetitionPenalty !== null;
 
     const updateDraft = (updates: Partial<TemporaryActorDraft>) => {
         setDraft((current) => ({ ...current, ...updates }));
@@ -816,6 +829,21 @@ function TemporaryActorSettingsModal({
                                         value={draft.topK}
                                         onChange={(topK) => updateDraft({ topK })}
                                     />
+                                    <TemporaryActorParamSlider
+                                        paramKey="frequencyPenalty"
+                                        value={draft.frequencyPenalty}
+                                        onChange={(frequencyPenalty) => updateDraft({ frequencyPenalty })}
+                                    />
+                                    <TemporaryActorParamSlider
+                                        paramKey="presencePenalty"
+                                        value={draft.presencePenalty}
+                                        onChange={(presencePenalty) => updateDraft({ presencePenalty })}
+                                    />
+                                    <TemporaryActorParamSlider
+                                        paramKey="repetitionPenalty"
+                                        value={draft.repetitionPenalty}
+                                        onChange={(repetitionPenalty) => updateDraft({ repetitionPenalty })}
+                                    />
                                 </div>
                             )}
                         </div>
@@ -920,6 +948,9 @@ function buildInitialState(
                 temperature: typeof actor.temperature === 'number' ? actor.temperature : null,
                 topP: typeof actor.topP === 'number' ? actor.topP : null,
                 topK: typeof actor.topK === 'number' ? actor.topK : null,
+                frequencyPenalty: actor.frequencyPenalty ?? null,
+                presencePenalty: actor.presencePenalty ?? null,
+                repetitionPenalty: actor.repetitionPenalty ?? null,
                 enableThinking: actor.enableThinking ?? false,
             });
         }
@@ -1516,6 +1547,9 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
             ...(actor.temperature !== null ? { temperature: actor.temperature } : {}),
             ...(actor.topP !== null ? { topP: actor.topP } : {}),
             ...(actor.topK !== null ? { topK: actor.topK } : {}),
+            ...(actor.frequencyPenalty !== null ? { frequencyPenalty: actor.frequencyPenalty } : {}),
+            ...(actor.presencePenalty !== null ? { presencePenalty: actor.presencePenalty } : {}),
+            ...(actor.repetitionPenalty !== null ? { repetitionPenalty: actor.repetitionPenalty } : {}),
             enableThinking: actor.enableThinking,
         })),
     ], [characterActorMeta, defaultChatModel, selectedCharacterIds, validTemporaryActors]);

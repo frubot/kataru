@@ -11,6 +11,9 @@ import {
     DEFAULT_CHARACTER_TEMPERATURE,
     DEFAULT_CHARACTER_TOP_P,
     DEFAULT_CHARACTER_TOP_K,
+    DEFAULT_CHARACTER_FREQUENCY_PENALTY,
+    DEFAULT_CHARACTER_PRESENCE_PENALTY,
+    DEFAULT_CHARACTER_REPETITION_PENALTY,
 } from '@/lib/store';
 import ImageGenerationModal from './ImageGenerationModal';
 import ExpressionDiffModal from './ExpressionDiffModal';
@@ -55,6 +58,9 @@ function buildInitialCharacterDraft(
         temperature: character?.temperature ?? null,
         topP: character?.topP ?? null,
         topK: character?.topK ?? null,
+        frequencyPenalty: character?.frequencyPenalty ?? null,
+        presencePenalty: character?.presencePenalty ?? null,
+        repetitionPenalty: character?.repetitionPenalty ?? null,
         icon: character?.icon ?? null,
         expressions: character?.expressions ?? [],
         costumes: character?.costumes ?? [],
@@ -75,6 +81,9 @@ const SLIDER_PARAMS: Record<string, SliderParam> = {
     temperature: { label: 'Temperature', hint: '値が高いほどランダム性が増します', min: 0, max: 2, step: 0.001, defaultValue: DEFAULT_CHARACTER_TEMPERATURE },
     topP:        { label: 'Top P',        hint: '核サンプリングの確率閾値',          min: 0, max: 1, step: 0.001, defaultValue: DEFAULT_CHARACTER_TOP_P ?? 1.000 },
     topK:        { label: 'Top K',        hint: '上位K個の候補からサンプリング。0で無効',         min: 0, max: 100, step: 1, defaultValue: DEFAULT_CHARACTER_TOP_K },
+    frequencyPenalty: { label: 'Frequency Penalty', hint: '出現回数に応じて同じ語句の繰り返しを抑えます。0で無効、負の値で繰り返しを促します。対応モデルのみ有効で、Anthropic APIでは使用しません。', min: -2, max: 2, step: 0.001, defaultValue: DEFAULT_CHARACTER_FREQUENCY_PENALTY },
+    presencePenalty: { label: 'Presence Penalty', hint: '一度出現した語句の再使用を抑えます。0で無効、負の値で再使用を促します。対応モデルのみ有効で、Anthropic APIでは使用しません。', min: -2, max: 2, step: 0.001, defaultValue: DEFAULT_CHARACTER_PRESENCE_PENALTY },
+    repetitionPenalty: { label: 'Repetition Penalty', hint: '1で無効、1より大きい値で繰り返しを抑え、1未満で促します。OpenRouterの対応モデルのみ有効です。', min: 0, max: 2, step: 0.001, defaultValue: DEFAULT_CHARACTER_REPETITION_PENALTY },
 };
 
 const MAX_HISTORY_SLIDER_MAX = 100;
@@ -347,6 +356,9 @@ function CharacterSettingsModalContent({
     const [temperature, setTemperature] = useState<number | null>(initialDraft.temperature);
     const [topP, setTopP] = useState<number | null>(initialDraft.topP);
     const [topK, setTopK] = useState<number | null>(initialDraft.topK);
+    const [frequencyPenalty, setFrequencyPenalty] = useState<number | null>(initialDraft.frequencyPenalty);
+    const [presencePenalty, setPresencePenalty] = useState<number | null>(initialDraft.presencePenalty);
+    const [repetitionPenalty, setRepetitionPenalty] = useState<number | null>(initialDraft.repetitionPenalty);
 
     // Avatar
     const [icon, setIcon] = useState<string | null>(initialDraft.icon);
@@ -374,6 +386,9 @@ function CharacterSettingsModalContent({
             temperature,
             topP,
             topK,
+            frequencyPenalty,
+            presencePenalty,
+            repetitionPenalty,
             icon,
             expressions,
             costumes,
@@ -406,6 +421,9 @@ function CharacterSettingsModalContent({
             temperature: temperature ?? undefined,
             topP: topP ?? undefined,
             topK: topK != null ? Math.max(0, Math.round(topK)) : undefined,
+            frequencyPenalty: frequencyPenalty ?? undefined,
+            presencePenalty: presencePenalty ?? undefined,
+            repetitionPenalty: repetitionPenalty ?? undefined,
             icon: icon ?? undefined,
             expressions: expressions.length > 0 ? expressions : undefined,
             costumes: costumes.length > 0 ? costumes : undefined,
@@ -417,7 +435,7 @@ function CharacterSettingsModalContent({
             updateCharacter(character.id, updates);
         }
         onClose();
-    }, [character, costumes, createCharacter, defaultChatModel, enableMemory, enableThinking, expressions, icon, initialDraft, isNew, maxCharacters, maxHistory, model, name, onClose, protagonistPrompt, speechStyle, systemPrompt, temperature, topK, topP, updateCharacter, userConstraints]);
+    }, [character, costumes, createCharacter, defaultChatModel, enableMemory, enableThinking, expressions, frequencyPenalty, icon, initialDraft, isNew, maxCharacters, maxHistory, model, name, onClose, presencePenalty, protagonistPrompt, repetitionPenalty, speechStyle, systemPrompt, temperature, topK, topP, updateCharacter, userConstraints]);
 
     const attemptClose = useCallback(() => {
         const currentDraft = {
@@ -434,6 +452,9 @@ function CharacterSettingsModalContent({
             temperature,
             topP,
             topK,
+            frequencyPenalty,
+            presencePenalty,
+            repetitionPenalty,
             icon,
             expressions,
             costumes,
@@ -448,7 +469,7 @@ function CharacterSettingsModalContent({
         }
 
         onClose();
-    }, [character, costumes, defaultChatModel, enableMemory, enableThinking, expressions, icon, isNew, maxCharacters, maxHistory, model, name, onClose, protagonistPrompt, speechStyle, systemPrompt, temperature, topK, topP, userConstraints]);
+    }, [character, costumes, defaultChatModel, enableMemory, enableThinking, expressions, frequencyPenalty, icon, isNew, maxCharacters, maxHistory, model, name, onClose, presencePenalty, protagonistPrompt, repetitionPenalty, speechStyle, systemPrompt, temperature, topK, topP, userConstraints]);
 
     const childModalOpen = imageGenOpen || expressionsOpen || costumesOpen;
     useModalKeyboard({
@@ -498,7 +519,8 @@ function CharacterSettingsModalContent({
         ?? expressions.find((e) => e.name === NEUTRAL_NAME)?.image;
 
     // パラメータに何かカスタム値が設定されているか
-    const hasCustomParams = maxCharacters || maxHistory || temperature !== null || topP !== null || topK !== null;
+    const hasCustomParams = maxCharacters || maxHistory || temperature !== null || topP !== null || topK !== null
+        || frequencyPenalty !== null || presencePenalty !== null || repetitionPenalty !== null;
     const combinedPromptEditorStyle: React.CSSProperties = {
         border: '1px solid var(--border-color)',
         borderRadius: '0.5rem',
@@ -1045,6 +1067,21 @@ function CharacterSettingsModalContent({
                                     paramKey="topK"
                                     value={topK}
                                     onChange={setTopK}
+                                />
+                                <ParamSlider
+                                    paramKey="frequencyPenalty"
+                                    value={frequencyPenalty}
+                                    onChange={setFrequencyPenalty}
+                                />
+                                <ParamSlider
+                                    paramKey="presencePenalty"
+                                    value={presencePenalty}
+                                    onChange={setPresencePenalty}
+                                />
+                                <ParamSlider
+                                    paramKey="repetitionPenalty"
+                                    value={repetitionPenalty}
+                                    onChange={setRepetitionPenalty}
                                 />
                             </div>
                         )}

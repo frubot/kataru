@@ -50,7 +50,10 @@ export const DEFAULT_CHARACTER_MAX_CHARACTERS = 512;
 export const DEFAULT_CHARACTER_MAX_HISTORY: number | undefined = 7;
 export const DEFAULT_CHARACTER_TEMPERATURE = 1.0;
 export const DEFAULT_CHARACTER_TOP_P: number | undefined = 0.95;
-export const DEFAULT_CHARACTER_TOP_K = 15;
+export const DEFAULT_CHARACTER_TOP_K = 0;
+export const DEFAULT_CHARACTER_FREQUENCY_PENALTY = 0;
+export const DEFAULT_CHARACTER_PRESENCE_PENALTY = 0;
+export const DEFAULT_CHARACTER_REPETITION_PENALTY = 1;
 export const DEFAULT_CONVERSATION_COMPRESSION_ENABLED = true;
 
 export function getThemeClassName(mode: ThemeMode, palette: ThemePalette): string {

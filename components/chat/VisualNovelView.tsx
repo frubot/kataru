@@ -37,7 +37,6 @@ type VisualNovelViewProps = {
     onBranch: () => void;
     isWaitingForAssistant: boolean;
     dialogueContent: string;
-    plainStreamingContent?: string;
     isTypewriterActive: boolean;
     dialogueAdvanceAvailable: boolean;
     showDialogueAdvanceIndicator: boolean;
@@ -72,7 +71,6 @@ export default function VisualNovelView({
     onBranch,
     isWaitingForAssistant,
     dialogueContent,
-    plainStreamingContent,
     isTypewriterActive,
     dialogueAdvanceAvailable,
     showDialogueAdvanceIndicator,
@@ -107,7 +105,7 @@ export default function VisualNovelView({
             dialogueBody.scrollTop = dialogueBody.scrollHeight;
         });
         return () => cancelAnimationFrame(frameId);
-    }, [dialogueContent, plainStreamingContent]);
+    }, [dialogueContent]);
 
     const selectCostume = (costumeName: string) => {
         onSelectCostume(costumeName);
@@ -318,15 +316,6 @@ export default function VisualNovelView({
                 >
                     {isWaitingForAssistant ? (
                         <WaitingEllipsis className="vn-waiting-ellipsis" />
-                    ) : plainStreamingContent != null ? (
-                        <div
-                            className="vn-streaming-preview"
-                            role="status"
-                            aria-live="polite"
-                            style={{ whiteSpace: 'pre-wrap' }}
-                        >
-                            {plainStreamingContent}
-                        </div>
                     ) : (
                         <ReactMarkdown>{dialogueContent}</ReactMarkdown>
                     )}

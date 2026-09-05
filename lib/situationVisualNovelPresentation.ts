@@ -1,6 +1,8 @@
 import type { Character, Message, SituationPriorMessage } from './store/types';
 import type { ConversationJobPreviewTurn } from './conversationJobClient';
-import { splitVisualNovelMessage } from './visualNovelPresentation';
+import {
+    splitStreamingVisualNovelMessage,
+} from './visualNovelPresentation';
 
 export type SituationVisualNovelItem = {
     key: string;
@@ -23,6 +25,7 @@ export type SituationVisualNovelPresentationState = {
     locked: boolean;
     currentComplete: boolean;
     animateCurrent: boolean;
+    waitingForNextPage: boolean;
     phase: 'intro' | 'conversation';
     sceneCharacterId?: string;
     sceneExpression?: string;
@@ -40,7 +43,7 @@ type SituationVisualNovelInitialCharacter = Pick<Character, 'id' | 'expressions'
 function paginateSituationVisualNovelItem(
     item: SituationVisualNovelItem,
 ): SituationVisualNovelItem[] {
-    const pages = splitVisualNovelMessage(item.content);
+    const pages = splitStreamingVisualNovelMessage(item.content, true).map((page) => page.content);
     if (pages.length <= 1) return [item];
     return pages.map((content, pageIndex) => ({
         ...item,
@@ -131,19 +134,21 @@ export function buildSituationVisualNovelPreviewItems(
     return turns
         .filter((turn) => turn.content.trim())
         .flatMap((turn) => {
-            const item: SituationVisualNovelItem = {
-                key: `preview:${jobId}:${turn.turnIndex}`,
+            const pages = splitStreamingVisualNovelMessage(turn.content, turn.complete);
+            return pages.map((page, pageIndex) => ({
+                key: `preview:${jobId}:${turn.turnIndex}${pageIndex === 0 ? '' : `:page:${pageIndex}`}`,
                 id: `${jobId}:${turn.turnIndex}`,
                 source: 'preview' as const,
                 role: 'assistant' as const,
-                content: turn.content,
+                content: page.content,
                 characterId: turn.characterId,
                 characterName: turn.characterName,
                 expression: turn.expression,
                 previewTurnIndex: turn.turnIndex,
-                streamingComplete: turn.complete,
-            };
-            return turn.complete ? paginateSituationVisualNovelItem(item) : [item];
+                streamingComplete: page.complete,
+                pageIndex,
+                pageCount: pages.length,
+            }));
         });
 }
 
@@ -179,6 +184,7 @@ function showItem(
             current: item,
             currentComplete: itemComplete,
             animateCurrent: shouldAnimate,
+            waitingForNextPage: false,
         };
     }
     return {
@@ -186,6 +192,7 @@ function showItem(
         current: item,
         currentComplete: itemComplete,
         animateCurrent: shouldAnimate,
+        waitingForNextPage: false,
         sceneCharacterId: item.characterId,
         sceneExpression: item.expression,
     };
@@ -212,6 +219,22 @@ export function syncSituationVisualNovelPreviewItems(
         animateCurrent: false,
         sceneCharacterId: current.characterId,
         sceneExpression: current.expression,
+    };
+}
+
+export function finishSituationVisualNovelPreviewItems(
+    state: SituationVisualNovelPresentationState,
+): SituationVisualNovelPresentationState {
+    const finish = (item: SituationVisualNovelItem): SituationVisualNovelItem => (
+        item.source === 'preview' ? { ...item, streamingComplete: true } : item
+    );
+    const current = state.current ? finish(state.current) : null;
+    return {
+        ...state,
+        current,
+        pending: state.pending.map(finish),
+        currentComplete: current?.source === 'preview' ? true : state.currentComplete,
+        waitingForNextPage: false,
     };
 }
 
@@ -255,6 +278,7 @@ export function createSituationVisualNovelPresentationState({
             locked: isLoading,
             currentComplete: true,
             animateCurrent: false,
+            waitingForNextPage: false,
             phase: 'conversation',
             ...scene,
         };
@@ -268,6 +292,7 @@ export function createSituationVisualNovelPresentationState({
             locked: true,
             currentComplete: false,
             animateCurrent: true,
+            waitingForNextPage: false,
             phase: 'intro',
         }, current, true);
     }
@@ -278,6 +303,7 @@ export function createSituationVisualNovelPresentationState({
         locked: isLoading,
         currentComplete: true,
         animateCurrent: false,
+        waitingForNextPage: false,
         phase: 'conversation',
     };
 }
@@ -292,6 +318,10 @@ export function appendSituationVisualNovelItems(
         locked: true,
         phase: 'conversation' as const,
     };
+    if (state.waitingForNextPage) {
+        const [current, ...pending] = items;
+        return showItem({ ...nextState, pending: [...state.pending, ...pending] }, current, true);
+    }
     if (state.current && state.locked) {
         return {
             ...nextState,
@@ -316,6 +346,7 @@ export function beginSituationVisualNovelResponse(
         locked: true,
         currentComplete: true,
         animateCurrent: false,
+        waitingForNextPage: false,
         phase: 'conversation',
     };
 }
@@ -344,9 +375,9 @@ export function advanceSituationVisualNovelPresentation(
     if (isLoading) {
         return {
             ...state,
-            current: null,
             currentComplete: true,
             animateCurrent: false,
+            waitingForNextPage: true,
         };
     }
     return state;
@@ -401,6 +432,7 @@ export function syncSituationVisualNovelRoomItems(
             locked: params.isLoading,
             currentComplete: true,
             animateCurrent: false,
+            waitingForNextPage: false,
             phase: 'conversation',
             ...scene,
         };
@@ -420,6 +452,7 @@ export function syncSituationVisualNovelRoomItems(
             current,
             currentComplete: true,
             animateCurrent: false,
+            waitingForNextPage: false,
             ...scene,
         };
     }

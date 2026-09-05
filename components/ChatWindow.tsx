@@ -395,7 +395,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         situationId: situation?.id,
         messages: room?.messages ?? EMPTY_MESSAGES,
         priorMessages: situationPriorMessages,
-        streamingPreview: isSituationVisualNovelMode ? streamingPreview : null,
+        streamingPreview,
         isLoading,
         isTypewriterActive,
         playTypewriter,
@@ -410,7 +410,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         }
         if (
             !isLoading
-            && !isSituationVisualNovelMode
+            && !isVisualNovelMode
             && (streamingPreview.turns?.length ?? 0) > 0
         ) {
             clearStreamingPreview(streamingPreview.jobId);
@@ -419,7 +419,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         clearStreamingPreview,
         currentRoomId,
         isLoading,
-        isSituationVisualNovelMode,
+        isVisualNovelMode,
         streamingPreview,
     ]);
     const isEditingMessage = editingMessage?.roomId === currentRoomId;
@@ -575,7 +575,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 }
                 await refreshConversationRoom(job.roomId);
                 keepStreamingPreview = vnTypingSpeedRef.current === 'streaming'
-                    && isSituationVisualNovelMode
+                    && isVisualNovelMode
                     && (completed.result?.messages?.length ?? 0) > 0;
             } else if (completed.status === 'failed') {
                 recordJobDebugLogs(completed.partialResult, sourceRoom);
@@ -605,7 +605,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         finishGenerationSession,
         getCurrentRoom,
         hasGenerationSession,
-        isSituationVisualNovelMode,
+        isVisualNovelMode,
         logChatError,
         pollConversationJob,
         recordJobDebugLogs,
@@ -802,8 +802,8 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         if (!isGenerationSessionActive(session)) return { status: 'aborted' };
         session.generationBaselineMessageIds = sourceRoom.messages.map((message) => message.id);
         const shouldStreamPreview = vnTypingSpeedRef.current === 'streaming';
-        const retainSituationStreamingPreview = shouldStreamPreview
-            && isSituationVisualNovelMode;
+        const retainVisualNovelStreamingPreview = shouldStreamPreview
+            && isVisualNovelMode;
         let keepStreamingPreview = false;
         if (shouldStreamPreview) {
             setStreamingPreview((current) => current?.roomId === sourceRoom.id ? null : current);
@@ -871,7 +871,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     addMessage,
                     rememberStreamedFinalMessageIds,
                     refreshConversationRoom,
-                    clearStreamingPreview: retainSituationStreamingPreview
+                    clearStreamingPreview: retainVisualNovelStreamingPreview
                         ? () => undefined
                         : clearStreamingPreview,
                     addFullJsonDebugLog,
@@ -883,7 +883,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     playTypewriter,
                 },
             );
-            keepStreamingPreview = retainSituationStreamingPreview
+            keepStreamingPreview = retainVisualNovelStreamingPreview
                 && appliedResult.assistantMessageIds.length > 0;
             resumedJobsRef.current.add(session.jobId);
             return {
@@ -1353,7 +1353,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         : undefined;
     const isWaitingForAssistant = isVisualNovelMode
         ? situationVnPresentation.isWaitingForResponse
-            && !(activeStreamingPreview && !isSituationVisualNovelMode)
         : isLoading && lastRoomMessage?.role !== 'assistant' && !activeStreamingPreview;
     const situationVnDialogueContent = situationVnCurrentItem
         ? situationVnCurrentItem.key === typingMessageId
@@ -1366,8 +1365,8 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         : isWaitingForAssistant
             ? '...'
             : '...（話しかけてみよう）';
-    const vnDialogueContent = activeStreamingPreview && !isSituationVisualNovelMode
-        ? activeStreamingPreview.content
+    const vnDialogueContent = situationVnPresentation.waitingForNextPage
+        ? `${situationVnDialogueContent}\n\n…`
         : situationVnDialogueContent;
     const vnProcessedDialogueContent = useMemo(() => formatAssistantMarkdown(vnDialogueContent), [vnDialogueContent]);
     const situationVnShowsLatestAssistant = situationVnCurrentItem?.source === 'room'
@@ -1654,13 +1653,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     }}
                     isWaitingForAssistant={isWaitingForAssistant}
                     dialogueContent={vnProcessedDialogueContent}
-                    plainStreamingContent={
-                        !isSituationVisualNovelMode
-                        && activeStreamingPreview
-                        && formattedStreamingPreviewMessages.length === 0
-                            ? activeStreamingPreview.content
-                            : undefined
-                    }
                     isTypewriterActive={isTypewriterActive}
                     dialogueAdvanceAvailable={
                         isTypewriterActive

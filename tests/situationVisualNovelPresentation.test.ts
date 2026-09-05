@@ -9,6 +9,7 @@ import {
     buildSituationVisualNovelRoomItems,
     completeSituationVisualNovelItem,
     createSituationVisualNovelPresentationState,
+    finishSituationVisualNovelPreviewItems,
     getSituationVisualNovelResponseMessages,
     reconcileSituationVisualNovelPreviewItems,
     resolveSituationVisualNovelInitialCharacterId,
@@ -175,7 +176,7 @@ describe('situation visual novel presentation', () => {
         expect(state.current?.key).toBe('room:assistant-long:page:1');
     });
 
-    test('does not split a streaming turn until the turn is complete', () => {
+    test('queues confirmed streaming pages before the turn is complete', () => {
         const content = 'あ'.repeat(VN_MESSAGE_PAGE_MAX_CHARS + 1);
         const partial = buildSituationVisualNovelPreviewItems('stream-job', [{
             turnIndex: 0,
@@ -190,8 +191,12 @@ describe('situation visual novel presentation', () => {
             complete: true,
         }]);
 
-        expect(partial).toHaveLength(1);
-        expect(partial[0]).toMatchObject({ content, streamingComplete: false });
+        expect(partial).toHaveLength(2);
+        expect(partial[0]).toMatchObject({
+            content: 'あ'.repeat(VN_MESSAGE_PAGE_MAX_CHARS),
+            streamingComplete: true,
+        });
+        expect(partial[1]).toMatchObject({ content: 'あ', streamingComplete: false });
         expect(completed).toHaveLength(2);
         expect(completed.map((item) => item.key)).toEqual([
             'preview:stream-job:0',
@@ -205,7 +210,6 @@ describe('situation visual novel presentation', () => {
             isLoading: true,
         });
         state = appendSituationVisualNovelItems(state, partial);
-        state = appendSituationVisualNovelItems(state, completed.slice(1));
         state = syncSituationVisualNovelPreviewItems(state, completed);
 
         expect(state.current).toMatchObject({
@@ -216,6 +220,64 @@ describe('situation visual novel presentation', () => {
         expect(state.pending.map((item) => item.key)).toEqual([
             'preview:stream-job:0:page:1',
         ]);
+    });
+
+    test('keeps the last read page visible while waiting for generated continuation', () => {
+        const firstPageContent = `${'あ'.repeat(100)}。`;
+        const first = buildSituationVisualNovelPreviewItems('stream-job', [{
+            turnIndex: 0,
+            content: firstPageContent,
+            characterId: 'actor-a',
+            complete: false,
+        }]);
+        let state = createSituationVisualNovelPresentationState({
+            hasRoomHistory: false,
+            priorItems: [],
+            roomItems: [],
+            isLoading: true,
+        });
+        state = appendSituationVisualNovelItems(state, first);
+        state = advanceSituationVisualNovelPresentation(state, true);
+
+        expect(state.current?.content).toBe(firstPageContent);
+        expect(state.waitingForNextPage).toBe(true);
+
+        const extended = buildSituationVisualNovelPreviewItems('stream-job', [{
+            turnIndex: 0,
+            content: `${firstPageContent}続き`,
+            characterId: 'actor-a',
+            complete: false,
+        }]);
+        state = appendSituationVisualNovelItems(state, extended.slice(1));
+        state = syncSituationVisualNovelPreviewItems(state, extended);
+
+        expect(state.current).toMatchObject({
+            key: 'preview:stream-job:0:page:1',
+            content: '続き',
+        });
+        expect(state.waitingForNextPage).toBe(false);
+    });
+
+    test('releases an unfinished preview cleanly when streaming stops', () => {
+        const partial = buildSituationVisualNovelPreviewItems('stopped-job', [{
+            turnIndex: 0,
+            content: '生成途中',
+            characterId: 'actor-a',
+            complete: false,
+        }]);
+        let state = createSituationVisualNovelPresentationState({
+            hasRoomHistory: false,
+            priorItems: [],
+            roomItems: [],
+            isLoading: true,
+        });
+        state = appendSituationVisualNovelItems(state, partial);
+        state = finishSituationVisualNovelPreviewItems(state);
+        state = unlockSituationVisualNovelPresentation(state, false);
+
+        expect(state.current).toMatchObject({ content: '生成途中', streamingComplete: true });
+        expect(state.currentComplete).toBe(true);
+        expect(state.locked).toBe(false);
     });
 
     test('opens existing conversations on the latest message without replaying history', () => {

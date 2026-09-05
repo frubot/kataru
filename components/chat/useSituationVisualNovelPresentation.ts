@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Message, SituationPriorMessage } from '@/lib/store';
 import type { ChatStreamingPreview } from '@/lib/chatMessagePresentation';
+import type { SituationVisualNovelItem } from '@/lib/situationVisualNovelPresentation';
 import {
     advanceSituationVisualNovelPresentation,
     appendSituationVisualNovelItems,
@@ -10,6 +11,7 @@ import {
     buildSituationVisualNovelRoomItems,
     completeSituationVisualNovelItem,
     createSituationVisualNovelPresentationState,
+    finishSituationVisualNovelPreviewItems,
     getSituationVisualNovelResponseMessages,
     lockSituationVisualNovelPresentation,
     reconcileSituationVisualNovelPreviewItems,
@@ -32,6 +34,16 @@ type UseSituationVisualNovelPresentationOptions = {
     stopTypewriter: (revealFull: boolean) => boolean;
     onStreamingPreviewConsumed: (jobId: string) => void;
 };
+
+function groupSituationItemsByMessage(items: SituationVisualNovelItem[]): SituationVisualNovelItem[][] {
+    const groups: SituationVisualNovelItem[][] = [];
+    for (const item of items) {
+        const current = groups.at(-1);
+        if (current?.[0]?.id === item.id) current.push(item);
+        else groups.push([item]);
+    }
+    return groups;
+}
 
 export function useSituationVisualNovelPresentation({
     active,
@@ -136,15 +148,15 @@ export function useSituationVisualNovelPresentation({
             && !message.archived
             && !!message.content.trim()
         ));
-        const previewCoveredRoomIds = new Set(previewItems.flatMap((previewItem, index) => {
-            const roomItem = currentRoundAssistantItems[index];
-            return roomItem
-                && roomItem.characterId === previewItem.characterId
-                ? [roomItem.id]
-                : [];
+        const responseItemGroups = groupSituationItemsByMessage(currentRoundAssistantItems);
+        const previewCoveredRoomKeys = new Set(previewItems.flatMap((previewItem) => {
+            const roomItem = responseItemGroups[previewItem.previewTurnIndex ?? 0]?.[
+                previewItem.pageIndex ?? 0
+            ];
+            return roomItem ? [roomItem.key] : [];
         }));
         const appendedItems = roomItems.filter((item) => (
-            unseenIdSet.has(item.id) && !previewCoveredRoomIds.has(item.id)
+            unseenIdSet.has(item.id) && !previewCoveredRoomKeys.has(item.key)
         ));
         setState((current) => {
             const waiting = hasUnseenUserMessage
@@ -184,12 +196,12 @@ export function useSituationVisualNovelPresentation({
 
     useEffect(() => {
         if (!active || !activeStreamingPreview || previewItems.length === 0) return;
-        const replacements = new Map(previewItems.flatMap((previewItem, index) => {
-            const roomItem = currentRoundAssistantItems[index];
-            return roomItem
-                && roomItem.characterId === previewItem.characterId
-                ? [[previewItem.key, roomItem] as const]
-                : [];
+        const responseItemGroups = groupSituationItemsByMessage(currentRoundAssistantItems);
+        const replacements = new Map(previewItems.flatMap((previewItem) => {
+            const roomItem = responseItemGroups[previewItem.previewTurnIndex ?? 0]?.[
+                previewItem.pageIndex ?? 0
+            ];
+            return roomItem ? [[previewItem.key, roomItem] as const] : [];
         }));
         if (replacements.size === 0) return;
         setState((current) => reconcileSituationVisualNovelPreviewItems(current, replacements));
@@ -204,6 +216,11 @@ export function useSituationVisualNovelPresentation({
         onStreamingPreviewConsumed,
         previewItems,
     ]);
+
+    useEffect(() => {
+        if (!active || isLoading || activeStreamingPreview) return;
+        setState(finishSituationVisualNovelPreviewItems);
+    }, [active, activeStreamingPreview, isLoading]);
 
     useEffect(() => {
         if (!active || !isLoading) return;
@@ -255,6 +272,7 @@ export function useSituationVisualNovelPresentation({
 
     const canAdvance = active
         && state.locked
+        && !state.waitingForNextPage
         && state.current != null
         && state.currentComplete
         && (state.pending.length > 0 || isLoading);

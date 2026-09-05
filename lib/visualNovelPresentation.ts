@@ -169,6 +169,10 @@ export function buildVisualNovelTypingSegments(content: string): string[] {
                 index = closing + 1;
                 continue;
             }
+            // Keep an in-progress action together. This lets streaming pagination show the
+            // unfinished Markdown literally without ever fixing a page break inside it.
+            segments.push(content.slice(index));
+            break;
         }
 
         const character = Array.from(content.slice(index))[0] ?? '';
@@ -177,6 +181,75 @@ export function buildVisualNovelTypingSegments(content: string): string[] {
         index += character.length;
     }
     return segments;
+}
+
+export type StreamingVisualNovelPage = {
+    content: string;
+    complete: boolean;
+};
+
+/**
+ * Splits an append-only streaming message without moving an emitted page boundary.
+ * A sufficiently substantial sentence/paragraph can be read immediately; otherwise an
+ * exact hard-limit prefix is fixed so a page can never shrink as more text arrives.
+ */
+export function splitStreamingVisualNovelMessage(
+    content: string,
+    streamComplete: boolean,
+    maxChars = VN_MESSAGE_PAGE_MAX_CHARS,
+): StreamingVisualNovelPage[] {
+    const normalized = content.trim();
+    if (!normalized) return [];
+    if (!Number.isFinite(maxChars) || maxChars <= 0) {
+        return [{ content: normalized, complete: streamComplete }];
+    }
+
+    const segments = buildVisualNovelTypingSegments(normalized);
+    const pages: StreamingVisualNovelPage[] = [];
+    const minimumNaturalBreakLength = Math.max(1, Math.floor(maxChars * 0.6));
+    let start = 0;
+
+    while (start < segments.length) {
+        let end = start;
+        let visibleLength = 0;
+        let naturalCut = 0;
+
+        while (end < segments.length) {
+            const nextLength = getVisualNovelSegmentLength(segments[end]);
+            if (end > start && visibleLength + nextLength > maxChars) break;
+            visibleLength += nextLength;
+            end++;
+            const priority = getVisualNovelPageBreakPriority(segments, end);
+            if (priority >= 3 && visibleLength >= minimumNaturalBreakLength) {
+                naturalCut = end;
+                break;
+            }
+            if (visibleLength >= maxChars) break;
+        }
+
+        if (naturalCut > 0) {
+            const page = segments.slice(start, naturalCut).join('').trim();
+            if (page) pages.push({ content: page, complete: true });
+            start = naturalCut;
+            while (segments[start] != null && /^\s$/u.test(segments[start])) start++;
+            continue;
+        }
+
+        if (end >= segments.length) {
+            const page = segments.slice(start).join('').trim();
+            if (page) pages.push({ content: page, complete: streamComplete });
+            break;
+        }
+
+        // No sufficiently late natural boundary exists, so this exact hard-limit prefix is
+        // stable. Earlier punctuation must not make the page shrink only after overflow.
+        const page = segments.slice(start, end).join('').trim();
+        if (page) pages.push({ content: page, complete: true });
+        start = end;
+        while (segments[start] != null && /^\s$/u.test(segments[start])) start++;
+    }
+
+    return pages;
 }
 
 function getVisualNovelSegmentLength(segment: string): number {

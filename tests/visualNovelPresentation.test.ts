@@ -8,6 +8,7 @@ import {
     resolveVisualNovelCostumeName,
     resolveVisualNovelExpressionImage,
     shouldTriggerVisualNovelBounce,
+    splitStreamingVisualNovelMessage,
     splitVisualNovelMessage,
 } from '../lib/visualNovelPresentation';
 
@@ -122,6 +123,28 @@ describe('visual novel typewriter presentation', () => {
 
         expect(pages.join('')).toBe(content);
         expect(pages.some((page) => page.includes('*とても長い仕草*'))).toBe(true);
+    });
+
+    test('keeps emitted streaming pages stable and holds an unfinished action together', () => {
+        const first = splitStreamingVisualNovelMessage(`${'あ'.repeat(100)}。`, false, 160);
+        const extended = splitStreamingVisualNovelMessage(
+            `${'あ'.repeat(100)}。${'い'.repeat(70)}`,
+            false,
+            160,
+        );
+        const unfinishedAction = splitStreamingVisualNovelMessage(
+            `${'あ'.repeat(100)}。*${'動'.repeat(180)}`,
+            false,
+            160,
+        );
+
+        expect(first).toEqual([{ content: `${'あ'.repeat(100)}。`, complete: true }]);
+        expect(extended[0]).toEqual(first[0]);
+        expect(extended[1]).toMatchObject({ content: 'い'.repeat(70), complete: false });
+        expect(unfinishedAction[1]).toMatchObject({
+            content: `*${'動'.repeat(180)}`,
+            complete: false,
+        });
     });
 });
 

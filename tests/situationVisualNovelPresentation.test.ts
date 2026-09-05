@@ -280,6 +280,74 @@ describe('situation visual novel presentation', () => {
         expect(state.locked).toBe(false);
     });
 
+    test.each(['emphasis', 'quotation'] as const)(
+        'preserves the current and unread pages through %s completion and persistence',
+        (kind) => {
+            const raw = kind === 'emphasis'
+                ? `${'あ'.repeat(150)}*${'動'.repeat(10)}`
+                : `「${'あ'.repeat(159)}境${'い'.repeat(20)}」`;
+            const final = kind === 'emphasis'
+                ? `${raw}*`
+                : `${'あ'.repeat(159)}境${'い'.repeat(20)}`;
+            const expectedLastPage = kind === 'emphasis'
+                ? `*${'動'.repeat(10)}*`
+                : `境${'い'.repeat(20)}`;
+            const before = buildSituationVisualNovelPreviewItems('job', [{
+                turnIndex: 0, characterId: 'actor-a', content: raw, complete: false,
+            }]);
+            const after = buildSituationVisualNovelPreviewItems('job', [{
+                turnIndex: 0, characterId: 'actor-a', content: final, complete: true,
+            }], before);
+            const messages = [roomMessage('saved', 'assistant', final, 'actor-a')];
+            const roomItems = buildSituationVisualNovelRoomItems(messages, after);
+            const replacements = new Map(after.map((item, index) => [item.key, roomItems[index]]));
+
+            // Exercise readers both ahead of and behind the generator.
+            for (const readAhead of [false, true]) {
+                let state = createSituationVisualNovelPresentationState({
+                    hasRoomHistory: true, priorItems: [], roomItems: [], isLoading: true,
+                });
+                state = appendSituationVisualNovelItems(state, before);
+                if (readAhead) state = advanceSituationVisualNovelPresentation(state, true);
+                state = syncSituationVisualNovelPreviewItems(state, after);
+                state = reconcileSituationVisualNovelPreviewItems(state, replacements);
+                if (!readAhead) state = advanceSituationVisualNovelPresentation(state, false);
+                state = completeSituationVisualNovelItem(state, state.current!.key);
+                state = unlockSituationVisualNovelPresentation(state, false);
+                state = syncSituationVisualNovelRoomItems(state, {
+                    hasRoomHistory: true, priorItems: [], roomItems, isLoading: false,
+                });
+                expect(state.current?.content).toBe(expectedLastPage);
+                expect(state.current?.source).toBe('room');
+                expect(state.pending).toEqual([]);
+                expect(state.locked).toBe(false);
+            }
+            expect(roomItems.map((item) => item.content).join('')).toBe(final);
+        },
+    );
+
+    test('keeps each actor’s streamed boundaries associated with their saved response', () => {
+        const opening = roomMessage('old', 'assistant', '以前の発言', 'actor-a');
+        const raw = `「${'あ'.repeat(159)}境${'い'.repeat(20)}」`;
+        const before = buildSituationVisualNovelPreviewItems('group-job', [{
+            turnIndex: 0, characterId: 'actor-a', content: raw, complete: false,
+        }]);
+        const content = raw.slice(1, -1);
+        const after = buildSituationVisualNovelPreviewItems('group-job', [
+            { turnIndex: 0, characterId: 'actor-a', content, complete: true },
+            { turnIndex: 1, characterId: 'actor-b', content: '次の話者', complete: true },
+        ], before);
+        const response = [
+            roomMessage('a', 'assistant', content, 'actor-a'),
+            roomMessage('b', 'assistant', '次の話者', 'actor-b'),
+        ];
+        const items = buildSituationVisualNovelRoomItems([opening, ...response], after, response);
+        expect(items.map((item) => [item.id, item.content])).toEqual([
+            ['old', '以前の発言'], ['a', 'あ'.repeat(159)],
+            ['a', `境${'い'.repeat(20)}`], ['b', '次の話者'],
+        ]);
+    });
+
     test('opens existing conversations on the latest message without replaying history', () => {
         const roomItems = buildSituationVisualNovelRoomItems([
             roomMessage('user-1', 'user', '最初の発言'),

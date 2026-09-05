@@ -9,6 +9,7 @@ import {
     resolveVisualNovelExpressionImage,
     shouldTriggerVisualNovelBounce,
     splitStreamingVisualNovelMessage,
+    updateStreamingVisualNovelPagination,
     splitVisualNovelMessage,
 } from '../lib/visualNovelPresentation';
 
@@ -138,13 +139,39 @@ describe('visual novel typewriter presentation', () => {
             160,
         );
 
-        expect(first).toEqual([{ content: `${'あ'.repeat(100)}。`, complete: true }]);
+        expect(first).toMatchObject([{ content: `${'あ'.repeat(100)}。`, complete: true }]);
         expect(extended[0]).toEqual(first[0]);
         expect(extended[1]).toMatchObject({ content: 'い'.repeat(70), complete: false });
         expect(unfinishedAction[1]).toMatchObject({
             content: `*${'動'.repeat(180)}`,
             complete: false,
         });
+    });
+
+    test('retains a confirmed boundary when the closing emphasis marker arrives', () => {
+        const partial = `${'あ'.repeat(150)}*${'動'.repeat(10)}`;
+        const before = updateStreamingVisualNovelPagination(partial, false);
+        const closed = updateStreamingVisualNovelPagination(`${partial}*`, false, before);
+        const completed = updateStreamingVisualNovelPagination(`${partial}*`, true, closed);
+
+        expect(before.pages[0].complete).toBe(true);
+        expect(closed.pages[0]).toEqual(before.pages[0]);
+        expect(completed.pages.map((page) => page.content)).toEqual([
+            'あ'.repeat(150), `*${'動'.repeat(10)}*`,
+        ]);
+        expect(completed.pages.every((page) => page.complete)).toBe(true);
+    });
+
+    test('aligns confirmed boundaries through quotation and escaped-newline cleanup', () => {
+        const raw = `「${'あ'.repeat(80)}\\n${'い'.repeat(78)}境${'う'.repeat(20)}」`;
+        const before = updateStreamingVisualNovelPagination(raw, false);
+        const content = `${'あ'.repeat(80)}\n${'い'.repeat(78)}境${'う'.repeat(20)}`;
+        const after = updateStreamingVisualNovelPagination(content, true, before);
+
+        expect(before.pages[0].complete).toBe(true);
+        expect(after.pages[0].content).toBe(`${'あ'.repeat(80)}\n${'い'.repeat(77)}`);
+        expect(after.pages[1].content).toBe(`い境${'う'.repeat(20)}`);
+        expect(after.pages.map((page) => page.content).join('')).toBe(content);
     });
 });
 

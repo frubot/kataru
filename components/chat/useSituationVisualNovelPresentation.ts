@@ -45,6 +45,15 @@ function groupSituationItemsByMessage(items: SituationVisualNovelItem[]): Situat
     return groups;
 }
 
+type PreviewPaginationCache = {
+    active: boolean;
+    roomId?: string;
+    isLoading: boolean;
+    input: ChatStreamingPreview | null;
+    baseline?: string[];
+    items: SituationVisualNovelItem[];
+};
+
 export function useSituationVisualNovelPresentation({
     active,
     roomId,
@@ -62,25 +71,54 @@ export function useSituationVisualNovelPresentation({
         () => buildSituationVisualNovelPriorItems(priorMessages),
         [priorMessages],
     );
-    const roomItems = useMemo(
-        () => buildSituationVisualNovelRoomItems(messages),
-        [messages],
-    );
-    const activeStreamingPreview = streamingPreview?.roomId === roomId
+    const activeStreamingPreview = active && streamingPreview?.roomId === roomId
         ? streamingPreview
         : null;
+    const [cachedPreview, setCachedPreview] = useState<PreviewPaginationCache>(() => ({
+        active, roomId, isLoading, input: null, items: [],
+    }));
+    let paginationCache = cachedPreview;
+    if (
+        cachedPreview.active !== active || cachedPreview.roomId !== roomId
+        || cachedPreview.isLoading !== isLoading || cachedPreview.input !== activeStreamingPreview
+    ) {
+        const sameContext = cachedPreview.active === active && cachedPreview.roomId === roomId
+            && !(isLoading && !cachedPreview.isLoading);
+        const previousItems = sameContext ? cachedPreview.items : [];
+        paginationCache = {
+            active,
+            roomId,
+            isLoading,
+            input: activeStreamingPreview,
+            baseline: activeStreamingPreview?.generationBaselineMessageIds
+                ?? (sameContext ? cachedPreview.baseline : undefined),
+            items: activeStreamingPreview
+                ? buildSituationVisualNovelPreviewItems(
+                    activeStreamingPreview.jobId, activeStreamingPreview.turns, previousItems,
+                )
+                : previousItems,
+        };
+        // Update alongside the input, before effects reconcile saved messages. Retain the
+        // last boundaries after the preview is consumed so unread pages cannot reflow.
+        setCachedPreview(paginationCache);
+    }
+    const retainedPreviewItems = paginationCache.items;
+    const generationBaseline = paginationCache.baseline;
+    const responseMessages = useMemo(
+        () => getSituationVisualNovelResponseMessages(messages, generationBaseline),
+        [generationBaseline, messages],
+    );
+    const roomItems = useMemo(
+        () => buildSituationVisualNovelRoomItems(messages, retainedPreviewItems, responseMessages),
+        [messages, retainedPreviewItems, responseMessages],
+    );
     const currentRoundAssistantItems = useMemo(() => {
-        return buildSituationVisualNovelRoomItems(getSituationVisualNovelResponseMessages(
-            messages,
-            activeStreamingPreview?.generationBaselineMessageIds,
-        ));
-    }, [activeStreamingPreview?.generationBaselineMessageIds, messages]);
+        const responseIds = new Set(responseMessages.map((message) => message.id));
+        return roomItems.filter((item) => responseIds.has(item.id));
+    }, [responseMessages, roomItems]);
     const previewItems = useMemo(
-        () => buildSituationVisualNovelPreviewItems(
-            activeStreamingPreview?.jobId,
-            activeStreamingPreview?.turns,
-        ),
-        [activeStreamingPreview?.jobId, activeStreamingPreview?.turns],
+        () => activeStreamingPreview ? retainedPreviewItems : [],
+        [activeStreamingPreview, retainedPreviewItems],
     );
     const priorSignature = useMemo(
         () => JSON.stringify(priorItems.map((item) => [

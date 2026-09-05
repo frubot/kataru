@@ -186,12 +186,76 @@ export function buildVisualNovelTypingSegments(content: string): string[] {
 export type StreamingVisualNovelPage = {
     content: string;
     complete: boolean;
+    end: number;
 };
 
+export type StreamingVisualNovelPagination = {
+    content: string;
+    pages: StreamingVisualNovelPage[];
+};
+
+// Final responses can remove quotation/Markdown markers and unescape line breaks.
+// Align those edits before reusing source offsets; page numbers alone lose text.
+function mapVisualNovelPageEnds(before: string, after: string, ends: number[]): number[] {
+    if (after.startsWith(before)) return ends;
+
+    const offsets = new Map<number, number>([[0, 0]]);
+    let source = 0;
+    let target = 0;
+    while (source < before.length) {
+        if (before[source] === after[target]) {
+            source++;
+            target++;
+        } else if (before.startsWith('\\n', source) && after[target] === '\n') {
+            source += 2;
+            target++;
+        } else if (before.startsWith('\\r', source) && after[target] === '\r') {
+            source += 2;
+            target++;
+        } else {
+            // Sanitization deletes characters, rather than rewriting the reply. On an
+            // unexpected insertion, preserve the matching suffix instead of its old index.
+            const nextSource = before.indexOf(after[target] ?? '', source + 1);
+            const nextTarget = after.indexOf(before[source], target + 1);
+            if (nextTarget >= 0 && (nextSource < 0 || nextTarget - target < nextSource - source)) {
+                target = nextTarget;
+                continue;
+            }
+            source++;
+        }
+        offsets.set(source, target);
+    }
+    return ends.map((end) => offsets.get(end) ?? offsets.get(end - 1) ?? 0);
+}
+
+/** Retain confirmed boundaries and paginate only the remaining, unfinished suffix. */
+export function updateStreamingVisualNovelPagination(
+    content: string,
+    complete: boolean,
+    previous?: StreamingVisualNovelPagination,
+    maxChars = VN_MESSAGE_PAGE_MAX_CHARS,
+): StreamingVisualNovelPagination {
+    const normalized = content.trim();
+    const confirmed = previous?.pages.filter((page) => page.complete) ?? [];
+    const ends = previous
+        ? mapVisualNovelPageEnds(previous.content, normalized, confirmed.map((page) => page.end))
+        : [];
+    let start = 0;
+    const pages = ends.map((end) => {
+        const page = { content: normalized.slice(start, end).trim(), complete: true, end };
+        start = end;
+        return page;
+    });
+    const suffixStart = start + (normalized.slice(start).length - normalized.slice(start).trimStart().length);
+    pages.push(...splitStreamingVisualNovelMessage(normalized.slice(suffixStart), complete, maxChars)
+        .map((page) => ({ ...page, end: suffixStart + page.end })));
+    return { content: normalized, pages };
+}
+
 /**
- * Splits an append-only streaming message without moving an emitted page boundary.
- * A sufficiently substantial sentence/paragraph can be read immediately; otherwise an
- * exact hard-limit prefix is fixed so a page can never shrink as more text arrives.
+ * Proposes pages for a fresh message or the unfinished suffix of a streaming message.
+ * A sufficiently substantial sentence/paragraph can be read immediately. The pagination
+ * snapshot retains confirmed boundaries across subsequent chunks and final sanitization.
  */
 export function splitStreamingVisualNovelMessage(
     content: string,
@@ -201,13 +265,15 @@ export function splitStreamingVisualNovelMessage(
     const normalized = content.trim();
     if (!normalized) return [];
     if (!Number.isFinite(maxChars) || maxChars <= 0) {
-        return [{ content: normalized, complete: streamComplete }];
+        return [{ content: normalized, complete: streamComplete, end: normalized.length }];
     }
 
     const segments = buildVisualNovelTypingSegments(normalized);
     const pages: StreamingVisualNovelPage[] = [];
     const minimumNaturalBreakLength = Math.max(1, Math.floor(maxChars * 0.6));
     let start = 0;
+    const offsets = [0];
+    for (const segment of segments) offsets.push(offsets[offsets.length - 1] + segment.length);
 
     while (start < segments.length) {
         let end = start;
@@ -229,7 +295,7 @@ export function splitStreamingVisualNovelMessage(
 
         if (naturalCut > 0) {
             const page = segments.slice(start, naturalCut).join('').trim();
-            if (page) pages.push({ content: page, complete: true });
+            if (page) pages.push({ content: page, complete: true, end: offsets[naturalCut] });
             start = naturalCut;
             while (segments[start] != null && /^\s$/u.test(segments[start])) start++;
             continue;
@@ -237,14 +303,14 @@ export function splitStreamingVisualNovelMessage(
 
         if (end >= segments.length) {
             const page = segments.slice(start).join('').trim();
-            if (page) pages.push({ content: page, complete: streamComplete });
+            if (page) pages.push({ content: page, complete: streamComplete, end: normalized.length });
             break;
         }
 
         // No sufficiently late natural boundary exists, so this exact hard-limit prefix is
         // stable. Earlier punctuation must not make the page shrink only after overflow.
         const page = segments.slice(start, end).join('').trim();
-        if (page) pages.push({ content: page, complete: true });
+        if (page) pages.push({ content: page, complete: true, end: offsets[end] });
         start = end;
         while (segments[start] != null && /^\s$/u.test(segments[start])) start++;
     }

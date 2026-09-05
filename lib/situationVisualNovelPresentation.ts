@@ -2,6 +2,8 @@ import type { Character, Message, SituationPriorMessage } from './store/types';
 import type { ConversationJobPreviewTurn } from './conversationJobClient';
 import {
     splitStreamingVisualNovelMessage,
+    updateStreamingVisualNovelPagination,
+    type StreamingVisualNovelPagination,
 } from './visualNovelPresentation';
 
 export type SituationVisualNovelItem = {
@@ -17,6 +19,7 @@ export type SituationVisualNovelItem = {
     streamingComplete?: boolean;
     pageIndex?: number;
     pageCount?: number;
+    pagination?: StreamingVisualNovelPagination;
 };
 
 export type SituationVisualNovelPresentationState = {
@@ -92,22 +95,44 @@ export function buildSituationVisualNovelPriorItems(
         }));
 }
 
-export function buildSituationVisualNovelRoomItems(messages: Message[]): SituationVisualNovelItem[] {
+export function buildSituationVisualNovelRoomItems(
+    messages: Message[],
+    previewItems: SituationVisualNovelItem[] = [],
+    responseMessages: Message[] = messages,
+): SituationVisualNovelItem[] {
+    const responseIds = responseMessages.filter((message) => message.role === 'assistant' && !message.archived)
+        .map((message) => message.id);
+    const previewByMessageId = new Map(previewItems.map((item) => [
+        responseIds[item.previewTurnIndex ?? 0], item.pagination,
+    ]));
     return messages
         .filter((message) => (
             message.role === 'assistant'
             && !message.archived
             && message.content.trim()
         ))
-        .flatMap((message) => paginateSituationVisualNovelItem({
-            key: `room:${message.id}`,
-            id: message.id,
-            source: 'room' as const,
-            role: message.role,
-            content: message.content,
-            characterId: message.characterId,
-            expression: message.expression,
-        }));
+        .flatMap((message) => {
+            const item: SituationVisualNovelItem = {
+                key: `room:${message.id}`,
+                id: message.id,
+                source: 'room' as const,
+                role: message.role,
+                content: message.content,
+                characterId: message.characterId,
+                expression: message.expression,
+            };
+            const previous = previewByMessageId.get(message.id);
+            if (!previous) return paginateSituationVisualNovelItem(item);
+            const pagination = updateStreamingVisualNovelPagination(message.content, true, previous);
+            return pagination.pages.map((page, pageIndex) => ({
+                ...item,
+                key: pageIndex === 0 ? item.key : `${item.key}:page:${pageIndex}`,
+                content: page.content,
+                pageIndex,
+                pageCount: pagination.pages.length,
+                pagination,
+            }));
+        });
 }
 
 export function getSituationVisualNovelResponseMessages(
@@ -129,15 +154,18 @@ export function getSituationVisualNovelResponseMessages(
 export function buildSituationVisualNovelPreviewItems(
     jobId: string | undefined,
     turns: ConversationJobPreviewTurn[] | undefined,
+    previousItems: SituationVisualNovelItem[] = [],
 ): SituationVisualNovelItem[] {
     if (!jobId || !turns) return [];
     return turns
         .filter((turn) => turn.content.trim())
         .flatMap((turn) => {
-            const pages = splitStreamingVisualNovelMessage(turn.content, turn.complete);
-            return pages.map((page, pageIndex) => ({
+            const id = `${jobId}:${turn.turnIndex}`;
+            const previous = previousItems.find((item) => item.id === id)?.pagination;
+            const pagination = updateStreamingVisualNovelPagination(turn.content, turn.complete, previous);
+            return pagination.pages.map((page, pageIndex) => ({
                 key: `preview:${jobId}:${turn.turnIndex}${pageIndex === 0 ? '' : `:page:${pageIndex}`}`,
-                id: `${jobId}:${turn.turnIndex}`,
+                id,
                 source: 'preview' as const,
                 role: 'assistant' as const,
                 content: page.content,
@@ -147,7 +175,8 @@ export function buildSituationVisualNovelPreviewItems(
                 previewTurnIndex: turn.turnIndex,
                 streamingComplete: page.complete,
                 pageIndex,
-                pageCount: pages.length,
+                pageCount: pagination.pages.length,
+                pagination,
             }));
         });
 }

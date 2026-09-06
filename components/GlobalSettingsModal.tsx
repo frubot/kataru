@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
 import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Check, ChevronDown, RefreshCw, ExternalLink, type LucideIcon } from 'lucide-react';
-import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, getDefaultModelDefaults, type AiApiType } from '@/lib/store';
+import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, RoomViewMode, getDefaultModelDefaults, type AiApiType } from '@/lib/store';
 import { createFullBackup, downloadJson, parseImportFile, reassignIds, type ParsedImport } from '@/lib/importExport';
 import StatisticsPanel from '@/components/StatisticsPanel';
 import AiConnectionSettings from '@/components/AiConnectionSettings';
@@ -139,6 +139,12 @@ const VN_SPEED_OPTIONS = [
     { id: 'fast', label: '速い' },
     { id: 'streaming', label: 'ストリーミング' },
 ] as const satisfies readonly { id: VnTypingSpeed; label: string }[];
+
+const VIEW_MODE_OPTIONS = [
+    { id: 'chat', label: 'ベーシック' },
+    { id: 'message', label: 'メッセージ' },
+    { id: 'vn', label: 'ゲーム' },
+] as const satisfies readonly { id: RoomViewMode; label: string }[];
 
 const AI_API_TYPE_OPTIONS = [
     { id: 'openrouter', label: 'OpenRouter' },
@@ -324,7 +330,7 @@ function VnSpeedSlider({ value, onChange }: VnSpeedSliderProps) {
 
 export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding }: GlobalSettingsModalProps) {
     const {
-        themeMode, themePalette, vnTypingSpeed,
+        themeMode, themePalette, defaultViewMode, vnTypingSpeed,
         summaryModel, setSummaryModel,
         defaultChatModel, setDefaultChatModel,
         defaultDirectorModel, setDefaultDirectorModel,
@@ -343,7 +349,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         openRouterIgnoredProviders, setOpenRouterIgnoredProviders,
         fullJsonDebugEnabled, detailedErrorLoggingEnabled, fullJsonDebugLogs,
         memoryInspectorEnabled, summaryInspectorEnabled,
-        setThemeMode, setThemePalette, setVnTypingSpeed,
+        setThemeMode, setThemePalette, setDefaultViewMode, setVnTypingSpeed,
         setFullJsonDebugEnabled, setDetailedErrorLoggingEnabled, clearFullJsonDebugLogs,
         setMemoryInspectorEnabled, setSummaryInspectorEnabled,
         clearAllHistory, resetApplication, mergeBackup, restoreBackup,
@@ -376,10 +382,12 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
     const [activeTab, setActiveTab] = useState<SettingsTab>('general');
     const [isThemeModeMenuOpen, setThemeModeMenuOpen] = useState(false);
     const [isPaletteMenuOpen, setPaletteMenuOpen] = useState(false);
+    const [isDefaultViewModeMenuOpen, setDefaultViewModeMenuOpen] = useState(false);
     const [isAiApiTypeMenuOpen, setAiApiTypeMenuOpen] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const themeModeMenuRef = useRef<HTMLDivElement>(null);
     const paletteMenuRef = useRef<HTMLDivElement>(null);
+    const defaultViewModeMenuRef = useRef<HTMLDivElement>(null);
     const aiApiTypeMenuRef = useRef<HTMLDivElement>(null);
     const modalRef = useRef<HTMLDivElement>(null);
     const handleKeyboardClose = useCallback(() => {
@@ -395,9 +403,10 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
             setShowRestoreConfirm(false);
             return;
         }
-        if (isThemeModeMenuOpen || isPaletteMenuOpen || isAiApiTypeMenuOpen) {
+        if (isThemeModeMenuOpen || isPaletteMenuOpen || isDefaultViewModeMenuOpen || isAiApiTypeMenuOpen) {
             setThemeModeMenuOpen(false);
             setPaletteMenuOpen(false);
+            setDefaultViewModeMenuOpen(false);
             setAiApiTypeMenuOpen(false);
             return;
         }
@@ -405,6 +414,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
     }, [
         isAiApiTypeMenuOpen,
         isPaletteMenuOpen,
+        isDefaultViewModeMenuOpen,
         isThemeModeMenuOpen,
         onClose,
         showClearConfirm,
@@ -425,6 +435,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         if (!isOpen) {
             setThemeModeMenuOpen(false);
             setPaletteMenuOpen(false);
+            setDefaultViewModeMenuOpen(false);
             setAiApiTypeMenuOpen(false);
         }
     }, [isOpen]);
@@ -485,6 +496,20 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         document.addEventListener('pointerdown', handlePointerDown);
         return () => document.removeEventListener('pointerdown', handlePointerDown);
     }, [isPaletteMenuOpen]);
+
+    useEffect(() => {
+        if (!isDefaultViewModeMenuOpen) return;
+
+        const handlePointerDown = (event: PointerEvent) => {
+            const target = event.target;
+            if (target instanceof Node && !defaultViewModeMenuRef.current?.contains(target)) {
+                setDefaultViewModeMenuOpen(false);
+            }
+        };
+
+        document.addEventListener('pointerdown', handlePointerDown);
+        return () => document.removeEventListener('pointerdown', handlePointerDown);
+    }, [isDefaultViewModeMenuOpen]);
 
     useEffect(() => {
         if (!isAiApiTypeMenuOpen) return;
@@ -875,6 +900,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                             onClick={() => {
                                                 setThemeModeMenuOpen((open) => !open);
                                                 setPaletteMenuOpen(false);
+                                                setDefaultViewModeMenuOpen(false);
                                             }}
                                             style={{
                                                 display: 'inline-flex',
@@ -977,6 +1003,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                             onClick={() => {
                                                 setPaletteMenuOpen((open) => !open);
                                                 setThemeModeMenuOpen(false);
+                                                setDefaultViewModeMenuOpen(false);
                                             }}
                                             style={{
                                                 display: 'inline-flex',
@@ -1058,6 +1085,107 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                                         {renderPaletteDots(colors)}
                                                         <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.875rem', fontWeight: selected ? 600 : 500, textAlign: 'left' }}>
                                                             {label}
+                                                        </span>
+                                                        {selected && <Check size={15} aria-hidden="true" style={{ flexShrink: 0 }} />}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="settings-select-anchor" ref={defaultViewModeMenuRef}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+                                        <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
+                                            既定の表示モード
+                                        </span>
+                                        <button
+                                            type="button"
+                                            className="settings-select-trigger"
+                                            aria-haspopup="menu"
+                                            aria-expanded={isDefaultViewModeMenuOpen}
+                                            onClick={() => {
+                                                setDefaultViewModeMenuOpen((open) => !open);
+                                                setThemeModeMenuOpen(false);
+                                                setPaletteMenuOpen(false);
+                                            }}
+                                            style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                gap: '0.5rem',
+                                                width: 'fit-content',
+                                                minHeight: '2.25rem',
+                                                padding: '0.5rem 0.625rem',
+                                                borderRadius: '0.5rem',
+                                                color: 'var(--text-primary)',
+                                                cursor: 'pointer',
+                                                fontSize: '0.8125rem',
+                                                fontWeight: 600,
+                                                transition: 'background 0.15s ease, border-color 0.15s ease',
+                                            }}
+                                        >
+                                            <span style={{ whiteSpace: 'nowrap' }}>
+                                                {VIEW_MODE_OPTIONS.find(({ id }) => id === defaultViewMode)?.label ?? VIEW_MODE_OPTIONS[0].label}
+                                            </span>
+                                            <ChevronDown
+                                                size={15}
+                                                aria-hidden="true"
+                                                style={{
+                                                    flexShrink: 0,
+                                                    color: 'var(--text-muted)',
+                                                    transform: isDefaultViewModeMenuOpen ? 'rotate(180deg)' : undefined,
+                                                    transition: 'transform 0.15s ease',
+                                                }}
+                                            />
+                                        </button>
+                                    </div>
+                                    {isDefaultViewModeMenuOpen && (
+                                        <div
+                                            role="menu"
+                                            aria-label="既定の表示モード"
+                                            style={{
+                                                position: 'absolute',
+                                                right: 0,
+                                                top: 'calc(100% + 0.5rem)',
+                                                width: 'min(100%, 16rem)',
+                                                minWidth: '12rem',
+                                                padding: '0.375rem',
+                                                border: '1px solid var(--border-color)',
+                                                borderRadius: '0.5rem',
+                                                background: 'var(--bg-primary)',
+                                                boxShadow: '0 12px 28px rgba(0, 0, 0, 0.24)',
+                                                zIndex: 20,
+                                            }}
+                                        >
+                                            {VIEW_MODE_OPTIONS.map((option) => {
+                                                const selected = defaultViewMode === option.id;
+                                                return (
+                                                    <button
+                                                        key={option.id}
+                                                        type="button"
+                                                        className="settings-select-option"
+                                                        role="menuitemradio"
+                                                        aria-checked={selected}
+                                                        onClick={() => {
+                                                            setDefaultViewMode(option.id);
+                                                            setDefaultViewModeMenuOpen(false);
+                                                        }}
+                                                        style={{
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            width: '100%',
+                                                            minHeight: '2.5rem',
+                                                            padding: '0.5rem 0.625rem',
+                                                            border: 'none',
+                                                            borderRadius: '0.375rem',
+                                                            color: selected ? 'var(--accent-primary)' : 'var(--text-primary)',
+                                                            cursor: 'pointer',
+                                                            textAlign: 'left',
+                                                        }}
+                                                    >
+                                                        <span style={{ flex: 1, minWidth: 0, fontSize: '0.875rem', fontWeight: selected ? 600 : 500, textAlign: 'left' }}>
+                                                            {option.label}
                                                         </span>
                                                         {selected && <Check size={15} aria-hidden="true" style={{ flexShrink: 0 }} />}
                                                     </button>

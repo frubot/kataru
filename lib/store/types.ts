@@ -223,7 +223,7 @@ export interface Room {
     summaryCheckpointUserMessageId?: string;
     summaryHistory?: SummaryRevision[];
     maxMentionChain?: number;
-    viewMode?: 'chat' | 'message' | 'vn';
+    viewMode?: RoomViewMode;
     costumeSelections?: Record<string, string>;
     replySuggestions?: RoomReplySuggestions;
     secretMode?: boolean;
@@ -272,6 +272,7 @@ export interface FullJsonDebugLog {
 export type ThemeMode = 'light' | 'dark';
 export type ThemePalette = 'indigo' | 'sakura' | 'sage' | 'sky' | 'amber' | 'mono';
 export type VnTypingSpeed = 'slow' | 'default' | 'fast' | 'streaming';
+export type RoomViewMode = 'chat' | 'message' | 'vn';
 
 export type ThemeSelection = {
     mode: ThemeMode;
@@ -285,6 +286,7 @@ export interface AppState {
     onboardingVersion: number;
     themeMode: ThemeMode;
     themePalette: ThemePalette;
+    defaultViewMode: RoomViewMode;
     vnTypingSpeed: VnTypingSpeed;
     keyboardShortcuts: KeyboardShortcutSettings;
     summaryModel: string;
@@ -322,6 +324,7 @@ export interface AppState {
 
     setThemeMode: (mode: ThemeMode) => void;
     setThemePalette: (palette: ThemePalette) => void;
+    setDefaultViewMode: (viewMode: RoomViewMode) => void;
     toggleThemeMode: () => void;
     toggleTheme: () => void;
     setVnTypingSpeed: (speed: VnTypingSpeed) => void;

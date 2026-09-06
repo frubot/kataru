@@ -40,11 +40,13 @@ import type {
     ThemeMode,
     ThemePalette,
     ThemeSelection,
+    RoomViewMode,
     VnTypingSpeed,
 } from './types';
 
 export const THEME_LS_KEY = 'kataru-theme';
 export const DEFAULT_THEME_SELECTION: ThemeSelection = { mode: 'dark', palette: 'mono' };
+export const DEFAULT_VIEW_MODE: RoomViewMode = 'chat';
 export const DEFAULT_VN_TYPING_SPEED: VnTypingSpeed = 'default';
 export const DEFAULT_CHARACTER_MAX_CHARACTERS = 512;
 export const DEFAULT_CHARACTER_MAX_HISTORY: number | undefined = 7;
@@ -75,6 +77,10 @@ function isThemePalette(value: unknown): value is ThemePalette {
 
 export function isVnTypingSpeed(value: unknown): value is VnTypingSpeed {
     return value === 'slow' || value === 'default' || value === 'fast' || value === 'streaming';
+}
+
+export function isRoomViewMode(value: unknown): value is RoomViewMode {
+    return value === 'chat' || value === 'message' || value === 'vn';
 }
 
 export function resolveThemeSelection(params: { mode?: unknown; palette?: unknown }): ThemeSelection {
@@ -182,6 +188,7 @@ type SettingsSlice = Pick<
     AppState,
     | 'themeMode'
     | 'themePalette'
+    | 'defaultViewMode'
     | 'vnTypingSpeed'
     | 'keyboardShortcuts'
     | 'summaryModel'
@@ -210,6 +217,7 @@ type SettingsSlice = Pick<
     | 'fullJsonDebugLogs'
     | 'setThemeMode'
     | 'setThemePalette'
+    | 'setDefaultViewMode'
     | 'toggleThemeMode'
     | 'toggleTheme'
     | 'setVnTypingSpeed'
@@ -248,6 +256,7 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
     return {
         themeMode: DEFAULT_THEME_SELECTION.mode,
         themePalette: DEFAULT_THEME_SELECTION.palette,
+        defaultViewMode: DEFAULT_VIEW_MODE,
         vnTypingSpeed: DEFAULT_VN_TYPING_SPEED,
         keyboardShortcuts: createDefaultKeyboardShortcuts(),
         summaryModel: DEFAULT_SUMMARY_MODEL,
@@ -284,6 +293,10 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
             set({ themePalette });
             writeThemeCache(get().themeMode, themePalette);
             fire(db.setMeta('themePalette', themePalette));
+        },
+        setDefaultViewMode: (defaultViewMode) => {
+            set({ defaultViewMode });
+            fire(db.setMeta('defaultViewMode', defaultViewMode));
         },
         toggleThemeMode: () => {
             const next: ThemeMode = get().themeMode === 'light' ? 'dark' : 'light';

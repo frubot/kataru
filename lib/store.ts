@@ -70,6 +70,7 @@ export type {
     MemorySearchParams,
     Message,
     Room,
+    RoomViewMode,
     RoomCompressionSnapshot,
     RoomReplySuggestions,
     Situation,

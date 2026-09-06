@@ -37,8 +37,10 @@ import {
     clearThemeCache,
     DEFAULT_CONVERSATION_COMPRESSION_ENABLED,
     DEFAULT_THEME_SELECTION,
+    DEFAULT_VIEW_MODE,
     DEFAULT_VN_TYPING_SPEED,
     isVnTypingSpeed,
+    isRoomViewMode,
     persistModelDefaultsByApiType,
     resolveThemeSelection,
     waitForModelDefaultsWrites,
@@ -52,6 +54,7 @@ import type {
     StoreSet,
     ThemeMode,
     ThemePalette,
+    RoomViewMode,
     VnTypingSpeed,
 } from './types';
 
@@ -71,13 +74,14 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
         hydrate: async () => {
             if (get().hydrated) return;
             await db.migrateLegacyDatabase();
-            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, currentRoomId, vnTypingSpeed, storedKeyboardShortcuts, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedConversationCompressionEnabled, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion] = await Promise.all([
+            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, storedDefaultViewMode, currentRoomId, vnTypingSpeed, storedKeyboardShortcuts, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedConversationCompressionEnabled, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion] = await Promise.all([
                 db.getAllCharacters(),
                 db.getAllGroups(),
                 db.getAllRooms(),
                 db.getAllUsageRecords(),
                 db.getMeta<ThemeMode>('themeMode'),
                 db.getMeta<ThemePalette>('themePalette'),
+                db.getMeta<RoomViewMode>('defaultViewMode'),
                 db.getMeta<string | null>('currentRoomId'),
                 db.getMeta<VnTypingSpeed>('vnTypingSpeed'),
                 db.getMeta<KeyboardShortcutSettings>('keyboardShortcuts'),
@@ -201,11 +205,15 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 mode: themeMode,
                 palette: themePalette,
             });
+            const resolvedDefaultViewMode = isRoomViewMode(storedDefaultViewMode)
+                ? storedDefaultViewMode
+                : DEFAULT_VIEW_MODE;
             writeThemeCache(resolvedTheme.mode, resolvedTheme.palette);
             const resolvedVnTypingSpeed = isVnTypingSpeed(vnTypingSpeed) ? vnTypingSpeed : DEFAULT_VN_TYPING_SPEED;
             const resolvedKeyboardShortcuts = normalizeKeyboardShortcuts(storedKeyboardShortcuts);
             if (themeMode !== resolvedTheme.mode) fire(db.setMeta('themeMode', resolvedTheme.mode));
             if (themePalette !== resolvedTheme.palette) fire(db.setMeta('themePalette', resolvedTheme.palette));
+            if (storedDefaultViewMode !== resolvedDefaultViewMode) fire(db.setMeta('defaultViewMode', resolvedDefaultViewMode));
             if (vnTypingSpeed !== resolvedVnTypingSpeed) fire(db.setMeta('vnTypingSpeed', resolvedVnTypingSpeed));
             if (JSON.stringify(storedKeyboardShortcuts) !== JSON.stringify(resolvedKeyboardShortcuts)) {
                 fire(db.setMeta('keyboardShortcuts', resolvedKeyboardShortcuts));
@@ -258,6 +266,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 usageRecords,
                 themeMode: resolvedTheme.mode,
                 themePalette: resolvedTheme.palette,
+                defaultViewMode: resolvedDefaultViewMode,
                 vnTypingSpeed: resolvedVnTypingSpeed,
                 keyboardShortcuts: resolvedKeyboardShortcuts,
                 ...activeModelDefaults,
@@ -294,6 +303,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 onboardingVersion: 0,
                 themeMode: DEFAULT_THEME_SELECTION.mode,
                 themePalette: DEFAULT_THEME_SELECTION.palette,
+                defaultViewMode: DEFAULT_VIEW_MODE,
                 vnTypingSpeed: DEFAULT_VN_TYPING_SPEED,
                 keyboardShortcuts: createDefaultKeyboardShortcuts(),
                 summaryModel: DEFAULT_SUMMARY_MODEL,

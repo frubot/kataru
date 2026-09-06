@@ -1,10 +1,6 @@
-import { selectMemoryCandidates } from '../../lib/chatMemoryCandidates';
 import type { RustTurnResponse } from '../../lib/conversationResult';
 import type {
-    AddMemoryOptions,
-    Character,
     FullJsonDebugLog,
-    MemoryRecord,
     Message,
     Room,
     VnTypingSpeed,
@@ -14,7 +10,6 @@ type ApplyConversationResultOptions = {
     data: RustTurnResponse;
     sourceRoom: Room;
     jobId: string;
-    character: Character | null;
     isSecretMode: boolean;
     isMessageMode: boolean;
     shouldStreamPreview: boolean;
@@ -40,10 +35,6 @@ type ApplyConversationResultOperations = {
     clearStreamingPreview: (jobId: string) => void;
     addFullJsonDebugLog: (log: Omit<FullJsonDebugLog, 'id' | 'createdAt'>) => void;
     getCurrentRoom: () => Room | null | undefined;
-    markMemoriesUsed: (memoryIds: string[]) => void;
-    listMemoriesForCharacter: (characterId: string) => Promise<MemoryRecord[]>;
-    addMemory: (characterId: string, content: string, options?: AddMemoryOptions) => Promise<void>;
-    attachMemoriesToMessage: (roomId: string, messageId: string, memories: string[]) => void;
     playTypewriter: (messageId: string, content: string) => Promise<void>;
 };
 
@@ -93,7 +84,6 @@ export async function applyConversationResult(
         data,
         sourceRoom,
         jobId,
-        character,
         isSecretMode,
         isMessageMode,
         shouldStreamPreview,
@@ -146,35 +136,6 @@ export async function applyConversationResult(
         await operations.refreshConversationRoom(sourceRoom.id);
     }
     operations.clearStreamingPreview(jobId);
-
-    if (!isSecretMode) {
-        operations.markMemoriesUsed(data.usedMemoryIds ?? []);
-    }
-
-    if (
-        !isSecretMode
-        && character
-        && assistantMessageIds.length > 0
-        && data.memoryCandidates?.length
-    ) {
-        const existingMemories = await operations.listMemoriesForCharacter(character.id);
-        const candidates = selectMemoryCandidates(data.memoryCandidates, character, existingMemories);
-        await Promise.all(candidates.map((update) =>
-            operations.addMemory(character.id, update.content, {
-                scope: update.scope,
-                kind: update.kind,
-                importance: update.importance,
-                confidence: update.confidence,
-                sourceRoomId: sourceRoom.id,
-                sourceMessageIds: assistantMessageIds,
-            })
-        ));
-        operations.attachMemoriesToMessage(
-            sourceRoom.id,
-            assistantMessageIds[0],
-            candidates.map((update) => update.content),
-        );
-    }
 
     if (
         !isMessageMode

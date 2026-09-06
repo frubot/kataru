@@ -1,4 +1,5 @@
 pub mod jobs;
+mod memory;
 mod orchestrator;
 mod prompts;
 mod response;

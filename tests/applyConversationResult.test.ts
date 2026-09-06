@@ -15,10 +15,6 @@ function createOperations(sourceRoom: Room) {
         clearStreamingPreview: vi.fn(),
         addFullJsonDebugLog: vi.fn(),
         getCurrentRoom: vi.fn(() => sourceRoom),
-        markMemoriesUsed: vi.fn(),
-        listMemoriesForCharacter: vi.fn(async () => []),
-        addMemory: vi.fn(async () => undefined),
-        attachMemoriesToMessage: vi.fn(),
         playTypewriter: vi.fn(async () => undefined),
     };
 }
@@ -42,7 +38,6 @@ describe('conversation result application', () => {
                 },
                 sourceRoom,
                 jobId: 'job-1',
-                character: null,
                 isSecretMode: false,
                 isMessageMode: false,
                 shouldStreamPreview: false,
@@ -56,7 +51,6 @@ describe('conversation result application', () => {
         expect(result.assistantMessageIds).toEqual(['server-message']);
         expect(operations.refreshConversationRoom).toHaveBeenCalledWith('room-1');
         expect(operations.addMessage).not.toHaveBeenCalled();
-        expect(operations.markMemoriesUsed).toHaveBeenCalledWith(['memory-1']);
         expect(operations.playTypewriter).toHaveBeenCalledWith('server-message', 'こんにちは');
     });
 
@@ -77,7 +71,6 @@ describe('conversation result application', () => {
                 },
                 sourceRoom,
                 jobId: 'job-1',
-                character: null,
                 isSecretMode: true,
                 isMessageMode: true,
                 shouldStreamPreview: false,
@@ -93,7 +86,6 @@ describe('conversation result application', () => {
         expect(operations.waitForMessageModeBubbleDelay).toHaveBeenCalledOnce();
         expect(operations.addMessage).toHaveBeenCalledTimes(2);
         expect(operations.refreshConversationRoom).not.toHaveBeenCalled();
-        expect(operations.markMemoriesUsed).not.toHaveBeenCalled();
     });
 
     test('defers typewriter playback to the situation visual novel queue', async () => {
@@ -111,7 +103,6 @@ describe('conversation result application', () => {
                 },
                 sourceRoom,
                 jobId: 'job-1',
-                character: null,
                 isSecretMode: false,
                 isMessageMode: false,
                 shouldStreamPreview: false,
@@ -152,7 +143,6 @@ describe('conversation result application', () => {
                 },
                 sourceRoom,
                 jobId: 'job-1',
-                character: null,
                 isSecretMode: false,
                 isMessageMode: false,
                 shouldStreamPreview: false,

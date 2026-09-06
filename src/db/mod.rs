@@ -15,8 +15,8 @@ use rusqlite::{
 use crate::error::{AppError, AppResult};
 
 pub use storage::{
-    handle_storage_command, migrate_character_images, migrate_situation_images,
-    persist_conversation_result, persist_conversation_submission,
+    get_conversation_memories, handle_storage_command, migrate_character_images,
+    migrate_situation_images, persist_conversation_result, persist_conversation_submission,
 };
 
 const INITIAL_MIGRATION: &str = include_str!("../../migrations/0001_initial.sql");

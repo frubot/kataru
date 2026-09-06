@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use axum::{Json, extract::State};
@@ -22,6 +22,7 @@ use crate::{
 use super::{
     GenerationMode,
     jobs::ConversationJobs,
+    memory::request_embedding,
     prompts::{
         DIRECTOR_TRANSCRIPT_USER_HISTORY, SUMMARY_RECENT_USER_TURNS_TO_KEEP, actor_id,
         assistant_schema, boolean, character_setting, character_system_prompt, director_prompts,
@@ -1008,7 +1009,8 @@ async fn search_memories(
         request_embedding(api_client, payload, &query, embedding_model, "search_query")
             .await
             .ok()
-            .flatten();
+            .flatten()
+            .map(|embedding| embedding.values);
     let now = now_ms() as f64;
     let mut scored = rows
         .into_iter()
@@ -1102,55 +1104,6 @@ async fn search_memories(
     scored.sort_by(|a, b| b.score.total_cmp(&a.score));
     scored.truncate(MEMORY_LIMIT);
     Ok(scored)
-}
-
-async fn request_embedding(
-    api_client: &AiApiClient,
-    payload: &Value,
-    input: &str,
-    model: &str,
-    input_type: &str,
-) -> AppResult<Option<Vec<f64>>> {
-    if input.trim().is_empty() {
-        return Ok(None);
-    }
-    if !api_client.embeddings_enabled() {
-        return Ok(None);
-    }
-    if ai_api_config_value(payload)
-        .and_then(|config| config.get("aiApiType").or_else(|| config.get("aiProvider")))
-        .and_then(Value::as_str)
-        == Some("openai-compatible")
-        && ai_api_config_value(payload)
-            .and_then(|config| config.get("openAiCompatibleEmbeddingsEnabled"))
-            .and_then(Value::as_bool)
-            != Some(true)
-    {
-        return Ok(None);
-    }
-    let mut body = json!({
-        "input": input,
-        "model": model,
-        "encoding_format": "float",
-    });
-    if api_client.is_openrouter() {
-        body["input_type"] = Value::String(input_type.into());
-        body["provider"] = json!({"data_collection": "deny"});
-    }
-    let response = api_client
-        .post("embeddings", Duration::from_secs(12))
-        .json(&body)
-        .send()
-        .await?;
-    if !response.status().is_success() {
-        return Ok(None);
-    }
-    let data: Value = response.json().await?;
-    Ok(data
-        .pointer("/data/0/embedding")
-        .and_then(Value::as_array)
-        .map(|values| values.iter().filter_map(Value::as_f64).collect::<Vec<_>>())
-        .filter(|values| !values.is_empty()))
 }
 
 struct ExtractionContext {

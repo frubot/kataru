@@ -6,10 +6,21 @@ use crate::error::{AppError, AppResult};
 use super::{
     Database,
     json::{now_millis, optional_string, required_i64, required_string},
+    memories::{get_by_character, touch_in_transaction, upsert as upsert_memory},
     messages::{get_by_room, sanitize_assistant, upsert as upsert_message},
     rooms::upsert as upsert_room,
     usage::upsert as upsert_usage_record,
 };
+
+pub async fn get_conversation_memories(
+    database: &Database,
+    character_id: &str,
+) -> AppResult<Vec<Value>> {
+    let character_id = character_id.to_owned();
+    database
+        .call(move |connection| get_by_character(connection, &character_id))
+        .await
+}
 
 pub async fn persist_conversation_submission(
     database: &Database,
@@ -57,6 +68,7 @@ pub async fn persist_conversation_result(
     database: &Database,
     room_id: &str,
     result: &Value,
+    prepared_memories: Vec<Value>,
     secret_mode: bool,
 ) -> AppResult<()> {
     if secret_mode {
@@ -80,6 +92,14 @@ pub async fn persist_conversation_result(
         .get("summary")
         .filter(|value| value.is_object())
         .cloned();
+    let used_memory_ids = result
+        .get("usedMemoryIds")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
 
     database
         .call(move |connection| {
@@ -147,6 +167,10 @@ pub async fn persist_conversation_result(
             for message in messages {
                 upsert_message(&transaction, &room_id, message)?;
             }
+            for memory in prepared_memories {
+                upsert_memory(&transaction, memory)?;
+            }
+            touch_in_transaction(&transaction, &used_memory_ids, now)?;
             for usage in usages {
                 upsert_usage_record(&transaction, usage)?;
             }
@@ -209,7 +233,7 @@ mod tests {
     use serde_json::json;
 
     use super::{persist_conversation_result, persist_conversation_submission};
-    use crate::db::storage::{messages::get_by_room, test_support::test_room};
+    use crate::db::storage::{memories, messages::get_by_room, test_support::test_room};
     use crate::db::{Database, storage::json::query_optional_json};
 
     #[tokio::test]
@@ -228,6 +252,27 @@ mod tests {
         persist_conversation_submission(&database, &payload, false, false)
             .await
             .expect("persist submitted message");
+        database
+            .call(|connection| {
+                memories::put(
+                    connection,
+                    json!({
+                        "id": "memory-referenced",
+                        "characterId": "character-1",
+                        "scope": "character",
+                        "kind": "fact",
+                        "content": "previous memory",
+                        "importance": 0.6,
+                        "confidence": 0.8,
+                        "sourceMessageIds": [],
+                        "createdAt": 5,
+                        "updatedAt": 5,
+                        "usageCount": 2
+                    }),
+                )
+            })
+            .await
+            .expect("store referenced memory");
 
         let result = json!({
             "messages": [{
@@ -251,11 +296,32 @@ mod tests {
                 "text": "summary",
                 "checkpointUserMessageId": "message-user",
                 "keepCount": 1
-            }
+            },
+            "usedMemoryIds": ["memory-referenced"]
         });
-        persist_conversation_result(&database, "room-background", &result, false)
-            .await
-            .expect("persist generated result");
+        let prepared_memories = vec![json!({
+            "id": "memory-created",
+            "characterId": "character-1",
+            "sourceRoomId": "room-background",
+            "sourceMessageIds": ["message-assistant"],
+            "scope": "character",
+            "kind": "preference",
+            "content": "new memory",
+            "importance": 0.8,
+            "confidence": 0.9,
+            "createdAt": 20,
+            "updatedAt": 20,
+            "usageCount": 0
+        })];
+        persist_conversation_result(
+            &database,
+            "room-background",
+            &result,
+            prepared_memories,
+            false,
+        )
+        .await
+        .expect("persist generated result");
 
         database
             .call(|connection| {
@@ -264,6 +330,7 @@ mod tests {
                 assert_eq!(messages[1]["id"], "message-assistant");
                 assert_eq!(messages[1]["content"], "saved in the background unfinished");
                 assert_eq!(messages[1]["usedMemoryIds"], json!(["memory-referenced"]));
+                assert_eq!(messages[1]["memories"], json!(["new memory"]));
                 let room = query_optional_json(
                     connection,
                     "SELECT data_json FROM rooms WHERE id = ?1",
@@ -283,6 +350,13 @@ mod tests {
                     |row| row.get::<_, i64>(0),
                 )?;
                 assert_eq!(usage_count, 1);
+                let referenced = memories::get(connection, "memory-referenced")?
+                    .expect("referenced memory remains stored");
+                assert_eq!(referenced["usageCount"], 3);
+                assert!(referenced["lastUsedAt"].as_i64().is_some());
+                let created = memories::get(connection, "memory-created")?
+                    .expect("created memory was stored");
+                assert_eq!(created["sourceMessageIds"], json!(["message-assistant"]));
                 Ok(())
             })
             .await

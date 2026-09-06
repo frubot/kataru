@@ -301,8 +301,18 @@ pub(super) fn touch(
     timestamp: i64,
 ) -> AppResult<()> {
     let transaction = connection.transaction()?;
+    touch_in_transaction(&transaction, memory_ids, timestamp)?;
+    transaction.commit()?;
+    Ok(())
+}
+
+pub(super) fn touch_in_transaction(
+    connection: &Connection,
+    memory_ids: &[String],
+    timestamp: i64,
+) -> AppResult<()> {
     for memory_id in unique_string_refs(memory_ids) {
-        let Some(mut memory) = get(&transaction, memory_id)? else {
+        let Some(mut memory) = get(connection, memory_id)? else {
             continue;
         };
         let usage_count = required_object(&memory)?
@@ -316,12 +326,11 @@ pub(super) fn touch(
         object.insert("lastUsedAt".to_owned(), Value::from(timestamp));
         object.insert("usageCount".to_owned(), Value::from(usage_count));
         object.insert("updatedAt".to_owned(), Value::from(timestamp));
-        transaction.execute(
+        connection.execute(
             "UPDATE memories SET updated_at = ?2, data_json = ?3 WHERE id = ?1",
             params![memory_id, timestamp, serialize(&memory)?],
         )?;
     }
-    transaction.commit()?;
     Ok(())
 }
 

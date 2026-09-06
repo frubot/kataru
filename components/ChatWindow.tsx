@@ -255,12 +255,10 @@ function waitForConversationJobPoll(signal: AbortSignal, intervalMs: number): Pr
 export default function ChatWindow({ room, character, situation, groupName, groupCharacters, onOpenSidebar, onOpenMemoryList, onCreateCharacter, onOpenSettings }: ChatWindowProps) {
     const {
         addMessage,
-        addMemory,
         deleteMessagesFrom,
         restoreMessagesAt,
         rewindRoomCompression,
         restoreRoomCompression,
-        attachMemoriesToMessage,
         getCurrentRoom,
         refreshConversationRoom,
         updateRoomSummary,
@@ -288,8 +286,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         fullJsonDebugLogs,
         addFullJsonDebugLog,
         clearFullJsonDebugLogs,
-        listMemoriesForCharacter,
-        markMemoriesUsed,
         getAiApiConfig,
     } = useStore();
     const isGroupRoom = situation != null || (groupCharacters != null && groupCharacters.length > 1);
@@ -854,7 +850,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     data: job.result,
                     sourceRoom,
                     jobId: session.jobId,
-                    character,
                     isSecretMode,
                     isMessageMode,
                     shouldStreamPreview,
@@ -876,10 +871,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                         : clearStreamingPreview,
                     addFullJsonDebugLog,
                     getCurrentRoom,
-                    markMemoriesUsed,
-                    listMemoriesForCharacter,
-                    addMemory,
-                    attachMemoriesToMessage,
                     playTypewriter,
                 },
             );

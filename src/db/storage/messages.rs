@@ -41,10 +41,8 @@ pub(super) fn get_by_room(connection: &Connection, room_id: &str) -> AppResult<V
 
     let memory_rows = query_json_values(
         connection,
-        "SELECT data_json FROM memories
-         WHERE source_room_id = ?1 OR room_id = ?1
-         ORDER BY updated_at DESC, id",
-        params![room_id],
+        "SELECT data_json FROM memories ORDER BY updated_at DESC, id",
+        [],
     )?;
     let mut seen_memory_ids = HashSet::new();
     let mut memories_by_message: HashMap<String, Vec<String>> = HashMap::new();
@@ -235,5 +233,44 @@ mod tests {
 
         let messages = get_by_room(&connection, "room-1").expect("reload room messages");
         assert_eq!(messages[0]["memories"], json!(["new memory"]));
+    }
+
+    #[test]
+    fn merged_memory_is_rehydrated_for_sources_in_older_rooms() {
+        let connection = open_test_database();
+        for (room_id, message_id) in [("room-old", "message-old"), ("room-new", "message-new")] {
+            assert!(rooms::put(&connection, test_room(room_id)).expect("store room"));
+            put(
+                &connection,
+                room_id,
+                json!({
+                    "id": message_id,
+                    "role": "assistant",
+                    "characterId": "character-1",
+                    "content": "reply",
+                    "timestamp": 1
+                }),
+            )
+            .expect("store source message");
+        }
+        memories::put(
+            &connection,
+            json!({
+                "id": "memory-1",
+                "characterId": "character-1",
+                "sourceRoomId": "room-new",
+                "sourceMessageIds": ["message-old", "message-new"],
+                "scope": "character",
+                "kind": "fact",
+                "content": "shared memory",
+                "updatedAt": 2
+            }),
+        )
+        .expect("store merged memory");
+
+        let old_messages = get_by_room(&connection, "room-old").expect("reload old room");
+        let new_messages = get_by_room(&connection, "room-new").expect("reload new room");
+        assert_eq!(old_messages[0]["memories"], json!(["shared memory"]));
+        assert_eq!(new_messages[0]["memories"], json!(["shared memory"]));
     }
 }

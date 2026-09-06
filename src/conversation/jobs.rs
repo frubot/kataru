@@ -22,7 +22,7 @@ use crate::{
     error::{AppError, AppResult},
 };
 
-use super::{GenerationMode, orchestrator::run_turn};
+use super::{GenerationMode, memory::prepare_conversation_memories, orchestrator::run_turn};
 
 const COMPLETED_JOB_RETENTION: Duration = Duration::from_secs(10 * 60);
 
@@ -471,7 +471,7 @@ pub async fn start(
                 stage = "generation_started",
                 "Conversation generation started"
             );
-            match run_turn(job_state.clone(), payload).await {
+            match run_turn(job_state.clone(), payload.clone()).await {
                 Ok(mut result) => {
                     let message_count = result
                         .get("messages")
@@ -483,6 +483,40 @@ pub async fn start(
                         "Conversation generation completed"
                     );
                     normalize_result_ids(&task_job_id, &mut result);
+                    if !job_state.conversation_jobs.is_running(&task_job_id).await {
+                        tracing::debug!(
+                            stage = "cancelled_before_memory_persistence",
+                            "Conversation job was cancelled before memory persistence"
+                        );
+                        return;
+                    }
+                    let prepared_memories = if secret_mode {
+                        Vec::new()
+                    } else {
+                        match prepare_conversation_memories(&job_state, &payload, &result).await {
+                            Ok(memories) => memories,
+                            Err(error) => {
+                                tracing::warn!(
+                                    stage = "memory_persistence_preparation_failed",
+                                    classification = error.diagnostic_class(),
+                                    "Conversation job could not prepare memory persistence"
+                                );
+                                job_state
+                                    .conversation_jobs
+                                    .fail(
+                                        &task_job_id,
+                                        error.to_string(),
+                                        result
+                                            .get("fullJsonLogs")
+                                            .and_then(Value::as_array)
+                                            .cloned()
+                                            .unwrap_or_default(),
+                                    )
+                                    .await;
+                                return;
+                            }
+                        }
+                    };
                     let history_persistence_guard = if secret_mode {
                         None
                     } else {
@@ -503,6 +537,7 @@ pub async fn start(
                         &job_state.database,
                         &task_room_id,
                         &result,
+                        prepared_memories,
                         secret_mode,
                     )
                     .await
@@ -612,12 +647,16 @@ fn normalize_result_ids(job_id: &str, result: &mut Value) {
         .filter_map(|(index, message)| {
             let object = message.as_object_mut()?;
             let id = format!("{job_id}-message-{index}");
+            let has_content = object
+                .get("content")
+                .and_then(Value::as_str)
+                .is_some_and(|content| !content.trim().is_empty());
             object.insert("id".to_owned(), Value::String(id.clone()));
             object.insert(
                 "timestamp".to_owned(),
                 Value::from(timestamp.saturating_add(index as u64)),
             );
-            Some(id)
+            has_content.then_some(id)
         })
         .collect::<Vec<_>>();
 
@@ -625,8 +664,12 @@ fn normalize_result_ids(job_id: &str, result: &mut Value) {
         .get_mut("memoryCandidates")
         .and_then(Value::as_array_mut)
     {
-        for candidate in candidates {
+        for (index, candidate) in candidates.iter_mut().enumerate() {
             if let Some(object) = candidate.as_object_mut() {
+                object.insert(
+                    "id".to_owned(),
+                    Value::String(format!("{job_id}-memory-{index}")),
+                );
                 object.insert("sourceMessageIds".to_owned(), json!(message_ids));
             }
         }
@@ -667,8 +710,8 @@ mod tests {
     fn result_ids_are_stable_and_unique_per_job() {
         let mut result = json!({
             "messages": [
-                { "id": "old-1", "timestamp": 1 },
-                { "id": "old-2", "timestamp": 2 }
+                { "id": "old-1", "content": "first", "timestamp": 1 },
+                { "id": "old-2", "content": "second", "timestamp": 2 }
             ],
             "usages": [{ "id": "old-usage", "timestamp": 1 }],
             "memoryCandidates": [{ "sourceMessageIds": ["old-1", "old-2"] }]
@@ -677,6 +720,7 @@ mod tests {
         assert_eq!(result["messages"][0]["id"], "job-12345678-message-0");
         assert_eq!(result["messages"][1]["id"], "job-12345678-message-1");
         assert_eq!(result["usages"][0]["id"], "job-12345678-usage-0");
+        assert_eq!(result["memoryCandidates"][0]["id"], "job-12345678-memory-0");
         assert_eq!(
             result["memoryCandidates"][0]["sourceMessageIds"],
             json!(["job-12345678-message-0", "job-12345678-message-1"])

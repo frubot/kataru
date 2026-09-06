@@ -388,6 +388,10 @@ export function createMemorySlice(set: StoreSet, get: StoreGet): MemorySlice {
                 updatedAt: Date.now(),
                 ...(contentChanged ? { embedding: undefined, embeddingModel: undefined } : {}),
             };
+            await db.putMemory(nextMemory);
+            if (contentChanged) {
+                await db.removeMemoryContentsFromMessages(characterId, [memory.content]);
+            }
             if (contentChanged) {
                 const state = get();
                 const embedded = await requestMemoryEmbedding(
@@ -397,17 +401,18 @@ export function createMemorySlice(set: StoreSet, get: StoreGet): MemorySlice {
                     getAiApiConfigFromState(state),
                 );
                 if (embedded) {
-                    nextMemory = {
-                        ...nextMemory,
-                        embedding: embedded.embedding,
-                        embeddingModel: embedded.model,
-                    };
+                    const latestMemory = await db.getMemory(memoryId);
+                    if (latestMemory?.characterId === characterId && latestMemory.content === nextContent) {
+                        nextMemory = {
+                            ...latestMemory,
+                            embedding: embedded.embedding,
+                            embeddingModel: embedded.model,
+                            updatedAt: Date.now(),
+                        };
+                        await db.putMemory(nextMemory);
+                    }
                 }
             }
-            if (contentChanged) {
-                await db.removeMemoryContentsFromMessages(characterId, [memory.content]);
-            }
-            await db.putMemory(nextMemory);
             if (contentChanged) {
                 set((state) => ({
                     rooms: state.rooms.map((room) => ({

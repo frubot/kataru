@@ -15,6 +15,7 @@ import {
     getSituationCostumeSelections,
     normalizeGroupData,
     normalizeSituationActor,
+    normalizeSituationPriorMessages,
     resolveSituationParticipants,
 } from '../lib/store/situations';
 
@@ -233,6 +234,22 @@ describe('store pure helpers', () => {
             { id: 'actor-1', type: 'character', characterId: 'character-1', costumeName: 'default' },
             { id: 'actor-2', type: 'temporary', name: '通行人', systemPrompt: '' },
         ])).toBeUndefined();
+    });
+
+    test('preserves a configured expression on a prior assistant message', () => {
+        expect(normalizeSituationPriorMessages([{
+            id: 'prior-assistant',
+            role: 'assistant',
+            actorId: 'actor-1',
+            content: '  こんにちは  ',
+            expression: ' happy ',
+        }], new Set(['actor-1']))).toEqual([{
+            id: 'prior-assistant',
+            role: 'assistant',
+            actorId: 'actor-1',
+            content: 'こんにちは',
+            expression: 'happy',
+        }]);
     });
 
     test('preserves generation settings for temporary situation actors and participants', () => {

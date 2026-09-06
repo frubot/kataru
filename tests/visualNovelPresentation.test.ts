@@ -3,6 +3,7 @@ import type { Character, Room } from '../lib/store';
 import {
     buildVisualNovelTypingSegments,
     getVisualNovelCostumeOptions,
+    getVisualNovelExpressionNames,
     getVisualNovelPreloadCandidates,
     getVisualNovelTypingDelay,
     resolveVisualNovelCostumeName,
@@ -62,6 +63,18 @@ describe('visual novel costume and expression presentation', () => {
             { name: 'default', image: 'neutral.png', expressionCount: 2 },
             { name: 'uniform', image: 'uniform.png', expressionCount: 1 },
         ]);
+    });
+
+    test('lists only the expressions available for the selected costume', () => {
+        expect(getVisualNovelExpressionNames(character)).toEqual(['neutral', 'happy']);
+        expect(getVisualNovelExpressionNames({
+            ...character,
+            costumes: [{
+                name: 'uniform',
+                image: 'uniform.png',
+                expressions: [{ name: 'wink', image: 'uniform-wink.png' }],
+            }],
+        }, 'uniform')).toEqual(['neutral', 'wink']);
     });
 
     test('prioritizes next expression variants and deduplicates the current image', () => {

@@ -115,6 +115,18 @@ describe('situation visual novel presentation', () => {
         expect(state.locked).toBe(false);
     });
 
+    test('applies a configured expression to a prior assistant message', () => {
+        const [item] = buildSituationVisualNovelPriorItems([{
+            id: 'prior-assistant',
+            role: 'assistant',
+            actorId: 'actor-a',
+            content: 'うれしい！',
+            expression: 'happy',
+        }]);
+
+        expect(item).toMatchObject({ characterId: 'actor-a', expression: 'happy' });
+    });
+
     test('hides a submitted protagonist line and presents all assistant turns in order', () => {
         let state = createSituationVisualNovelPresentationState({
             hasRoomHistory: false,

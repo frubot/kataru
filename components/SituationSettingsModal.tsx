@@ -19,7 +19,11 @@ import {
     useStore,
 } from '@/lib/store';
 import { generateId } from '@/lib/id';
-import { DEFAULT_COSTUME_NAME, getVisualNovelCostumeOptions } from '@/lib/visualNovelPresentation';
+import {
+    DEFAULT_COSTUME_NAME,
+    getVisualNovelCostumeOptions,
+    getVisualNovelExpressionNames,
+} from '@/lib/visualNovelPresentation';
 import CharacterGeneratorModal from './CharacterGeneratorModal';
 import ExpressionDiffModal from './ExpressionDiffModal';
 import ImageGenerationModal from './ImageGenerationModal';
@@ -1383,10 +1387,19 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                 id: characterActorMeta[character.id]?.id || character.id,
                 name: character.name.trim() || '名前なし',
                 icon: character.icon,
+                expressionNames: getVisualNovelExpressionNames(
+                    character,
+                    characterActorMeta[character.id]?.costumeName,
+                ),
             })),
         ...temporaryActors
             .filter((actor) => actor.name.trim())
-            .map((actor) => ({ id: actor.id, name: actor.name.trim(), icon: actor.icon ?? undefined })),
+            .map((actor) => ({
+                id: actor.id,
+                name: actor.name.trim(),
+                icon: actor.icon ?? undefined,
+                expressionNames: getVisualNovelExpressionNames(actor),
+            })),
     ], [characterActorMeta, characters, selectedCharacterIds, temporaryActors]);
 
     const toggleCharacter = (character: Character) => {
@@ -1464,11 +1477,30 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
     };
 
     const updatePriorMessageActor = (id: string, actorId: string) => {
+        const actor = actorOptions.find((option) => option.id === actorId);
         setPriorMessages((messages) => messages.map((message) => (
             message.id === id && message.role === 'assistant'
-                ? { ...message, actorId }
+                ? (() => {
+                    const next = { ...message, actorId };
+                    if (!message.expression || actor?.expressionNames.includes(message.expression)) return next;
+                    delete next.expression;
+                    return next;
+                })()
                 : message
         )));
+    };
+
+    const updatePriorMessageExpression = (id: string, expression: string) => {
+        setPriorMessages((messages) => messages.map((message) => {
+            if (message.id !== id || message.role !== 'assistant') return message;
+            const next = { ...message };
+            if (expression) {
+                next.expression = expression;
+            } else {
+                delete next.expression;
+            }
+            return next;
+        }));
     };
 
     const removePriorMessage = (id: string) => {
@@ -1585,11 +1617,15 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
         const effectiveActors = actors.length > 0 ? actors : situation?.actors ?? [];
         const validActorIds = new Set(effectiveActors.map((actor) => actor.id));
         const fallbackActorId = effectiveActors[0]?.id ?? '';
-        const priorMessagesForSave = priorMessages.map((message) => (
-            message.role === 'assistant' && !validActorIds.has(message.actorId)
-                ? { ...message, actorId: fallbackActorId }
-                : message
-        ));
+        const priorMessagesForSave = priorMessages.map((message) => {
+            if (message.role !== 'assistant') return message;
+            const actorId = validActorIds.has(message.actorId) ? message.actorId : fallbackActorId;
+            const actor = actorOptions.find((option) => option.id === actorId);
+            const next = { ...message, actorId };
+            if (!message.expression || actor?.expressionNames.includes(message.expression)) return next;
+            delete next.expression;
+            return next;
+        });
 
         if (situation) {
             updateSituation(situation.id, {
@@ -1620,7 +1656,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
         }
 
         onClose();
-    }, [actorCount, backgroundImage, buildActors, characterActorMeta, createSituationRoom, defaultDirectorModel, effectiveMaxTurns, isEditing, maxAutoTurns, maxHistory, memoryReadOnly, name, onClose, onCreated, parsedMaxHistory, priorMessages, room, selectedCharacterIds, situation, situationPrompt, temporaryActors, updateRoomSettings, updateSituation]);
+    }, [actorCount, actorOptions, backgroundImage, buildActors, characterActorMeta, createSituationRoom, defaultDirectorModel, effectiveMaxTurns, isEditing, maxAutoTurns, maxHistory, memoryReadOnly, name, onClose, onCreated, parsedMaxHistory, priorMessages, room, selectedCharacterIds, situation, situationPrompt, temporaryActors, updateRoomSettings, updateSituation]);
 
     const modalRef = useRef<HTMLDivElement>(null);
     useModalKeyboard({
@@ -1783,6 +1819,9 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                                     }
 
                                     const selectedActor = actorOptions.find((actor) => actor.id === message.actorId) ?? actorOptions[0];
+                                    const selectedExpression = selectedActor?.expressionNames.includes(message.expression ?? '')
+                                        ? message.expression ?? ''
+                                        : '';
                                     return (
                                         <div key={message.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.625rem' }}>
                                             <div
@@ -1812,8 +1851,8 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                                                         onChange={(event) => updatePriorMessageActor(message.id, event.target.value)}
                                                         aria-label={`${index + 1}件目の発言キャラクター`}
                                                         style={{
+                                                            flex: '1 1 0',
                                                             minWidth: 0,
-                                                            maxWidth: '60%',
                                                             padding: '0.25rem 0.375rem',
                                                             border: 'none',
                                                             borderRadius: '0.375rem',
@@ -1826,6 +1865,30 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                                                     >
                                                         {actorOptions.map((actor) => (
                                                             <option key={actor.id} value={actor.id}>{actor.name}</option>
+                                                        ))}
+                                                    </select>
+                                                    <select
+                                                        value={selectedExpression}
+                                                        onChange={(event) => updatePriorMessageExpression(message.id, event.target.value)}
+                                                        disabled={!selectedActor || selectedActor.expressionNames.length === 0}
+                                                        aria-label={`${index + 1}件目の表情`}
+                                                        title={selectedActor?.expressionNames.length ? '表情' : '登録済みの表情がありません'}
+                                                        style={{
+                                                            flex: '1 1 0',
+                                                            minWidth: 0,
+                                                            padding: '0.25rem 0.375rem',
+                                                            border: 'none',
+                                                            borderRadius: '0.375rem',
+                                                            outline: 'none',
+                                                            background: 'transparent',
+                                                            color: 'var(--text-muted)',
+                                                            fontSize: '0.75rem',
+                                                            fontWeight: 500,
+                                                        }}
+                                                    >
+                                                        <option value="">表情指定なし</option>
+                                                        {selectedActor?.expressionNames.map((expressionName) => (
+                                                            <option key={expressionName} value={expressionName}>{expressionName}</option>
                                                         ))}
                                                     </select>
                                                     <div style={{ marginLeft: 'auto' }}>

@@ -21,6 +21,8 @@ export type VisualNovelCostumeOption = {
     expressionCount: number;
 };
 
+type VisualNovelExpressionSource = Pick<Character, 'expressions' | 'costumes'>;
+
 export type VisualNovelBounceSnapshot = {
     contextKey: string | null;
     messageKey: string | null;
@@ -100,6 +102,28 @@ export function getVisualNovelCostumeOptions(
                 expressionCount: costume.expressions?.length ?? 0,
             })),
     ];
+}
+
+export function getVisualNovelExpressionNames(
+    character: VisualNovelExpressionSource | null | undefined,
+    costumeName = DEFAULT_COSTUME_NAME,
+): string[] {
+    if (!character) return [];
+    const selectedCostume = costumeName !== DEFAULT_COSTUME_NAME
+        ? (character.costumes ?? []).find((costume) => costume.name === costumeName)
+        : null;
+    const names = selectedCostume
+        ? [NEUTRAL_EXPRESSION_NAME, ...(selectedCostume.expressions ?? []).map((expression) => expression.name)]
+        : (character.expressions ?? []).map((expression) => expression.name);
+    const seen = new Set<string>();
+    return names
+        .map((name) => name.trim())
+        .filter((name) => {
+            const key = name.toLowerCase();
+            if (!name || seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
 }
 
 export function getVisualNovelPreloadCandidates(

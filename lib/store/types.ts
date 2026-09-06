@@ -170,6 +170,7 @@ export type SituationPriorMessage =
         role: 'assistant';
         content: string;
         actorId: string;
+        expression?: string;
     };
 
 export interface Situation {

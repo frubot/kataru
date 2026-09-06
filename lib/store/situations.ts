@@ -179,7 +179,16 @@ export function normalizeSituationPriorMessages(
             ? message.actorId
             : '';
         if (validActorIds.has(actorId)) {
-            normalized.push({ id, role: 'assistant', content, actorId });
+            const expression = 'expression' in message && typeof message.expression === 'string'
+                ? message.expression.trim()
+                : '';
+            normalized.push({
+                id,
+                role: 'assistant',
+                content,
+                actorId,
+                ...(expression ? { expression } : {}),
+            });
         }
     }
     return normalized;

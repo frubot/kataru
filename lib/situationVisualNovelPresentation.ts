@@ -91,7 +91,10 @@ export function buildSituationVisualNovelPriorItems(
             source: 'prior' as const,
             role: message.role,
             content: message.content,
-            ...(message.role === 'assistant' ? { characterId: message.actorId } : {}),
+            ...(message.role === 'assistant' ? {
+                characterId: message.actorId,
+                expression: message.expression,
+            } : {}),
         }));
 }
 

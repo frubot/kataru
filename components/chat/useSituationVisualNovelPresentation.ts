@@ -13,6 +13,7 @@ import {
     createSituationVisualNovelPresentationState,
     finishSituationVisualNovelPreviewItems,
     getSituationVisualNovelResponseMessages,
+    getSituationVisualNovelTypingKey,
     lockSituationVisualNovelPresentation,
     reconcileSituationVisualNovelPreviewItems,
     syncSituationVisualNovelPreviewItems,
@@ -30,7 +31,7 @@ type UseSituationVisualNovelPresentationOptions = {
     streamingPreview: ChatStreamingPreview | null;
     isLoading: boolean;
     isTypewriterActive: boolean;
-    playTypewriter: (messageId: string, content: string) => Promise<void>;
+    playTypewriter: (messageId: string, content: string, incremental?: boolean) => Promise<void>;
     stopTypewriter: (revealFull: boolean) => boolean;
     onStreamingPreviewConsumed: (jobId: string) => void;
 };
@@ -267,21 +268,25 @@ export function useSituationVisualNovelPresentation({
         setState(lockSituationVisualNovelPresentation);
     }, [active, isLoading]);
 
-    const currentItem = state.current;
+    const itemKey = state.current?.key;
+    const typingKey = state.current ? getSituationVisualNovelTypingKey(state.current) : undefined;
+    const itemContent = state.current?.content;
     const animateCurrent = state.animateCurrent;
-    const currentComplete = state.currentComplete;
     useEffect(() => {
-        if (!active || !currentItem || !animateCurrent || currentComplete) return;
-        const item = currentItem;
+        if (!active || !itemKey) {
+            stopTypewriter(false);
+            return;
+        }
+        if (!typingKey || !itemContent || !animateCurrent) return;
         let cancelled = false;
-        void playTypewriter(item.key, item.content).then(() => {
+        void playTypewriter(typingKey, itemContent, true).then(() => {
             if (cancelled) return;
-            setState((current) => completeSituationVisualNovelItem(current, item.key));
+            setState((current) => completeSituationVisualNovelItem(current, itemKey, itemContent));
         });
         return () => {
             cancelled = true;
         };
-    }, [active, animateCurrent, currentComplete, currentItem, playTypewriter]);
+    }, [active, animateCurrent, itemKey, typingKey, itemContent, playTypewriter, stopTypewriter]);
 
     useEffect(() => {
         if (!active) return;

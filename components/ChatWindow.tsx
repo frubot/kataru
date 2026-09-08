@@ -39,7 +39,7 @@ import {
     isChatContinuationAvailable,
 } from '@/lib/chatContinuation';
 import { formatAssistantMarkdown } from '@/lib/markdownUtils';
-import { resolveSituationVisualNovelInitialCharacterId } from '@/lib/situationVisualNovelPresentation';
+import { getSituationVisualNovelTypingKey, resolveSituationVisualNovelInitialCharacterId } from '@/lib/situationVisualNovelPresentation';
 import {
     DEFAULT_COSTUME_NAME,
     getVisualNovelCostumeOptions,
@@ -1345,13 +1345,11 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         ? situationVnPresentation.isWaitingForResponse
         : isLoading && lastRoomMessage?.role !== 'assistant' && !activeStreamingPreview;
     const situationVnDialogueContent = situationVnCurrentItem
-        ? situationVnCurrentItem.key === typingMessageId
+        ? getSituationVisualNovelTypingKey(situationVnCurrentItem) === typingMessageId
             ? typedContent
-            : situationVnCurrentItem.source === 'preview'
+            : situationVnPresentation.currentComplete
                 ? situationVnCurrentItem.content
-                : situationVnPresentation.currentComplete
-                    ? situationVnCurrentItem.content
-                    : ''
+                : ''
         : isWaitingForAssistant
             ? '...'
             : '...（話しかけてみよう）';

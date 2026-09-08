@@ -209,20 +209,30 @@ function sceneFromItems(items: SituationVisualNovelItem[]): {
     };
 }
 
+export function getSituationVisualNovelTypingKey(item: SituationVisualNovelItem): string {
+    return item.utteranceKey ? `${item.utteranceKey}:page:${item.pageIndex ?? 0}` : item.key;
+}
+
+function syncCurrentTyping(state: SituationVisualNovelPresentationState, item: SituationVisualNovelItem) {
+    const animateCurrent = state.animateCurrent || item.content !== state.current?.content;
+    return {
+        animateCurrent,
+        currentComplete: !animateCurrent && (item.source !== 'preview' || item.streamingComplete === true),
+    };
+}
+
 function showItem(
     state: SituationVisualNovelPresentationState,
     item: SituationVisualNovelItem,
     animateCurrent: boolean,
 ): SituationVisualNovelPresentationState {
-    const streaming = item.source === 'preview';
-    const itemComplete = streaming ? item.streamingComplete === true : !animateCurrent;
-    const shouldAnimate = !streaming && animateCurrent;
+    const itemComplete = !animateCurrent && (item.source !== 'preview' || item.streamingComplete === true);
     if (item.role !== 'assistant') {
         return {
             ...state,
             current: item,
             currentComplete: itemComplete,
-            animateCurrent: shouldAnimate,
+            animateCurrent,
             waitingForNextPage: false,
         };
     }
@@ -230,7 +240,7 @@ function showItem(
         ...state,
         current: item,
         currentComplete: itemComplete,
-        animateCurrent: shouldAnimate,
+        animateCurrent,
         waitingForNextPage: false,
         sceneCharacterId: item.characterId,
         sceneExpression: item.expression,
@@ -257,8 +267,7 @@ export function syncSituationVisualNovelPreviewItems(
         ...state,
         current,
         pending,
-        currentComplete: current.streamingComplete === true,
-        animateCurrent: false,
+        ...syncCurrentTyping(state, current),
         sceneCharacterId: current.characterId,
         sceneExpression: current.expression,
     };
@@ -279,7 +288,7 @@ export function finishSituationVisualNovelPreviewItems(
         ...state,
         current,
         pending,
-        currentComplete: current?.source === 'preview' ? true : state.currentComplete,
+        ...(current?.source === 'preview' ? syncCurrentTyping(state, current) : {}),
         waitingForNextPage: false,
     };
 }
@@ -300,8 +309,7 @@ export function reconcileSituationVisualNovelPreviewItems(
         ...state,
         current,
         pending,
-        currentComplete: state.current?.source === 'preview' ? true : state.currentComplete,
-        animateCurrent: state.current?.source === 'preview' ? false : state.animateCurrent,
+        ...(state.current?.source === 'preview' ? syncCurrentTyping(state, current) : {}),
         sceneCharacterId: current.role === 'assistant'
             ? current.characterId
             : state.sceneCharacterId,
@@ -402,11 +410,13 @@ export function beginSituationVisualNovelResponse(
 export function completeSituationVisualNovelItem(
     state: SituationVisualNovelPresentationState,
     itemKey: string,
+    revealedContent?: string,
 ): SituationVisualNovelPresentationState {
     if (state.current?.key !== itemKey || state.currentComplete) return state;
+    if (revealedContent !== undefined && state.current.content !== revealedContent) return state;
     return {
         ...state,
-        currentComplete: true,
+        currentComplete: state.current.source !== 'preview' || state.current.streamingComplete === true,
         animateCurrent: false,
     };
 }

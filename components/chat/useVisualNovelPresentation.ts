@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { VnTypingSpeed } from '@/lib/store';
-import {
-    buildVisualNovelTypingSegments,
-    getVisualNovelTypingDelay,
-} from '@/lib/visualNovelPresentation';
+import { VisualNovelTypewriter, type VisualNovelTypingSnapshot } from '@/lib/visualNovelTypewriter';
 import { useTypewriterAdvance } from './useChatKeyboard';
 
 type UseVisualNovelPresentationOptions = {
@@ -12,18 +9,21 @@ type UseVisualNovelPresentationOptions = {
 
 export function useVisualNovelPresentation({ typingSpeed }: UseVisualNovelPresentationOptions) {
     const [bounceActive, setBounceActive] = useState(false);
-    const [typingMessageId, setTypingMessageId] = useState<string | null>(null);
-    const [typedContent, setTypedContent] = useState('');
-    const [isTypewriterActive, setIsTypewriterActive] = useState(false);
+    const [typing, setTyping] = useState<VisualNovelTypingSnapshot>({ messageId: null, content: '', active: false });
     const bounceStartRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const bounceStopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const typewriterRef = useRef<{ messageId: string; fullContent: string } | null>(null);
-    const typeDelayRef = useRef<{ timeout: ReturnType<typeof setTimeout>; resolve: () => void } | null>(null);
+    const typewriterActiveRef = useRef(false);
     const typingSpeedRef = useRef(typingSpeed);
+    const [typewriter] = useState(() => new VisualNovelTypewriter(setTyping, typingSpeed));
 
     useEffect(() => {
         typingSpeedRef.current = typingSpeed;
-    }, [typingSpeed]);
+        typewriter.setSpeed(typingSpeed);
+    }, [typingSpeed, typewriter]);
+
+    useEffect(() => {
+        typewriterActiveRef.current = typing.active;
+    }, [typing.active]);
 
     const clearBounceTimers = useCallback(() => {
         if (bounceStartRef.current) {
@@ -53,97 +53,26 @@ export function useVisualNovelPresentation({ typingSpeed }: UseVisualNovelPresen
         }, 20);
     }, [stopBounce]);
 
-    const releaseTypeDelay = useCallback(() => {
-        const pendingDelay = typeDelayRef.current;
-        if (!pendingDelay) return;
-        clearTimeout(pendingDelay.timeout);
-        typeDelayRef.current = null;
-        pendingDelay.resolve();
-    }, []);
-
-    const stopTypewriter = useCallback((revealFull: boolean) => {
-        const activeRun = typewriterRef.current;
-        if (!activeRun) {
-            if (!revealFull) {
-                setTypedContent('');
-                setTypingMessageId(null);
-                setIsTypewriterActive(false);
-            }
-            return false;
-        }
-
-        typewriterRef.current = null;
-        releaseTypeDelay();
-        setTypedContent(revealFull ? activeRun.fullContent : '');
-        setTypingMessageId(revealFull ? activeRun.messageId : null);
-        setIsTypewriterActive(false);
-        return true;
-    }, [releaseTypeDelay]);
-
-    const playTypewriter = useCallback(async (messageId: string, fullContent: string) => {
-        stopTypewriter(false);
-
-        const segments = buildVisualNovelTypingSegments(fullContent);
-        if (segments.length === 0) {
-            setTypingMessageId(null);
-            setTypedContent('');
-            setIsTypewriterActive(false);
-            return;
-        }
-
-        const run = { messageId, fullContent };
-        typewriterRef.current = run;
-        setTypingMessageId(messageId);
-        if (typingSpeedRef.current === 'streaming') {
-            typewriterRef.current = null;
-            setTypedContent(fullContent);
-            setIsTypewriterActive(false);
-            return;
-        }
-        setTypedContent('');
-        setIsTypewriterActive(true);
-
-        let nextContent = '';
-        for (const segment of segments) {
-            if (typewriterRef.current !== run) return;
-
-            nextContent += segment;
-            setTypedContent(nextContent);
-
-            await new Promise<void>((resolve) => {
-                const timeout = setTimeout(() => {
-                    if (typeDelayRef.current?.timeout === timeout) {
-                        typeDelayRef.current = null;
-                    }
-                    resolve();
-                }, getVisualNovelTypingDelay(segment, typingSpeedRef.current));
-                typeDelayRef.current = { timeout, resolve };
-            });
-        }
-
-        if (typewriterRef.current !== run) return;
-        typewriterRef.current = null;
-        setTypedContent(fullContent);
-        setTypingMessageId(messageId);
-        setIsTypewriterActive(false);
-    }, [stopTypewriter]);
+    const stopTypewriter = useCallback((revealFull: boolean) => typewriter.stop(revealFull), [typewriter]);
+    const playTypewriter = useCallback((messageId: string, content: string, incremental = false) => (
+        typewriter.play(messageId, content, incremental)
+    ), [typewriter]);
 
     useTypewriterAdvance({
-        activeRef: typewriterRef,
+        activeRef: typewriterActiveRef,
         onAdvance: () => stopTypewriter(true),
     });
 
     useEffect(() => () => {
         clearBounceTimers();
-        typewriterRef.current = null;
-        releaseTypeDelay();
-    }, [clearBounceTimers, releaseTypeDelay]);
+        typewriter.dispose();
+    }, [clearBounceTimers, typewriter]);
 
     return {
         bounceActive,
-        typingMessageId,
-        typedContent,
-        isTypewriterActive,
+        typingMessageId: typing.messageId,
+        typedContent: typing.content,
+        isTypewriterActive: typing.active,
         typingSpeedRef,
         triggerBounce,
         stopBounce,

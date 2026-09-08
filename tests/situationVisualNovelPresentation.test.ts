@@ -11,6 +11,7 @@ import {
     createSituationVisualNovelPresentationState,
     finishSituationVisualNovelPreviewItems,
     getSituationVisualNovelResponseMessages,
+    getSituationVisualNovelTypingKey,
     reconcileSituationVisualNovelPreviewItems,
     resolveSituationVisualNovelInitialCharacterId,
     syncSituationVisualNovelPreviewItems,
@@ -228,6 +229,7 @@ describe('situation visual novel presentation', () => {
             key: 'preview:stream-job:0',
             content: completed[0].content,
         });
+        state = completeSituationVisualNovelItem(state, state.current!.key);
         expect(state.currentComplete).toBe(true);
         expect(state.pending.map((item) => item.key)).toEqual([
             'preview:stream-job:0:page:1',
@@ -249,6 +251,7 @@ describe('situation visual novel presentation', () => {
             isLoading: true,
         });
         state = appendSituationVisualNovelItems(state, first);
+        state = completeSituationVisualNovelItem(state, state.current!.key);
         state = advanceSituationVisualNovelPresentation(state, true);
 
         expect(state.current?.content).toBe(firstPageContent);
@@ -284,6 +287,7 @@ describe('situation visual novel presentation', () => {
         });
         state = appendSituationVisualNovelItems(state, partial);
         state = finishSituationVisualNovelPreviewItems(state);
+        state = completeSituationVisualNovelItem(state, state.current!.key);
         state = unlockSituationVisualNovelPresentation(state, false);
 
         expect(state.current).toMatchObject({ content: '生成途中', streamingComplete: true });
@@ -319,9 +323,11 @@ describe('situation visual novel presentation', () => {
                     hasRoomHistory: true, priorItems: [], roomItems: [], isLoading: true,
                 });
                 state = appendSituationVisualNovelItems(state, before);
+                state = completeSituationVisualNovelItem(state, state.current!.key);
                 if (readAhead) state = advanceSituationVisualNovelPresentation(state, true);
                 state = syncSituationVisualNovelPreviewItems(state, after);
                 state = reconcileSituationVisualNovelPreviewItems(state, replacements);
+                state = completeSituationVisualNovelItem(state, state.current!.key);
                 if (!readAhead) state = advanceSituationVisualNovelPresentation(state, false);
                 state = completeSituationVisualNovelItem(state, state.current!.key);
                 state = unlockSituationVisualNovelPresentation(state, false);
@@ -371,6 +377,7 @@ describe('situation visual novel presentation', () => {
             roomMessage('saved', 'assistant', '最後まで届いた文章。'),
         ], preview);
         state = reconcileSituationVisualNovelPreviewItems(state, new Map([[preview[0].key, saved[0]]]));
+        state = completeSituationVisualNovelItem(state, state.current!.key);
         state = unlockSituationVisualNovelPresentation(state, false);
         expect(state.current?.content).toBe('最後まで届いた文章。');
         expect(state.currentComplete).toBe(true);
@@ -386,6 +393,7 @@ describe('situation visual novel presentation', () => {
             hasRoomHistory: false, priorItems: [], roomItems: [], isLoading: true,
         });
         state = appendSituationVisualNovelItems(state, before);
+        state = completeSituationVisualNovelItem(state, state.current!.key);
         state = advanceSituationVisualNovelPresentation(state, true);
         const next = buildSituationVisualNovelPreviewItems('job', [{
             turnIndex: 0, content: first + '続'.repeat(100) + '。最後', complete: false,
@@ -393,12 +401,44 @@ describe('situation visual novel presentation', () => {
         state = appendSituationVisualNovelItems(state, next.slice(before.length));
         state = syncSituationVisualNovelPreviewItems(state, next);
         expect(state.current?.content).toBe('続'.repeat(100) + '。');
+        state = completeSituationVisualNovelItem(state, state.current!.key);
         state = advanceSituationVisualNovelPresentation(state, true);
         expect(state.waitingForNextPage).toBe(true);
         state = finishSituationVisualNovelPreviewItems(state);
         expect(state.current?.content).toBe('最後');
+        state = completeSituationVisualNovelItem(state, state.current!.key);
         expect(state.currentComplete).toBe(true);
         expect(state.pending).toEqual([]);
+    });
+
+    test('waits for both generation and text reveal before advancing or unlocking', () => {
+        const preview = buildSituationVisualNovelPreviewItems('job', [{
+            turnIndex: 0, content: 'こんにちは。次', complete: false,
+        }]);
+        let state = createSituationVisualNovelPresentationState({
+            hasRoomHistory: false, priorItems: [], roomItems: [], isLoading: true,
+        });
+        state = appendSituationVisualNovelItems(state, preview);
+        expect(state.animateCurrent).toBe(true);
+        expect(advanceSituationVisualNovelPresentation(state, true)).toBe(state);
+        state = completeSituationVisualNovelItem(state, state.current!.key);
+        expect(state.currentComplete).toBe(false);
+        expect(state.animateCurrent).toBe(false);
+        const completed = buildSituationVisualNovelPreviewItems('job', [{
+            turnIndex: 0, content: 'こんにちは。次の文です。', complete: true,
+        }], preview);
+        state = syncSituationVisualNovelPreviewItems(state, completed);
+        state = completeSituationVisualNovelItem(state, state.current!.key, preview[0].content);
+        expect(state.animateCurrent).toBe(true);
+        expect(unlockSituationVisualNovelPresentation(state, false).locked).toBe(true);
+        const saved = buildSituationVisualNovelRoomItems([
+            roomMessage('saved', 'assistant', completed[0].content),
+        ], completed);
+        state = reconcileSituationVisualNovelPreviewItems(state, new Map([[completed[0].key, saved[0]]]));
+        expect(state.animateCurrent).toBe(true);
+        expect(state.currentComplete).toBe(false);
+        state = completeSituationVisualNovelItem(state, state.current!.key);
+        expect(unlockSituationVisualNovelPresentation(state, false).locked).toBe(false);
     });
 
     test('preserves a single bounce identity across pages, expression updates and persistence', () => {
@@ -415,6 +455,8 @@ describe('situation visual novel presentation', () => {
         expect(before.length).toBeGreaterThan(1);
         expect(new Set([...before, ...after, ...saved].map((item) => item.utteranceKey)).size).toBe(1);
         expect(saved[0].utteranceKey).toBeTruthy();
+        expect(saved.map(getSituationVisualNovelTypingKey)).toEqual(before.map(getSituationVisualNovelTypingKey));
+        expect(new Set(saved.map(getSituationVisualNovelTypingKey)).size).toBe(saved.length);
         const next = buildSituationVisualNovelPreviewItems('job', [{
             turnIndex: 1, characterId: 'actor-a', content: '次の発話', complete: true,
         }]);
@@ -474,6 +516,7 @@ describe('situation visual novel presentation', () => {
         }]);
         state = syncSituationVisualNovelPreviewItems(state, completed);
         expect(state.current).toMatchObject({ content: 'こんにちは', expression: 'happy' });
+        state = completeSituationVisualNovelItem(state, state.current!.key);
         expect(state.currentComplete).toBe(true);
         expect(state.sceneCharacterId).toBe('actor-a');
 

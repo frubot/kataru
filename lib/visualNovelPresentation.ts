@@ -252,6 +252,12 @@ function mapVisualNovelPageEnds(before: string, after: string, ends: number[]): 
     return ends.map((end) => offsets.get(end) ?? offsets.get(end - 1) ?? 0);
 }
 
+/** Keep the read prefix aligned when the final response removes formatting markers. */
+export function alignVisualNovelTypedContent(before: string, after: string, visible: string): string {
+    const [end] = mapVisualNovelPageEnds(before, after, [visible.length]);
+    return after.slice(0, end);
+}
+
 /** Retain confirmed boundaries and paginate only the remaining, unfinished suffix. */
 export function updateStreamingVisualNovelPagination(
     content: string,

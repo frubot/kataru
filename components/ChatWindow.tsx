@@ -1304,24 +1304,22 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             vnSelectedCostumeName,
         ],
     );
-    const latestAssistantMessageId = latestAssistantMessage?.id;
-    const latestAssistantHasText = !!latestAssistantMessage?.displayContent.trim();
     const situationVnAssistantBounceKey = situationVnCurrentItem?.role === 'assistant'
-        ? `${situationVnCurrentItem.key}:${situationVnCurrentItem.expression ?? ''}`
+        ? situationVnCurrentItem.utteranceKey ?? `${situationVnCurrentItem.source}:${situationVnCurrentItem.id}`
         : null;
     const vnBounceContextKey = isVisualNovelMode && !isVisualNovelLogOpen && currentRoomId
         ? `${currentRoomId}:${isSituationVisualNovelMode ? 'situation' : 'solo'}`
         : null;
-    const vnBounceMessageKey = isSituationVisualNovelMode
-        ? situationVnAssistantBounceKey
-        : latestAssistantHasText
-            ? latestAssistantMessageId ?? null
-            : null;
+    const vnBounceMessageKey = situationVnAssistantBounceKey;
 
+    const vnWaitingForSentence = isVisualNovelMode
+        && situationVnCurrentItem?.source === 'preview'
+        && !situationVnCurrentItem.content.trim();
     useLayoutEffect(() => {
+        if (vnWaitingForSentence && previousVnBounceSnapshotRef.current?.contextKey === vnBounceContextKey) return;
         const current: VisualNovelBounceSnapshot = {
             contextKey: vnBounceContextKey,
-            messageKey: vnBounceMessageKey,
+            messageKey: vnWaitingForSentence ? null : vnBounceMessageKey,
         };
         const previous = previousVnBounceSnapshotRef.current;
         previousVnBounceSnapshotRef.current = current;
@@ -1337,6 +1335,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         triggerVnBounce,
         vnBounceContextKey,
         vnBounceMessageKey,
+        vnWaitingForSentence,
     ]);
 
     const lastRoomMessage = room

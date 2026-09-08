@@ -94,7 +94,9 @@ export function useSituationVisualNovelPresentation({
                 ?? (sameContext ? cachedPreview.baseline : undefined),
             items: activeStreamingPreview
                 ? buildSituationVisualNovelPreviewItems(
-                    activeStreamingPreview.jobId, activeStreamingPreview.turns, previousItems,
+                    activeStreamingPreview.jobId,
+                    activeStreamingPreview.turns?.map((turn) => ({ ...turn, complete: turn.complete || !isLoading })),
+                    previousItems,
                 )
                 : previousItems,
         };
@@ -325,7 +327,7 @@ export function useSituationVisualNovelPresentation({
     return {
         ...state,
         canAdvance,
-        isWaitingForResponse: active && state.locked && state.current == null && isLoading,
+        isWaitingForResponse: active && state.locked && !state.current?.content.trim() && isLoading,
         advanceDialogue,
     };
 }

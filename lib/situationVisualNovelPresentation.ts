@@ -2,6 +2,7 @@ import type { Character, Message, SituationPriorMessage } from './store/types';
 import type { ConversationJobPreviewTurn } from './conversationJobClient';
 import {
     splitStreamingVisualNovelMessage,
+    getStreamingVisualNovelVisibleContent,
     updateStreamingVisualNovelPagination,
     type StreamingVisualNovelPagination,
 } from './visualNovelPresentation';
@@ -18,6 +19,8 @@ export type SituationVisualNovelItem = {
     previewTurnIndex?: number;
     streamingComplete?: boolean;
     pageIndex?: number;
+    utteranceKey?: string;
+    bufferedContent?: string;
     pageCount?: number;
     pagination?: StreamingVisualNovelPagination;
 };
@@ -106,7 +109,7 @@ export function buildSituationVisualNovelRoomItems(
     const responseIds = responseMessages.filter((message) => message.role === 'assistant' && !message.archived)
         .map((message) => message.id);
     const previewByMessageId = new Map(previewItems.map((item) => [
-        responseIds[item.previewTurnIndex ?? 0], item.pagination,
+        responseIds[item.previewTurnIndex ?? 0], item,
     ]));
     return messages
         .filter((message) => (
@@ -124,7 +127,9 @@ export function buildSituationVisualNovelRoomItems(
                 characterId: message.characterId,
                 expression: message.expression,
             };
-            const previous = previewByMessageId.get(message.id);
+            const preview = previewByMessageId.get(message.id);
+            item.utteranceKey = preview?.utteranceKey;
+            const previous = preview?.pagination;
             if (!previous) return paginateSituationVisualNovelItem(item);
             const pagination = updateStreamingVisualNovelPagination(message.content, true, previous);
             return pagination.pages.map((page, pageIndex) => ({
@@ -171,7 +176,9 @@ export function buildSituationVisualNovelPreviewItems(
                 id,
                 source: 'preview' as const,
                 role: 'assistant' as const,
-                content: page.content,
+                content: page.complete ? page.content : getStreamingVisualNovelVisibleContent(page.content),
+                bufferedContent: page.content,
+                utteranceKey: `preview:${id}`,
                 characterId: turn.characterId,
                 characterName: turn.characterName,
                 expression: turn.expression,
@@ -240,6 +247,9 @@ export function syncSituationVisualNovelPreviewItems(
     );
     const current = state.current ? update(state.current) : null;
     const pending = state.pending.map(update);
+    if (state.waitingForNextPage && pending[0]?.content.trim()) {
+        return showItem({ ...state, pending: pending.slice(1) }, pending[0], true);
+    }
     if (!current || current.source !== 'preview') {
         return { ...state, current, pending };
     }
@@ -258,13 +268,17 @@ export function finishSituationVisualNovelPreviewItems(
     state: SituationVisualNovelPresentationState,
 ): SituationVisualNovelPresentationState {
     const finish = (item: SituationVisualNovelItem): SituationVisualNovelItem => (
-        item.source === 'preview' ? { ...item, streamingComplete: true } : item
+        item.source === 'preview' ? { ...item, content: item.bufferedContent ?? item.content, streamingComplete: true } : item
     );
     const current = state.current ? finish(state.current) : null;
+    const pending = state.pending.map(finish);
+    if (state.waitingForNextPage && pending[0]?.content.trim()) {
+        return showItem({ ...state, pending: pending.slice(1) }, pending[0], true);
+    }
     return {
         ...state,
         current,
-        pending: state.pending.map(finish),
+        pending,
         currentComplete: current?.source === 'preview' ? true : state.currentComplete,
         waitingForNextPage: false,
     };
@@ -286,6 +300,8 @@ export function reconcileSituationVisualNovelPreviewItems(
         ...state,
         current,
         pending,
+        currentComplete: state.current?.source === 'preview' ? true : state.currentComplete,
+        animateCurrent: state.current?.source === 'preview' ? false : state.animateCurrent,
         sceneCharacterId: current.role === 'assistant'
             ? current.characterId
             : state.sceneCharacterId,
@@ -350,7 +366,7 @@ export function appendSituationVisualNovelItems(
         locked: true,
         phase: 'conversation' as const,
     };
-    if (state.waitingForNextPage) {
+    if (state.waitingForNextPage && state.pending.length === 0 && items[0].content.trim()) {
         const [current, ...pending] = items;
         return showItem({ ...nextState, pending: [...state.pending, ...pending] }, current, true);
     }
@@ -400,7 +416,7 @@ export function advanceSituationVisualNovelPresentation(
     isLoading: boolean,
 ): SituationVisualNovelPresentationState {
     if (!state.locked || !state.currentComplete) return state;
-    if (state.pending.length > 0) {
+    if (state.pending.length > 0 && state.pending[0].content.trim()) {
         const [current, ...pending] = state.pending;
         return showItem({ ...state, pending }, current, true);
     }

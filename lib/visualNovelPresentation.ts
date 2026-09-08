@@ -302,44 +302,63 @@ export function splitStreamingVisualNovelMessage(
     while (start < segments.length) {
         let end = start;
         let visibleLength = 0;
-        let naturalCut = 0;
-
+        let sentenceCut = 0;
+        let clauseCut = 0;
+        let ready = false;
         while (end < segments.length) {
             const nextLength = getVisualNovelSegmentLength(segments[end]);
-            if (end > start && visibleLength + nextLength > maxChars) break;
-            visibleLength += nextLength;
-            end++;
-            const priority = getVisualNovelPageBreakPriority(segments, end);
-            if (priority >= 3 && visibleLength >= minimumNaturalBreakLength) {
-                naturalCut = end;
+            const closingSentence = '」』】）》”’"\''.includes(segments[end])
+                && '。.!！？!?」』】）》”’"\''.includes(segments[end - 1] ?? ' ');
+            if (end > start && visibleLength + nextLength > maxChars && !closingSentence) {
+                // The unfinished sentence has not been displayed yet, so it can move
+                // intact to the next page. Only a long single sentence needs a fallback.
+                end = sentenceCut || clauseCut || end;
+                ready = true;
                 break;
             }
-            if (visibleLength >= maxChars) break;
+            visibleLength += nextLength;
+            end++;
+            if (isStreamingSentenceEnd(segments, end, streamComplete)) {
+                sentenceCut = end;
+                if (visibleLength >= minimumNaturalBreakLength) {
+                    ready = true;
+                    break;
+                }
+            } else if (getVisualNovelPageBreakPriority(segments, end) === 2) {
+                clauseCut = end;
+            }
         }
-
-        if (naturalCut > 0) {
-            const page = segments.slice(start, naturalCut).join('').trim();
-            if (page) pages.push({ content: page, complete: true, end: offsets[naturalCut] });
-            start = naturalCut;
-            while (segments[start] != null && /^\s$/u.test(segments[start])) start++;
-            continue;
-        }
-
-        if (end >= segments.length) {
-            const page = segments.slice(start).join('').trim();
-            if (page) pages.push({ content: page, complete: streamComplete, end: normalized.length });
-            break;
-        }
-
-        // No sufficiently late natural boundary exists, so this exact hard-limit prefix is
-        // stable. Earlier punctuation must not make the page shrink only after overflow.
         const page = segments.slice(start, end).join('').trim();
-        if (page) pages.push({ content: page, complete: true, end: offsets[end] });
+        if (page) pages.push({ content: page, complete: ready || streamComplete, end: offsets[end] });
+        if (!ready) break;
         start = end;
         while (segments[start] != null && /^\s$/u.test(segments[start])) start++;
     }
 
     return pages;
+}
+
+// Wait for one character of lookahead after sentence punctuation so a closing
+// quote arriving in the next chunk stays attached to the sentence.
+function isStreamingSentenceEnd(segments: string[], end: number, complete: boolean): boolean {
+    const current = segments[end - 1] ?? '';
+    if (current === '\n' || (current.startsWith('*') && current.endsWith('*') && current.length > 2)) return true;
+    const closers = '」』】）》”’"\'';
+    if (segments[end] && closers.includes(segments[end])) return false;
+    let index = end - 1;
+    while (index >= 0 && closers.includes(segments[index])) index--;
+    if (index < 0 || !'。.!！？!?'.includes(segments[index])) return false;
+    return complete || end < segments.length;
+}
+
+/** Expose only complete sentences; retain the raw suffix in the pagination cache. */
+export function getStreamingVisualNovelVisibleContent(content: string): string {
+    const segments = buildVisualNovelTypingSegments(content);
+    let end = 0;
+    for (let index = 1; index <= segments.length; index++) {
+        if (isStreamingSentenceEnd(segments, index, false)) end = index;
+    }
+    return segments.slice(0, end).join('').trim();
 }
 
 function getVisualNovelSegmentLength(segment: string): number {

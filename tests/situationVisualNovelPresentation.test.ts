@@ -208,7 +208,7 @@ describe('situation visual novel presentation', () => {
             content: 'あ'.repeat(VN_MESSAGE_PAGE_MAX_CHARS),
             streamingComplete: true,
         });
-        expect(partial[1]).toMatchObject({ content: 'あ', streamingComplete: false });
+        expect(partial[1]).toMatchObject({ content: '', bufferedContent: 'あ', streamingComplete: false });
         expect(completed).toHaveLength(2);
         expect(completed.map((item) => item.key)).toEqual([
             'preview:stream-job:0',
@@ -238,7 +238,7 @@ describe('situation visual novel presentation', () => {
         const firstPageContent = `${'あ'.repeat(100)}。`;
         const first = buildSituationVisualNovelPreviewItems('stream-job', [{
             turnIndex: 0,
-            content: firstPageContent,
+            content: `${firstPageContent}続`,
             characterId: 'actor-a',
             complete: false,
         }]);
@@ -256,16 +256,15 @@ describe('situation visual novel presentation', () => {
 
         const extended = buildSituationVisualNovelPreviewItems('stream-job', [{
             turnIndex: 0,
-            content: `${firstPageContent}続き`,
+            content: `${firstPageContent}続き。次`,
             characterId: 'actor-a',
             complete: false,
         }]);
-        state = appendSituationVisualNovelItems(state, extended.slice(1));
         state = syncSituationVisualNovelPreviewItems(state, extended);
 
         expect(state.current).toMatchObject({
             key: 'preview:stream-job:0:page:1',
-            content: '続き',
+            content: '続き。',
         });
         expect(state.waitingForNextPage).toBe(false);
     });
@@ -360,6 +359,68 @@ describe('situation visual novel presentation', () => {
         ]);
     });
 
+    test('completes a buffered sentence when the saved response arrives before the last preview', () => {
+        const preview = buildSituationVisualNovelPreviewItems('job', [{
+            turnIndex: 0, content: 'まだ途中', complete: false,
+        }]);
+        let state = createSituationVisualNovelPresentationState({
+            hasRoomHistory: false, priorItems: [], roomItems: [], isLoading: true,
+        });
+        state = appendSituationVisualNovelItems(state, preview);
+        const saved = buildSituationVisualNovelRoomItems([
+            roomMessage('saved', 'assistant', '最後まで届いた文章。'),
+        ], preview);
+        state = reconcileSituationVisualNovelPreviewItems(state, new Map([[preview[0].key, saved[0]]]));
+        state = unlockSituationVisualNovelPresentation(state, false);
+        expect(state.current?.content).toBe('最後まで届いた文章。');
+        expect(state.currentComplete).toBe(true);
+        expect(state.locked).toBe(false);
+    });
+
+    test('keeps buffered pages in order when later pages arrive and flushes them on stop', () => {
+        const first = 'あ'.repeat(100) + '。';
+        const before = buildSituationVisualNovelPreviewItems('job', [{
+            turnIndex: 0, content: first + '続', complete: false,
+        }]);
+        let state = createSituationVisualNovelPresentationState({
+            hasRoomHistory: false, priorItems: [], roomItems: [], isLoading: true,
+        });
+        state = appendSituationVisualNovelItems(state, before);
+        state = advanceSituationVisualNovelPresentation(state, true);
+        const next = buildSituationVisualNovelPreviewItems('job', [{
+            turnIndex: 0, content: first + '続'.repeat(100) + '。最後', complete: false,
+        }], before);
+        state = appendSituationVisualNovelItems(state, next.slice(before.length));
+        state = syncSituationVisualNovelPreviewItems(state, next);
+        expect(state.current?.content).toBe('続'.repeat(100) + '。');
+        state = advanceSituationVisualNovelPresentation(state, true);
+        expect(state.waitingForNextPage).toBe(true);
+        state = finishSituationVisualNovelPreviewItems(state);
+        expect(state.current?.content).toBe('最後');
+        expect(state.currentComplete).toBe(true);
+        expect(state.pending).toEqual([]);
+    });
+
+    test('preserves a single bounce identity across pages, expression updates and persistence', () => {
+        const text = 'あ'.repeat(100) + '。' + 'い'.repeat(100) + '。';
+        const before = buildSituationVisualNovelPreviewItems('job', [{
+            turnIndex: 0, characterId: 'actor-a', content: text, complete: false,
+        }]);
+        const after = buildSituationVisualNovelPreviewItems('job', [{
+            turnIndex: 0, characterId: 'actor-a', content: text, complete: true, expression: 'happy',
+        }], before);
+        const saved = buildSituationVisualNovelRoomItems([
+            roomMessage('saved', 'assistant', text, 'actor-a', 'happy'),
+        ], after);
+        expect(before.length).toBeGreaterThan(1);
+        expect(new Set([...before, ...after, ...saved].map((item) => item.utteranceKey)).size).toBe(1);
+        expect(saved[0].utteranceKey).toBeTruthy();
+        const next = buildSituationVisualNovelPreviewItems('job', [{
+            turnIndex: 1, characterId: 'actor-a', content: '次の発話', complete: true,
+        }]);
+        expect(next[0].utteranceKey).not.toBe(saved[0].utteranceKey);
+    });
+
     test('opens existing conversations on the latest message without replaying history', () => {
         const roomItems = buildSituationVisualNovelRoomItems([
             roomMessage('user-1', 'user', '最初の発言'),
@@ -400,7 +461,7 @@ describe('situation visual novel presentation', () => {
             complete: false,
         }]);
         state = appendSituationVisualNovelItems(state, partial);
-        expect(state.current).toMatchObject({ source: 'preview', content: 'こん' });
+        expect(state.current).toMatchObject({ source: 'preview', content: '', bufferedContent: 'こん' });
         expect(state.currentComplete).toBe(false);
 
         const completed = buildSituationVisualNovelPreviewItems('job-1', [{
@@ -474,7 +535,8 @@ describe('situation visual novel presentation', () => {
 
         expect(state.current).toMatchObject({
             source: 'preview',
-            content: '新しい返答',
+            content: '',
+            bufferedContent: '新しい返答',
         });
         expect(state.pending).toEqual([]);
     });

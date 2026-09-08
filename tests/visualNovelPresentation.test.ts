@@ -6,6 +6,7 @@ import {
     getVisualNovelExpressionNames,
     getVisualNovelPreloadCandidates,
     getVisualNovelTypingDelay,
+    getStreamingVisualNovelVisibleContent,
     resolveVisualNovelCostumeName,
     resolveVisualNovelExpressionImage,
     shouldTriggerVisualNovelBounce,
@@ -152,13 +153,40 @@ describe('visual novel typewriter presentation', () => {
             160,
         );
 
-        expect(first).toMatchObject([{ content: `${'あ'.repeat(100)}。`, complete: true }]);
-        expect(extended[0]).toEqual(first[0]);
+        expect(first).toMatchObject([{ content: `${'あ'.repeat(100)}。`, complete: false }]);
+        expect(extended[0]).toEqual({ ...first[0], complete: true });
         expect(extended[1]).toMatchObject({ content: 'い'.repeat(70), complete: false });
         expect(unfinishedAction[1]).toMatchObject({
             content: `*${'動'.repeat(180)}`,
             complete: false,
         });
+    });
+
+    test('buffers a sentence and its closing quote across arbitrary chunks without moving visible text', () => {
+        const first = '「今日はいい天気ですね。」';
+        const second = 'せっかくなので公園まで歩いてみませんか。';
+        const content = first + second;
+        let previous: ReturnType<typeof updateStreamingVisualNovelPagination> | undefined;
+        let visible: string[] = [];
+        for (let end = 1; end <= content.length; end++) {
+            const next = updateStreamingVisualNovelPagination(content.slice(0, end), false, previous, 24);
+            const displayed = next.pages.map((page) => page.complete
+                ? page.content : getStreamingVisualNovelVisibleContent(page.content));
+            visible.forEach((text, index) => expect((displayed[index] ?? '').startsWith(text)).toBe(true));
+            visible = displayed;
+            previous = next;
+        }
+        const final = updateStreamingVisualNovelPagination(content, true, previous, 24);
+        expect(final.pages.map((page) => page.content)).toEqual([first, second]);
+        expect(getStreamingVisualNovelVisibleContent('「今日はいい天気ですね。')).toBe('');
+        expect(getStreamingVisualNovelVisibleContent(first + 'せ')).toBe(first);
+    });
+
+    test('uses a comma to split an overlong sentence and keeps a quote at the page limit', () => {
+        expect(splitStreamingVisualNovelMessage('あ'.repeat(12) + '、' + 'い'.repeat(12), true, 20)
+            .map((page) => page.content)).toEqual(['あ'.repeat(12) + '、', 'い'.repeat(12)]);
+        const quoted = '「' + 'あ'.repeat(18) + '。」';
+        expect(splitStreamingVisualNovelMessage(quoted + '次', false, 20)[0].content).toBe(quoted);
     });
 
     test('retains a confirmed boundary when the closing emphasis marker arrives', () => {

@@ -1233,15 +1233,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         return null;
     }, [processedMessages]);
 
-    const latestResolvedAssistantEmotion = useMemo(() => {
-        for (let i = processedMessages.length - 1; i >= 0; i--) {
-            const message = processedMessages[i];
-            if (message.role !== 'assistant' || message.isArchived || !message.emotion) continue;
-            return message.emotion;
-        }
-        return null;
-    }, [processedMessages]);
-
     const latestEditableUserMessage = useMemo(() => {
         if (!room) return null;
         for (let i = room.messages.length - 1; i >= 0; i--) {
@@ -1289,16 +1280,10 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const vnExpressionImage = useMemo(
         () => resolveVisualNovelExpressionImage(
             vnCharacter,
-            isSituationVisualNovelMode
-                ? situationVnPresentation.sceneExpression ?? null
-                : activeStreamingPreview?.expression ?? latestAssistantMessage?.emotion ?? latestResolvedAssistantEmotion,
+            situationVnPresentation.sceneExpression ?? null,
             vnSelectedCostumeName,
         ),
         [
-            activeStreamingPreview?.expression,
-            isSituationVisualNovelMode,
-            latestAssistantMessage,
-            latestResolvedAssistantEmotion,
             situationVnPresentation.sceneExpression,
             vnCharacter,
             vnSelectedCostumeName,

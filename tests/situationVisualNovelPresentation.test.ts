@@ -44,7 +44,7 @@ function roomMessage(
 }
 
 describe('situation visual novel presentation', () => {
-    test('keeps the current expression until streaming metadata arrives, including before text', () => {
+    test('keeps the previous portrait until streaming dialogue becomes visible', () => {
         const initial = createSituationVisualNovelPresentationState({
             hasRoomHistory: true, priorItems: [], isLoading: false,
             roomItems: buildSituationVisualNovelRoomItems([
@@ -52,7 +52,7 @@ describe('situation visual novel presentation', () => {
             ]),
         });
         const waiting = beginSituationVisualNovelResponse(initial);
-        const turns = [{ turnIndex: 0, content: 'あ', characterId: 'actor-a', complete: false }];
+        const turns = [{ turnIndex: 0, content: 'あ。次', characterId: 'actor-a', complete: false }];
         const receiving = appendSituationVisualNovelItems(waiting, buildSituationVisualNovelPreviewItems('job', turns));
         expect(receiving.sceneExpression).toBe('happy');
         expect(syncSituationVisualNovelPreviewItems(receiving, buildSituationVisualNovelPreviewItems('job', turns)).sceneExpression).toBe('happy');
@@ -63,7 +63,19 @@ describe('situation visual novel presentation', () => {
         const metadataOnly = buildSituationVisualNovelPreviewItems('next', [
             { ...turns[0], content: '', expression: 'sad' },
         ]);
-        expect(appendSituationVisualNovelItems(waiting, metadataOnly).sceneExpression).toBe('sad');
+        const pending = appendSituationVisualNovelItems(waiting, metadataOnly);
+        expect(pending.sceneExpression).toBe('happy');
+        const partial = syncSituationVisualNovelPreviewItems(pending, buildSituationVisualNovelPreviewItems('next', [
+            { ...turns[0], content: 'まだ途中', characterId: 'actor-b', expression: 'sad' },
+        ]));
+        expect(partial).toMatchObject({ sceneCharacterId: 'actor-a', sceneExpression: 'happy' });
+        const visible = syncSituationVisualNovelPreviewItems(partial, buildSituationVisualNovelPreviewItems('next', [
+            { ...turns[0], content: 'まだ途中。次', characterId: 'actor-b', expression: 'sad' },
+        ]));
+        expect(visible).toMatchObject({ sceneCharacterId: 'actor-b', sceneExpression: 'sad' });
+        expect(finishSituationVisualNovelPreviewItems(partial)).toMatchObject({
+            sceneCharacterId: 'actor-b', sceneExpression: 'sad',
+        });
         expect(appendSituationVisualNovelItems(waiting, buildSituationVisualNovelPreviewItems('other', [
             { ...turns[0], characterId: 'actor-b' },
         ])).sceneExpression).toBeUndefined();

@@ -224,6 +224,18 @@ function syncCurrentTyping(state: SituationVisualNovelPresentationState, item: S
     };
 }
 
+function sceneForVisibleItem(state: SituationVisualNovelPresentationState, item: SituationVisualNovelItem) {
+    // Metadata can arrive before the first displayable sentence. Keep the previous
+    // portrait until dialogue begins, which is also when the character bounces.
+    if (item.role !== 'assistant' || (item.source === 'preview' && !item.content.trim())) {
+        return { sceneCharacterId: state.sceneCharacterId, sceneExpression: state.sceneExpression };
+    }
+    return {
+        sceneCharacterId: item.characterId,
+        sceneExpression: item.expression ?? (item.characterId === state.sceneCharacterId ? state.sceneExpression : undefined),
+    };
+}
+
 function showItem(
     state: SituationVisualNovelPresentationState,
     item: SituationVisualNovelItem,
@@ -245,8 +257,7 @@ function showItem(
         currentComplete: itemComplete,
         animateCurrent,
         waitingForNextPage: false,
-        sceneCharacterId: item.characterId,
-        sceneExpression: item.expression ?? (item.characterId === state.sceneCharacterId ? state.sceneExpression : undefined),
+        ...sceneForVisibleItem(state, item),
     };
 }
 
@@ -271,8 +282,7 @@ export function syncSituationVisualNovelPreviewItems(
         current,
         pending,
         ...syncCurrentTyping(state, current),
-        sceneCharacterId: current.characterId,
-        sceneExpression: current.expression ?? (current.characterId === state.sceneCharacterId ? state.sceneExpression : undefined),
+        ...sceneForVisibleItem(state, current),
     };
 }
 
@@ -292,6 +302,7 @@ export function finishSituationVisualNovelPreviewItems(
         current,
         pending,
         ...(current?.source === 'preview' ? syncCurrentTyping(state, current) : {}),
+        ...(current ? sceneForVisibleItem(state, current) : {}),
         waitingForNextPage: false,
     };
 }
@@ -313,12 +324,7 @@ export function reconcileSituationVisualNovelPreviewItems(
         current,
         pending,
         ...(state.current?.source === 'preview' ? syncCurrentTyping(state, current) : {}),
-        sceneCharacterId: current.role === 'assistant'
-            ? current.characterId
-            : state.sceneCharacterId,
-        sceneExpression: current.role === 'assistant'
-            ? current.expression ?? (current.characterId === state.sceneCharacterId ? state.sceneExpression : undefined)
-            : state.sceneExpression,
+        ...sceneForVisibleItem(state, current),
     };
 }
 

@@ -29,9 +29,10 @@ use super::{
         director_schema, string, summary_prompts, summary_schema,
     },
     response::{
-        AssistantEnvelope, DirectorDecision, assistant_response_preview,
-        limit_assistant_reply_characters, parse_assistant_response, parse_director_decision,
-        parse_summary_response, sanitize_assistant_reply_content, sanitize_message_content,
+        AssistantEnvelope, DirectorDecision, assistant_expression_preview,
+        assistant_response_preview, limit_assistant_reply_characters, parse_assistant_response,
+        parse_director_decision, parse_summary_response, sanitize_assistant_reply_content,
+        sanitize_message_content,
     },
 };
 
@@ -645,6 +646,7 @@ async fn generate_for_character(
                 &preview,
                 &debug_context.character_id,
                 &debug_context.character_name,
+                assistant_expression_preview(partial, &expression_names).as_deref(),
             );
         })
         .await

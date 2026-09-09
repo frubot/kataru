@@ -166,12 +166,15 @@ export function buildSituationVisualNovelPreviewItems(
 ): SituationVisualNovelItem[] {
     if (!jobId || !turns) return [];
     return turns
-        .filter((turn) => turn.content.trim())
+        .filter((turn) => turn.content.trim() || turn.expression)
         .flatMap((turn) => {
             const id = `${jobId}:${turn.turnIndex}`;
             const previous = previousItems.find((item) => item.id === id)?.pagination;
             const pagination = updateStreamingVisualNovelPagination(turn.content, turn.complete, previous);
-            return pagination.pages.map((page, pageIndex) => ({
+            const pages = pagination.pages.length > 0
+                ? pagination.pages
+                : [{ content: '', complete: false }];
+            return pages.map((page, pageIndex) => ({
                 key: `preview:${jobId}:${turn.turnIndex}${pageIndex === 0 ? '' : `:page:${pageIndex}`}`,
                 id,
                 source: 'preview' as const,
@@ -243,7 +246,7 @@ function showItem(
         animateCurrent,
         waitingForNextPage: false,
         sceneCharacterId: item.characterId,
-        sceneExpression: item.expression,
+        sceneExpression: item.expression ?? (item.characterId === state.sceneCharacterId ? state.sceneExpression : undefined),
     };
 }
 
@@ -269,7 +272,7 @@ export function syncSituationVisualNovelPreviewItems(
         pending,
         ...syncCurrentTyping(state, current),
         sceneCharacterId: current.characterId,
-        sceneExpression: current.expression,
+        sceneExpression: current.expression ?? (current.characterId === state.sceneCharacterId ? state.sceneExpression : undefined),
     };
 }
 
@@ -314,7 +317,7 @@ export function reconcileSituationVisualNovelPreviewItems(
             ? current.characterId
             : state.sceneCharacterId,
         sceneExpression: current.role === 'assistant'
-            ? current.expression
+            ? current.expression ?? (current.characterId === state.sceneCharacterId ? state.sceneExpression : undefined)
             : state.sceneExpression,
     };
 }

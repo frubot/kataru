@@ -191,8 +191,9 @@ impl ConversationJobs {
         content: &str,
         character_id: &str,
         character_name: &str,
+        expression: Option<&str>,
     ) {
-        if content.trim().is_empty() {
+        if content.trim().is_empty() && expression.is_none() {
             return;
         }
         let Ok(mut jobs) = self.inner.try_lock() else {
@@ -235,12 +236,20 @@ impl ConversationJobs {
             turns[turn_index]["content"] = Value::String(content.to_owned());
             turns[turn_index]["characterName"] = Value::String(character_name.to_owned());
         }
-        job.preview = Some(json!({
+        if let Some(expression) = expression {
+            turns[turn_index]["expression"] = Value::String(expression.to_owned());
+        }
+        let expression = turns[turn_index].get("expression").cloned();
+        let mut preview = json!({
             "content": content,
             "characterId": character_id,
             "characterName": character_name,
             "turns": turns,
-        }));
+        });
+        if let Some(expression) = expression {
+            preview["expression"] = expression;
+        }
+        job.preview = Some(preview);
         job.updated_at = now_millis();
     }
 
@@ -854,11 +863,20 @@ mod tests {
             .await
             .expect("insert streaming job");
 
-        jobs.update_preview(job_id, "こ", "actor-a", "A");
-        jobs.update_preview(job_id, "こんにちは", "actor-a", "A");
+        jobs.update_preview(job_id, "", "actor-a", "A", Some("happy"));
+        let snapshot = jobs.get(job_id).await.expect("expression-only preview");
+        assert_eq!(snapshot["preview"]["expression"], "happy");
+        assert_eq!(snapshot["preview"]["turns"][0]["expression"], "happy");
+        assert_eq!(snapshot["preview"]["turns"][0]["complete"], false);
+        jobs.update_preview(job_id, "こ", "actor-a", "A", Some("happy"));
+        jobs.update_preview(job_id, "こんにちは", "actor-a", "A", None);
+        assert_eq!(
+            jobs.get(job_id).await.unwrap()["preview"]["expression"],
+            "happy"
+        );
         jobs.finalize_preview(job_id, "こんにちは", "actor-a", "A", &[], Some("happy"))
             .await;
-        jobs.update_preview(job_id, "や", "actor-b", "B");
+        jobs.update_preview(job_id, "や", "actor-b", "B", None);
         jobs.finalize_preview(job_id, "やあ", "actor-b", "B", &[], None)
             .await;
 

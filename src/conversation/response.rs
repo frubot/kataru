@@ -194,6 +194,25 @@ fn json_property_value_start(content: &str, keys: &[&str]) -> Option<usize> {
     None
 }
 
+/// Only publish a fully received, registered expression; never default partial metadata.
+pub(crate) fn assistant_expression_preview(
+    content: &str,
+    expression_names: &[String],
+) -> Option<String> {
+    let cursor = json_property_value_start(content, &["expression", "emotion"])?;
+    if content.as_bytes().get(cursor) != Some(&b'"') {
+        return None;
+    }
+    let (expression, _, complete) = json_string_at(content, cursor);
+    if !complete {
+        return None;
+    }
+    expression_names
+        .iter()
+        .find(|name| name.eq_ignore_ascii_case(expression.trim()))
+        .cloned()
+}
+
 /// Extracts only user-visible reply text from an in-progress structured JSON response.
 /// Incomplete JSON string escape sequences are held back until they can be decoded safely.
 pub(crate) fn assistant_response_preview(
@@ -795,6 +814,26 @@ mod tests {
 
         assert_eq!(response.messages, ["..."]);
         assert_eq!(response.message, "...");
+    }
+
+    #[test]
+    fn previews_only_complete_registered_expressions() {
+        let names = vec!["neutral".into(), "happy".into()];
+        for partial in [
+            r#"{"thought":"hidden"#,
+            r#"{"expression":"hap"#,
+            r#"{"expression":"unknown","message":"hi"#,
+        ] {
+            assert_eq!(assistant_expression_preview(partial, &names), None);
+        }
+        assert_eq!(
+            assistant_expression_preview(r#"{"expression":"HAPPY","message":"hi"#, &names),
+            Some("happy".into())
+        );
+        assert_eq!(
+            assistant_expression_preview(r#"{"expression":"neutral""#, &names),
+            Some("neutral".into())
+        );
     }
 
     #[test]

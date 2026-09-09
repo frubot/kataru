@@ -507,7 +507,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             const job = await getConversationJob<RustTurnResponse>(session.jobId, controller.signal);
             if (
                 vnTypingSpeedRef.current === 'streaming'
-                && job.preview?.content?.trim()
+                && job.preview && (job.preview.content.trim() || job.preview.expression)
                 && getCurrentRoom()?.id === job.roomId
             ) {
                 setStreamingPreview({

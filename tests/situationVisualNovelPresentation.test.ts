@@ -44,6 +44,31 @@ function roomMessage(
 }
 
 describe('situation visual novel presentation', () => {
+    test('keeps the current expression until streaming metadata arrives, including before text', () => {
+        const initial = createSituationVisualNovelPresentationState({
+            hasRoomHistory: true, priorItems: [], isLoading: false,
+            roomItems: buildSituationVisualNovelRoomItems([
+                roomMessage('previous', 'assistant', 'こんにちは', 'actor-a', 'happy'),
+            ]),
+        });
+        const waiting = beginSituationVisualNovelResponse(initial);
+        const turns = [{ turnIndex: 0, content: 'あ', characterId: 'actor-a', complete: false }];
+        const receiving = appendSituationVisualNovelItems(waiting, buildSituationVisualNovelPreviewItems('job', turns));
+        expect(receiving.sceneExpression).toBe('happy');
+        expect(syncSituationVisualNovelPreviewItems(receiving, buildSituationVisualNovelPreviewItems('job', turns)).sceneExpression).toBe('happy');
+        const updated = syncSituationVisualNovelPreviewItems(receiving, buildSituationVisualNovelPreviewItems('job', [
+            { ...turns[0], expression: 'neutral' },
+        ]));
+        expect(updated.sceneExpression).toBe('neutral');
+        const metadataOnly = buildSituationVisualNovelPreviewItems('next', [
+            { ...turns[0], content: '', expression: 'sad' },
+        ]);
+        expect(appendSituationVisualNovelItems(waiting, metadataOnly).sceneExpression).toBe('sad');
+        expect(appendSituationVisualNovelItems(waiting, buildSituationVisualNovelPreviewItems('other', [
+            { ...turns[0], characterId: 'actor-b' },
+        ])).sceneExpression).toBeUndefined();
+    });
+
     test('isolates a continuation response without requiring a new user message', () => {
         const messages = [
             roomMessage('user-1', 'user', '今日は寒いね'),

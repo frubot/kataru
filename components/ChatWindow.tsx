@@ -1384,8 +1384,8 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             : situationVnCurrentItem?.role === 'assistant'
                 ? (situationVnCurrentItem.characterId && characterMap?.get(situationVnCurrentItem.characterId)?.name)
                     ?? situationVnCurrentItem.characterName
-                    ?? '不明な話者'
-                : groupName ?? 'シチュエーション'
+                    ?? '?'
+                : ''
         : undefined;
     const vnDisplayedMessageId = situationVnCurrentItem?.key;
     const vnDisplayedMessageContent = situationVnCurrentItem?.content;

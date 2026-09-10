@@ -1347,9 +1347,10 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         && situationVnCurrentItem.id === latestAssistantMessage?.id;
     const showSituationVnAdvanceIndicator = isVisualNovelMode
         && !isTypewriterActive
+        && !situationVnPresentation.waitingForNextPage
         && situationVnPresentation.current != null
         && situationVnPresentation.currentComplete
-        && situationVnPresentation.pending.length > 0;
+        && !!situationVnPresentation.pending[0]?.content.trim();
     const canRegenerateVN = !!latestAssistantMessage
         && lastRoomMessage?.id === latestAssistantMessage.id
         && !isLoading

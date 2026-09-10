@@ -93,6 +93,7 @@ type ConversationSlice = Pick<
     | 'groups'
     | 'rooms'
     | 'currentRoomId'
+    | 'loadingRoomHistoryId'
     | 'createRoom'
     | 'createSituationRoom'
     | 'createRoomForSituation'
@@ -131,6 +132,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
         groups: [],
         rooms: [],
         currentRoomId: null,
+        loadingRoomHistoryId: null,
 
         createRoom: (characterId, name, options) => {
             const id = generateId();
@@ -359,6 +361,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
 
             set((state) => ({
                 currentRoomId: id,
+                loadingRoomHistoryId: id && state.rooms.some((room) => room.id === id) ? id : null,
                 rooms: prevId && prevId !== id
                     ? state.rooms.map((r) => {
                         if (r.id !== prevId) return r;
@@ -377,12 +380,21 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
 
             if (!id || !get().rooms.some((r) => r.id === id)) return;
 
-            const msgs = await db.getMessagesByRoom(id);
-            if (loadSeq !== getRoomLoadSequence() || get().currentRoomId !== id) return;
+            try {
+                const msgs = await db.getMessagesByRoom(id);
+                if (loadSeq !== getRoomLoadSequence() || get().currentRoomId !== id) return;
 
-            set((state) => ({
-                rooms: state.rooms.map((r) => (r.id === id ? { ...r, messages: msgs } : r)),
-            }));
+                // Publish history and readiness together so restored messages are never
+                // treated as newly generated dialogue by the presentation.
+                set((state) => ({
+                    loadingRoomHistoryId: null,
+                    rooms: state.rooms.map((r) => (r.id === id ? { ...r, messages: msgs } : r)),
+                }));
+            } finally {
+                if (loadSeq === getRoomLoadSequence() && get().loadingRoomHistoryId === id) {
+                    set({ loadingRoomHistoryId: null });
+                }
+            }
         },
 
         updateSituation: (id, updates) => {

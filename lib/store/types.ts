@@ -317,6 +317,7 @@ export interface AppState {
     groups: Situation[];
     rooms: Room[];
     currentRoomId: string | null;
+    loadingRoomHistoryId: string | null;
     usageRecords: UsageRecord[];
 
     hydrate: () => Promise<void>;

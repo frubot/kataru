@@ -254,6 +254,7 @@ function waitForConversationJobPoll(signal: AbortSignal, intervalMs: number): Pr
 
 export default function ChatWindow({ room, character, situation, groupName, groupCharacters, onOpenSidebar, onOpenMemoryList, onCreateCharacter, onOpenSettings }: ChatWindowProps) {
     const {
+        loadingRoomHistoryId,
         addMessage,
         deleteMessagesFrom,
         restoreMessagesAt,
@@ -386,7 +387,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const isLoading = currentRoomId ? activeGenerationRoomIds.has(currentRoomId) : false;
     const isVisualNovelLogOpen = isVisualNovelMode && vnLogOpen;
     const situationVnPresentation = useSituationVisualNovelPresentation({
-        active: isVisualNovelMode,
+        active: isVisualNovelMode && loadingRoomHistoryId !== room?.id,
         roomId: room?.id,
         situationId: situation?.id,
         messages: room?.messages ?? EMPTY_MESSAGES,

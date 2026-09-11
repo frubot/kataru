@@ -115,7 +115,7 @@ export default function ExpressionDiffModal({
         }
     }, [costumes, selectedCostumeName, showCostumeSettings]);
 
-    const additionalCostumes = costumes.filter((costume) => costume.name.toLowerCase() !== DEFAULT_COSTUME_NAME);
+    const additionalCostumes = costumes.filter((costume) => costume.kind !== 'vrm' && costume.name.toLowerCase() !== DEFAULT_COSTUME_NAME);
     const selectedCostume = selectedCostumeName === DEFAULT_COSTUME_NAME
         ? null
         : additionalCostumes.find((costume) => costume.name === selectedCostumeName) ?? null;

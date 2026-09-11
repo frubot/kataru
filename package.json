@@ -19,6 +19,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@pixiv/three-vrm": "^3.5.5",
     "clsx": "^2.1.1",
     "framer-motion": "^12.40.0",
     "lucide-react": "^1.21.0",
@@ -26,6 +27,7 @@
     "react-dom": "19.2.7",
     "react-markdown": "^10.1.0",
     "tailwind-merge": "^3.6.0",
+    "three": "^0.186.0",
     "zustand": "^5.0.14"
   },
   "devDependencies": {
@@ -34,6 +36,7 @@
     "@types/node": "^25",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/three": "^0.185.4",
     "@vitejs/plugin-react": "^6.0.3",
     "eslint": "^10.7.0",
     "eslint-plugin-react-hooks": "^7.1.1",

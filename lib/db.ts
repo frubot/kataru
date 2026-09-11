@@ -79,8 +79,8 @@ export async function getCharacterWithImages(id: string): Promise<Character | un
     return result ?? undefined;
 }
 
-export async function putCharacter(value: Character): Promise<void> {
-    await storage<null>({ op: 'put_character', value });
+export async function putCharacter(value: Character): Promise<Character> {
+    return storage<Character>({ op: 'put_character', value });
 }
 
 export async function deleteCharacter(id: string): Promise<void> {

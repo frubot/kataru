@@ -43,6 +43,7 @@ import { getSituationVisualNovelTypingKey, resolveSituationVisualNovelInitialCha
 import {
     DEFAULT_COSTUME_NAME,
     getVisualNovelCostumeOptions,
+    getVisualNovelExpressionNames,
     resolveVisualNovelCostumeName,
     resolveVisualNovelExpressionImage,
     shouldTriggerVisualNovelBounce,
@@ -146,9 +147,9 @@ function toConversationCharacter(character: Character | null): ConversationChara
         enableThinking: character.enableThinking,
         enableMemory: character.enableMemory,
         expressions: character.expressions?.map(({ name }) => ({ name })),
-        costumes: character.costumes?.map(({ name, expressions }) => ({
-            name,
-            expressions: expressions?.map(({ name: expressionName }) => ({ name: expressionName })),
+        costumes: character.costumes?.map((costume) => ({
+            name: costume.name,
+            expressions: getVisualNovelExpressionNames(character, costume.name).map((name) => ({ name })),
         })),
     };
 }
@@ -1586,6 +1587,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     speakerName={vnSpeakerName}
                     castCharacters={situationVnCastCharacters}
                     expressionImage={vnExpressionImage}
+                    expression={situationVnPresentation.sceneExpression}
                     backgroundImage={situation?.backgroundImage}
                     bounceActive={vnBounceActive}
                     replySuggestions={replySuggestions}

@@ -16,9 +16,17 @@ export interface Expression {
 
 export interface Costume {
     name: string;
+    kind?: 'image' | 'vrm';
     promptDetail?: string;
     image: string;
     expressions?: Expression[];
+    vrm?: VrmAvatar;
+}
+
+export interface VrmAvatar {
+    source: string;
+    framing: { scale: number; offsetY: number; rotation: number };
+    expressionMap: Record<string, string>;
 }
 
 export interface Character {

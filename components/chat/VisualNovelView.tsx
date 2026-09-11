@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Check, Copy, GitBranch, History, RefreshCw, Shirt, Undo2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -9,12 +9,15 @@ import StoredImage from '../StoredImage';
 import { useVisualNovelImagePreload } from './useVisualNovelImagePreload';
 import WaitingEllipsis from './WaitingEllipsis';
 
+const VrmAvatarView = lazy(() => import('../VrmAvatarView'));
+
 type VisualNovelViewProps = {
     character: Character | null;
     fallbackCharacterName?: string;
     speakerName?: string;
     castCharacters?: Character[];
     expressionImage: string | null;
+    expression?: string | null;
     backgroundImage?: string;
     bounceActive: boolean;
     replySuggestions: ReactNode;
@@ -49,6 +52,7 @@ export default function VisualNovelView({
     speakerName,
     castCharacters,
     expressionImage,
+    expression,
     backgroundImage,
     bounceActive,
     replySuggestions,
@@ -79,6 +83,8 @@ export default function VisualNovelView({
     const [costumeMenuOpen, setCostumeMenuOpen] = useState(false);
     const costumeMenuRef = useRef<HTMLDivElement>(null);
     const dialogueBodyRef = useRef<HTMLDivElement>(null);
+    const selectedCostume = character?.costumes?.find((costume) => costume.name === selectedCostumeName);
+    const vrmAvatar = selectedCostume?.kind === 'vrm' ? selectedCostume.vrm : undefined;
 
     useVisualNovelImagePreload({
         character,
@@ -116,8 +122,10 @@ export default function VisualNovelView({
         <div className={`vn-stage${hasReplySuggestions ? ' has-reply-suggestions' : ''}`}>
             <div className="vn-scene">
                 {character ? (
-                    <div className={`vn-character-wrap ${bounceActive ? 'vn-character-bounce' : ''}`}>
-                        {expressionImage ? (
+                    <div className={`vn-character-wrap ${vrmAvatar ? 'vn-character-3d' : bounceActive ? 'vn-character-bounce' : ''}`}>
+                        {vrmAvatar ? <Suspense fallback={expressionImage ? <StoredImage src={expressionImage} alt={character.name} className="vn-character-image" /> : <span>3D表示を準備中…</span>}>
+                            <VrmAvatarView avatar={vrmAvatar} expression={expression} name={character.name} fallbackImage={selectedCostume?.image} />
+                        </Suspense> : expressionImage ? (
                             <StoredImage
                                 src={expressionImage}
                                 alt={character.name}
@@ -245,7 +253,7 @@ export default function VisualNovelView({
                                                     </span>
                                                     <span style={{ minWidth: 0, flex: 1 }}>
                                                         <span style={{ display: 'block', fontSize: '0.8125rem', fontWeight: active ? 600 : 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                            {option.name}
+                                                            {option.name} <small>{option.kind === 'vrm' ? '3D' : '2D'}</small>
                                                         </span>
                                                         <span style={{ display: 'block', fontSize: '0.6875rem', color: 'var(--text-muted)' }}>
                                                             表情 {option.expressionCount}件

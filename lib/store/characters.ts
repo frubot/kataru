@@ -55,6 +55,14 @@ type CharacterSlice = Pick<
 >;
 
 export function createCharacterSlice(set: StoreSet, get: StoreGet): CharacterSlice {
+    const persistCharacter = async (submitted: Character) => {
+        const stored = await db.putCharacter(submitted);
+        // Release imported binary data from state once the server has returned asset references.
+        // A later edit must never be overwritten by an older save response.
+        if (stored && get().characters.some((character) => character === submitted)) {
+            set((state) => ({ characters: state.characters.map((character) => character === submitted ? stored : character) }));
+        }
+    };
     return {
         characters: [],
 
@@ -71,7 +79,7 @@ export function createCharacterSlice(set: StoreSet, get: StoreGet): CharacterSli
                 updatedAt: now,
             };
             set((state) => ({ characters: [...state.characters, character] }));
-            fire(db.putCharacter(character));
+            fire(persistCharacter(character));
             return id;
         },
 
@@ -87,7 +95,7 @@ export function createCharacterSlice(set: StoreSet, get: StoreGet): CharacterSli
                     return updated;
                 }),
             }));
-            if (updated) fire(db.putCharacter(updated));
+            if (updated) fire(persistCharacter(updated));
         },
 
         deleteCharacter: (id) => {
@@ -203,7 +211,7 @@ export function createCharacterSlice(set: StoreSet, get: StoreGet): CharacterSli
                 updatedAt: now,
             };
             set((state) => ({ characters: [...state.characters, next] }));
-            fire(db.putCharacter(next));
+            fire(persistCharacter(next));
             fire(duplicateDedicatedMemories(source.id, newId));
             return newId;
         },

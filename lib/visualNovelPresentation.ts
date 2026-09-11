@@ -1,4 +1,5 @@
 import type { Character, Room, VnTypingSpeed } from './store/types';
+import { getVrmExpressionNames } from './vrm';
 
 export const DEFAULT_COSTUME_NAME = 'default';
 const NEUTRAL_EXPRESSION_NAME = 'neutral';
@@ -17,6 +18,7 @@ const VN_TYPING_SPEED_MULTIPLIER: Record<VnTypingSpeed, number> = {
 
 export type VisualNovelCostumeOption = {
     name: string;
+    kind?: 'image' | 'vrm';
     image?: string | null;
     expressionCount: number;
 };
@@ -98,8 +100,9 @@ export function getVisualNovelCostumeOptions(
             .filter((costume) => costume.name.toLowerCase() !== DEFAULT_COSTUME_NAME)
             .map((costume) => ({
                 name: costume.name,
+                ...(costume.kind ? { kind: costume.kind } : {}),
                 image: costume.image,
-                expressionCount: costume.expressions?.length ?? 0,
+                expressionCount: costume.kind === 'vrm' && costume.vrm ? getVrmExpressionNames(costume.vrm).length - 1 : costume.expressions?.length ?? 0,
             })),
     ];
 }
@@ -113,7 +116,9 @@ export function getVisualNovelExpressionNames(
         ? (character.costumes ?? []).find((costume) => costume.name === costumeName)
         : null;
     const names = selectedCostume
-        ? [NEUTRAL_EXPRESSION_NAME, ...(selectedCostume.expressions ?? []).map((expression) => expression.name)]
+        ? selectedCostume.kind === 'vrm' && selectedCostume.vrm
+            ? getVrmExpressionNames(selectedCostume.vrm)
+            : [NEUTRAL_EXPRESSION_NAME, ...(selectedCostume.expressions ?? []).map((expression) => expression.name)]
         : (character.expressions ?? []).map((expression) => expression.name);
     const seen = new Set<string>();
     return names

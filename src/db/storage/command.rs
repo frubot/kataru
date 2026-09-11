@@ -1,10 +1,14 @@
-use rusqlite::Connection;
+use rusqlite::{Connection, params};
 use serde::Deserialize;
 use serde_json::Value;
 
 use crate::error::AppResult;
 
-use super::{bulk, characters, json::now_millis, memories, messages, meta, rooms, usage};
+use super::{
+    bulk, characters,
+    json::{self, now_millis},
+    memories, messages, meta, rooms, usage,
+};
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
@@ -277,8 +281,14 @@ pub(super) fn execute(connection: &mut Connection, command: StorageCommand) -> A
                 .map(|character| character.unwrap_or(Value::Null))
         }
         StorageCommand::PutCharacter { character } => {
+            let id = json::required_string(&character, "id")?;
             characters::put_character(connection, character)?;
-            Ok(Value::Null)
+            json::query_optional_json(
+                connection,
+                "SELECT data_json FROM characters WHERE id = ?1",
+                params![id],
+            )
+            .map(|character| character.unwrap_or(Value::Null))
         }
         StorageCommand::DeleteCharacter { character_id } => {
             characters::delete_character(connection, &character_id)?;

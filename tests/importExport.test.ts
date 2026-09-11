@@ -286,6 +286,25 @@ describe('character sharing', () => {
         expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
+    test('round-trips VRM settings and can share only the 2D thumbnail', async () => {
+        const source = character('vrm-character', 'VRM Character');
+        source.costumes = [{ name: '3d', kind: 'vrm', image: 'data:image/png;base64,aW1hZ2U=', vrm: {
+            source: 'data:model/gltf-binary;base64,Z2xURg==',
+            framing: { scale: 1.2, offsetY: 0.1, rotation: 15 }, expressionMap: { smile: 'happy' },
+        } }];
+        vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => new Response(JSON.stringify({ result: source }), { status: 200 })));
+        const included = parseCharacterBackup(await createCharacterBackup(source.id, true));
+        expect(included.characters[0].costumes).toEqual(source.costumes);
+        const thumbnailOnly = parseCharacterBackup(await createCharacterBackup(source.id, false));
+        expect(thumbnailOnly.characters[0].costumes?.[0]).toEqual({ name: '3d', kind: 'image', image: source.costumes[0].image });
+        for (const invalid of ['https://example.com/model.vrm', `asset:${'a'.repeat(64)}`]) {
+            source.costumes[0].vrm!.source = invalid;
+            const backup = validCharacterBackup();
+            backup.data.character.costumes = source.costumes;
+            expect(() => parseCharacterBackup(JSON.stringify(backup))).toThrow();
+        }
+    });
+
     test('parses a character as a new import without conversation data', () => {
         const backup = validCharacterBackup();
         const parsed = parseCharacterBackup(JSON.stringify(backup));

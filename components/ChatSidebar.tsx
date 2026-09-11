@@ -3,6 +3,7 @@ import { Plus, Settings, Trash2, ChevronDown, ChevronRight, User, Users, Copy, E
 import { useStore, Character, Situation, resolveSituationParticipants } from '@/lib/store';
 import { createCharacterBackup, createCharacterBackupFilename, shareJsonFile } from '@/lib/importExport';
 import StoredImage from './StoredImage';
+import CharacterShareOptions from './CharacterShareOptions';
 import SituationSettingsModal from './SituationSettingsModal';
 import SidebarSearchDialog, { type SidebarSearchResult } from './SidebarSearchDialog';
 
@@ -104,6 +105,7 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, o
     const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set(groups.map((g) => g.id)));
     const [situationSettingsOpen, setSituationSettingsOpen] = useState(false);
     const [editingSituation, setEditingSituation] = useState<Situation | null>(null);
+    const [sharingCharacter, setSharingCharacter] = useState<Character | null>(null);
     const [groupExpanded, setGroupExpanded] = useState(true);
     const [favoriteSituationsExpanded, setFavoriteSituationsExpanded] = useState(true);
     const [situationsExpanded, setSituationsExpanded] = useState(true);
@@ -259,13 +261,18 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, o
         duplicateCharacter(characterId);
     };
 
-    const shareCharacterById = async (characterId: string) => {
+    const shareCharacterById = async (characterId: string, includeVrm?: boolean) => {
         const character = characters.find((candidate) => candidate.id === characterId);
         if (!character) return;
+        if (includeVrm === undefined && character.costumes?.some((costume) => costume.kind === 'vrm')) {
+            setSharingCharacter(character);
+            return;
+        }
         try {
-            const json = await createCharacterBackup(character.id);
+            const json = await createCharacterBackup(character.id, includeVrm ?? true);
             const filename = createCharacterBackupFilename(character.name);
             await shareJsonFile(json, filename, `${character.name} - Kataru`);
+            setSharingCharacter(null);
         } catch (error) {
             const message = error instanceof Error ? error.message : 'キャラクターの共有に失敗しました';
             window.alert(message);
@@ -947,6 +954,8 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, o
                 room={editingSituationRoom}
                 onCreated={onClose}
             />
+            {sharingCharacter && <CharacterShareOptions name={sharingCharacter.name} onClose={() => setSharingCharacter(null)}
+                onShare={(include) => shareCharacterById(sharingCharacter.id, include)} />}
             {searchOpen && (
                 <SidebarSearchDialog
                     characters={sortedCharacters}

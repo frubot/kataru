@@ -625,7 +625,7 @@ function CharacterSettingsModalContent({
                                 title={!expressions.some((e) => e.name === NEUTRAL_NAME) ? '生成には「アバター画像」から立ち絵の登録が必要です。アップロードなら直接追加できます' : undefined}
                                 style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8125rem' }}
                             >
-                                衣装差分
+                                衣装・アバター
                             </button>
                             <button
                                 type="button"
@@ -1193,6 +1193,7 @@ function CharacterSettingsModalContent({
 
             <CostumeDiffModal
                 isOpen={costumesOpen}
+                expressionNames={expressions.map((expression) => expression.name)}
                 onClose={() => setCostumesOpen(false)}
                 baseImage={defaultNeutralImage}
                 costumes={costumes}

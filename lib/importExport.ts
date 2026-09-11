@@ -10,6 +10,7 @@ import type {
 import * as db from './db';
 import { normalizeCharactersForCostumeDiffs } from './visualDiffMigration';
 import { generateId } from './id';
+import { isVrmSource } from './vrm';
 
 export type { ParsedBackup } from './store/types';
 
@@ -126,7 +127,7 @@ export async function createFullBackup(): Promise<string> {
     return JSON.stringify(backup, null, 2);
 }
 
-export async function createCharacterBackup(characterId: string): Promise<string> {
+export async function createCharacterBackup(characterId: string, includeVrm = true): Promise<string> {
     const character = await db.getCharacterWithImages(characterId);
     if (!character) {
         throw new Error('共有するキャラクターが見つかりません');
@@ -136,7 +137,12 @@ export async function createCharacterBackup(characterId: string): Promise<string
         exportedAt: Date.now(),
         type: 'character',
         data: {
-            character: copySharedCharacter(character),
+            character: copySharedCharacter(includeVrm ? character : {
+                ...character,
+                costumes: character.costumes?.map((costume) => costume.kind === 'vrm'
+                    ? { name: costume.name, kind: 'image', image: costume.image, promptDetail: costume.promptDetail }
+                    : costume),
+            }),
         },
     };
     return JSON.stringify(backup, null, 2);
@@ -256,6 +262,9 @@ function parseFullBackupValue(parsed: unknown): ParsedBackup {
         if (typeof c.id !== 'string' || typeof c.name !== 'string') {
             throw new Error(`キャラクターデータが不正です: ${c.name ?? '(不明)'}`);
         }
+        if (c.costumes?.some((costume) => (costume.kind === 'vrm' || costume.vrm !== undefined) && !isValidCostume(costume))) {
+            throw new Error('バックアップ内のVRM衣装が不正です。');
+        }
     }
 
     const characterIds = new Set(characters.map((c) => c.id));
@@ -372,8 +381,20 @@ function isValidCostume(value: unknown): boolean {
         && value.name.trim().length > 0
         && isOptionalString(value.promptDetail)
         && isValidSharedImageSource(value.image)
+        && (value.kind === undefined || value.kind === 'image' || value.kind === 'vrm')
+        && (value.kind === 'vrm' ? isValidVrmAvatar(value.vrm) : value.vrm === undefined)
         && (value.expressions === undefined
             || (Array.isArray(value.expressions) && value.expressions.every(isValidExpression)));
+}
+
+function isValidVrmAvatar(value: unknown): boolean {
+    if (!isRecord(value) || !isVrmSource(value.source, false) || !isRecord(value.framing) || !isRecord(value.expressionMap)) return false;
+    const framing = value.framing;
+    return typeof framing.scale === 'number' && isOptionalNumber(framing.scale, { min: 0.5, max: 2 })
+        && typeof framing.offsetY === 'number' && isOptionalNumber(framing.offsetY, { min: -0.5, max: 0.5 })
+        && typeof framing.rotation === 'number' && isOptionalNumber(framing.rotation, { min: -180, max: 180 })
+        && Object.keys(value.expressionMap).length <= 256
+        && Object.entries(value.expressionMap).every(([name, target]) => name.trim() && name.length <= 256 && typeof target === 'string' && target.length <= 256);
 }
 
 function isValidSharedCharacter(value: unknown): value is SharedCharacter {

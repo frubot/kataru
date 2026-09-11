@@ -69,16 +69,26 @@ fn persist_image_source(
     let Some((mime_type, data)) = decode_image_data_url(&source_text)? else {
         return Ok(false);
     };
-    let asset_id = image_asset_id(&data);
+    let asset_id = store_asset(connection, &mime_type, &data)?;
+    referenced_assets.insert(asset_id.clone());
+    *source = Value::String(format!("{IMAGE_ASSET_PREFIX}{asset_id}"));
+    Ok(true)
+}
+
+// The existing content-addressed asset store also owns VRM binaries and their references.
+pub(super) fn store_asset(
+    connection: &Connection,
+    mime_type: &str,
+    data: &[u8],
+) -> AppResult<String> {
+    let asset_id = image_asset_id(data);
     connection.execute(
         "INSERT INTO image_assets(id, mime_type, data, created_at)
          VALUES (?1, ?2, ?3, ?4)
          ON CONFLICT(id) DO NOTHING",
         params![asset_id, mime_type, data, now_millis()],
     )?;
-    referenced_assets.insert(asset_id.clone());
-    *source = Value::String(format!("{IMAGE_ASSET_PREFIX}{asset_id}"));
-    Ok(true)
+    Ok(asset_id)
 }
 
 fn persist_image_field(
@@ -128,6 +138,16 @@ pub(super) fn externalize_character_images(
                 continue;
             };
             changed |= persist_image_field(connection, costume, "image", &mut referenced_assets)?;
+            if costume.get("kind").and_then(Value::as_str) == Some("vrm") {
+                let avatar = costume
+                    .get_mut("vrm")
+                    .ok_or_else(|| AppError::BadRequest("VRMデータがありません。".into()))?;
+                changed |= super::vrm::persist_vrm(connection, avatar, &mut referenced_assets)?;
+            } else if costume.contains_key("vrm") {
+                return Err(AppError::BadRequest(
+                    "VRMは3D衣装として登録してください。".into(),
+                ));
+            }
             if let Some(expressions) = costume.get_mut("expressions") {
                 changed |=
                     persist_expression_images(connection, expressions, &mut referenced_assets)?;
@@ -145,12 +165,19 @@ pub(super) fn externalize_situation_images(
         AppError::BadRequest("シチュエーションはJSONオブジェクトである必要があります。".to_owned())
     })?;
     let mut referenced_assets = HashSet::new();
-    let changed = persist_image_field(
+    let mut changed = persist_image_field(
         connection,
         object,
         "backgroundImage",
         &mut referenced_assets,
     )?;
+    if let Some(actors) = object.get_mut("actors").and_then(Value::as_array_mut) {
+        for actor in actors.iter_mut().filter(|actor| actor.is_object()) {
+            let (assets, actor_changed) = externalize_character_images(connection, actor)?;
+            referenced_assets.extend(assets);
+            changed |= actor_changed;
+        }
+    }
     Ok((referenced_assets, changed))
 }
 
@@ -261,6 +288,12 @@ pub(super) fn inline_character_images(
             if let Some(image) = costume.get_mut("image") {
                 inline_image_source(connection, image)?;
             }
+            if let Some(source) = costume
+                .get_mut("vrm")
+                .and_then(|avatar| avatar.get_mut("source"))
+            {
+                inline_image_source(connection, source)?;
+            }
             if let Some(expressions) = costume.get_mut("expressions") {
                 inline_expression_images(connection, expressions)?;
             }
@@ -278,6 +311,11 @@ pub(super) fn inline_situation_images(
     };
     if let Some(background_image) = object.get_mut("backgroundImage") {
         inline_image_source(connection, background_image)?;
+    }
+    if let Some(actors) = object.get_mut("actors").and_then(Value::as_array_mut) {
+        for actor in actors {
+            inline_character_images(connection, actor)?;
+        }
     }
     Ok(())
 }

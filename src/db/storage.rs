@@ -11,6 +11,7 @@ mod rooms;
 #[cfg(test)]
 mod test_support;
 mod usage;
+mod vrm;
 
 use std::time::Instant;
 

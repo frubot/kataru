@@ -1255,7 +1255,7 @@ function CharacterCostumeMenu({
                             )}
                         </span>
                         <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {option.name}
+                            {option.name} <small>{option.kind === 'vrm' ? '3D' : '2D'}</small>
                         </span>
                         {active && <Check size={15} style={{ flexShrink: 0, color: 'var(--accent-primary)' }} />}
                     </button>

@@ -8,6 +8,7 @@ import { CropArea, createInitialCrop, type CropBox } from './ImageCropArea';
 import StoredImage from './StoredImage';
 import ModelSelector from './ModelSelector';
 import { useModalKeyboard } from './useModalKeyboard';
+import VrmCostumeEditor from './VrmCostumeEditor';
 
 const MAX_EDGE = 1536;
 const COSTUME_ASPECT_RATIO = '2:3';
@@ -16,23 +17,26 @@ const NEW_BUSY_KEY = '__new__';
 const UPLOAD_BUSY_KEY = '__upload__';
 const DEFAULT_COSTUME_NAME = 'default';
 
-type AddMode = 'generate' | 'upload';
+type AddMode = 'generate' | 'upload' | 'vrm';
 
 interface Props {
     isOpen: boolean;
     onClose: () => void;
     baseImage?: string;
     costumes: Costume[];
+    expressionNames?: string[];
     onUpsert: (costume: Costume) => void;
     onRemove: (name: string) => void;
 }
 
-export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes, onUpsert, onRemove }: Props) {
+export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes, expressionNames, onUpsert, onRemove }: Props) {
     const { defaultImageModel, aiApiType, getAiApiConfig } = useStore();
     const canGenerateDiffs = aiApiType === 'openrouter';
     const [newName, setNewName] = useState('');
     const [newPromptDetail, setNewPromptDetail] = useState('');
     const [addMode, setAddMode] = useState<AddMode>('generate');
+    const [editingVrm, setEditingVrm] = useState<Costume | null>(null);
+    const [vrmDraftKey, setVrmDraftKey] = useState(0);
     const [model, setModel] = useState(defaultImageModel);
     const [busy, setBusy] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -47,6 +51,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
     useEffect(() => {
         if (!isOpen) {
             setNewName('');
+            setEditingVrm(null);
             setNewPromptDetail('');
             setAddMode(canGenerateDiffs ? 'generate' : 'upload');
             setModel(defaultImageModel);
@@ -252,11 +257,11 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                 style={{ maxWidth: 640 }}
                 role="dialog"
                 aria-modal="true"
-                aria-label="衣装差分"
+                aria-label="衣装・アバター"
             >
                 <div className="settings-form-modal-actions" style={{ justifyContent: 'space-between' }}>
                     <h2 style={{ margin: 0, paddingLeft: '0.25rem', fontSize: '0.9375rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <Shirt size={18} /> 衣装差分
+                        <Shirt size={18} /> 衣装・アバター
                     </h2>
                     <button className="btn btn-ghost" onClick={() => !busy && onClose()} disabled={!!busy} title="閉じる" aria-label="閉じる">
                         <X size={20} />
@@ -277,7 +282,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                 disabled={!!busy || !canGenerateDiffs}
                                 style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
                             >
-                                <Sparkles size={14} /> 生成
+                                <Sparkles size={14} /> 2D生成
                             </button>
                             <button
                                 type="button"
@@ -286,8 +291,10 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                 disabled={!!busy}
                                 style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
                             >
-                                <Upload size={14} /> アップロード
+                                <Upload size={14} /> 2D画像
                             </button>
+                            <button type="button" className={addMode === 'vrm' ? 'btn btn-primary' : 'btn btn-ghost'} disabled={!!busy}
+                                onClick={() => { setAddMode('vrm'); setEditingVrm(null); clearUploadDraft(); }} style={{ flex: 1 }}>3D（VRM）</button>
                         </div>
                         {addMode === 'generate' && (
                             <div style={{ marginBottom: 8 }}>
@@ -335,13 +342,13 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                     ? 'デフォルトの立ち絵をベースに、衣装だけを変更して生成します'
                                     : '生成には「アバター画像」から立ち絵の登録が必要です。アップロードなら衣装差分を直接追加できます。'}
                             </p>
-                        ) : (
+                        ) : addMode === 'upload' ? (
                             <p style={hintStyle}>
                                 {uploadImage
                                     ? '切り取り範囲を調整してから追加します'
                                     : '画像を選択すると 2:3 の切り取り範囲を調整できます'}
                             </p>
-                        )}
+                        ) : null}
                         {addMode === 'upload' && uploadImage && uploadNatural && uploadCrop && (
                             <div style={{ marginTop: 8 }}>
                                 <CropArea
@@ -367,6 +374,16 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
 
                     {error && <p style={{ color: 'var(--error)', fontSize: '0.8125rem' }}>{error}</p>}
 
+                    {addMode === 'vrm' && !editingVrm && <VrmCostumeEditor key={vrmDraftKey} name={newName}
+                        existingNames={costumes.map((costume) => costume.name)} expressionNames={expressionNames}
+                        onSave={(costume) => { onUpsert(costume); setNewName(''); setVrmDraftKey((value) => value + 1); }} />}
+                    {editingVrm && <div>
+                        <h3 style={labelStyle}>{editingVrm.name} の3D設定</h3>
+                        <VrmCostumeEditor key={editingVrm.name} costume={editingVrm} name={editingVrm.name}
+                            existingNames={costumes.map((costume) => costume.name)} expressionNames={expressionNames}
+                            onSave={(costume) => { onUpsert(costume); setEditingVrm(null); }} onCancel={() => setEditingVrm(null)} />
+                    </div>}
+
                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
                         {busy && busy !== UPLOAD_BUSY_KEY && (
                             <button className="btn btn-ghost" onClick={handleCancelBusy}>
@@ -383,7 +400,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                 {busy === NEW_BUSY_KEY && <Loader2 size={16} className="animate-spin" />}
                                 {busy === NEW_BUSY_KEY ? '生成中...' : '生成'}
                             </button>
-                        ) : (
+                        ) : addMode === 'upload' ? (
                             <>
                                 {uploadImage && (
                                     <button
@@ -406,7 +423,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                     {busy === UPLOAD_BUSY_KEY ? '処理中...' : uploadImage ? '追加' : '選択'}
                                 </button>
                             </>
-                        )}
+                        ) : null}
                     </div>
 
                     <div>
@@ -445,7 +462,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                         </div>
                                         <div style={{ padding: '8px 10px' }}>
                                             <div style={{ fontSize: '0.8125rem', fontWeight: 500, marginBottom: 6, wordBreak: 'break-all' }}>
-                                                {costume.name}
+                                                {costume.name} <small>{costume.kind === 'vrm' ? '3D' : '2D'}</small>
                                             </div>
                                             <textarea
                                                 className="input"
@@ -466,7 +483,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                             />
                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
                                                 <span style={{ fontSize: '0.6875rem', color: 'var(--text-muted)' }}>
-                                                    {isDefault ? '基準衣装' : `表情 ${costume.expressions?.length ?? 0}件`}
+                                                    {isDefault ? '基準衣装' : costume.kind === 'vrm' ? 'VRMアバター' : `表情 ${costume.expressions?.length ?? 0}件`}
                                                 </span>
                                                 {isDefault ? (
                                                     <span style={{ fontSize: '0.6875rem', color: 'var(--text-muted)' }}>
@@ -476,12 +493,12 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                                     <div style={{ display: 'flex', gap: 4 }}>
                                                         <button
                                                             className="btn btn-ghost"
-                                                            title="再生成"
-                                                            disabled={!!busy || !canGenerateDiffs || !baseImage}
-                                                            onClick={() => generate(costume.name, costume.name, costume.promptDetail)}
+                                                            title={costume.kind === 'vrm' ? '3D表示・表情を調整' : '再生成'}
+                                                            disabled={!!busy || (costume.kind !== 'vrm' && (!canGenerateDiffs || !baseImage))}
+                                                            onClick={() => costume.kind === 'vrm' ? setEditingVrm(costume) : generate(costume.name, costume.name, costume.promptDetail)}
                                                             style={{ padding: '4px 8px' }}
                                                         >
-                                                            <RefreshCw size={14} />
+                                                            {costume.kind === 'vrm' ? '調整' : <RefreshCw size={14} />}
                                                         </button>
                                                         <button
                                                             className="btn btn-ghost"

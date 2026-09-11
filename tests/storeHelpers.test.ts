@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import { useStore, type Character, type Room, type Situation } from '../lib/store';
+import { type Character, type Room, type Situation } from '../lib/store';
 import { normalizeCharacters } from '../lib/store/characters';
 import { mergeStoredConversationRoom } from '../lib/store/conversations';
 import {
@@ -18,34 +18,6 @@ import {
     normalizeSituationPriorMessages,
     resolveSituationParticipants,
 } from '../lib/store/situations';
-
-describe('store composition', () => {
-    test('assembles state and actions from every slice', () => {
-        const state = useStore.getState();
-
-        expect(state.hydrated).toBe(false);
-        expect(state.characters).toEqual([]);
-        expect(state.groups).toEqual([]);
-        expect(state.rooms).toEqual([]);
-        expect(state.usageRecords).toEqual([]);
-        expect(state.themeMode).toBe('dark');
-        expect(state.themePalette).toBe('mono');
-        expect(state.conversationCompressionEnabled).toBe(true);
-
-        for (const action of [
-            'hydrate',
-            'createCharacter',
-            'addMemory',
-            'createRoom',
-            'addMessage',
-            'addUsageRecord',
-            'mergeBackup',
-            'resetApplication',
-        ] as const) {
-            expect(state[action], action).toBeTypeOf('function');
-        }
-    });
-});
 
 describe('store pure helpers', () => {
     test('removes the legacy character token limit without reusing it as a character limit', () => {

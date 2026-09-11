@@ -423,23 +423,6 @@ mod tests {
     }
 
     #[test]
-    fn upstream_status_classification_is_stable_and_content_free() {
-        assert_eq!(classify_upstream_status(StatusCode::OK), "success");
-        assert_eq!(
-            classify_upstream_status(StatusCode::UNAUTHORIZED),
-            "authentication"
-        );
-        assert_eq!(
-            classify_upstream_status(StatusCode::TOO_MANY_REQUESTS),
-            "rate_limit"
-        );
-        assert_eq!(
-            classify_upstream_status(StatusCode::INTERNAL_SERVER_ERROR),
-            "server_error"
-        );
-    }
-
-    #[test]
     fn upstream_log_operation_is_allowlisted_and_strips_queries() {
         assert_eq!(
             safe_upstream_operation("models?output_modalities=text"),

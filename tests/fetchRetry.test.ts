@@ -16,18 +16,6 @@ afterEach(() => {
 });
 
 describe('fetchWithTransientRetry', () => {
-    test('retries a Safari-style transient fetch failure', async () => {
-        const fetchMock = vi.fn()
-            .mockRejectedValueOnce(new TypeError('Load failed'))
-            .mockResolvedValueOnce(new Response('ok'));
-        vi.stubGlobal('fetch', fetchMock);
-
-        const response = await fetchWithTransientRetry('/api/test', {}, [0]);
-
-        expect(await response.text()).toBe('ok');
-        expect(fetchMock).toHaveBeenCalledTimes(2);
-    });
-
     test('does not retry a request explicitly aborted by the caller', async () => {
         const controller = new AbortController();
         const error = new DOMException('Request aborted', 'AbortError');

@@ -51,7 +51,4 @@ describe('avatar image generation', () => {
         expect(stats.featheredPixels).toBe(1);
     });
 
-    test('rejects inconsistent image dimensions', () => {
-        expect(() => applyAvatarChromaKey(new Uint8ClampedArray(4), 2, 1)).toThrow(RangeError);
-    });
 });

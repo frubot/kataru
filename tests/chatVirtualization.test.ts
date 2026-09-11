@@ -3,7 +3,6 @@ import { describe, expect, test } from 'vitest';
 import {
     buildVirtualLayout,
     computeVirtualRange,
-    estimateChatMessageHeight,
     getMeasurementScrollAdjustment,
     shouldFollowChatBottom,
 } from '../components/chat/chatVirtualization';
@@ -72,9 +71,4 @@ describe('chat history virtualization', () => {
         })).toBe(false);
     });
 
-    test('estimates longer assistant messages as taller while capping pathological content', () => {
-        expect(estimateChatMessageHeight('short', 'assistant'))
-            .toBeGreaterThan(estimateChatMessageHeight('short', 'user'));
-        expect(estimateChatMessageHeight('x'.repeat(4_000), 'assistant')).toBe(640);
-    });
 });

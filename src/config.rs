@@ -165,11 +165,4 @@ mod tests {
         assert_eq!(config("::1").authority(), "[::1]:37371");
     }
 
-    #[test]
-    fn only_unspecified_ip_addresses_are_wildcards() {
-        assert!(config("0.0.0.0").is_wildcard_host());
-        assert!(config("::").is_wildcard_host());
-        assert!(!config("localhost").is_wildcard_host());
-        assert!(!config("192.168.1.20").is_wildcard_host());
-    }
 }

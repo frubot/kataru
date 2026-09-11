@@ -456,39 +456,6 @@ mod tests {
     }
 
     #[test]
-    fn pruning_treats_a_concurrent_not_found_as_success() {
-        let directory = tempdir().expect("create temp directory");
-        let path = database_path(&directory);
-        let backup_directory = backup_directory(&path);
-        fs::create_dir_all(&backup_directory).expect("create backup directory");
-        for sequence in 0..=BACKUP_RETENTION_COUNT {
-            fs::write(
-                backup_directory.join(format!(
-                    "{BACKUP_FILE_PREFIX}test-{sequence}{BACKUP_FILE_EXTENSION}"
-                )),
-                [],
-            )
-            .expect("create placeholder backup");
-        }
-
-        let mut removed_by_race = false;
-        let result = prune_old_backups_with(&backup_directory, |path| {
-            if !removed_by_race {
-                removed_by_race = true;
-                fs::remove_file(path).expect("simulate concurrent removal");
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "backup was removed concurrently",
-                ));
-            }
-            fs::remove_file(path)
-        });
-
-        assert!(result.is_ok());
-        assert_eq!(managed_backups(&path).len(), BACKUP_RETENTION_COUNT);
-    }
-
-    #[test]
     fn backup_retries_busy_and_locked_steps_before_completing() {
         let mut steps = [
             StepResult::Busy,

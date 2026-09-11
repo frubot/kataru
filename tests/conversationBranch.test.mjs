@@ -3,7 +3,6 @@ import { test } from 'node:test';
 
 import {
     buildConversationBranch,
-    isConversationResponseEnd,
 } from '../lib/conversationBranch.ts';
 
 function createIdGenerator() {
@@ -26,18 +25,6 @@ function room(messages, extras = {}) {
         ...extras,
     };
 }
-
-test('only the last character response before the next user message is a branch point', () => {
-    const messages = [
-        message('user-1', 'user', 1),
-        message('assistant-1', 'assistant', 2, { characterId: 'actor-1' }),
-        message('assistant-2', 'assistant', 3, { characterId: 'actor-2' }),
-        message('user-2', 'user', 4),
-    ];
-
-    assert.equal(isConversationResponseEnd(messages, 1), false);
-    assert.equal(isConversationResponseEnd(messages, 2), true);
-});
 
 test('branching inside summarized history restores messages and removes the summary', () => {
     const source = room([

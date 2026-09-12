@@ -5,7 +5,7 @@ import { VRMLoaderPlugin, VRMUtils, type VRM } from '@pixiv/three-vrm';
 import type { VrmAvatar } from '@/lib/store/types';
 import { resolveStoredImageUrl } from '@/lib/imageSource';
 import { isVrmSource, resolveVrmExpression, validateVrmBuffer } from '@/lib/vrm';
-import { applyVrmRelaxedPose } from '@/lib/vrmPose';
+import { applyVrmRelaxedPose, createVrmIdleAnimation } from '@/lib/vrmPose';
 import StoredImage from './StoredImage';
 
 export type VrmPreview = { expressions: string[]; capture: () => string };
@@ -118,8 +118,7 @@ export default function VrmAvatarView({ avatar, expression, fallbackImage, name,
                 resize.observe(container);
                 fit();
                 const expressions = Object.keys(vrm.expressionManager?.expressionMap ?? {});
-                const head = vrm.humanoid.getNormalizedBoneNode('head');
-                const chest = vrm.humanoid.getNormalizedBoneNode('chest');
+                const animateIdle = createVrmIdleAnimation(vrm.humanoid);
                 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
                 let previous = performance.now();
                 let elapsed = 0;
@@ -132,8 +131,7 @@ export default function VrmAvatarView({ avatar, expression, fallbackImage, name,
                     pivot.position.y = framing.offsetY * size.y;
                     pivot.rotation.y = framing.rotation * Math.PI / 180;
                     const moving = !reduceMotion.matches && !neutral;
-                    if (head) head.rotation.z = moving ? Math.sin(elapsed * 0.65) * 0.025 : 0;
-                    if (chest) chest.rotation.x = moving ? Math.sin(elapsed * 1.6) * 0.012 : 0;
+                    animateIdle(elapsed, moving);
                     const selected = neutral ? null : resolveVrmExpression(current.avatar, current.expression);
                     const blink = moving && elapsed >= blinkAt ? Math.sin(Math.min((elapsed - blinkAt) / 0.18, 1) * Math.PI) : 0;
                     if (elapsed > blinkAt + 0.18) blinkAt = elapsed + 3 + Math.random() * 2;

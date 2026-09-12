@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { Euler, Object3D, Quaternion, Vector3 } from 'three';
 import { VRMHumanoid, type VRMHumanBoneName, type VRMHumanBones } from '@pixiv/three-vrm';
-import { applyVrmRelaxedPose } from '../lib/vrmPose';
+import { applyVrmRelaxedPose, createVrmIdleAnimation } from '../lib/vrmPose';
 
 function createHumanoid(forward: number, scale: number, optionalBones = true) {
     const root = new Object3D();
@@ -79,5 +79,50 @@ describe('relaxed VRM pose', () => {
             expect(bone.position.toArray()).toEqual(humanoid.normalizedRestPose[name]!.position);
             expect(bone.quaternion.toArray()).toEqual([0, 0, 0, 1]);
         }
+    });
+});
+
+describe('VRM idle animation', () => {
+    test.each([1, -1])('keeps feet planted and arms relaxed throughout motion on rig axis %s', (forward) => {
+        const { root, humanoid } = createHumanoid(forward, 1, false);
+        applyVrmRelaxedPose(humanoid);
+        const animate = createVrmIdleAnimation(humanoid);
+        humanoid.update();
+        const position = (name: VRMHumanBoneName) => humanoid.getRawBoneNode(name)!.getWorldPosition(new Vector3());
+        const feet = [position('leftFoot'), position('rightFoot')];
+        const initialHead = position('head');
+        let headMovement = 0;
+        for (let elapsed = 0; elapsed <= 30; elapsed += 0.25) {
+            animate(elapsed);
+            humanoid.update();
+            root.updateMatrixWorld(true);
+            headMovement = Math.max(headMovement, position('head').distanceTo(initialHead));
+            for (const [index, side] of (['left', 'right'] as const).entries()) {
+                expect(position(`${side}Foot`).distanceTo(feet[index])).toBeLessThan(1e-6);
+                const upper = position(`${side}UpperArm`);
+                const lower = position(`${side}LowerArm`);
+                const hand = position(`${side}Hand`);
+                expect(lower.sub(upper).normalize().y).toBeLessThan(-0.9);
+                expect(hand.y).toBeLessThan(position(`${side}LowerArm`).y);
+            }
+        }
+        expect(headMovement).toBeGreaterThan(0.005);
+        expect(headMovement).toBeLessThan(0.06);
+    });
+
+    test('restores the base pose for reduced motion or capture and resumes without drift', () => {
+        const { humanoid } = createHumanoid(1, 1);
+        applyVrmRelaxedPose(humanoid);
+        const animate = createVrmIdleAnimation(humanoid);
+        const pose = () => humanoid.getNormalizedPose();
+        const rest = pose();
+        animate(4);
+        const moving = pose();
+        expect(moving).not.toEqual(rest);
+        for (let elapsed = 0; elapsed < 60; elapsed += 0.1) animate(elapsed);
+        animate(60, false);
+        expect(pose()).toEqual(rest);
+        animate(4);
+        expect(pose()).toEqual(moving);
     });
 });

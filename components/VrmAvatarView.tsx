@@ -5,6 +5,7 @@ import { VRMLoaderPlugin, VRMUtils, type VRM } from '@pixiv/three-vrm';
 import type { VrmAvatar } from '@/lib/store/types';
 import { resolveStoredImageUrl } from '@/lib/imageSource';
 import { isVrmSource, resolveVrmExpression, validateVrmBuffer } from '@/lib/vrm';
+import { applyVrmRelaxedPose } from '@/lib/vrmPose';
 import StoredImage from './StoredImage';
 
 export type VrmPreview = { expressions: string[]; capture: () => string };
@@ -77,12 +78,7 @@ export default function VrmAvatarView({ avatar, expression, fallbackImage, name,
                 VRMUtils.combineSkeletons(vrm.scene);
                 VRMUtils.combineMorphs(vrm);
                 vrm.scene.traverse((object) => { object.frustumCulled = false; });
-                // Derive the rotation sign from the rest pose: VRM 0 and 1 face opposite axes.
-                for (const side of ['left', 'right'] as const) {
-                    const upper = vrm.humanoid.getNormalizedBoneNode(`${side}UpperArm`);
-                    const lower = vrm.humanoid.getNormalizedBoneNode(`${side}LowerArm`);
-                    if (upper && lower) upper.rotation.z = -Math.sign(lower.position.x) * 1.15;
-                }
+                applyVrmRelaxedPose(vrm.humanoid);
                 vrm.update(0);
                 vrm.scene.updateMatrixWorld(true);
                 const bounds = new THREE.Box3().setFromObject(vrm.scene);

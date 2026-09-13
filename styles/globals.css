@@ -3035,6 +3035,34 @@ body {
 
 .vrm-avatar { position: relative; width: 100%; height: 100%; min-height: 160px; }
 .vrm-canvas, .vrm-fallback { position: absolute; inset: 0; }
+.vrm-avatar-interactive { touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; }
+.vrm-avatar-dragging { cursor: grabbing; }
+.vrm-avatar-interactive .vrm-canvas { cursor: inherit; }
+.vrm-view-reset {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-primary) 78%, transparent);
+  color: var(--text-secondary);
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+}
+.vrm-view-reset:hover {
+  border-color: color-mix(in srgb, var(--accent-primary) 60%, var(--border-color));
+  color: var(--text-primary);
+}
+.vrm-view-reset:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
 .vrm-fallback > img { width: 100%; height: 100%; object-fit: contain; }
 .vrm-status { position: absolute; inset: auto 8px 12px; padding: 8px; border-radius: 8px; background: var(--bg-secondary); color: var(--text-primary); font-size: 0.8rem; text-align: center; }
 .vrm-status button { display: block; margin: 8px auto 0; }
@@ -3050,6 +3078,9 @@ body {
 .vrm-expression-row button { flex-shrink: 0; }
 .vrm-editor-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .vn-character-wrap.vn-character-3d { margin-bottom: 0; height: 100%; }
+
+/* The 3D avatar owns drag and wheel gestures, so lift it above the scene layer. */
+.vn-character-wrap.vn-character-3d .vrm-avatar { pointer-events: auto; }
 
 .vn-character-placeholder img {
   width: 100%;

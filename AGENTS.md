@@ -13,8 +13,6 @@ npm run build:binary
 npm run smoke:binary
 ```
 
-Windowsのサンドボックス内ではVite buildやRust release buildが権限エラーになることがあるため、必要に応じてサンドボックス外で実行します。
-
 ## 構成
 
 - `App.tsx`, `components/`, `lib/`: React UI。永続化は`lib/db.ts`から`/api/storage`を使用します。
@@ -28,6 +26,3 @@ Windowsのサンドボックス内ではVite buildやRust release buildが権限
 ## セキュリティ
 
 - `.env.*`の内容は読まないでください。
-- APIキーはサーバー環境変数またはOSの資格情報ストアだけから取得し、ブラウザやSQLiteへ保存しません。
-- クライアント指定のOpenAI互換base URLへサーバーAPIキーを送らないでください。
-- secret modeの会話、要約、記憶、usageは永続化しません。

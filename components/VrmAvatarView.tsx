@@ -243,8 +243,15 @@ export default function VrmAvatarView({ avatar, expression, fallbackImage, name,
                     const moving = !reduceMotion.matches && !neutral;
                     animateIdle(elapsed, moving);
                     const selected = neutral ? null : resolveVrmExpression(current.avatar, current.expression);
-                    const blink = moving && elapsed >= blinkAt ? Math.sin(Math.min((elapsed - blinkAt) / 0.18, 1) * Math.PI) : 0;
-                    if (elapsed > blinkAt + 0.18) blinkAt = elapsed + 3 + Math.random() * 2;
+                    // Eyelids close in ~70ms and reopen over ~150ms; irregular
+                    // spacing and the occasional double blink look less mechanical.
+                    const blinkAge = elapsed - blinkAt;
+                    const blink = moving && blinkAge >= 0
+                        ? blinkAge < 0.07
+                            ? Math.sin(blinkAge / 0.07 * Math.PI * 0.5)
+                            : Math.cos(Math.min(blinkAge - 0.07, 0.15) / 0.15 * Math.PI * 0.5)
+                        : 0;
+                    if (blinkAge > 0.22) blinkAt = elapsed + (Math.random() < 0.18 ? 0.3 + Math.random() * 0.2 : 2 + Math.random() * 4);
                     for (const key of expressions) {
                         const target = key === selected ? 1 : key === 'blink' ? blink : 0;
                         const value = vrm.expressionManager?.getValue(key) ?? 0;

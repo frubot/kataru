@@ -2355,7 +2355,6 @@ body {
 }
 
 .chat-container.vn-mode > .chat-header,
-.chat-container.vn-mode > .vn-stage,
 .chat-container.vn-mode > .vn-log-view,
 .chat-container.vn-mode > .chat-input-area {
   position: relative;
@@ -2364,6 +2363,10 @@ body {
 
 .chat-container.vn-mode > .chat-header {
   z-index: 4;
+}
+
+.chat-container.vn-mode > .chat-input-area {
+  z-index: 5;
 }
 
 .chat-container.vn-mode > .chat-header > .chat-header-title,
@@ -2944,7 +2947,6 @@ body {
 .vn-stage {
   flex: 1;
   min-height: 0;
-  position: relative;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -2971,9 +2973,14 @@ body {
   backdrop-filter: blur(6px);
 }
 
+.chat-container.vn-mode .vrm-view-reset {
+  top: calc(90px + 8px);
+}
+
 .vn-scene {
   position: absolute;
   inset: 0;
+  z-index: 0;
   display: flex;
   justify-content: center;
   align-items: flex-end;

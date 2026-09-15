@@ -6,6 +6,7 @@ import {
     dragVrmViewAdjustment,
     isVrmResetTap,
     normalizeVrmWheelDelta,
+    vrmViewZoom,
     VRM_VIEW_OFFSET_LIMIT,
     VRM_VIEW_SCALE_LIMIT,
     zoomVrmViewAdjustment,
@@ -35,6 +36,29 @@ describe('VRM game-view interaction', () => {
         // Dragging back to the start restores the original view.
         const returned = dragVrmViewAdjustment(moved, { deltaX: -250, deltaY: 0, pixelToOffset });
         expect(returned.offsetX).toBeCloseTo(0, 10);
+    });
+
+    test('shrinks the drag step with the camera zoom so the pointer keeps tracking', () => {
+        // At 2x zoom one pixel covers half the world space, so the same drag
+        // moves the offset half as far and the avatar stays under the pointer.
+        const moved = dragVrmViewAdjustment(DEFAULT_VRM_VIEW_ADJUSTMENT, { deltaX: 250, deltaY: 0, pixelToOffset, zoom: 2 });
+        expect(moved.offsetX).toBeCloseTo(125 * pixelToOffset, 10);
+        const zoomedOut = dragVrmViewAdjustment(DEFAULT_VRM_VIEW_ADJUSTMENT, { deltaX: 100, deltaY: 0, pixelToOffset, zoom: 0.5 });
+        expect(zoomedOut.offsetX).toBeCloseTo(200 * pixelToOffset, 10);
+        // A broken zoom never moves the view.
+        expect(dragVrmViewAdjustment(DEFAULT_VRM_VIEW_ADJUSTMENT, { deltaX: 10, deltaY: 10, pixelToOffset, zoom: 0 }))
+            .toEqual(DEFAULT_VRM_VIEW_ADJUSTMENT);
+        expect(dragVrmViewAdjustment(DEFAULT_VRM_VIEW_ADJUSTMENT, { deltaX: 10, deltaY: 10, pixelToOffset, zoom: Number.NaN }))
+            .toEqual(DEFAULT_VRM_VIEW_ADJUSTMENT);
+    });
+
+    test('combines framing and gesture scales into a finite camera zoom', () => {
+        expect(vrmViewZoom(1.5, { ...DEFAULT_VRM_VIEW_ADJUSTMENT, scale: 2 })).toBe(3);
+        expect(vrmViewZoom(1, DEFAULT_VRM_VIEW_ADJUSTMENT)).toBe(1);
+        // Corrupt values fall back to a neutral zoom instead of NaN/Infinity.
+        expect(vrmViewZoom(0, DEFAULT_VRM_VIEW_ADJUSTMENT)).toBe(1);
+        expect(vrmViewZoom(-2, DEFAULT_VRM_VIEW_ADJUSTMENT)).toBe(1);
+        expect(vrmViewZoom(Number.NaN, DEFAULT_VRM_VIEW_ADJUSTMENT)).toBe(1);
     });
 
     test('keeps the saved framing independent from the transient offsets', () => {

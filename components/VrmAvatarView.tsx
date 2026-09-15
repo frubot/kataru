@@ -13,6 +13,7 @@ import {
     dragVrmViewAdjustment,
     isVrmResetTap,
     normalizeVrmWheelDelta,
+    vrmViewZoom,
     zoomVrmViewAdjustment,
     type VrmTapSample,
     type VrmViewAdjustment,
@@ -96,6 +97,7 @@ export default function VrmAvatarView({ avatar, expression, fallbackImage, name,
             deltaX,
             deltaY,
             pixelToOffset: state.pixelToOffset,
+            zoom: vrmViewZoom(live.current.avatar.framing.scale, state.adjustment),
         });
         if (current.moved) syncAdjusted();
     };
@@ -188,16 +190,15 @@ export default function VrmAvatarView({ avatar, expression, fallbackImage, name,
                 const size = bounds.getSize(new THREE.Vector3());
                 const center = bounds.getCenter(new THREE.Vector3());
                 if (!Number.isFinite(size.y) || size.y <= 0) throw new Error('モデルの大きさを取得できません。');
-                const pivot = new THREE.Group();
                 vrm.scene.position.sub(center);
-                pivot.add(vrm.scene);
-                scene.add(pivot);
+                scene.add(vrm.scene);
                 scene.add(new THREE.HemisphereLight(0xffffff, 0x9295b0, 1));
                 const light = new THREE.DirectionalLight(0xffffff, 2.5);
                 light.position.set(1, 2, 3);
                 scene.add(light);
                 const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 100);
-                camera.position.z = Math.max(size.y * 4, 5);
+                const cameraDistance = Math.max(size.y * 4, 5);
+                camera.position.z = cameraDistance;
                 renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
                 renderer.setClearColor(0x000000, 0);
                 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
@@ -236,10 +237,25 @@ export default function VrmAvatarView({ avatar, expression, fallbackImage, name,
                     const current = live.current;
                     const framing = current.avatar.framing;
                     const adjustment = view.current.adjustment;
-                    pivot.scale.setScalar(framing.scale * adjustment.scale);
-                    pivot.position.x = adjustment.offsetX * size.y;
-                    pivot.position.y = (framing.offsetY + adjustment.offsetY) * size.y;
-                    pivot.rotation.y = framing.rotation * Math.PI / 180;
+                    // Spring bones integrate in world space, so moving, rotating or
+                    // rescaling an ancestor of the model reads as a kick and the
+                    // avatar keeps wobbling. Framing, zoom and pan therefore all
+                    // live on the orthographic camera and never touch the rig.
+                    const yaw = framing.rotation * Math.PI / 180;
+                    const offsetX = adjustment.offsetX * size.y;
+                    const offsetY = (framing.offsetY + adjustment.offsetY) * size.y;
+                    camera.zoom = vrmViewZoom(framing.scale, adjustment);
+                    camera.position.set(
+                        -cameraDistance * Math.sin(yaw) - offsetX * Math.cos(yaw),
+                        -offsetY,
+                        cameraDistance * Math.cos(yaw) - offsetX * Math.sin(yaw),
+                    );
+                    camera.lookAt(
+                        camera.position.x + Math.sin(yaw),
+                        camera.position.y,
+                        camera.position.z - Math.cos(yaw),
+                    );
+                    camera.updateProjectionMatrix();
                     const moving = !reduceMotion.matches && !neutral;
                     animateIdle(elapsed, moving);
                     const selected = neutral ? null : resolveVrmExpression(current.avatar, current.expression);

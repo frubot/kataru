@@ -43,9 +43,9 @@ export function clampVrmViewAdjustment(adjustment: VrmViewAdjustment): VrmViewAd
 }
 
 /**
- * World units per CSS pixel divided by the model height, so one world unit of
- * offset equals one model height. The camera is not scaled by the pivot, so a drag
- * keeps following the pointer at any zoom level.
+ * World units per CSS pixel at zoom 1 divided by the model height, so one world
+ * unit of offset equals one model height. The camera carries the zoom, so a drag
+ * divides this ratio by the current zoom to keep following the pointer.
  */
 export function computeVrmPixelToOffset(
     { halfHeight, viewportHeight, modelHeight }: { halfHeight: number; viewportHeight: number; modelHeight: number },
@@ -67,11 +67,22 @@ export function zoomVrmViewAdjustment(adjustment: VrmViewAdjustment, deltaY: num
     return clampVrmViewAdjustment({ ...adjustment, scale });
 }
 
+/**
+ * Effective camera zoom: the saved framing scale multiplied by the transient
+ * gesture scale. Falls back to a neutral zoom for corrupt data so the
+ * projection matrix stays finite.
+ */
+export function vrmViewZoom(framingScale: number, adjustment: VrmViewAdjustment): number {
+    const zoom = framingScale * adjustment.scale;
+    return Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+}
+
 export function dragVrmViewAdjustment(
     adjustment: VrmViewAdjustment,
-    { deltaX, deltaY, pixelToOffset }: { deltaX: number; deltaY: number; pixelToOffset: number },
+    { deltaX, deltaY, pixelToOffset, zoom = 1 }: { deltaX: number; deltaY: number; pixelToOffset: number; zoom?: number },
 ): VrmViewAdjustment {
-    const factor = Number.isFinite(pixelToOffset) ? pixelToOffset : 0;
+    // Zoom shrinks the visible world window, so one pixel covers less ground.
+    const factor = Number.isFinite(pixelToOffset) && Number.isFinite(zoom) && zoom > 0 ? pixelToOffset / zoom : 0;
     return clampVrmViewAdjustment({
         scale: adjustment.scale,
         offsetX: adjustment.offsetX + (Number.isFinite(deltaX) ? deltaX : 0) * factor,

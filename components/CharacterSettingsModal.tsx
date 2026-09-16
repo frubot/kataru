@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, lazy, Suspense } from 'react';
+import { useState, useCallback, useRef, useEffect, lazy, Suspense } from 'react';
 import { X, ChevronDown, ChevronRight, RotateCcw, User, Info, ImagePlus, Shirt, Smile } from 'lucide-react';
 import type { GeneratedCharacterDraft } from '@/lib/characterGeneration';
 import {
@@ -376,6 +376,15 @@ function CharacterSettingsModalContent({
     const [previewExpressionName, setPreviewExpressionName] = useState<string | null>(null);
     const modalRef = useRef<HTMLDivElement>(null);
 
+    // モバイルでは立ち絵を描画しない（VRM/画像の読み込み自体もスキップ）
+    const [isMobile, setIsMobile] = useState(false);
+    useEffect(() => {
+        const checkMobile = () => setIsMobile(window.innerWidth <= 720);
+        checkMobile();
+        window.addEventListener('resize', checkMobile);
+        return () => window.removeEventListener('resize', checkMobile);
+    }, []);
+
     const saveAndClose = useCallback(() => {
         const currentDraft = {
             name,
@@ -602,7 +611,7 @@ function CharacterSettingsModalContent({
                 <div className="modal-body character-profile-body">
                     {/* 立ち絵ペイン */}
                     <aside className="character-profile-portrait">
-                        {(costumeThumbs.length > 1 || expressionThumbs.length > 0) && (
+                        {!isMobile && (costumeThumbs.length > 1 || expressionThumbs.length > 0) && (
                             <div className="character-profile-thumbs">
                                 {costumeThumbs.map((thumb) => (
                                     <button
@@ -643,10 +652,13 @@ function CharacterSettingsModalContent({
                                 })}
                             </div>
                         )}
-                        <div className="character-profile-preview-label">
-                            {previewCostume?.name ?? previewCostumeName}
-                            {previewExpressionName ? ` / ${previewExpressionName}` : ''}
-                        </div>
+                        {!isMobile && (
+                            <div className="character-profile-preview-label">
+                                {previewCostume?.name ?? previewCostumeName}
+                                {previewExpressionName ? ` / ${previewExpressionName}` : ''}
+                            </div>
+                        )}
+                        {!isMobile && (
                         <div className="character-profile-visual">
                             {previewVrm ? (
                                 <Suspense fallback={(
@@ -677,6 +689,7 @@ function CharacterSettingsModalContent({
                                 </div>
                             )}
                         </div>
+                        )}
                         <div className="character-profile-actions">
                             <button
                                 type="button"

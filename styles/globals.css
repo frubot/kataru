@@ -1527,36 +1527,29 @@ body {
     height: 92vh;
   }
 
+  /* Needs the full selector to outrank the base grid rule. */
+  .settings-form-modal.character-profile-modal > .modal-body.character-profile-body,
   .character-profile-body {
     grid-template-columns: 1fr;
-    grid-template-rows: 240px 1fr;
+    grid-template-rows: auto 1fr;
   }
 
-  .character-profile-visual {
-    -webkit-mask-image: linear-gradient(to bottom, #000 62%, transparent 96%);
-    mask-image: linear-gradient(to bottom, #000 62%, transparent 96%);
-  }
-
-  .character-profile-thumbs {
-    flex-direction: row;
-    max-height: none;
-    max-width: calc(100% - 1.5rem);
-    overflow-x: auto;
-    overflow-y: hidden;
-  }
-
-  .character-profile-thumb-divider {
-    width: 1px;
-    height: 28px;
-    margin: auto 0.125rem;
-  }
-
+  /* Portrait is hidden on mobile; only the action buttons stay as a thin strip. */
+  .character-profile-visual,
+  .character-profile-thumbs,
   .character-profile-preview-label {
     display: none;
   }
 
   .character-profile-actions {
-    padding-top: 1.5rem;
+    position: static;
+    justify-content: flex-start;
+    padding: 0.625rem 1.5rem;
+    background: none;
+  }
+
+  .character-profile-fields {
+    padding-top: 0.875rem;
   }
 }
 

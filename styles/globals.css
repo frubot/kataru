@@ -1116,7 +1116,7 @@ body {
   /* The portrait gradient lives on the modal itself so it runs edge-to-edge,
      including the header area. Panes above it stay transparent. */
   background:
-    radial-gradient(120% 90% at 30% 20%, rgba(var(--accent-primary-rgb), 0.14), transparent 60%),
+    radial-gradient(120% 90% at 16% 20%, rgba(var(--accent-primary-rgb), 0.14), transparent 60%),
     linear-gradient(160deg, var(--bg-tertiary) 0%, var(--bg-secondary) 100%);
 }
 

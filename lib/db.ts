@@ -95,8 +95,8 @@ export async function getAllGroupsWithImages(): Promise<Situation[]> {
     return storage<Situation[]>({ op: 'get_all_situations_with_images' });
 }
 
-export async function putGroup(value: Situation): Promise<void> {
-    await storage<null>({ op: 'put_situation', value });
+export async function putGroup(value: Situation): Promise<Situation> {
+    return storage<Situation>({ op: 'put_situation', value });
 }
 
 export async function deleteGroup(id: string): Promise<void> {
@@ -280,8 +280,25 @@ export async function resetAll(): Promise<void> {
     await storage<null>({ op: 'reset_all' });
 }
 
-export async function bulkWrite(params: BulkWriteParams): Promise<void> {
-    await storage<null>({
+export type BulkWriteResult = {
+    characters: Character[];
+    groups: Situation[];
+};
+
+type BulkWriteResponse = {
+    characters?: Character[];
+    situations?: Situation[];
+};
+
+function toBulkWriteResult(result: BulkWriteResponse | null): BulkWriteResult {
+    return {
+        characters: result?.characters ?? [],
+        groups: result?.situations ?? [],
+    };
+}
+
+export async function bulkWrite(params: BulkWriteParams): Promise<BulkWriteResult> {
+    const result = await storage<BulkWriteResponse | null>({
         op: 'bulk_write',
         characters: params.characters ?? [],
         situations: params.groups ?? [],
@@ -290,14 +307,15 @@ export async function bulkWrite(params: BulkWriteParams): Promise<void> {
         memories: params.memories ?? [],
         usage_records: params.usageRecords ?? [],
     });
+    return toBulkWriteResult(result);
 }
 
 export async function replaceAll(
     params: BulkWriteParams & {
         currentRoomId?: string | null;
     },
-): Promise<void> {
-    await storage<null>({
+): Promise<BulkWriteResult> {
+    const result = await storage<BulkWriteResponse | null>({
         op: 'replace_all',
         characters: params.characters ?? [],
         situations: params.groups ?? [],
@@ -307,4 +325,5 @@ export async function replaceAll(
         usage_records: params.usageRecords ?? [],
         current_room_id: params.currentRoomId ?? null,
     });
+    return toBulkWriteResult(result);
 }

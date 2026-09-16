@@ -1,4 +1,4 @@
-use rusqlite::{Connection, params};
+use rusqlite::Connection;
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -6,7 +6,7 @@ use crate::error::AppResult;
 
 use super::{
     bulk, characters,
-    json::{self, now_millis},
+    json::now_millis,
     memories, messages, meta, rooms, usage,
 };
 
@@ -281,14 +281,7 @@ pub(super) fn execute(connection: &mut Connection, command: StorageCommand) -> A
                 .map(|character| character.unwrap_or(Value::Null))
         }
         StorageCommand::PutCharacter { character } => {
-            let id = json::required_string(&character, "id")?;
-            characters::put_character(connection, character)?;
-            json::query_optional_json(
-                connection,
-                "SELECT data_json FROM characters WHERE id = ?1",
-                params![id],
-            )
-            .map(|character| character.unwrap_or(Value::Null))
+            characters::put_character(connection, character)
         }
         StorageCommand::DeleteCharacter { character_id } => {
             characters::delete_character(connection, &character_id)?;
@@ -302,8 +295,7 @@ pub(super) fn execute(connection: &mut Connection, command: StorageCommand) -> A
             characters::get_all_situations(connection, true).map(Value::Array)
         }
         StorageCommand::PutSituation { situation } => {
-            characters::put_situation(connection, situation)?;
-            Ok(Value::Null)
+            characters::put_situation(connection, situation)
         }
         StorageCommand::DeleteSituation { situation_id } => {
             characters::delete_situation(connection, &situation_id)?;
@@ -456,18 +448,15 @@ pub(super) fn execute(connection: &mut Connection, command: StorageCommand) -> A
             messages,
             memories,
             usage_records,
-        } => {
-            bulk::bulk_write(
-                connection,
-                characters,
-                situations,
-                rooms,
-                messages,
-                memories,
-                usage_records,
-            )?;
-            Ok(Value::Null)
-        }
+        } => bulk::bulk_write(
+            connection,
+            characters,
+            situations,
+            rooms,
+            messages,
+            memories,
+            usage_records,
+        ),
         StorageCommand::ReplaceAll {
             characters,
             situations,
@@ -476,19 +465,16 @@ pub(super) fn execute(connection: &mut Connection, command: StorageCommand) -> A
             memories,
             usage_records,
             current_room_id,
-        } => {
-            bulk::replace_all(
-                connection,
-                characters,
-                situations,
-                rooms,
-                messages,
-                memories,
-                usage_records,
-                current_room_id,
-            )?;
-            Ok(Value::Null)
-        }
+        } => bulk::replace_all(
+            connection,
+            characters,
+            situations,
+            rooms,
+            messages,
+            memories,
+            usage_records,
+            current_room_id,
+        ),
     }
 }
 
@@ -793,6 +779,99 @@ mod tests {
                 .expect("count rows after reset");
             assert_eq!(count, 0, "{table} should be empty");
         }
+    }
+
+    #[test]
+    fn write_commands_return_stored_documents_with_asset_references() {
+        let mut connection = open_test_database();
+        let image = "data:image/png;base64,aW1hZ2U=";
+
+        let situation = execute(
+            &mut connection,
+            StorageCommand::PutSituation {
+                situation: json!({
+                    "id": "situation-1",
+                    "updatedAt": 1,
+                    "backgroundImage": image,
+                    "actors": [{
+                        "id": "actor-1",
+                        "type": "temporary",
+                        "name": "Temp",
+                        "icon": image,
+                    }],
+                }),
+            },
+        )
+        .expect("store situation");
+        assert!(
+            situation["backgroundImage"]
+                .as_str()
+                .expect("stored background")
+                .starts_with("asset:")
+        );
+        assert!(
+            situation["actors"][0]["icon"]
+                .as_str()
+                .expect("stored actor icon")
+                .starts_with("asset:")
+        );
+
+        let bulk = execute(
+            &mut connection,
+            StorageCommand::BulkWrite {
+                characters: vec![json!({
+                    "id": "character-1",
+                    "updatedAt": 1,
+                    "icon": image,
+                })],
+                situations: vec![json!({
+                    "id": "situation-2",
+                    "updatedAt": 1,
+                    "backgroundImage": image,
+                })],
+                rooms: vec![],
+                messages: vec![],
+                memories: vec![],
+                usage_records: vec![],
+            },
+        )
+        .expect("bulk write");
+        assert!(
+            bulk["characters"][0]["icon"]
+                .as_str()
+                .expect("stored character icon")
+                .starts_with("asset:")
+        );
+        assert!(
+            bulk["situations"][0]["backgroundImage"]
+                .as_str()
+                .expect("stored situation background")
+                .starts_with("asset:")
+        );
+
+        let replaced = execute(
+            &mut connection,
+            StorageCommand::ReplaceAll {
+                characters: vec![json!({
+                    "id": "character-2",
+                    "updatedAt": 1,
+                    "icon": image,
+                })],
+                situations: vec![],
+                rooms: vec![],
+                messages: vec![],
+                memories: vec![],
+                usage_records: vec![],
+                current_room_id: None,
+            },
+        )
+        .expect("replace all");
+        assert!(
+            replaced["characters"][0]["icon"]
+                .as_str()
+                .expect("stored character icon")
+                .starts_with("asset:")
+        );
     }
 
     #[test]

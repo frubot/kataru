@@ -28,7 +28,7 @@ export function createBackupSlice(set: StoreSet, get: StoreGet): BackupSlice {
             const storedMessages = normalizedData.rooms.flatMap((r) =>
                 (r.messages ?? []).map((m) => ({ ...m, roomId: r.id }))
             );
-            await db.bulkWrite({
+            const stored = await db.bulkWrite({
                 characters: normalizedData.characters,
                 groups: storedGroups,
                 rooms: storedRooms,
@@ -36,10 +36,24 @@ export function createBackupSlice(set: StoreSet, get: StoreGet): BackupSlice {
                 memories: normalizedData.memories,
                 usageRecords: normalizedData.usageRecords,
             });
+            // Keep the server's asset references in state so imported binary data
+            // (especially VRM models) is not retained in memory.
+            const storedCharacters = new Map(stored.characters.map((c) => [c.id, c]));
+            const storedSituations = new Map(stored.groups.map((g) => [g.id, g]));
             set((state) => ({
-                characters: [...state.characters, ...normalizedData.characters],
-                groups: [...state.groups, ...normalizedData.groups],
-                rooms: [...state.rooms, ...normalizedData.rooms],
+                characters: [
+                    ...state.characters,
+                    ...normalizedData.characters.map((c) => storedCharacters.get(c.id) ?? c),
+                ],
+                groups: [
+                    ...state.groups,
+                    ...normalizedData.groups.map((g) => storedSituations.get(g.id) ?? g),
+                ],
+                rooms: [
+                    ...state.rooms,
+                    // Messages lazy-load from the database when the room is opened.
+                    ...normalizedData.rooms.map((r) => ({ ...r, messages: [] })),
+                ],
                 usageRecords: [...state.usageRecords, ...normalizedData.usageRecords],
             }));
         },
@@ -67,7 +81,7 @@ export function createBackupSlice(set: StoreSet, get: StoreGet): BackupSlice {
             const storedMessages = normalizedData.rooms.flatMap((r) =>
                 (r.messages ?? []).map((m) => ({ ...m, roomId: r.id }))
             );
-            await db.replaceAll({
+            const stored = await db.replaceAll({
                 characters: normalizedData.characters,
                 groups: storedGroups,
                 rooms: storedRooms,
@@ -77,9 +91,11 @@ export function createBackupSlice(set: StoreSet, get: StoreGet): BackupSlice {
                 currentRoomId: nextCurrentRoomId,
             });
             nextRoomLoadSequence();
+            const storedCharacters = new Map(stored.characters.map((c) => [c.id, c]));
+            const storedSituations = new Map(stored.groups.map((g) => [g.id, g]));
             set({
-                characters: normalizedData.characters,
-                groups: normalizedData.groups,
+                characters: normalizedData.characters.map((c) => storedCharacters.get(c.id) ?? c),
+                groups: normalizedData.groups.map((g) => storedSituations.get(g.id) ?? g),
                 rooms: normalizedData.rooms.map((r) => ({
                     ...r,
                     messages: r.id === nextCurrentRoomId ? r.messages ?? [] : [],

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { createVrmExpressionMap, DEFAULT_VRM_FRAMING, resolveVrmExpression, validateVrmBuffer } from '../lib/vrm';
-import { getVisualNovelCostumeOptions, getVisualNovelExpressionNames, resolveVisualNovelExpressionImage } from '../lib/visualNovelPresentation';
+import { findVisualNovelCostume, getVisualNovelCostumeOptions, getVisualNovelExpressionNames, resolveVisualNovelExpressionImage } from '../lib/visualNovelPresentation';
 import type { Character } from '../lib/store/types';
 
 function glb(json: unknown): ArrayBuffer {
@@ -57,5 +57,22 @@ describe('VRM import and presentation', () => {
             expressionCount: 1,
         });
         expect(resolveVisualNovelExpressionImage(character, 'happy', 'default')).toBe('portrait.png');
+    });
+
+    test('resolves the default costume regardless of its stored name casing', () => {
+        const avatar = { source: 'unused', framing: DEFAULT_VRM_FRAMING, expressionMap: {} };
+        const character = {
+            id: 'alice', name: 'Alice', model: 'test', systemPrompt: '', createdAt: 0, updatedAt: 0,
+            costumes: [
+                { name: 'Default', kind: 'vrm', image: 'portrait.png', vrm: avatar },
+                { name: 'uniform', image: 'uniform.png' },
+            ],
+        } satisfies Character;
+
+        expect(findVisualNovelCostume(character, 'default')?.vrm).toBe(avatar);
+        expect(findVisualNovelCostume(character, 'Default')?.vrm).toBe(avatar);
+        expect(findVisualNovelCostume(character, 'uniform')?.image).toBe('uniform.png');
+        expect(findVisualNovelCostume(character, 'missing')).toBeNull();
+        expect(findVisualNovelCostume(character, null)).toBeNull();
     });
 });

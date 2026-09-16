@@ -44,12 +44,12 @@ pub(super) fn get_all_characters(
     Ok(characters)
 }
 
-pub(super) fn put_character(connection: &mut Connection, character: Value) -> AppResult<()> {
+pub(super) fn put_character(connection: &mut Connection, character: Value) -> AppResult<Value> {
     let transaction = connection.transaction()?;
-    upsert_character(&transaction, character)?;
+    let stored = upsert_character(&transaction, character)?;
     prune_orphaned_image_assets(&transaction)?;
     transaction.commit()?;
-    Ok(())
+    Ok(stored)
 }
 
 pub(super) fn delete_character(connection: &mut Connection, character_id: &str) -> AppResult<()> {
@@ -70,7 +70,7 @@ pub(super) fn delete_character(connection: &mut Connection, character_id: &str) 
 pub(super) fn upsert_character(
     connection: &Transaction<'_>,
     mut character: Value,
-) -> AppResult<()> {
+) -> AppResult<Value> {
     let id = required_string(&character, "id")?;
     let updated_at = required_i64(&character, "updatedAt")?;
     let (asset_ids, _) = externalize_character_images(connection, &mut character)?;
@@ -82,7 +82,7 @@ pub(super) fn upsert_character(
         params![id, updated_at, serialize(&character)?],
     )?;
     sync_character_image_assets(connection, &id, &asset_ids)?;
-    Ok(())
+    Ok(character)
 }
 
 pub(super) fn get_all_situations(
@@ -102,12 +102,12 @@ pub(super) fn get_all_situations(
     Ok(situations)
 }
 
-pub(super) fn put_situation(connection: &mut Connection, situation: Value) -> AppResult<()> {
+pub(super) fn put_situation(connection: &mut Connection, situation: Value) -> AppResult<Value> {
     let transaction = connection.transaction()?;
-    upsert_situation(&transaction, situation)?;
+    let stored = upsert_situation(&transaction, situation)?;
     prune_orphaned_image_assets(&transaction)?;
     transaction.commit()?;
-    Ok(())
+    Ok(stored)
 }
 
 pub(super) fn delete_situation(connection: &mut Connection, situation_id: &str) -> AppResult<()> {
@@ -121,7 +121,7 @@ pub(super) fn delete_situation(connection: &mut Connection, situation_id: &str) 
     Ok(())
 }
 
-pub(super) fn upsert_situation(connection: &Connection, mut situation: Value) -> AppResult<()> {
+pub(super) fn upsert_situation(connection: &Connection, mut situation: Value) -> AppResult<Value> {
     let id = required_string(&situation, "id")?;
     let updated_at = required_i64(&situation, "updatedAt")?;
     let (asset_ids, _) = externalize_situation_images(connection, &mut situation)?;
@@ -133,5 +133,5 @@ pub(super) fn upsert_situation(connection: &Connection, mut situation: Value) ->
         params![id, updated_at, serialize(&situation)?],
     )?;
     sync_situation_image_assets(connection, &id, &asset_ids)?;
-    Ok(())
+    Ok(situation)
 }

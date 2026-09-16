@@ -3,7 +3,7 @@ import { generateId } from '../id';
 import { DEFAULT_CHAT_MODEL } from '../modelDefaults';
 import { normalizeCharactersForCostumeDiffs } from '../visualDiffMigration';
 import { duplicateDedicatedMemories } from './memories';
-import { fire, shouldPersistRoom, toStoredRoom } from './persistence';
+import { fire, persistGroup, shouldPersistRoom, toStoredRoom } from './persistence';
 import { getSituationActorIds, normalizeSituationActor } from './situations';
 import type {
     AppState,
@@ -183,7 +183,7 @@ export function createCharacterSlice(set: StoreSet, get: StoreGet): CharacterSli
             });
             fire(db.deleteCharacter(id));
             for (const groupId of groupsToDelete) fire(db.deleteGroup(groupId));
-            for (const group of updatedGroups) fire(db.putGroup(group));
+            for (const group of updatedGroups) fire(persistGroup(set, get, group));
             for (const roomId of roomsToDelete) fire(db.deleteRoom(roomId));
             for (const room of roomsToUpdate) {
                 if (shouldPersistRoom(room)) fire(db.putRoom(toStoredRoom(room)));

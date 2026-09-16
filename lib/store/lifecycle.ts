@@ -32,7 +32,7 @@ import {
     type ModelDefaultsByApiType,
 } from '../modelDefaults';
 import { normalizeCharacters } from './characters';
-import { fire, nextRoomLoadSequence, toStoredRoom } from './persistence';
+import { fire, nextRoomLoadSequence, persistGroup, toStoredRoom } from './persistence';
 import {
     clearThemeCache,
     DEFAULT_CONVERSATION_COMPRESSION_ENABLED,
@@ -187,7 +187,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
             });
             const groups = normalized.groups;
             const rooms: Room[] = normalized.rooms;
-            for (const group of normalized.changedGroups) fire(db.putGroup(group));
+            for (const group of normalized.changedGroups) fire(persistGroup(set, get, group));
             for (const room of normalized.changedRooms) fire(db.putRoom(toStoredRoom(room)));
 
             // Load messages for the current room only

@@ -1,5 +1,5 @@
 use rusqlite::{Connection, Transaction, params};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::error::AppResult;
 
@@ -32,9 +32,9 @@ pub(super) fn bulk_write(
     messages: Vec<Value>,
     memories: Vec<Value>,
     usage_records: Vec<Value>,
-) -> AppResult<()> {
+) -> AppResult<Value> {
     let transaction = connection.transaction()?;
-    write(
+    let stored = write(
         &transaction,
         characters,
         situations,
@@ -44,7 +44,7 @@ pub(super) fn bulk_write(
         usage_records,
     )?;
     transaction.commit()?;
-    Ok(())
+    Ok(stored)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -57,10 +57,10 @@ pub(super) fn replace_all(
     memories: Vec<Value>,
     usage_records: Vec<Value>,
     current_room_id: Option<String>,
-) -> AppResult<()> {
+) -> AppResult<Value> {
     let transaction = connection.transaction()?;
     clear_data_tables(&transaction)?;
-    write(
+    let stored = write(
         &transaction,
         characters,
         situations,
@@ -92,7 +92,7 @@ pub(super) fn replace_all(
         params![value_json],
     )?;
     transaction.commit()?;
-    Ok(())
+    Ok(stored)
 }
 
 fn clear_data_tables(transaction: &Transaction<'_>) -> AppResult<()> {
@@ -106,6 +106,7 @@ fn clear_data_tables(transaction: &Transaction<'_>) -> AppResult<()> {
     Ok(())
 }
 
+// Returns the stored documents so callers can release the submitted binary data.
 #[allow(clippy::too_many_arguments)]
 fn write(
     transaction: &Transaction<'_>,
@@ -115,12 +116,14 @@ fn write(
     messages: Vec<Value>,
     memories: Vec<Value>,
     usage_records: Vec<Value>,
-) -> AppResult<()> {
+) -> AppResult<Value> {
+    let mut stored_characters = Vec::with_capacity(characters.len());
     for character in characters {
-        upsert_character(transaction, character)?;
+        stored_characters.push(upsert_character(transaction, character)?);
     }
+    let mut stored_situations = Vec::with_capacity(situations.len());
     for situation in situations {
-        upsert_situation(transaction, situation)?;
+        stored_situations.push(upsert_situation(transaction, situation)?);
     }
     for room in rooms {
         upsert_room(transaction, room)?;
@@ -135,5 +138,9 @@ fn write(
     for usage_record in usage_records {
         upsert_usage_record(transaction, usage_record)?;
     }
-    prune_orphaned_image_assets(transaction)
+    prune_orphaned_image_assets(transaction)?;
+    Ok(json!({
+        "characters": stored_characters,
+        "situations": stored_situations,
+    }))
 }

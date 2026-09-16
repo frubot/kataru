@@ -1,4 +1,4 @@
-import type { Character, Room, VnTypingSpeed } from './store/types';
+import type { Character, Costume, Room, VnTypingSpeed } from './store/types';
 import { getVrmExpressionNames } from './vrm';
 
 export const DEFAULT_COSTUME_NAME = 'default';
@@ -46,8 +46,17 @@ function findCostume(character: Character | null | undefined, costumeName: strin
     return (character.costumes ?? []).find((costume) => costume.name === costumeName) ?? null;
 }
 
-function findDefaultCostume(character: VisualNovelExpressionSource | null | undefined) {
+function findDefaultCostume(character: Pick<Character, 'costumes'> | null | undefined) {
     return (character?.costumes ?? []).find((costume) => costume.name.toLowerCase() === DEFAULT_COSTUME_NAME) ?? null;
+}
+
+export function findVisualNovelCostume(
+    character: Pick<Character, 'costumes'> | null | undefined,
+    costumeName: string | null | undefined,
+): Costume | null {
+    if (!character || !costumeName) return null;
+    if (costumeName === DEFAULT_COSTUME_NAME) return findDefaultCostume(character);
+    return (character.costumes ?? []).find((costume) => costume.name === costumeName) ?? null;
 }
 
 export function resolveVisualNovelCostumeName(

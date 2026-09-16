@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { Check, Copy, GitBranch, History, RefreshCw, Shirt, Undo2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import type { Character } from '@/lib/store';
-import { DEFAULT_COSTUME_NAME } from '@/lib/visualNovelPresentation';
+import { DEFAULT_COSTUME_NAME, findVisualNovelCostume } from '@/lib/visualNovelPresentation';
 import type { VisualNovelCostumeOption } from '@/lib/visualNovelPresentation';
 import StoredImage from '../StoredImage';
 import { useVisualNovelImagePreload } from './useVisualNovelImagePreload';
@@ -83,7 +83,7 @@ export default function VisualNovelView({
     const [costumeMenuOpen, setCostumeMenuOpen] = useState(false);
     const costumeMenuRef = useRef<HTMLDivElement>(null);
     const dialogueBodyRef = useRef<HTMLDivElement>(null);
-    const selectedCostume = character?.costumes?.find((costume) => costume.name === selectedCostumeName);
+    const selectedCostume = findVisualNovelCostume(character, selectedCostumeName);
     const vrmAvatar = selectedCostume?.kind === 'vrm' ? selectedCostume.vrm : undefined;
 
     useVisualNovelImagePreload({

@@ -1,8 +1,19 @@
 import * as db from '../db';
-import type { Room } from './types';
+import type { Room, Situation, StoreGet, StoreSet } from './types';
 
 export function fire(promise: Promise<unknown>): void {
     promise.catch((error) => console.error('[db]', error));
+}
+
+export async function persistGroup(set: StoreSet, get: StoreGet, submitted: Situation): Promise<void> {
+    const stored = await db.putGroup(submitted);
+    // Release imported binary data from state once the server has returned asset references.
+    // A later edit must never be overwritten by an older save response.
+    if (stored && get().groups.some((group) => group === submitted)) {
+        set((state) => ({
+            groups: state.groups.map((group) => (group === submitted ? stored : group)),
+        }));
+    }
 }
 
 export function toStoredRoom(room: Room): db.StoredRoom {

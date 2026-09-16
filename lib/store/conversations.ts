@@ -10,6 +10,7 @@ import {
     fire,
     getRoomLoadSequence,
     nextRoomLoadSequence,
+    persistGroup,
     shouldPersistRoom,
     shouldShowRoomInHistory,
     toPreview,
@@ -216,7 +217,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
                 rooms: [...state.rooms.filter((r) => !r.isDraft), room],
                 currentRoomId: roomId,
             }));
-            fire(db.putGroup(group));
+            fire(persistGroup(set, get, group));
             return roomId;
         },
 
@@ -248,7 +249,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
                 rooms: [...state.rooms.filter((r) => !r.isDraft), room],
                 currentRoomId: id,
             }));
-            fire(db.putGroup(updatedGroup));
+            fire(persistGroup(set, get, updatedGroup));
             return id;
         },
 
@@ -351,7 +352,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
                 updatedAt: now,
             };
             set((state) => ({ groups: [...state.groups, next] }));
-            fire(db.putGroup(next));
+            fire(persistGroup(set, get, next));
             return newId;
         },
 
@@ -454,7 +455,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
                 })(),
             }));
             if (updated) {
-                fire(db.putGroup(updated));
+                fire(persistGroup(set, get, updated));
             }
             for (const r of updatedRooms) {
                 if (shouldPersistRoom(r)) fire(db.putRoom(toStoredRoom(r)));

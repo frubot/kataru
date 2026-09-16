@@ -1,5 +1,5 @@
-import { useState, useCallback, useRef } from 'react';
-import { X, ChevronDown, ChevronRight, RotateCcw, User, Info, FileText, LayoutList } from 'lucide-react';
+import { useState, useCallback, useRef, lazy, Suspense } from 'react';
+import { X, ChevronDown, ChevronRight, RotateCcw, User, Info, FileText, LayoutList, ImagePlus, Shirt, Smile } from 'lucide-react';
 import type { GeneratedCharacterDraft } from '@/lib/characterGeneration';
 import {
     useStore,
@@ -22,6 +22,9 @@ import PromptBlockEditor from './PromptBlockEditor';
 import StoredImage from './StoredImage';
 import ModelSelector from './ModelSelector';
 import { useModalKeyboard } from './useModalKeyboard';
+import { getVrmExpressionNames } from '@/lib/vrm';
+
+const VrmAvatarView = lazy(() => import('./VrmAvatarView'));
 
 const NEUTRAL_NAME = 'neutral';
 const DEFAULT_COSTUME_NAME = 'default';
@@ -369,6 +372,9 @@ function CharacterSettingsModalContent({
     const [imageGenOpen, setImageGenOpen] = useState(false);
     const [expressionsOpen, setExpressionsOpen] = useState(false);
     const [costumesOpen, setCostumesOpen] = useState(false);
+    // 左ペインのプレビュー選択。保存対象ではなく表示切替だけに使う。
+    const [previewCostumeName, setPreviewCostumeName] = useState(DEFAULT_COSTUME_NAME);
+    const [previewExpressionName, setPreviewExpressionName] = useState<string | null>(null);
     const modalRef = useRef<HTMLDivElement>(null);
 
     const saveAndClose = useCallback(() => {
@@ -518,6 +524,29 @@ function CharacterSettingsModalContent({
     const defaultNeutralImage = costumes.find((c) => c.name.toLowerCase() === DEFAULT_COSTUME_NAME)?.image
         ?? expressions.find((e) => e.name === NEUTRAL_NAME)?.image;
 
+    // ---- 左ペインの立ち絵プレビュー ----
+    const defaultCostume = costumes.find((c) => c.name.toLowerCase() === DEFAULT_COSTUME_NAME) ?? null;
+    const previewCostume = previewCostumeName === DEFAULT_COSTUME_NAME
+        ? defaultCostume
+        : costumes.find((c) => c.name === previewCostumeName) ?? null;
+    const previewVrm = previewCostume?.kind === 'vrm' ? previewCostume.vrm : undefined;
+    const previewExpressionPool: Expression[] = previewCostume && previewCostumeName !== DEFAULT_COSTUME_NAME
+        ? previewCostume.expressions ?? []
+        : expressions;
+    const previewExpression = previewExpressionName && !previewVrm
+        ? previewExpressionPool.find((e) => e.name === previewExpressionName) ?? null
+        : null;
+    const portraitImage = previewExpression?.image ?? previewCostume?.image ?? defaultNeutralImage ?? null;
+    const costumeThumbs = [
+        { name: DEFAULT_COSTUME_NAME, image: defaultCostume?.image ?? defaultNeutralImage ?? icon, isVrm: defaultCostume?.kind === 'vrm' },
+        ...costumes
+            .filter((c) => c.name.toLowerCase() !== DEFAULT_COSTUME_NAME)
+            .map((c) => ({ name: c.name, image: c.image, isVrm: c.kind === 'vrm' })),
+    ];
+    const expressionThumbs: { name: string; image?: string }[] = previewVrm
+        ? getVrmExpressionNames(previewVrm).map((entryName) => ({ name: entryName }))
+        : previewExpressionPool.map((e) => ({ name: e.name, image: e.image }));
+
     // パラメータに何かカスタム値が設定されているか
     const hasCustomParams = maxCharacters || maxHistory || temperature !== null || topP !== null || topK !== null
         || frequencyPenalty !== null || presencePenalty !== null || repetitionPenalty !== null;
@@ -552,7 +581,7 @@ function CharacterSettingsModalContent({
         >
             <div
                 ref={modalRef}
-                className="modal-content settings-form-modal"
+                className="modal-content settings-form-modal character-profile-modal"
                 onClick={(e) => e.stopPropagation()}
                 role="dialog"
                 aria-modal="true"
@@ -574,82 +603,151 @@ function CharacterSettingsModalContent({
                     )}
                 </div>
 
-                <div className="modal-body">
-                    {/* アバター */}
-                    <div style={{ ...sectionStyle, display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-                        <button
-                            type="button"
-                            onClick={() => setImageGenOpen(true)}
-                            title="アバターを変更"
-                            style={{
-                                width: '72px',
-                                height: '72px',
-                                borderRadius: '50%',
-                                border: '2px dashed var(--border)',
-                                background: 'var(--bg-secondary)',
-                                cursor: 'pointer',
-                                overflow: 'hidden',
-                                flexShrink: 0,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                padding: 0,
-                            }}
-                        >
-                            {icon ? (
-                                <StoredImage src={icon} alt="avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <div className="modal-body character-profile-body">
+                    {/* 立ち絵ペイン */}
+                    <aside className="character-profile-portrait">
+                        {(costumeThumbs.length > 1 || expressionThumbs.length > 0) && (
+                            <div className="character-profile-thumbs">
+                                {costumeThumbs.map((thumb) => (
+                                    <button
+                                        key={`costume:${thumb.name}`}
+                                        type="button"
+                                        className={`character-profile-thumb${previewCostumeName === thumb.name ? ' selected' : ''}`}
+                                        title={`衣装: ${thumb.name}`}
+                                        onClick={() => {
+                                            setPreviewCostumeName(thumb.name);
+                                            setPreviewExpressionName(null);
+                                        }}
+                                    >
+                                        {thumb.image
+                                            ? <StoredImage src={thumb.image} alt="" />
+                                            : thumb.isVrm
+                                                ? <span>3D</span>
+                                                : <Shirt size={18} />}
+                                    </button>
+                                ))}
+                                {expressionThumbs.length > 0 && <div className="character-profile-thumb-divider" />}
+                                {expressionThumbs.map((thumb) => {
+                                    const isNeutral = thumb.name.toLowerCase() === NEUTRAL_NAME;
+                                    const selected = previewExpressionName === thumb.name
+                                        || (previewExpressionName === null && isNeutral);
+                                    return (
+                                        <button
+                                            key={`expression:${thumb.name}`}
+                                            type="button"
+                                            className={`character-profile-thumb${selected ? ' selected' : ''}`}
+                                            title={`表情: ${thumb.name}`}
+                                            onClick={() => setPreviewExpressionName(
+                                                previewExpressionName === thumb.name || isNeutral ? null : thumb.name,
+                                            )}
+                                        >
+                                            {thumb.image ? <StoredImage src={thumb.image} alt="" /> : thumb.name}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        )}
+                        <div className="character-profile-preview-label">
+                            {previewCostume?.name ?? previewCostumeName}
+                            {previewExpressionName ? ` / ${previewExpressionName}` : ''}
+                        </div>
+                        <div className="character-profile-visual">
+                            {previewVrm ? (
+                                <Suspense fallback={(
+                                    <div className="character-profile-placeholder">
+                                        <span className="character-profile-placeholder-label">3D表示を準備中…</span>
+                                    </div>
+                                )}>
+                                    <VrmAvatarView
+                                        avatar={previewVrm}
+                                        expression={previewExpressionName}
+                                        name={name || 'キャラクター'}
+                                        fallbackImage={previewCostume?.image ?? defaultNeutralImage ?? icon ?? undefined}
+                                        interactive
+                                    />
+                                </Suspense>
+                            ) : portraitImage ? (
+                                <StoredImage src={portraitImage} alt={name || 'キャラクター'} loading="eager" />
                             ) : (
-                                <User size={28} style={{ color: 'var(--text-muted)' }} />
+                                <div className="character-profile-placeholder">
+                                    <div className="character-profile-placeholder-initial">
+                                        {icon ? (
+                                            <StoredImage src={icon} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 'inherit' }} />
+                                        ) : (
+                                            name.trim().charAt(0) || '?'
+                                        )}
+                                    </div>
+                                    <span className="character-profile-placeholder-label">立ち絵が未登録です</span>
+                                </div>
                             )}
-                        </button>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                            {renderLabelWithInfo('アバター画像', '表情・衣装差分にも使用されます', {
-                                marginBottom: '0.25rem',
-                                labelStyleOverride: { fontSize: '0.8125rem' },
-                            })}
-                            {icon && (
+                        </div>
+                        <div className="character-profile-actions">
+                            <button
+                                type="button"
+                                className="btn"
+                                onClick={() => setImageGenOpen(true)}
+                                title="アバターと立ち絵を登録します。表情・衣装差分にも使用されます"
+                            >
+                                <ImagePlus size={13} />
+                                立ち絵
+                            </button>
+                            <button
+                                type="button"
+                                className="btn"
+                                onClick={() => setCostumesOpen(true)}
+                                title={!expressions.some((e) => e.name === NEUTRAL_NAME) ? '生成には「立ち絵」から登録が必要です。アップロードなら直接追加できます' : undefined}
+                            >
+                                <Shirt size={13} />
+                                衣装
+                            </button>
+                            <button
+                                type="button"
+                                className="btn"
+                                onClick={() => setExpressionsOpen(true)}
+                            >
+                                <Smile size={13} />
+                                表情
+                            </button>
+                        </div>
+                    </aside>
+
+                    <div className="character-profile-fields">
+                        {/* アイコン + キャラクター名 */}
+                        <div className="character-profile-name-row">
+                            <div style={{ position: 'relative', flexShrink: 0 }}>
                                 <button
                                     type="button"
-                                    onClick={() => setIcon(null)}
-                                    style={{ fontSize: '0.75rem', color: 'var(--error)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginTop: '0.25rem' }}
+                                    className="character-profile-icon-button"
+                                    onClick={() => setImageGenOpen(true)}
+                                    title="アバター画像を変更"
                                 >
-                                    削除
+                                    {icon ? (
+                                        <StoredImage src={icon} alt="avatar" />
+                                    ) : (
+                                        <User size={22} />
+                                    )}
                                 </button>
-                            )}
+                                {icon && (
+                                    <button
+                                        type="button"
+                                        className="character-profile-icon-remove"
+                                        onClick={() => setIcon(null)}
+                                        title="アバターを削除"
+                                        aria-label="アバターを削除"
+                                    >
+                                        <X size={11} />
+                                    </button>
+                                )}
+                            </div>
+                            <input
+                                type="text"
+                                className="character-profile-name-input"
+                                value={name}
+                                onChange={(e) => setName(e.target.value)}
+                                placeholder="キャラクターの名前"
+                                aria-label="キャラクター名"
+                            />
                         </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                            <button
-                                type="button"
-                                className="btn btn-secondary"
-                                onClick={() => setCostumesOpen(true)}
-                                title={!expressions.some((e) => e.name === NEUTRAL_NAME) ? '生成には「アバター画像」から立ち絵の登録が必要です。アップロードなら直接追加できます' : undefined}
-                                style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8125rem' }}
-                            >
-                                衣装・アバター
-                            </button>
-                            <button
-                                type="button"
-                                className="btn btn-secondary"
-                                onClick={() => setExpressionsOpen(true)}
-                                title={!expressions.some((e) => e.name === NEUTRAL_NAME) ? 'デフォルトの立ち絵が登録されていない場合でも追加できます' : undefined}
-                                style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8125rem' }}
-                            >
-                                表情差分
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* キャラクター名 */}
-                    <div style={sectionStyle}>
-                        <label style={labelStyle}>キャラクター名</label>
-                        <input
-                            type="text"
-                            className="input"
-                            value={name}
-                            onChange={(e) => setName(e.target.value)}
-                            placeholder="キャラクターの名前"
-                        />
-                    </div>
 
                     {/* モデル */}
                     <div style={sectionStyle}>
@@ -781,8 +879,9 @@ function CharacterSettingsModalContent({
                         </>
                     )}
 
-                    {/* 思考トグル */}
-                    <div style={sectionStyle}>
+                    {/* トグル群 */}
+                    <div className="character-profile-toggle-grid" style={sectionStyle}>
+                        {/* 思考トグル */}
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
                             <div>
                                 {renderLabelWithInfo('考える', '返答前の思考をJSONのthoughtフィールドに含めます。会話には表示されません。', {
@@ -820,10 +919,8 @@ function CharacterSettingsModalContent({
                                 }} />
                             </button>
                         </div>
-                    </div>
 
-                    {/* 記憶機能トグル */}
-                    <div style={sectionStyle}>
+                        {/* 記憶機能トグル */}
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
                             <div>
                                 {renderLabelWithInfo('メモリ', '関連するメモリの利用と、会話後の自動保存を有効にします。', {
@@ -1100,6 +1197,7 @@ function CharacterSettingsModalContent({
                             </button>
                         </div>
                     )}
+                    </div>
                 </div>
 
             </div>

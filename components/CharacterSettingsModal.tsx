@@ -547,8 +547,9 @@ function CharacterSettingsModalContent({
         ? getVrmExpressionNames(previewVrm).map((entryName) => ({ name: entryName }))
         : previewExpressionPool.map((e) => ({ name: e.name, image: e.image }));
 
-    // パラメータに何かカスタム値が設定されているか
-    const hasCustomParams = maxCharacters || maxHistory || temperature !== null || topP !== null || topK !== null
+    // 高度な設定に何かカスタム値が設定されているか
+    const hasCustomParams = (model.trim() !== '' && model.trim() !== defaultChatModel)
+        || maxCharacters || maxHistory || temperature !== null || topP !== null || topK !== null
         || frequencyPenalty !== null || presencePenalty !== null || repetitionPenalty !== null;
     const combinedPromptEditorStyle: React.CSSProperties = {
         border: '1px solid var(--border-color)',
@@ -749,17 +750,6 @@ function CharacterSettingsModalContent({
                             />
                         </div>
 
-                    {/* モデル */}
-                    <div style={sectionStyle}>
-                        <label style={labelStyle}>モデル</label>
-                        <ModelSelector
-                            value={model}
-                            onChange={setModel}
-                            outputModality="text"
-                            placeholder={`例: ${defaultChatModel}`}
-                        />
-                    </div>
-
                     {/* システムプロンプト */}
                     <div style={sectionStyle}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
@@ -959,7 +949,7 @@ function CharacterSettingsModalContent({
                         </div>
                     </div>
 
-                    {/* パラメータ (折りたたみ) */}
+                    {/* 高度な設定 (折りたたみ) */}
                     <div style={sectionStyle}>
                         <button
                             type="button"
@@ -979,7 +969,7 @@ function CharacterSettingsModalContent({
                             }}
                         >
                             {parametersOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                            パラメータ
+                            高度な設定
                             {hasCustomParams && !parametersOpen && (
                                 <span style={{
                                     marginLeft: '0.375rem',
@@ -998,14 +988,21 @@ function CharacterSettingsModalContent({
                         {parametersOpen && (
                             <div style={{
                                 marginTop: '0.75rem',
-                                padding: '1rem',
-                                borderRadius: '0.5rem',
-                                background: 'var(--bg-secondary)',
-                                border: '1px solid var(--border-color)',
                                 display: 'flex',
                                 flexDirection: 'column',
                                 gap: '1.25rem',
                             }}>
+                                {/* モデル */}
+                                <div>
+                                    <label style={{ ...labelStyle, fontSize: '0.8125rem', marginBottom: '0.375rem' }}>モデル</label>
+                                    <ModelSelector
+                                        value={model}
+                                        onChange={setModel}
+                                        outputModality="text"
+                                        placeholder={`例: ${defaultChatModel}`}
+                                    />
+                                </div>
+
                                 {/* Maximum reply characters */}
                                 <div>
                                     {renderLabelWithInfo('最大の文字数', '返信本文（message/messages）の最大文字数です', {

@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, lazy, Suspense } from 'react';
-import { X, ChevronDown, ChevronRight, RotateCcw, User, Info, FileText, LayoutList, ImagePlus, Shirt, Smile } from 'lucide-react';
+import { X, ChevronDown, ChevronRight, RotateCcw, User, Info, ImagePlus, Shirt, Smile } from 'lucide-react';
 import type { GeneratedCharacterDraft } from '@/lib/characterGeneration';
 import {
     useStore,
@@ -18,7 +18,7 @@ import {
 import ImageGenerationModal from './ImageGenerationModal';
 import ExpressionDiffModal from './ExpressionDiffModal';
 import CostumeDiffModal from './CostumeDiffModal';
-import PromptBlockEditor from './PromptBlockEditor';
+import PromptSectionEditor from './PromptSectionEditor';
 import StoredImage from './StoredImage';
 import ModelSelector from './ModelSelector';
 import { useModalKeyboard } from './useModalKeyboard';
@@ -343,7 +343,6 @@ function CharacterSettingsModalContent({
     const [protagonistPrompt, setProtagonistPrompt] = useState(initialDraft.protagonistPrompt);
     const [userConstraints, setUserConstraints] = useState(initialDraft.userConstraints);
     const [model, setModel] = useState(initialDraft.model);
-    const [useBlockEditor, setUseBlockEditor] = useState(true);
 
     // Thinking settings
     const [enableThinking, setEnableThinking] = useState(initialDraft.enableThinking);
@@ -750,124 +749,44 @@ function CharacterSettingsModalContent({
                             />
                         </div>
 
-                    {/* システムプロンプト */}
+                    {/* プロンプト */}
                     <div style={sectionStyle}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                            <label style={{ ...labelStyle, marginBottom: 0 }}>{useBlockEditor ? '設定' : 'キャラクターについて'}</label>
-                            <button
-                                type="button"
-                                onClick={() => setUseBlockEditor((v) => !v)}
-                                title={useBlockEditor ? 'テキスト編集に切り替え' : 'ブロック編集に切り替え'}
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '0.25rem',
-                                    padding: '0.25rem 0.5rem',
-                                    borderRadius: '0.375rem',
-                                    border: '1px solid var(--border-color)',
-                                    background: useBlockEditor ? 'rgba(var(--accent-primary-rgb), 0.12)' : 'var(--bg-secondary)',
-                                    color: useBlockEditor ? 'var(--accent-primary)' : 'var(--text-muted)',
-                                    fontSize: '0.75rem',
-                                    cursor: 'pointer',
-                                    transition: 'background 0.15s ease, color 0.15s ease, border-color 0.15s ease',
-                                }}
-                            >
-                                {useBlockEditor ? <LayoutList size={13} /> : <FileText size={13} />}
-                                {useBlockEditor ? 'ブロック' : 'テキスト'}
-                            </button>
-                        </div>
-                        {useBlockEditor ? (
-                            <div style={combinedPromptEditorStyle}>
-                                <div>
-                                    <div style={fixedPromptLabelStyle}>{CHARACTER_PROMPT_SECTION_TITLE}</div>
-                                    <PromptBlockEditor
-                                        markdown={systemPrompt}
-                                        onChange={setSystemPrompt}
-                                        placeholder="キャラクターに関する詳細を記述してください..."
-                                        frame={false}
-                                        minHeight="96px"
-                                        maxHeight={null}
-                                    />
-                                </div>
-                                <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.875rem' }}>
-                                    <div style={fixedPromptLabelStyle}>{SPEECH_STYLE_SECTION_TITLE}</div>
-                                    <PromptBlockEditor
-                                        markdown={speechStyle}
-                                        onChange={setSpeechStyle}
-                                        placeholder="例: 「それ、めっちゃいいじゃん！あとで私にも分けて？」"
-                                        frame={false}
-                                        minHeight="72px"
-                                        maxHeight={null}
-                                    />
-                                </div>
-                                <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.875rem' }}>
-                                    <div style={fixedPromptLabelStyle}>{PROTAGONIST_PROMPT_SECTION_TITLE}</div>
-                                    <PromptBlockEditor
-                                        markdown={protagonistPrompt}
-                                        onChange={setProtagonistPrompt}
-                                        placeholder="主人公に関する詳細を記述してください..."
-                                        frame={false}
-                                        minHeight="96px"
-                                        maxHeight={null}
-                                    />
-                                </div>
-                                <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.875rem' }}>
-                                    <div style={fixedPromptLabelStyle}>{USER_CONSTRAINTS_SECTION_TITLE}</div>
-                                    <PromptBlockEditor
-                                        markdown={userConstraints}
-                                        onChange={setUserConstraints}
-                                        placeholder="キャラクターに守らせたい制約を記述してください..."
-                                        frame={false}
-                                        minHeight="96px"
-                                        maxHeight={null}
-                                    />
-                                </div>
+                        <label style={labelStyle}>プロンプト</label>
+                        <div style={combinedPromptEditorStyle}>
+                            <div>
+                                <div style={fixedPromptLabelStyle}>{CHARACTER_PROMPT_SECTION_TITLE}</div>
+                                <PromptSectionEditor
+                                    markdown={systemPrompt}
+                                    onChange={setSystemPrompt}
+                                    placeholder="キャラクターに関する詳細を記述してください..."
+                                />
                             </div>
-                        ) : (
-                            <textarea
-                                className="input textarea"
-                                value={systemPrompt}
-                                onChange={(e) => setSystemPrompt(e.target.value)}
-                                placeholder="キャラクターに関する詳細を記述してください..."
-                                style={{ minHeight: '150px' }}
-                            />
-                        )}
-                    </div>
-
-                    {!useBlockEditor && (
-                        <>
-                            <div style={sectionStyle}>
-                                <label style={labelStyle}>キャラクターの口調</label>
-                                <textarea
-                                    className="input textarea"
-                                    value={speechStyle}
-                                    onChange={(e) => setSpeechStyle(e.target.value)}
+                            <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.875rem' }}>
+                                <div style={fixedPromptLabelStyle}>{SPEECH_STYLE_SECTION_TITLE}</div>
+                                <PromptSectionEditor
+                                    markdown={speechStyle}
+                                    onChange={setSpeechStyle}
                                     placeholder="例: 「それ、めっちゃいいじゃん！あとで私にも分けて？」"
-                                    style={{ minHeight: '96px' }}
                                 />
                             </div>
-                            <div style={sectionStyle}>
-                                <label style={labelStyle}>主人公について</label>
-                                <textarea
-                                    className="input textarea"
-                                    value={protagonistPrompt}
-                                    onChange={(e) => setProtagonistPrompt(e.target.value)}
+                            <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.875rem' }}>
+                                <div style={fixedPromptLabelStyle}>{PROTAGONIST_PROMPT_SECTION_TITLE}</div>
+                                <PromptSectionEditor
+                                    markdown={protagonistPrompt}
+                                    onChange={setProtagonistPrompt}
                                     placeholder="主人公に関する詳細を記述してください..."
-                                    style={{ minHeight: '120px' }}
                                 />
                             </div>
-                            <div style={sectionStyle}>
-                                <label style={labelStyle}>追加の制約</label>
-                                <textarea
-                                    className="input textarea"
-                                    value={userConstraints}
-                                    onChange={(e) => setUserConstraints(e.target.value)}
+                            <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.875rem' }}>
+                                <div style={fixedPromptLabelStyle}>{USER_CONSTRAINTS_SECTION_TITLE}</div>
+                                <PromptSectionEditor
+                                    markdown={userConstraints}
+                                    onChange={setUserConstraints}
                                     placeholder="キャラクターに守らせたい制約を記述してください..."
-                                    style={{ minHeight: '120px' }}
                                 />
                             </div>
-                        </>
-                    )}
+                        </div>
+                    </div>
 
                     {/* トグル群 */}
                     <div className="character-profile-toggle-grid" style={sectionStyle}>

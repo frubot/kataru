@@ -550,14 +550,10 @@ function CharacterSettingsModalContent({
     const hasCustomParams = (model.trim() !== '' && model.trim() !== defaultChatModel)
         || maxCharacters || maxHistory || temperature !== null || topP !== null || topK !== null
         || frequencyPenalty !== null || presencePenalty !== null || repetitionPenalty !== null;
-    const combinedPromptEditorStyle: React.CSSProperties = {
-        border: '1px solid var(--border-color)',
-        borderRadius: '0.5rem',
-        background: 'var(--bg-primary)',
-        padding: '0.75rem',
+    const promptSectionsStyle: React.CSSProperties = {
         display: 'flex',
         flexDirection: 'column',
-        gap: '0.875rem',
+        gap: '1.25rem',
     };
     const fixedPromptLabelStyle: React.CSSProperties = {
         fontSize: '0.8125rem',
@@ -752,7 +748,7 @@ function CharacterSettingsModalContent({
                     {/* プロンプト */}
                     <div style={sectionStyle}>
                         <label style={labelStyle}>プロンプト</label>
-                        <div style={combinedPromptEditorStyle}>
+                        <div style={promptSectionsStyle}>
                             <div>
                                 <div style={fixedPromptLabelStyle}>{CHARACTER_PROMPT_SECTION_TITLE}</div>
                                 <PromptSectionEditor
@@ -761,7 +757,7 @@ function CharacterSettingsModalContent({
                                     placeholder="キャラクターに関する詳細を記述してください..."
                                 />
                             </div>
-                            <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.875rem' }}>
+                            <div>
                                 <div style={fixedPromptLabelStyle}>{SPEECH_STYLE_SECTION_TITLE}</div>
                                 <PromptSectionEditor
                                     markdown={speechStyle}
@@ -769,7 +765,7 @@ function CharacterSettingsModalContent({
                                     placeholder="例: 「それ、めっちゃいいじゃん！あとで私にも分けて？」"
                                 />
                             </div>
-                            <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.875rem' }}>
+                            <div>
                                 <div style={fixedPromptLabelStyle}>{PROTAGONIST_PROMPT_SECTION_TITLE}</div>
                                 <PromptSectionEditor
                                     markdown={protagonistPrompt}
@@ -777,7 +773,7 @@ function CharacterSettingsModalContent({
                                     placeholder="主人公に関する詳細を記述してください..."
                                 />
                             </div>
-                            <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.875rem' }}>
+                            <div>
                                 <div style={fixedPromptLabelStyle}>{USER_CONSTRAINTS_SECTION_TITLE}</div>
                                 <PromptSectionEditor
                                     markdown={userConstraints}

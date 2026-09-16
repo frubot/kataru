@@ -903,7 +903,7 @@ function TemporaryActorSettingsModal({
                 isOpen={expressionsOpen}
                 onClose={() => setExpressionsOpen(false)}
                 expressions={draft.expressions}
-                costumes={[]}
+                costumes={draft.costumes}
                 showCostumeSettings={false}
                 onUpsert={(expression) => {
                     setDraft((current) => {

@@ -116,6 +116,8 @@ export default function ExpressionDiffModal({
     }, [costumes, selectedCostumeName, showCostumeSettings]);
 
     const additionalCostumes = costumes.filter((costume) => costume.kind !== 'vrm' && costume.name.toLowerCase() !== DEFAULT_COSTUME_NAME);
+    const defaultIsVrm = selectedCostumeName === DEFAULT_COSTUME_NAME
+        && costumes.some((costume) => costume.name.toLowerCase() === DEFAULT_COSTUME_NAME && costume.kind === 'vrm');
     const selectedCostume = selectedCostumeName === DEFAULT_COSTUME_NAME
         ? null
         : additionalCostumes.find((costume) => costume.name === selectedCostumeName) ?? null;
@@ -405,7 +407,7 @@ export default function ExpressionDiffModal({
         containerRef: modalRef,
         onClose,
         canClose: !busy,
-        onEnter: addMode === 'generate' ? handleAdd : undefined,
+        onEnter: !defaultIsVrm && addMode === 'generate' ? handleAdd : undefined,
     });
 
     if (!isOpen) return null;
@@ -461,11 +463,20 @@ export default function ExpressionDiffModal({
                             <p style={hintStyle}>
                                 {selectedCostume
                                     ? `「${selectedCostume.name}」の衣装画像をベースに、この衣装専用の表情差分を作成します`
-                                    : 'デフォルトの立ち絵をベースに、従来の表情差分を作成します'}
+                                    : defaultIsVrm
+                                        ? 'default は3Dモデルです'
+                                        : 'デフォルトの立ち絵をベースに、従来の表情差分を作成します'}
                             </p>
                         </div>
                     )}
 
+                    {defaultIsVrm ? (
+                        <p style={hintStyle}>
+                            default は3Dモデルのため表情差分はありません。表情の対応は「アバターの変更」のVRM設定で行います。
+                            {additionalCostumes.length > 0 && ' 別のコスチュームを選択すると、その衣装の表情差分を編集できます。'}
+                        </p>
+                    ) : (
+                        <>
                     <div>
                         <label style={labelStyle}>新しい表情を追加</label>
                         <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
@@ -808,6 +819,8 @@ export default function ExpressionDiffModal({
                             ))}
                         </div>
                     </div>
+                        </>
+                    )}
                 </div>
 
             </div>

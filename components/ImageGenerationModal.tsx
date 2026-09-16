@@ -45,7 +45,8 @@ export default function ImageGenerationModal({
     vrmPreviewName,
     vrmFallbackImage,
 }: Props) {
-    const { defaultImageModel, aiApiType, openAiCompatibleImageGenerationEnabled, getAiApiConfig } = useStore();
+    const { defaultImageModel, aiApiType, roleApiTypes, openAiCompatibleImageGenerationEnabled, getAiApiConfig } = useStore();
+    const imageApiType = roleApiTypes.defaultImageModel ?? aiApiType;
     const [prompt, setPrompt] = useState('');
     const [model, setModel] = useState(defaultImageModel);
     const [generating, setGenerating] = useState(false);
@@ -64,11 +65,11 @@ export default function ImageGenerationModal({
     const modalRef = useRef<HTMLDivElement>(null);
     const imgRef = useRef<HTMLImageElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const canGenerateImages = aiApiType === 'openrouter'
-        || (aiApiType === 'openai-compatible' && openAiCompatibleImageGenerationEnabled);
-    const providerImageGenerationHint = aiApiType === 'anthropic'
+    const canGenerateImages = imageApiType === 'openrouter'
+        || (imageApiType === 'openai-compatible' && openAiCompatibleImageGenerationEnabled);
+    const providerImageGenerationHint = imageApiType === 'anthropic'
         ? 'Anthropic APIでは画像生成を利用できません。ファイルからアップロードしてください。'
-        : aiApiType === 'openai-compatible'
+        : imageApiType === 'openai-compatible'
         ? openAiCompatibleImageGenerationEnabled
             ? 'OpenAI互換APIでは、テキストからの画像生成だけを試します。'
             : 'OpenAI互換APIでの画像生成は無効です。ファイルからアップロードしてください。'
@@ -304,6 +305,7 @@ export default function ImageGenerationModal({
                                             value={model}
                                             onChange={setModel}
                                             outputModality="image"
+                                            apiType={imageApiType}
                                             disabled={generating || !canGenerateImages}
                                         />
                                     </div>

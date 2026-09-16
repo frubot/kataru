@@ -1,4 +1,5 @@
 import * as db from '../db';
+import { isAiApiType } from '../aiApi';
 import { generateId } from '../id';
 import { DEFAULT_CHAT_MODEL } from '../modelDefaults';
 import { normalizeCharactersForCostumeDiffs } from '../visualDiffMigration';
@@ -31,10 +32,12 @@ export function normalizeCharacterModel(character: Character, fallbackModel: str
     const hadLegacyThinkMode = 'thinkModeEnabled' in normalized;
     const hadLegacyMaxTokens = 'maxTokens' in normalized;
     const hadLegacyEnableSummary = 'enableSummary' in normalized;
+    const hadInvalidApiType = 'aiApiType' in normalized && !isAiApiType(normalized.aiApiType);
     delete normalized.thinkModeEnabled;
     delete normalized.maxTokens;
     delete normalized.enableSummary;
-    return model === character.model && !hadLegacyThinkMode && !hadLegacyMaxTokens && !hadLegacyEnableSummary
+    if (hadInvalidApiType) delete normalized.aiApiType;
+    return model === character.model && !hadLegacyThinkMode && !hadLegacyMaxTokens && !hadLegacyEnableSummary && !hadInvalidApiType
         ? character
         : { ...normalized, model };
 }

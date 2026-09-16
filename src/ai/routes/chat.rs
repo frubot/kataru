@@ -15,18 +15,19 @@ use crate::{
 use super::{
     super::{anthropic, api_client::AiApiClient},
     common::{
-        ai_api_client_for, copy_if_present, resolve_model, successful_json_response, upstream_error,
+        ai_api_client_for_selection, copy_if_present, resolve_role_selection,
+        successful_json_response, upstream_error,
     },
 };
 
 fn build_chat_body(
     input: &Value,
     api_client: &AiApiClient,
+    model: &str,
     use_required_parameters: bool,
     use_response_format: bool,
     should_stream: bool,
 ) -> AppResult<Value> {
-    let model = resolve_model(input, "model", "defaultChatModel")?;
     let input_messages = input
         .get("messages")
         .and_then(Value::as_array)
@@ -43,7 +44,7 @@ fn build_chat_body(
         .get("responseFormat")
         .or_else(|| input.get("response_format"));
     let mut body = Map::new();
-    body.insert("model".to_owned(), Value::String(model));
+    body.insert("model".to_owned(), Value::String(model.to_owned()));
     body.insert("messages".to_owned(), Value::Array(messages));
     body.insert("stream".to_owned(), Value::Bool(should_stream));
     copy_if_present(&mut body, input, "maxTokens", "max_tokens");
@@ -84,6 +85,7 @@ fn build_chat_body(
 async fn send_chat_attempt(
     api_client: &AiApiClient,
     input: &Value,
+    model: &str,
     use_required_parameters: bool,
     use_response_format: bool,
     should_stream: bool,
@@ -91,6 +93,7 @@ async fn send_chat_attempt(
     let body = build_chat_body(
         input,
         api_client,
+        model,
         use_required_parameters,
         use_response_format,
         should_stream,
@@ -99,7 +102,8 @@ async fn send_chat_attempt(
 }
 
 pub async fn chat(State(state): State<AppState>, Json(input): Json<Value>) -> AppResult<Response> {
-    let api_client = ai_api_client_for(&state, &input)?;
+    let selection = resolve_role_selection(&input, "model", "defaultChatModel")?;
+    let api_client = ai_api_client_for_selection(&state, &input, &selection)?;
     let should_stream = input.get("stream").and_then(Value::as_bool) != Some(false);
     let has_response_format = input
         .get("responseFormat")
@@ -111,6 +115,7 @@ pub async fn chat(State(state): State<AppState>, Json(input): Json<Value>) -> Ap
     let mut upstream = send_chat_attempt(
         &api_client,
         &input,
+        &selection.model,
         require_parameters,
         has_response_format,
         should_stream,
@@ -125,6 +130,7 @@ pub async fn chat(State(state): State<AppState>, Json(input): Json<Value>) -> Ap
             upstream = send_chat_attempt(
                 &api_client,
                 &input,
+                &selection.model,
                 false,
                 !retry_without_format,
                 should_stream,
@@ -132,7 +138,15 @@ pub async fn chat(State(state): State<AppState>, Json(input): Json<Value>) -> Ap
             .await?;
         }
         if api_client.is_openrouter() && has_response_format && !upstream.status().is_success() {
-            upstream = send_chat_attempt(&api_client, &input, false, false, should_stream).await?;
+            upstream = send_chat_attempt(
+                &api_client,
+                &input,
+                &selection.model,
+                false,
+                false,
+                should_stream,
+            )
+            .await?;
         }
     }
 

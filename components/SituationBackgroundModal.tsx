@@ -27,10 +27,12 @@ export default function SituationBackgroundModal({
 }: SituationBackgroundModalProps) {
     const {
         aiApiType,
+        roleApiTypes,
         defaultImageModel,
         getAiApiConfig,
         openAiCompatibleImageGenerationEnabled,
     } = useStore();
+    const imageApiType = roleApiTypes.defaultImageModel ?? aiApiType;
     const [selectingImage, setSelectingImage] = useState(!currentImage);
     const [prompt, setPrompt] = useState(initialPrompt);
     const [model, setModel] = useState(defaultImageModel);
@@ -43,11 +45,11 @@ export default function SituationBackgroundModal({
 
     useEffect(() => () => abortRef.current?.abort(), []);
 
-    const canGenerateImages = aiApiType === 'openrouter'
-        || (aiApiType === 'openai-compatible' && openAiCompatibleImageGenerationEnabled);
-    const providerHint = aiApiType === 'anthropic'
+    const canGenerateImages = imageApiType === 'openrouter'
+        || (imageApiType === 'openai-compatible' && openAiCompatibleImageGenerationEnabled);
+    const providerHint = imageApiType === 'anthropic'
         ? 'Anthropic APIでは画像生成を利用できません。ファイルからアップロードしてください。'
-        : aiApiType === 'openai-compatible'
+        : imageApiType === 'openai-compatible'
             ? openAiCompatibleImageGenerationEnabled
                 ? 'OpenAI互換APIでは、テキストからの画像生成だけを試します。'
                 : 'OpenAI互換APIでの画像生成は無効です。ファイルからアップロードしてください。'
@@ -240,6 +242,7 @@ export default function SituationBackgroundModal({
                                             value={model}
                                             onChange={setModel}
                                             outputModality="image"
+                                            apiType={imageApiType}
                                             disabled={generating || !canGenerateImages}
                                         />
                                     </div>

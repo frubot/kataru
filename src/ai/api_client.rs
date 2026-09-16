@@ -28,7 +28,7 @@ pub fn ai_api_config_value(body: &Value) -> Option<&Value> {
         })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AiApiKind {
     OpenRouter,
     OpenAiCompatible,
@@ -41,6 +41,26 @@ impl AiApiKind {
             Self::OpenRouter => "openrouter",
             Self::OpenAiCompatible => "openai-compatible",
             Self::Anthropic => "anthropic",
+        }
+    }
+
+    /// Lenient mapping used for the top-level `aiApiType`: unknown or missing
+    /// values fall back to OpenRouter for backwards compatibility.
+    fn from_wire(value: Option<&str>) -> Self {
+        match value {
+            Some("openai-compatible") => Self::OpenAiCompatible,
+            Some("anthropic") => Self::Anthropic,
+            _ => Self::OpenRouter,
+        }
+    }
+
+    /// Strict parsing for per-role / per-entity overrides.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "openrouter" => Some(Self::OpenRouter),
+            "openai-compatible" => Some(Self::OpenAiCompatible),
+            "anthropic" => Some(Self::Anthropic),
+            _ => None,
         }
     }
 }
@@ -82,14 +102,25 @@ pub struct AiApiClient {
 
 impl AiApiClient {
     pub fn from_state(state: &AppState, config: Option<&Value>) -> AppResult<Self> {
+        Self::from_state_for(state, config, None)
+    }
+
+    /// Builds a client for `api_type` when given (a per-role or per-entity
+    /// override), falling back to the config's top-level `aiApiType`.
+    pub fn from_state_for(
+        state: &AppState,
+        config: Option<&Value>,
+        api_type: Option<&str>,
+    ) -> AppResult<Self> {
         let config = config
             .cloned()
             .and_then(|value| serde_json::from_value::<AiApiConfig>(value).ok());
-        Self::resolve(
+        Self::resolve_for(
             state.http_client.clone(),
             &state.application_origin,
             &state.ai_config.effective(),
             config,
+            api_type,
         )
     }
 
@@ -99,11 +130,22 @@ impl AiApiClient {
         server_config: &EffectiveAiConfig,
         config: Option<AiApiConfig>,
     ) -> AppResult<Self> {
+        Self::resolve_for(client, application_origin, server_config, config, None)
+    }
+
+    pub fn resolve_for(
+        client: Client,
+        application_origin: impl AsRef<str>,
+        server_config: &EffectiveAiConfig,
+        config: Option<AiApiConfig>,
+        api_type: Option<&str>,
+    ) -> AppResult<Self> {
         let config = config.unwrap_or_default();
-        let kind = match config.ai_api_type.as_deref() {
-            Some("openai-compatible") => AiApiKind::OpenAiCompatible,
-            Some("anthropic") => AiApiKind::Anthropic,
-            _ => AiApiKind::OpenRouter,
+        let kind = match api_type {
+            Some(value) => AiApiKind::parse(value).ok_or_else(|| {
+                AppError::BadRequest(format!("不明な aiApiType です: {value}"))
+            })?,
+            None => AiApiKind::from_wire(config.ai_api_type.as_deref()),
         };
 
         let (base_url, api_key) = match kind {
@@ -162,6 +204,10 @@ impl AiApiClient {
 
     pub fn is_anthropic(&self) -> bool {
         self.kind == AiApiKind::Anthropic
+    }
+
+    pub fn kind(&self) -> AiApiKind {
+        self.kind
     }
 
     pub fn api_type_name(&self) -> &'static str {

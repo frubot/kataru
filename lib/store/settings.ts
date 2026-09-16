@@ -6,7 +6,10 @@ import {
     DEFAULT_OPENROUTER_IGNORED_PROVIDERS,
     normalizeOpenAiCompatibleBaseUrl,
     normalizeOpenRouterIgnoredProviders,
+    normalizeRoleApiTypes,
     type AiApiConfig,
+    type AiApiType,
+    type RoleApiTypes,
 } from '../aiApi';
 import * as db from '../db';
 import { generateId } from '../id';
@@ -27,10 +30,12 @@ import {
     DEFAULT_SUMMARY_MODEL,
     DEFAULT_TITLE_GENERATION_MODEL,
     getDefaultModelDefaults,
+    MODEL_DEFAULT_FIELDS,
     normalizeModelDefaults,
     normalizeModelDefaultsByApiType,
     type ModelDefaults,
     type ModelDefaultsByApiType,
+    type ModelRoleKey,
 } from '../modelDefaults';
 import { fire } from './persistence';
 import type {
@@ -123,6 +128,24 @@ export async function waitForModelDefaultsWrites(): Promise<void> {
     await modelDefaultsWriteQueue.catch(() => undefined);
 }
 
+/** The service a role currently resolves to (its override or the global type). */
+export function roleApiTypeFor(
+    state: Pick<AppState, 'aiApiType' | 'roleApiTypes'>,
+    role: ModelRoleKey,
+): AiApiType {
+    return state.roleApiTypes[role] ?? state.aiApiType;
+}
+
+/** The effective model for every role, honoring per-role service overrides. */
+export function activeModelDefaults(
+    state: Pick<AppState, 'aiApiType' | 'roleApiTypes' | 'modelDefaultsByApiType'>,
+): ModelDefaults {
+    return Object.fromEntries(MODEL_DEFAULT_FIELDS.map((key) => [
+        key,
+        state.modelDefaultsByApiType[roleApiTypeFor(state, key)][key],
+    ])) as unknown as ModelDefaults;
+}
+
 function updateModelDefault<K extends keyof ModelDefaults>(
     set: StoreSet,
     get: StoreGet,
@@ -130,13 +153,14 @@ function updateModelDefault<K extends keyof ModelDefaults>(
     value: ModelDefaults[K],
 ): void {
     const state = get();
+    const roleApiType = roleApiTypeFor(state, key);
     const apiTypeDefaults = {
-        ...state.modelDefaultsByApiType[state.aiApiType],
+        ...state.modelDefaultsByApiType[roleApiType],
         [key]: value,
     };
     const modelDefaultsByApiType = {
         ...state.modelDefaultsByApiType,
-        [state.aiApiType]: apiTypeDefaults,
+        [roleApiType]: apiTypeDefaults,
     };
     set({ [key]: value, modelDefaultsByApiType } as Partial<AppState>);
     persistModelDefaultsByApiType(modelDefaultsByApiType);
@@ -145,6 +169,7 @@ function updateModelDefault<K extends keyof ModelDefaults>(
 type AiConfigState = Pick<
     AppState,
     | 'aiApiType'
+    | 'roleApiTypes'
     | 'openRouterIgnoredProviders'
     | 'openAiCompatibleBaseUrl'
     | 'openAiCompatibleEmbeddingsEnabled'
@@ -181,6 +206,7 @@ export function getAiApiConfigFromState(state: AiConfigState): AiApiConfig {
         openAiCompatibleEmbeddingsEnabled: state.openAiCompatibleEmbeddingsEnabled,
         openAiCompatibleImageGenerationEnabled: state.openAiCompatibleImageGenerationEnabled,
         modelDefaults,
+        roleApiTypes: normalizeRoleApiTypes(state.roleApiTypes),
     };
 }
 
@@ -202,6 +228,7 @@ type SettingsSlice = Pick<
     | 'memoryExtractionModel'
     | 'memoryEmbeddingModel'
     | 'modelDefaultsByApiType'
+    | 'roleApiTypes'
     | 'conversationCompressionEnabled'
     | 'generateTitleOnFirstReply'
     | 'replySuggestionsEnabled'
@@ -235,6 +262,7 @@ type SettingsSlice = Pick<
     | 'setExpressionDetectionModel'
     | 'setMemoryExtractionModel'
     | 'setMemoryEmbeddingModel'
+    | 'setRoleApiType'
     | 'setConversationCompressionEnabled'
     | 'setGenerateTitleOnFirstReply'
     | 'setReplySuggestionsEnabled'
@@ -270,6 +298,7 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         memoryExtractionModel: DEFAULT_MEMORY_EXTRACTION_MODEL,
         memoryEmbeddingModel: DEFAULT_MEMORY_EMBEDDING_MODEL,
         modelDefaultsByApiType: normalizeModelDefaultsByApiType(undefined),
+        roleApiTypes: {},
         conversationCompressionEnabled: DEFAULT_CONVERSATION_COMPRESSION_ENABLED,
         generateTitleOnFirstReply: false,
         replySuggestionsEnabled: false,
@@ -332,12 +361,18 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         },
         resetModelDefaults: () => {
             const state = get();
-            const modelDefaults = { ...getDefaultModelDefaults(state.aiApiType) };
-            const modelDefaultsByApiType = {
-                ...state.modelDefaultsByApiType,
-                [state.aiApiType]: modelDefaults,
-            };
-            set({ ...modelDefaults, modelDefaultsByApiType });
+            const modelDefaultsByApiType = { ...state.modelDefaultsByApiType };
+            const flat = {} as Record<ModelRoleKey, string>;
+            for (const key of MODEL_DEFAULT_FIELDS) {
+                const roleApiType = roleApiTypeFor(state, key);
+                const defaults = getDefaultModelDefaults(roleApiType);
+                modelDefaultsByApiType[roleApiType] = {
+                    ...modelDefaultsByApiType[roleApiType],
+                    [key]: defaults[key],
+                };
+                flat[key] = defaults[key];
+            }
+            set({ ...flat, modelDefaultsByApiType });
             persistModelDefaultsByApiType(modelDefaultsByApiType);
         },
         setSummaryModel: (summaryModel) => {
@@ -370,6 +405,19 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         setMemoryEmbeddingModel: (memoryEmbeddingModel) => {
             updateModelDefault(set, get, 'memoryEmbeddingModel', memoryEmbeddingModel);
         },
+        setRoleApiType: (role, apiType) => {
+            const state = get();
+            const roleApiTypes: RoleApiTypes = { ...state.roleApiTypes };
+            if (apiType) {
+                roleApiTypes[role] = apiType;
+            } else {
+                delete roleApiTypes[role];
+            }
+            const effectiveApiType = apiType ?? state.aiApiType;
+            const model = state.modelDefaultsByApiType[effectiveApiType][role];
+            set({ roleApiTypes, [role]: model } as Partial<AppState>);
+            fire(db.setMeta('roleApiTypes', roleApiTypes));
+        },
         setConversationCompressionEnabled: (conversationCompressionEnabled) => {
             set({ conversationCompressionEnabled });
             fire(db.setMeta('conversationCompressionEnabled', conversationCompressionEnabled));
@@ -383,7 +431,8 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
             fire(db.setMeta('replySuggestionsEnabled', replySuggestionsEnabled));
         },
         setAiApiType: (aiApiType) => {
-            const modelDefaults = get().modelDefaultsByApiType[aiApiType] ?? getDefaultModelDefaults(aiApiType);
+            const state = get();
+            const modelDefaults = activeModelDefaults({ ...state, aiApiType });
             set({ aiApiType, ...modelDefaults });
             fire(db.setMeta('aiApiType', aiApiType));
         },

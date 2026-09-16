@@ -19,7 +19,8 @@ interface Props {
 }
 
 export default function CharacterGeneratorModal({ isOpen, onClose, onApply }: Props) {
-    const { defaultAutoGenerationModel, getAiApiConfig } = useStore();
+    const { defaultAutoGenerationModel, aiApiType, roleApiTypes, getAiApiConfig } = useStore();
+    const generationApiType = roleApiTypes.defaultAutoGenerationModel ?? aiApiType;
     const [direction, setDirection] = useState('');
     const [model, setModel] = useState(defaultAutoGenerationModel);
     const [generated, setGenerated] = useState<GeneratedCharacterProfile | null>(null);
@@ -158,6 +159,7 @@ export default function CharacterGeneratorModal({ isOpen, onClose, onApply }: Pr
                             value={model}
                             onChange={setModel}
                             outputModality="text"
+                            apiType={generationApiType}
                             disabled={generating}
                             placeholder={`例: ${defaultAutoGenerationModel}`}
                         />

@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use crate::{AppState, error::AppResult};
 
 use super::{
-    common::{ai_api_client_for, resolve_model, take_chars},
+    common::{ai_api_client_for_selection, resolve_role_selection, take_chars},
     structured::{extract_message_text, structured_completion},
 };
 
@@ -239,12 +239,13 @@ pub async fn extract_memories(
     State(state): State<AppState>,
     Json(input): Json<Value>,
 ) -> AppResult<Response> {
-    let api_client = ai_api_client_for(&state, &input)?;
     let recent_messages = normalize_recent_messages(&input);
     if recent_messages.is_empty() {
         return Ok(Json(json!({ "updates": [] })).into_response());
     }
-    let model = resolve_model(&input, "model", "memoryExtractionModel")?;
+    let selection = resolve_role_selection(&input, "model", "memoryExtractionModel")?;
+    let api_client = ai_api_client_for_selection(&state, &input, &selection)?;
+    let model = selection.model;
     let character_system_prompt = input
         .get("characterSystemPrompt")
         .and_then(Value::as_str)

@@ -1,12 +1,12 @@
 import type { StoreApi } from 'zustand';
 
-import type { AiApiConfig, AiApiType } from '../aiApi';
+import type { AiApiConfig, AiApiType, RoleApiTypes } from '../aiApi';
 import type {
     KeyboardShortcut,
     KeyboardShortcutAction,
     KeyboardShortcutSettings,
 } from '../keyboardShortcuts';
-import type { ModelDefaultsByApiType } from '../modelDefaults';
+import type { ModelDefaultsByApiType, ModelRoleKey } from '../modelDefaults';
 
 export interface Expression {
     name: string;
@@ -38,6 +38,8 @@ export interface Character {
     protagonistPrompt?: string;
     userConstraints?: string;
     model: string;
+    /** Service override for this character; absent = the global `aiApiType`. */
+    aiApiType?: AiApiType;
     icon?: string;
     maxCharacters?: number;
     maxHistory?: number;
@@ -143,6 +145,7 @@ export type SituationActor =
         speechStyle?: string;
         userConstraints?: string;
         model?: string;
+        aiApiType?: AiApiType;
         icon?: string;
         rolePrompt?: string;
         directorDescription?: string;
@@ -162,6 +165,8 @@ export type SituationActor =
 export interface SituationDirector {
     enabled: boolean;
     model: string;
+    /** Service override for the director; absent = the global `aiApiType`. */
+    aiApiType?: AiApiType;
     systemPrompt?: string;
     maxAutoTurns: number;
     stopPolicy: 'after-one' | 'max-turns';
@@ -308,6 +313,7 @@ export interface AppState {
     memoryExtractionModel: string;
     memoryEmbeddingModel: string;
     modelDefaultsByApiType: ModelDefaultsByApiType;
+    roleApiTypes: RoleApiTypes;
     conversationCompressionEnabled: boolean;
     generateTitleOnFirstReply: boolean;
     replySuggestionsEnabled: boolean;
@@ -351,6 +357,7 @@ export interface AppState {
     setExpressionDetectionModel: (model: string) => void;
     setMemoryExtractionModel: (model: string) => void;
     setMemoryEmbeddingModel: (model: string) => void;
+    setRoleApiType: (role: ModelRoleKey, apiType?: AiApiType) => void;
     setConversationCompressionEnabled: (enabled: boolean) => void;
     setGenerateTitleOnFirstReply: (enabled: boolean) => void;
     setReplySuggestionsEnabled: (enabled: boolean) => void;
@@ -366,7 +373,7 @@ export interface AppState {
     setSummaryInspectorEnabled: (enabled: boolean) => void;
 
     createCharacter: (name: string, systemPrompt?: string, model?: string, extras?: CharacterExtras) => string;
-    updateCharacter: (id: string, updates: Partial<Pick<Character, 'name' | 'systemPrompt' | 'favorite' | 'speechStyle' | 'protagonistPrompt' | 'userConstraints' | 'model' | 'icon' | 'maxCharacters' | 'maxHistory' | 'temperature' | 'topP' | 'topK' | 'frequencyPenalty' | 'presencePenalty' | 'repetitionPenalty' | 'enableThinking' | 'enableMemory' | 'expressions' | 'costumes'>>) => void;
+    updateCharacter: (id: string, updates: Partial<Pick<Character, 'name' | 'systemPrompt' | 'favorite' | 'speechStyle' | 'protagonistPrompt' | 'userConstraints' | 'model' | 'aiApiType' | 'icon' | 'maxCharacters' | 'maxHistory' | 'temperature' | 'topP' | 'topK' | 'frequencyPenalty' | 'presencePenalty' | 'repetitionPenalty' | 'enableThinking' | 'enableMemory' | 'expressions' | 'costumes'>>) => void;
     deleteCharacter: (id: string) => void;
     duplicateCharacter: (id: string) => string;
     getCharacter: (id: string) => Character | undefined;

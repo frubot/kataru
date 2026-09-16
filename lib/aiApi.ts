@@ -1,8 +1,12 @@
-import { getDefaultModelDefaults, normalizeModelDefaults, type ModelDefaults } from './modelDefaults';
+import { getDefaultModelDefaults, MODEL_DEFAULT_FIELDS, normalizeModelDefaults, type ModelDefaults, type ModelRoleKey } from './modelDefaults';
 
 export { DEFAULT_ANTHROPIC_TEXT_MODEL } from './modelDefaults';
 
 export type AiApiType = 'openrouter' | 'openai-compatible' | 'anthropic';
+
+/** Per-role service overrides. Keys are `ModelDefaults` field names; an absent
+ * entry means the role follows the global `aiApiType`. */
+export type RoleApiTypes = Partial<Record<ModelRoleKey, AiApiType>>;
 
 export interface AiApiConfig {
     aiApiType: AiApiType;
@@ -11,6 +15,7 @@ export interface AiApiConfig {
     openAiCompatibleEmbeddingsEnabled: boolean;
     openAiCompatibleImageGenerationEnabled: boolean;
     modelDefaults: ModelDefaults;
+    roleApiTypes?: RoleApiTypes;
 }
 
 export const DEFAULT_AI_API_TYPE: AiApiType = 'openrouter';
@@ -22,6 +27,46 @@ export const DEFAULT_OPENAI_COMPATIBLE_IMAGE_GENERATION_ENABLED = false;
 
 export function isAiApiType(value: unknown): value is AiApiType {
     return value === 'openrouter' || value === 'openai-compatible' || value === 'anthropic';
+}
+
+export const AI_API_TYPE_LABELS: Record<AiApiType, string> = {
+    openrouter: 'OpenRouter',
+    'openai-compatible': 'OpenAI / 互換API',
+    anthropic: 'Anthropic / 互換API',
+};
+
+export function normalizeRoleApiTypes(value: unknown): RoleApiTypes {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    const record = value as Record<string, unknown>;
+    const result: RoleApiTypes = {};
+    for (const field of MODEL_DEFAULT_FIELDS) {
+        if (isAiApiType(record[field])) result[field] = record[field];
+    }
+    return result;
+}
+
+/** The service a role effectively runs on after applying its override. */
+export function resolveRoleApiType(config: AiApiConfig, role: ModelRoleKey): AiApiType {
+    return config.roleApiTypes?.[role] ?? config.aiApiType;
+}
+
+/** Returns a copy of the config pinned to `aiApiType` — used to list models
+ * for a service other than the global one. */
+export function aiApiConfigForType(config: AiApiConfig, aiApiType: AiApiType): AiApiConfig {
+    return { ...config, aiApiType };
+}
+
+/** Whether `feature` can run on `apiType` under this config. */
+export function supportsAiApiFeature(
+    config: AiApiConfig,
+    apiType: AiApiType,
+    feature: 'embeddings' | 'imageGeneration',
+): boolean {
+    if (apiType === 'anthropic') return false;
+    if (apiType !== 'openai-compatible') return true;
+    return feature === 'embeddings'
+        ? config.openAiCompatibleEmbeddingsEnabled
+        : config.openAiCompatibleImageGenerationEnabled;
 }
 
 export function normalizeOpenAiCompatibleBaseUrl(value: unknown): string {
@@ -61,12 +106,10 @@ export function normalizeAiApiConfig(value: unknown): AiApiConfig {
             record.modelDefaults ?? record.modelDefaultsByProvider,
             getDefaultModelDefaults(aiApiType),
         ),
+        roleApiTypes: normalizeRoleApiTypes(record.roleApiTypes),
     };
 }
 
 export function isOpenAiCompatibleFeatureEnabled(config: AiApiConfig, feature: 'embeddings' | 'imageGeneration'): boolean {
-    if (config.aiApiType === 'anthropic') return false;
-    if (config.aiApiType !== 'openai-compatible') return true;
-    if (feature === 'embeddings') return config.openAiCompatibleEmbeddingsEnabled;
-    return config.openAiCompatibleImageGenerationEnabled;
+    return supportsAiApiFeature(config, config.aiApiType, feature);
 }

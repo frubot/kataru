@@ -1,10 +1,14 @@
 import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
 import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Check, ChevronDown, RefreshCw, ExternalLink, type LucideIcon } from 'lucide-react';
 import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, RoomViewMode, getDefaultModelDefaults, type AiApiType } from '@/lib/store';
+import { AI_API_TYPE_LABELS } from '@/lib/aiApi';
+import { MODEL_DEFAULT_FIELDS, type ModelRoleKey } from '@/lib/modelDefaults';
+import type { ModelOutputModality } from '@/lib/availableModels';
 import { createFullBackup, downloadJson, parseImportFile, reassignIds, type ParsedImport } from '@/lib/importExport';
 import StatisticsPanel from '@/components/StatisticsPanel';
 import AiConnectionSettings from '@/components/AiConnectionSettings';
 import ModelSelector from '@/components/ModelSelector';
+import ApiTypeSelect from '@/components/ApiTypeSelect';
 import ProviderSelector from '@/components/ProviderSelector';
 import KeyboardSettingsPanel from '@/components/KeyboardSettingsPanel';
 import { useModalKeyboard } from '@/components/useModalKeyboard';
@@ -328,6 +332,73 @@ function VnSpeedSlider({ value, onChange }: VnSpeedSliderProps) {
     );
 }
 
+interface RoleModelFieldProps {
+    role: ModelRoleKey;
+    label: string;
+    inputId: string;
+    value: string;
+    onChange: (model: string) => void;
+    outputModality?: ModelOutputModality;
+    capability?: 'embeddings' | 'imageGeneration';
+}
+
+/** A role's service picker + model selector row for the models settings tab. */
+function RoleModelField({
+    role,
+    label,
+    inputId,
+    value,
+    onChange,
+    outputModality = 'text',
+    capability,
+}: RoleModelFieldProps) {
+    const globalApiType = useStore((state) => state.aiApiType);
+    const roleApiType = useStore((state) => state.roleApiTypes[role]);
+    const setRoleApiType = useStore((state) => state.setRoleApiType);
+    const modelDefaultsByApiType = useStore((state) => state.modelDefaultsByApiType);
+    const embeddingsEnabled = useStore((state) => state.openAiCompatibleEmbeddingsEnabled);
+    const imageGenerationEnabled = useStore((state) => state.openAiCompatibleImageGenerationEnabled);
+    const effectiveApiType = roleApiType ?? globalApiType;
+    const apiTypeDefaults = modelDefaultsByApiType[effectiveApiType] ?? getDefaultModelDefaults(effectiveApiType);
+    const capabilitySupported = !capability
+        || effectiveApiType === 'openrouter'
+        || (effectiveApiType === 'openai-compatible'
+            && (capability === 'embeddings' ? embeddingsEnabled : imageGenerationEnabled));
+
+    return (
+        <div className="global-settings-selector-row global-settings-selector-row-divider">
+            <label
+                htmlFor={inputId}
+                style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
+            >
+                {label}
+            </label>
+            <div className="global-settings-selector-control global-settings-model-selector-control">
+                <ApiTypeSelect
+                    value={roleApiType}
+                    globalApiType={globalApiType}
+                    ariaLabel={`${label}の接続先`}
+                    onChange={(apiType) => setRoleApiType(role, apiType)}
+                />
+                {capabilitySupported ? (
+                    <ModelSelector
+                        id={inputId}
+                        value={value}
+                        onChange={onChange}
+                        outputModality={outputModality}
+                        apiType={effectiveApiType}
+                        placeholder={`例: ${apiTypeDefaults[role]}`}
+                    />
+                ) : (
+                    <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                        {AI_API_TYPE_LABELS[effectiveApiType]} では{capability === 'embeddings' ? '埋め込み' : '画像生成'}を利用できません。
+                    </p>
+                )}
+            </div>
+        </div>
+    );
+}
+
 export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding }: GlobalSettingsModalProps) {
     const {
         themeMode, themePalette, defaultViewMode, vnTypingSpeed,
@@ -354,17 +425,23 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         setMemoryInspectorEnabled, setSummaryInspectorEnabled,
         clearAllHistory, resetApplication, mergeBackup, restoreBackup,
     } = useStore();
-    const apiTypeDefaults = getDefaultModelDefaults(aiApiType);
-    const modelDefaultsAreUnchanged = summaryModel === apiTypeDefaults.summaryModel
-        && defaultChatModel === apiTypeDefaults.defaultChatModel
-        && defaultDirectorModel === apiTypeDefaults.defaultDirectorModel
-        && defaultAutoGenerationModel === apiTypeDefaults.defaultAutoGenerationModel
-        && titleGenerationModel === apiTypeDefaults.titleGenerationModel
-        && replySuggestionModel === apiTypeDefaults.replySuggestionModel
-        && defaultImageModel === apiTypeDefaults.defaultImageModel
-        && expressionDetectionModel === apiTypeDefaults.expressionDetectionModel
-        && memoryExtractionModel === apiTypeDefaults.memoryExtractionModel
-        && memoryEmbeddingModel === apiTypeDefaults.memoryEmbeddingModel;
+    const roleApiTypes = useStore((state) => state.roleApiTypes);
+    const modelDefaultsAreUnchanged = MODEL_DEFAULT_FIELDS.every((role) => {
+        const roleApiType = roleApiTypes[role] ?? aiApiType;
+        const current = {
+            summaryModel,
+            defaultChatModel,
+            defaultDirectorModel,
+            defaultAutoGenerationModel,
+            titleGenerationModel,
+            replySuggestionModel,
+            defaultImageModel,
+            expressionDetectionModel,
+            memoryExtractionModel,
+            memoryEmbeddingModel,
+        }[role];
+        return current === getDefaultModelDefaults(roleApiType)[role];
+    });
     const [showClearConfirm, setShowClearConfirm] = useState(false);
     const [showResetConfirm, setShowResetConfirm] = useState(false);
     const [importData, setImportData] = useState<ParsedImport | null>(null);
@@ -1361,199 +1438,80 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                 gap: '1rem',
                             }}>
 
-                                {/* Default chat model */}
-                                <div className="global-settings-selector-row global-settings-selector-row-divider">
-                                    <label
-                                        htmlFor="default-chat-model-input"
-                                        style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
-                                    >
-                                        会話
-                                    </label>
-                                    <div className="global-settings-selector-control global-settings-model-selector-control">
-                                        <ModelSelector
-                                            id="default-chat-model-input"
-                                            value={defaultChatModel}
-                                            onChange={setDefaultChatModel}
-                                            outputModality="text"
-                                            placeholder={`例: ${apiTypeDefaults.defaultChatModel}`}
-                                        />
-                                    </div>
-                                </div>
-
-                                {/* Default director model */}
-                                <div className="global-settings-selector-row global-settings-selector-row-divider">
-                                    <label
-                                        htmlFor="default-director-model-input"
-                                        style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
-                                    >
-                                        シチュエーション管理
-                                    </label>
-                                    <div className="global-settings-selector-control global-settings-model-selector-control">
-                                        <ModelSelector
-                                            id="default-director-model-input"
-                                            value={defaultDirectorModel}
-                                            onChange={setDefaultDirectorModel}
-                                            outputModality="text"
-                                            placeholder={`例: ${apiTypeDefaults.defaultDirectorModel}`}
-                                        />
-                                    </div>
-                                </div>
-
-                                {/* Default auto generation model */}
-                                <div className="global-settings-selector-row global-settings-selector-row-divider">
-                                    <label
-                                        htmlFor="default-auto-generation-model-input"
-                                        style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
-                                    >
-                                        設定の自動生成
-                                    </label>
-                                    <div className="global-settings-selector-control global-settings-model-selector-control">
-                                        <ModelSelector
-                                            id="default-auto-generation-model-input"
-                                            value={defaultAutoGenerationModel}
-                                            onChange={setDefaultAutoGenerationModel}
-                                            outputModality="text"
-                                            placeholder={`例: ${apiTypeDefaults.defaultAutoGenerationModel}`}
-                                        />
-                                    </div>
-                                </div>
-
-                                {/* Title generation model */}
-                                <div className="global-settings-selector-row global-settings-selector-row-divider">
-                                    <label
-                                        htmlFor="title-generation-model-input"
-                                        style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
-                                    >
-                                        タイトル生成
-                                    </label>
-                                    <div className="global-settings-selector-control global-settings-model-selector-control">
-                                        <ModelSelector
-                                            id="title-generation-model-input"
-                                            value={titleGenerationModel}
-                                            onChange={setTitleGenerationModel}
-                                            outputModality="text"
-                                            placeholder={`例: ${apiTypeDefaults.titleGenerationModel}`}
-                                        />
-                                    </div>
-                                </div>
-
-                                {/* Reply suggestion model */}
-                                <div className="global-settings-selector-row global-settings-selector-row-divider">
-                                    <label
-                                        htmlFor="reply-suggestion-model-input"
-                                        style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
-                                    >
-                                        返答の提案
-                                    </label>
-                                    <div className="global-settings-selector-control global-settings-model-selector-control">
-                                        <ModelSelector
-                                            id="reply-suggestion-model-input"
-                                            value={replySuggestionModel}
-                                            onChange={setReplySuggestionModel}
-                                            outputModality="text"
-                                            placeholder={`例: ${apiTypeDefaults.replySuggestionModel}`}
-                                        />
-                                    </div>
-                                </div>
-
-                                {/* Summary model */}
-                                <div className="global-settings-selector-row global-settings-selector-row-divider">
-                                    <label
-                                        htmlFor="summary-model-input"
-                                        style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
-                                    >
-                                        コンテキスト圧縮
-                                    </label>
-                                    <div className="global-settings-selector-control global-settings-model-selector-control">
-                                        <ModelSelector
-                                            id="summary-model-input"
-                                            value={summaryModel}
-                                            onChange={setSummaryModel}
-                                            outputModality="text"
-                                            placeholder={`例: ${apiTypeDefaults.summaryModel}`}
-                                        />
-                                    </div>
-                                </div>
-
-                                {/* Default image model */}
-                                {aiApiType === 'openrouter' && (
-                                    <div className="global-settings-selector-row global-settings-selector-row-divider">
-                                        <label
-                                            htmlFor="default-image-model-input"
-                                            style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
-                                        >
-                                            画像生成
-                                        </label>
-                                        <div className="global-settings-selector-control global-settings-model-selector-control">
-                                            <ModelSelector
-                                                id="default-image-model-input"
-                                                value={defaultImageModel}
-                                                onChange={setDefaultImageModel}
-                                                outputModality="image"
-                                                placeholder={`例: ${apiTypeDefaults.defaultImageModel}`}
-                                            />
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Expression detection model */}
-                                <div className="global-settings-selector-row global-settings-selector-row-divider">
-                                    <label
-                                        htmlFor="expression-detection-model-input"
-                                        style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
-                                    >
-                                        表情の自動判定
-                                    </label>
-                                    <div className="global-settings-selector-control global-settings-model-selector-control">
-                                        <ModelSelector
-                                            id="expression-detection-model-input"
-                                            value={expressionDetectionModel}
-                                            onChange={setExpressionDetectionModel}
-                                            outputModality="text"
-                                            placeholder={`例: ${apiTypeDefaults.expressionDetectionModel}`}
-                                        />
-                                    </div>
-                                </div>
-
-                                {/* Memory extraction model */}
-                                <div className="global-settings-selector-row global-settings-selector-row-divider">
-                                    <label
-                                        htmlFor="memory-extraction-model-input"
-                                        style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
-                                    >
-                                        メモリ保存
-                                    </label>
-                                    <div className="global-settings-selector-control global-settings-model-selector-control">
-                                        <ModelSelector
-                                            id="memory-extraction-model-input"
-                                            value={memoryExtractionModel}
-                                            onChange={setMemoryExtractionModel}
-                                            outputModality="text"
-                                            placeholder={`例: ${apiTypeDefaults.memoryExtractionModel}`}
-                                        />
-                                    </div>
-                                </div>
-
-                                {/* Memory embedding model */}
-                                {aiApiType === 'openrouter' && (
-                                    <div className="global-settings-selector-row">
-                                        <label
-                                            htmlFor="memory-embedding-model-input"
-                                            style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
-                                        >
-                                            メモリ検索
-                                        </label>
-                                        <div className="global-settings-selector-control global-settings-model-selector-control">
-                                            <ModelSelector
-                                                id="memory-embedding-model-input"
-                                                value={memoryEmbeddingModel}
-                                                onChange={setMemoryEmbeddingModel}
-                                                outputModality="embeddings"
-                                                placeholder={`例: ${apiTypeDefaults.memoryEmbeddingModel}`}
-                                            />
-                                        </div>
-                                    </div>
-                                )}
+                                <RoleModelField
+                                    role="defaultChatModel"
+                                    label="会話"
+                                    inputId="default-chat-model-input"
+                                    value={defaultChatModel}
+                                    onChange={setDefaultChatModel}
+                                />
+                                <RoleModelField
+                                    role="defaultDirectorModel"
+                                    label="シチュエーション管理"
+                                    inputId="default-director-model-input"
+                                    value={defaultDirectorModel}
+                                    onChange={setDefaultDirectorModel}
+                                />
+                                <RoleModelField
+                                    role="defaultAutoGenerationModel"
+                                    label="設定の自動生成"
+                                    inputId="default-auto-generation-model-input"
+                                    value={defaultAutoGenerationModel}
+                                    onChange={setDefaultAutoGenerationModel}
+                                />
+                                <RoleModelField
+                                    role="titleGenerationModel"
+                                    label="タイトル生成"
+                                    inputId="title-generation-model-input"
+                                    value={titleGenerationModel}
+                                    onChange={setTitleGenerationModel}
+                                />
+                                <RoleModelField
+                                    role="replySuggestionModel"
+                                    label="返答の提案"
+                                    inputId="reply-suggestion-model-input"
+                                    value={replySuggestionModel}
+                                    onChange={setReplySuggestionModel}
+                                />
+                                <RoleModelField
+                                    role="summaryModel"
+                                    label="コンテキスト圧縮"
+                                    inputId="summary-model-input"
+                                    value={summaryModel}
+                                    onChange={setSummaryModel}
+                                />
+                                <RoleModelField
+                                    role="defaultImageModel"
+                                    label="画像生成"
+                                    inputId="default-image-model-input"
+                                    value={defaultImageModel}
+                                    onChange={setDefaultImageModel}
+                                    outputModality="image"
+                                    capability="imageGeneration"
+                                />
+                                <RoleModelField
+                                    role="expressionDetectionModel"
+                                    label="表情の自動判定"
+                                    inputId="expression-detection-model-input"
+                                    value={expressionDetectionModel}
+                                    onChange={setExpressionDetectionModel}
+                                />
+                                <RoleModelField
+                                    role="memoryExtractionModel"
+                                    label="メモリ保存"
+                                    inputId="memory-extraction-model-input"
+                                    value={memoryExtractionModel}
+                                    onChange={setMemoryExtractionModel}
+                                />
+                                <RoleModelField
+                                    role="memoryEmbeddingModel"
+                                    label="メモリ検索"
+                                    inputId="memory-embedding-model-input"
+                                    value={memoryEmbeddingModel}
+                                    onChange={setMemoryEmbeddingModel}
+                                    outputModality="embeddings"
+                                    capability="embeddings"
+                                />
                             </div>
                         </div>
 

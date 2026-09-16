@@ -13,7 +13,8 @@ use crate::{
 };
 
 use super::common::{
-    ai_api_client_for, optional_trimmed_string, read_upstream_json, required_string, resolve_model,
+    ai_api_client_for_selection, optional_trimmed_string, read_upstream_json, required_string,
+    resolve_role_selection,
 };
 
 fn image_size(aspect_ratio: Option<&str>) -> &'static str {
@@ -28,9 +29,10 @@ pub async fn generate_image(
     State(state): State<AppState>,
     Json(input): Json<Value>,
 ) -> AppResult<Response> {
-    let api_client = ai_api_client_for(&state, &input)?;
+    let selection = resolve_role_selection(&input, "model", "defaultImageModel")?;
+    let api_client = ai_api_client_for_selection(&state, &input, &selection)?;
     let prompt = required_string(&input, "prompt", "prompt は必須です。")?;
-    let model = resolve_model(&input, "model", "defaultImageModel")?;
+    let model = selection.model;
     let inline_base_image = optional_trimmed_string(&input, "baseImage");
     let base_image_asset_id = optional_trimmed_string(&input, "baseImageAssetId");
     if inline_base_image.is_some() && base_image_asset_id.is_some() {

@@ -1,4 +1,5 @@
 import { generateId } from '../id';
+import { isAiApiType } from '../aiApi';
 import { DEFAULT_CHAT_MODEL } from '../modelDefaults';
 import type {
     Character,
@@ -51,6 +52,7 @@ export function normalizeSituationDirector(
     return {
         enabled: director?.enabled !== false,
         model,
+        ...(isAiApiType(director?.aiApiType) ? { aiApiType: director.aiApiType } : {}),
         ...(director?.systemPrompt?.trim() ? { systemPrompt: director.systemPrompt.trim() } : {}),
         maxAutoTurns,
         stopPolicy,
@@ -99,6 +101,7 @@ export function normalizeSituationActor(
                 ? { userConstraints: rawActor.userConstraints.trim() }
                 : {}),
             model: typeof rawActor.model === 'string' && rawActor.model.trim() ? rawActor.model.trim() : fallbackModel,
+            ...(isAiApiType(rawActor.aiApiType) ? { aiApiType: rawActor.aiApiType } : {}),
             ...(typeof rawActor.icon === 'string' && rawActor.icon ? { icon: rawActor.icon } : {}),
             ...(typeof rawActor.rolePrompt === 'string' && rawActor.rolePrompt.trim()
                 ? { rolePrompt: rawActor.rolePrompt.trim() }
@@ -259,6 +262,7 @@ export function resolveSituationParticipants(
                 speechStyle: actor.speechStyle,
                 userConstraints: actor.userConstraints,
                 model: actor.model?.trim() || fallbackModel,
+                aiApiType: actor.aiApiType,
                 icon: actor.icon,
                 maxCharacters: actor.maxCharacters,
                 maxHistory: actor.maxHistory,

@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 
 use crate::{
     AppState,
-    ai::{AiApiClient, ai_api_config_value, routes::resolve_model},
+    ai::{AiApiClient, ai_api_config_value, routes::optional_role_selection},
     db::get_conversation_memories,
     error::AppResult,
 };
@@ -65,8 +65,12 @@ pub(super) async fn prepare_conversation_memories(
         return Ok(Vec::new());
     }
 
-    let embedding_model =
-        resolve_model(payload, "memoryEmbeddingModel", "memoryEmbeddingModel").unwrap_or_default();
+    let embedding_selection =
+        optional_role_selection(payload, "memoryEmbeddingModel", "memoryEmbeddingModel");
+    let embedding_model = embedding_selection
+        .as_ref()
+        .map(|selection| selection.model.clone())
+        .unwrap_or_default();
     let now = now_millis();
     let mut prepared = merge_memory_candidates(
         selected,
@@ -80,7 +84,13 @@ pub(super) async fn prepare_conversation_memories(
         return Ok(prepared.into_iter().map(|memory| memory.value).collect());
     }
 
-    let api_client = match AiApiClient::from_state(state, ai_api_config_value(payload)) {
+    let api_client = match AiApiClient::from_state_for(
+        state,
+        ai_api_config_value(payload),
+        embedding_selection
+            .as_ref()
+            .and_then(|selection| selection.api_type.as_deref()),
+    ) {
         Ok(api_client) => api_client,
         Err(error) => {
             tracing::warn!(
@@ -99,14 +109,7 @@ pub(super) async fn prepare_conversation_memories(
             if !needs_embedding {
                 return None;
             }
-            match request_embedding(
-                api_client,
-                payload,
-                &content,
-                embedding_model,
-                "search_document",
-            )
-            .await
+            match request_embedding(api_client, &content, embedding_model, "search_document").await
             {
                 Ok(embedding) => embedding,
                 Err(error) => {
@@ -136,23 +139,11 @@ pub(super) async fn prepare_conversation_memories(
 
 pub(super) async fn request_embedding(
     api_client: &AiApiClient,
-    payload: &Value,
     input: &str,
     model: &str,
     input_type: &str,
 ) -> AppResult<Option<MemoryEmbedding>> {
     if input.trim().is_empty() || !api_client.embeddings_enabled() {
-        return Ok(None);
-    }
-    if ai_api_config_value(payload)
-        .and_then(|config| config.get("aiApiType").or_else(|| config.get("aiProvider")))
-        .and_then(Value::as_str)
-        == Some("openai-compatible")
-        && ai_api_config_value(payload)
-            .and_then(|config| config.get("openAiCompatibleEmbeddingsEnabled"))
-            .and_then(Value::as_bool)
-            != Some(true)
-    {
         return Ok(None);
     }
     let mut body = json!({

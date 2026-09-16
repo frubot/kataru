@@ -1,4 +1,4 @@
-import type { AiApiConfig } from '../aiApi';
+import { resolveRoleApiType, supportsAiApiFeature, type AiApiConfig } from '../aiApi';
 import * as db from '../db';
 import { generateId } from '../id';
 import { fire } from './persistence';
@@ -151,13 +151,8 @@ async function requestMemoryEmbedding(
 ): Promise<{ embedding: number[]; model: string } | null> {
     const trimmed = input.trim();
     if (!trimmed || typeof window === 'undefined') return null;
-    if (
-        aiApiConfig.aiApiType === 'anthropic'
-        || (
-            aiApiConfig.aiApiType === 'openai-compatible'
-            && !aiApiConfig.openAiCompatibleEmbeddingsEnabled
-        )
-    ) {
+    const embeddingApiType = resolveRoleApiType(aiApiConfig, 'memoryEmbeddingModel');
+    if (!supportsAiApiFeature(aiApiConfig, embeddingApiType, 'embeddings')) {
         return null;
     }
 

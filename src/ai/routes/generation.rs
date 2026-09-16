@@ -13,7 +13,8 @@ use crate::{
 
 use super::{
     common::{
-        ai_api_client_for, optional_trimmed_string, required_string, resolve_model, take_chars,
+        ai_api_client_for_selection, optional_trimmed_string, required_string,
+        resolve_role_selection, take_chars,
     },
     structured::{extract_message_text, plain_completion, structured_completion},
 };
@@ -24,12 +25,13 @@ pub async fn summarize(
     State(state): State<AppState>,
     Json(input): Json<Value>,
 ) -> AppResult<Response> {
-    let api_client = ai_api_client_for(&state, &input)?;
+    let selection = resolve_role_selection(&input, "model", "summaryModel")?;
+    let api_client = ai_api_client_for_selection(&state, &input, &selection)?;
     let messages = input
         .get("messages")
         .and_then(Value::as_array)
         .ok_or_else(|| AppError::BadRequest("messages は配列である必要があります。".to_owned()))?;
-    let model = resolve_model(&input, "model", "summaryModel")?;
+    let model = selection.model;
     let is_group_chat = input
         .get("isGroupChat")
         .and_then(Value::as_bool)
@@ -215,9 +217,10 @@ pub async fn detect_expression_name(
     State(state): State<AppState>,
     Json(input): Json<Value>,
 ) -> AppResult<Response> {
-    let api_client = ai_api_client_for(&state, &input)?;
+    let selection = resolve_role_selection(&input, "model", "expressionDetectionModel")?;
+    let api_client = ai_api_client_for_selection(&state, &input, &selection)?;
     let messages = expression_detection_messages(&input)?;
-    let model = resolve_model(&input, "model", "expressionDetectionModel")?;
+    let model = selection.model;
     let mut request = json!({
         "model": model,
         "messages": messages,
@@ -435,9 +438,10 @@ pub async fn generate_character(
     State(state): State<AppState>,
     Json(input): Json<Value>,
 ) -> AppResult<Response> {
-    let api_client = ai_api_client_for(&state, &input)?;
+    let selection = resolve_role_selection(&input, "model", "defaultAutoGenerationModel")?;
+    let api_client = ai_api_client_for_selection(&state, &input, &selection)?;
     let direction = optional_trimmed_string(&input, "direction").unwrap_or_default();
-    let model = resolve_model(&input, "model", "defaultAutoGenerationModel")?;
+    let model = selection.model;
     let system_prompt = r#"
 あなたは魅力的なオリジナルキャラクター設定を作成するAIです。
 JSON形式で出力してください。
@@ -505,7 +509,8 @@ pub async fn generate_situation_description(
     State(state): State<AppState>,
     Json(input): Json<Value>,
 ) -> AppResult<Response> {
-    let api_client = ai_api_client_for(&state, &input)?;
+    let selection = resolve_role_selection(&input, "model", "defaultAutoGenerationModel")?;
+    let api_client = ai_api_client_for_selection(&state, &input, &selection)?;
     let direction = optional_trimmed_string(&input, "direction").unwrap_or_default();
     let current_description =
         optional_trimmed_string(&input, "currentDescription").unwrap_or_default();
@@ -523,7 +528,7 @@ pub async fn generate_situation_description(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let model = resolve_model(&input, "model", "defaultAutoGenerationModel")?;
+    let model = selection.model;
     let system_prompt = [
         "You generate concise but vivid Japanese situation descriptions for a roleplay chat app.",
         "Output JSON only. Do not wrap it in markdown.",
@@ -770,7 +775,8 @@ pub async fn generate_reply_suggestions(
     State(state): State<AppState>,
     Json(input): Json<Value>,
 ) -> AppResult<Response> {
-    let api_client = ai_api_client_for(&state, &input)?;
+    let selection = resolve_role_selection(&input, "model", "replySuggestionModel")?;
+    let api_client = ai_api_client_for_selection(&state, &input, &selection)?;
     let messages = normalize_reply_suggestion_messages(input.get("messages"));
     if messages.is_empty()
         || messages
@@ -783,7 +789,7 @@ pub async fn generate_reply_suggestions(
             "返答の提案には、相手の返答で終わる会話が必要です。".to_owned(),
         ));
     }
-    let model = resolve_model(&input, "model", "replySuggestionModel")?;
+    let model = selection.model;
     let transcript = messages
         .iter()
         .filter_map(|message| {
@@ -856,14 +862,15 @@ pub async fn generate_title(
     State(state): State<AppState>,
     Json(input): Json<Value>,
 ) -> AppResult<Response> {
-    let api_client = ai_api_client_for(&state, &input)?;
+    let selection = resolve_role_selection(&input, "model", "titleGenerationModel")?;
+    let api_client = ai_api_client_for_selection(&state, &input, &selection)?;
     let messages = normalize_title_messages(input.get("messages"));
     if messages.is_empty() {
         return Err(AppError::BadRequest(
             "タイトル生成に必要な会話がありません。".to_owned(),
         ));
     }
-    let model = resolve_model(&input, "model", "titleGenerationModel")?;
+    let model = selection.model;
     let transcript = messages
         .iter()
         .filter_map(|message| {

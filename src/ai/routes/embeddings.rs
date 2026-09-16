@@ -10,13 +10,17 @@ use crate::{
     error::{AppError, AppResult},
 };
 
-use super::common::{ai_api_client_for, raw_upstream_response, resolve_model};
+use super::common::{
+    ai_api_client_for_api_type, raw_upstream_response, resolve_role_selection,
+    role_selection_api_type,
+};
 
 pub async fn embeddings(
     State(state): State<AppState>,
     Json(input): Json<Value>,
 ) -> AppResult<Response> {
-    let api_client = ai_api_client_for(&state, &input)?;
+    let api_type = role_selection_api_type(&input, "model", "memoryEmbeddingModel");
+    let api_client = ai_api_client_for_api_type(&state, &input, api_type.as_deref())?;
     if !api_client.embeddings_enabled() {
         return Ok(Json(json!({ "data": [], "disabled": true })).into_response());
     }
@@ -34,7 +38,7 @@ pub async fn embeddings(
             "input は文字列、または入力配列である必要があります。".to_owned(),
         ));
     }
-    let model = resolve_model(&input, "model", "memoryEmbeddingModel")?;
+    let model = resolve_role_selection(&input, "model", "memoryEmbeddingModel")?.model;
     let input_type = input
         .get("inputType")
         .or_else(|| input.get("input_type"))

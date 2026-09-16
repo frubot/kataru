@@ -6,12 +6,15 @@ import {
     type AvailableModel,
     type ModelOutputModality,
 } from '@/lib/availableModels';
+import { aiApiConfigForType, type AiApiType } from '@/lib/aiApi';
 import { useStore } from '@/lib/store';
 
 interface ModelSelectorProps {
     value: string;
     onChange: (model: string) => void;
     outputModality: ModelOutputModality;
+    /** Service to list models from; defaults to the global `aiApiType`. */
+    apiType?: AiApiType;
     id?: string;
     disabled?: boolean;
     placeholder?: string;
@@ -23,6 +26,7 @@ export default function ModelSelector({
     value,
     onChange,
     outputModality,
+    apiType,
     id,
     disabled = false,
     placeholder = 'モデルを選択',
@@ -32,7 +36,8 @@ export default function ModelSelector({
     const generatedId = useId();
     const triggerId = id ?? `model-selector-${generatedId}`;
     const listboxId = `${triggerId}-listbox`;
-    const aiApiType = useStore((state) => state.aiApiType);
+    const globalApiType = useStore((state) => state.aiApiType);
+    const effectiveApiType = apiType ?? globalApiType;
     const getAiApiConfig = useStore((state) => state.getAiApiConfig);
     const [isOpen, setOpen] = useState(false);
     const [query, setQuery] = useState('');
@@ -49,7 +54,11 @@ export default function ModelSelector({
         setLoading(true);
         setError(null);
         try {
-            const nextModels = await getAvailableModels(getAiApiConfig(), outputModality, { force });
+            const nextModels = await getAvailableModels(
+                aiApiConfigForType(getAiApiConfig(), effectiveApiType),
+                outputModality,
+                { force },
+            );
             if (requestId === requestIdRef.current) setModels(nextModels);
         } catch (caught) {
             if (requestId === requestIdRef.current) {
@@ -59,7 +68,7 @@ export default function ModelSelector({
         } finally {
             if (requestId === requestIdRef.current) setLoading(false);
         }
-    }, [getAiApiConfig, outputModality]);
+    }, [getAiApiConfig, outputModality, effectiveApiType]);
 
     useEffect(() => {
         requestIdRef.current += 1;
@@ -67,7 +76,7 @@ export default function ModelSelector({
         setLoading(false);
         setError(null);
         void loadModels();
-    }, [aiApiType, loadModels]);
+    }, [effectiveApiType, loadModels]);
 
     useEffect(() => {
         if (isOpen) void loadModels();

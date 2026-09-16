@@ -19,6 +19,8 @@ import {
     SituationPriorMessage,
     useStore,
 } from '@/lib/store';
+import { type AiApiType } from '@/lib/aiApi';
+import ApiTypeSelect from './ApiTypeSelect';
 import { generateId } from '@/lib/id';
 import {
     DEFAULT_COSTUME_NAME,
@@ -41,6 +43,7 @@ type TemporaryActorDraft = {
     speechStyle: string;
     userConstraints: string;
     model: string;
+    aiApiType?: AiApiType;
     icon: string | null;
     expressions: Expression[];
     costumes: Costume[];
@@ -136,6 +139,7 @@ function createTemporaryDraft(): TemporaryActorDraft {
         speechStyle: '',
         userConstraints: '',
         model: '',
+        aiApiType: undefined,
         icon: null,
         expressions: [],
         costumes: [],
@@ -511,7 +515,6 @@ function TemporaryActorParamSlider({ paramKey, value, onChange }: TemporaryActor
 interface TemporaryActorSettingsModalProps {
     actor: TemporaryActorDraft;
     isNew: boolean;
-    defaultChatModel: string;
     onClose: () => void;
     onSave: (actor: TemporaryActorDraft) => void;
 }
@@ -519,10 +522,10 @@ interface TemporaryActorSettingsModalProps {
 function TemporaryActorSettingsModal({
     actor,
     isNew,
-    defaultChatModel,
     onClose,
     onSave,
 }: TemporaryActorSettingsModalProps) {
+    const { aiApiType: globalApiType, modelDefaultsByApiType } = useStore();
     const [draft, setDraft] = useState<TemporaryActorDraft>(() => ({ ...actor }));
     const [parametersOpen, setParametersOpen] = useState(false);
     const [generatorOpen, setGeneratorOpen] = useState(false);
@@ -706,13 +709,25 @@ function TemporaryActorSettingsModal({
 
                         <div style={sectionStyle}>
                             <label htmlFor={`temporary-actor-model-${actor.id}`} style={labelStyle}>モデル</label>
-                            <ModelSelector
-                                id={`temporary-actor-model-${actor.id}`}
-                                value={draft.model}
-                                onChange={(model) => updateDraft({ model })}
-                                outputModality="text"
-                                placeholder={`例: ${defaultChatModel}`}
-                            />
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
+                                <ApiTypeSelect
+                                    value={draft.aiApiType}
+                                    globalApiType={globalApiType}
+                                    ariaLabel="このキャラクターの接続先"
+                                    onChange={(apiType) => updateDraft({
+                                        aiApiType: apiType,
+                                        model: modelDefaultsByApiType[apiType ?? globalApiType].defaultChatModel,
+                                    })}
+                                />
+                                <ModelSelector
+                                    id={`temporary-actor-model-${actor.id}`}
+                                    value={draft.model}
+                                    onChange={(model) => updateDraft({ model })}
+                                    outputModality="text"
+                                    apiType={draft.aiApiType ?? globalApiType}
+                                    placeholder={`例: ${modelDefaultsByApiType[draft.aiApiType ?? globalApiType].defaultChatModel}`}
+                                />
+                            </div>
                         </div>
 
                         <div style={sectionStyle}>
@@ -962,6 +977,7 @@ function buildInitialState(
                 speechStyle: actor.speechStyle ?? '',
                 userConstraints: actor.userConstraints ?? '',
                 model: actor.model ?? '',
+                aiApiType: actor.aiApiType,
                 icon: actor.icon ?? null,
                 expressions: actor.expressions ?? [],
                 costumes: actor.costumes ?? [],
@@ -980,6 +996,8 @@ function buildInitialState(
         name: situation?.name ?? '',
         backgroundImage: situation?.backgroundImage ?? '',
         situationPrompt: situation?.situationPrompt ?? '',
+        directorModel: situation?.director?.model ?? '',
+        directorApiType: situation?.director?.aiApiType,
         maxAutoTurns: String(getInitialMaxTurns(situation, room)),
         maxHistory: situation?.maxHistory != null ? String(situation.maxHistory) : '',
         memoryReadOnly: situation?.memoryMode === 'readOnly',
@@ -995,6 +1013,8 @@ function serializeSituationDraft(draft: ReturnType<typeof buildInitialState>) {
         name: draft.name,
         backgroundImage: draft.backgroundImage,
         situationPrompt: draft.situationPrompt,
+        directorModel: draft.directorModel,
+        directorApiType: draft.directorApiType,
         maxAutoTurns: draft.maxAutoTurns,
         maxHistory: draft.maxHistory,
         memoryReadOnly: draft.memoryReadOnly,
@@ -1342,6 +1362,8 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
         defaultChatModel,
         defaultDirectorModel,
         defaultAutoGenerationModel,
+        aiApiType: globalApiType,
+        modelDefaultsByApiType,
         createSituationRoom,
         updateSituation,
         updateRoomSettings,
@@ -1354,6 +1376,8 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
     const [name, setName] = useState(initial.name);
     const [backgroundImage, setBackgroundImage] = useState(initial.backgroundImage);
     const [situationPrompt, setSituationPrompt] = useState(initial.situationPrompt);
+    const [directorModel, setDirectorModel] = useState(initial.directorModel);
+    const [directorApiType, setDirectorApiType] = useState<AiApiType | undefined>(initial.directorApiType);
     const [maxAutoTurns, setMaxAutoTurns] = useState(initial.maxAutoTurns);
     const [maxHistory, setMaxHistory] = useState(initial.maxHistory);
     const [memoryReadOnly, setMemoryReadOnly] = useState(initial.memoryReadOnly);
@@ -1590,6 +1614,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
             ...(actor.speechStyle.trim() ? { speechStyle: actor.speechStyle.trim() } : {}),
             ...(actor.userConstraints.trim() ? { userConstraints: actor.userConstraints.trim() } : {}),
             model: actor.model.trim() || defaultChatModel,
+            ...(actor.aiApiType ? { aiApiType: actor.aiApiType } : {}),
             ...(actor.icon ? { icon: actor.icon } : {}),
             ...(actor.expressions.length > 0 ? { expressions: actor.expressions } : {}),
             ...(actor.costumes.length > 0 ? { costumes: actor.costumes } : {}),
@@ -1609,6 +1634,8 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                 name,
                 backgroundImage,
                 situationPrompt,
+                directorModel,
+                directorApiType,
                 maxAutoTurns,
                 maxHistory,
                 memoryReadOnly,
@@ -1625,7 +1652,8 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
 
         const director: SituationDirector = {
             enabled: true,
-            model: situation?.director?.model?.trim() || defaultDirectorModel,
+            model: directorModel.trim() || defaultDirectorModel,
+            ...(directorApiType ? { aiApiType: directorApiType } : {}),
             ...(situation?.director?.systemPrompt?.trim() ? { systemPrompt: situation.director.systemPrompt.trim() } : {}),
             maxAutoTurns: effectiveMaxTurns,
             stopPolicy: situation?.director?.stopPolicy === 'after-one' ? 'after-one' : 'max-turns',
@@ -1673,7 +1701,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
         }
 
         onClose();
-    }, [actorCount, actorOptions, backgroundImage, buildActors, characterActorMeta, createSituationRoom, defaultDirectorModel, effectiveMaxTurns, isEditing, maxAutoTurns, maxHistory, memoryReadOnly, name, onClose, onCreated, parsedMaxHistory, priorMessages, room, selectedCharacterIds, situation, situationPrompt, temporaryActors, updateRoomSettings, updateSituation]);
+    }, [actorCount, actorOptions, backgroundImage, buildActors, characterActorMeta, createSituationRoom, defaultDirectorModel, directorApiType, directorModel, effectiveMaxTurns, isEditing, maxAutoTurns, maxHistory, memoryReadOnly, name, onClose, onCreated, parsedMaxHistory, priorMessages, room, selectedCharacterIds, situation, situationPrompt, temporaryActors, updateRoomSettings, updateSituation]);
 
     const modalRef = useRef<HTMLDivElement>(null);
     useModalKeyboard({
@@ -2235,6 +2263,27 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                                 <MaxAutoTurnsSlider value={parsedMaxTurns} onChange={setMaxAutoTurns} />
                             )}
                             <MaxHistorySlider value={maxHistory} onChange={setMaxHistory} />
+                            <div>
+                                <label style={sectionLabelStyle}>指揮役モデル</label>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem', marginTop: '0.375rem' }}>
+                                    <ApiTypeSelect
+                                        value={directorApiType}
+                                        globalApiType={globalApiType}
+                                        ariaLabel="指揮役の接続先"
+                                        onChange={(apiType) => {
+                                            setDirectorApiType(apiType);
+                                            setDirectorModel(modelDefaultsByApiType[apiType ?? globalApiType].defaultDirectorModel);
+                                        }}
+                                    />
+                                    <ModelSelector
+                                        value={directorModel}
+                                        onChange={setDirectorModel}
+                                        outputModality="text"
+                                        apiType={directorApiType ?? globalApiType}
+                                        placeholder={`例: ${modelDefaultsByApiType[directorApiType ?? globalApiType].defaultDirectorModel}`}
+                                    />
+                                </div>
+                            </div>
                         </div>
                     </section>
                 </div>
@@ -2298,7 +2347,6 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                     key={`${temporaryActorModal.actor.id}:${temporaryActorModal.isNew ? 'new' : 'edit'}`}
                     actor={temporaryActorModal.actor}
                     isNew={temporaryActorModal.isNew}
-                    defaultChatModel={defaultChatModel}
                     onClose={() => setTemporaryActorModal(null)}
                     onSave={saveTemporaryActor}
                 />

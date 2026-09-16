@@ -32,8 +32,9 @@ interface Props {
 }
 
 export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes, expressionNames, onUpsert, onRemove }: Props) {
-    const { defaultImageModel, aiApiType, getAiApiConfig } = useStore();
-    const canGenerateDiffs = aiApiType === 'openrouter';
+    const { defaultImageModel, aiApiType, roleApiTypes, getAiApiConfig } = useStore();
+    const imageApiType = roleApiTypes.defaultImageModel ?? aiApiType;
+    const canGenerateDiffs = imageApiType === 'openrouter';
     const [newName, setNewName] = useState('');
     const [newPromptDetail, setNewPromptDetail] = useState('');
     const [addMode, setAddMode] = useState<AddMode>('generate');
@@ -320,6 +321,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                     value={model}
                                     onChange={setModel}
                                     outputModality="image"
+                                    apiType={imageApiType}
                                     disabled={!!busy || !canGenerateDiffs}
                                     placeholder={`例: ${defaultImageModel}`}
                                 />

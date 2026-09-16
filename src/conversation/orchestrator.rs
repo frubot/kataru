@@ -9,11 +9,11 @@ use serde_json::{Map, Value, json};
 use crate::{
     AppState,
     ai::{
-        AiApiClient, AiApiConfig, ai_api_config_value,
+        AiApiClient, AiApiConfig, AiApiKind, ai_api_config_value,
         routes::{
-            extract_message_text, memory_extraction_prompt, memory_schema, optional_model,
-            parse_memory_updates, resolve_model, structured_completion,
-            structured_completion_streaming,
+            RoleSelection, extract_message_text, memory_extraction_prompt, memory_schema,
+            optional_role_selection, parse_memory_updates, resolve_role_selection, role_api_type,
+            role_default_selection, structured_completion, structured_completion_streaming,
         },
     },
     error::{AppError, AppResult},
@@ -47,6 +47,88 @@ const MEMORY_MIN_IMPORTANCE: f64 = 0.4;
 const MEMORY_MIN_CONFIDENCE: f64 = 0.7;
 const MEMORY_MAX_CANDIDATES: usize = 5;
 const CONTINATUION_TRIGGER: &str = "[内部指示] これは主人公の発言ではありません。主人公から新しい発言や行動はありません。直前の場面を繰り返さず、あなた自身が自発的に発言または行動して、自然な続きを作成してください。";
+
+/// Lazily builds and caches one `AiApiClient` per service kind so a single
+/// turn can mix roles/characters pinned to different services.
+struct RequestClients<'a> {
+    state: &'a AppState,
+    api_config: Option<AiApiConfig>,
+    clients: HashMap<AiApiKind, AiApiClient>,
+}
+
+impl<'a> RequestClients<'a> {
+    fn new(state: &'a AppState, api_config: Option<AiApiConfig>) -> Self {
+        Self {
+            state,
+            api_config,
+            clients: HashMap::new(),
+        }
+    }
+
+    fn for_api_type(&mut self, api_type: Option<&str>) -> AppResult<AiApiClient> {
+        let client = AiApiClient::resolve_for(
+            self.state.http_client.clone(),
+            self.state.application_origin.clone(),
+            &self.state.ai_config.effective(),
+            self.api_config.clone(),
+            api_type,
+        )?;
+        Ok(self.clients.entry(client.kind()).or_insert(client).clone())
+    }
+
+    fn for_selection(&mut self, selection: &RoleSelection) -> AppResult<AiApiClient> {
+        self.for_api_type(selection.api_type.as_deref())
+    }
+}
+
+/// Optional per-entity service override carried on `aiApiType` fields of
+/// characters, participants, and `situation.director`.
+fn entity_api_type(entity: &Value) -> Option<String> {
+    entity
+        .get("aiApiType")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+}
+
+fn director_selection(
+    situation: &Value,
+    payload: &Value,
+    participants: &[Value],
+) -> AppResult<RoleSelection> {
+    if let Some(model) = situation
+        .pointer("/director/model")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let api_type = situation
+            .pointer("/director/aiApiType")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+            .or_else(|| role_api_type(payload, "defaultDirectorModel"));
+        return Ok(RoleSelection {
+            model: model.to_owned(),
+            api_type,
+        });
+    }
+    if let Some(selection) = role_default_selection(payload, "defaultDirectorModel") {
+        return Ok(selection);
+    }
+    if let Some(actor) = participants.first() {
+        let model = string(actor, "model");
+        if !model.is_empty() {
+            return Ok(RoleSelection {
+                model,
+                api_type: entity_api_type(actor),
+            });
+        }
+    }
+    Err(AppError::BadRequest("指揮役モデルが設定されていません。".into()))
+}
 
 fn character_max_characters(character: &Value) -> usize {
     usize::try_from(number_u64(character, "maxCharacters", DEFAULT_MAX_CHARACTERS).max(1))
@@ -163,19 +245,14 @@ async fn run_turn_inner(
         .map(serde_json::from_value::<AiApiConfig>)
         .transpose()
         .map_err(|error| AppError::BadRequest(format!("aiApiConfig が不正です: {error}")))?;
-    let api_client = AiApiClient::resolve(
-        state.http_client.clone(),
-        state.application_origin.clone(),
-        &state.ai_config.effective(),
-        api_config,
-    )?;
+    let mut clients = RequestClients::new(&state, api_config);
 
     let summary_character = if situation.is_some() {
         participants.first()
     } else {
         character
     };
-    let summary_model = optional_model(&payload, "summaryModel", "summaryModel");
+    let summary_selection = optional_role_selection(&payload, "summaryModel", "summaryModel");
     let history_limit = situation
         .and_then(|value| value.get("maxHistory"))
         .and_then(Value::as_u64)
@@ -188,14 +265,14 @@ async fn run_turn_inner(
         .unwrap_or(DEFAULT_MAX_HISTORY);
     let fallback_summary = (!previous_summary.is_empty()).then_some(previous_summary.clone());
     let summary_attempt = maybe_summarize(
-        &api_client,
+        &mut clients,
         &history,
         previous_summary,
         boolean(&payload, "conversationCompressionEnabled"),
         history_limit,
         prior_message_count,
         situation.is_some(),
-        summary_model.as_deref(),
+        summary_selection.as_ref(),
         situation,
         &participants,
     )
@@ -265,18 +342,7 @@ async fn run_turn_inner(
             .pointer("/director/stopPolicy")
             .and_then(Value::as_str)
             == Some("after-one");
-        let director_model = situation
-            .pointer("/director/model")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .or_else(|| {
-                participants
-                    .first()
-                    .and_then(|value| value.get("model"))
-                    .and_then(Value::as_str)
-            })
-            .ok_or_else(|| AppError::BadRequest("指揮役モデルが設定されていません。".into()))?;
+        let director_selection = director_selection(situation, &payload, &participants)?;
 
         for turn_index in 0..max_turns {
             let mut combined = active_history.clone();
@@ -301,7 +367,7 @@ async fn run_turn_inner(
                 }
             } else {
                 request_director(
-                    &api_client,
+                    &mut clients,
                     situation,
                     &participants,
                     &combined,
@@ -310,7 +376,7 @@ async fn run_turn_inner(
                     max_turns,
                     banned_actor_id.as_deref(),
                     generation_mode.is_continue(),
-                    director_model,
+                    &director_selection,
                     secret_mode,
                     &room,
                     &mut usages,
@@ -342,13 +408,12 @@ async fn run_turn_inner(
                 }
             };
             let relevant = if memory_allowed {
-                let embedding_model =
-                    resolve_model(&payload, "memoryEmbeddingModel", "memoryEmbeddingModel")?;
+                let embedding_selection =
+                    resolve_role_selection(&payload, "memoryEmbeddingModel", "memoryEmbeddingModel")?;
                 search_memories(
                     &state,
-                    &api_client,
-                    &payload,
-                    &embedding_model,
+                    &mut clients,
+                    &embedding_selection,
                     &memory_character_id,
                     &room_id,
                     &actor_history,
@@ -367,7 +432,7 @@ async fn run_turn_inner(
                 generation_mode.is_continue() && turn_index == 0,
             );
             let generated_messages = generate_for_character(
-                &api_client,
+                &mut clients,
                 actor,
                 &generation_history,
                 &room,
@@ -392,13 +457,12 @@ async fn run_turn_inner(
         let memory_allowed =
             !secret_mode && !matches!(character.get("enableMemory"), Some(Value::Bool(false)));
         let relevant = if memory_allowed {
-            let embedding_model =
-                resolve_model(&payload, "memoryEmbeddingModel", "memoryEmbeddingModel")?;
+            let embedding_selection =
+                resolve_role_selection(&payload, "memoryEmbeddingModel", "memoryEmbeddingModel")?;
             search_memories(
                 &state,
-                &api_client,
-                &payload,
-                &embedding_model,
+                &mut clients,
+                &embedding_selection,
                 &string(character, "id"),
                 &room_id,
                 &active_history,
@@ -417,7 +481,7 @@ async fn run_turn_inner(
             generation_mode.is_continue(),
         );
         generated = generate_for_character(
-            &api_client,
+            &mut clients,
             character,
             &character_history,
             &room,
@@ -444,11 +508,11 @@ async fn run_turn_inner(
 
     let memory_candidates = if !secret_mode {
         if let Some(context) = extraction_context {
-            let extraction_model =
-                resolve_model(&payload, "memoryExtractionModel", "memoryExtractionModel")?;
+            let extraction_selection =
+                resolve_role_selection(&payload, "memoryExtractionModel", "memoryExtractionModel")?;
             extract_memory_candidates(
-                &api_client,
-                &extraction_model,
+                &mut clients,
+                &extraction_selection,
                 context,
                 &generated,
                 &room_id,
@@ -579,7 +643,7 @@ fn character_completion_body(character: &Value, messages: Vec<Value>) -> Value {
 
 #[allow(clippy::too_many_arguments)]
 async fn generate_for_character(
-    api_client: &AiApiClient,
+    clients: &mut RequestClients<'_>,
     character: &Value,
     history: &[Value],
     room: &Value,
@@ -594,6 +658,7 @@ async fn generate_for_character(
     id_offset: usize,
     streaming_preview: Option<(&ConversationJobs, &str)>,
 ) -> AppResult<Vec<Value>> {
+    let api_client = clients.for_api_type(entity_api_type(character).as_deref())?;
     let expression_names = expression_names(character, room, string(room, "viewMode") == "vn");
     let max_characters = character_max_characters(character);
     let schema = assistant_schema(
@@ -637,7 +702,7 @@ async fn generate_for_character(
     };
     let mut partial_content = String::new();
     let completion = if let Some((jobs, job_id)) = streaming_preview {
-        structured_completion_streaming(api_client, body, schema, 120, |partial| {
+        structured_completion_streaming(&api_client, body, schema, 120, |partial| {
             partial_content.clear();
             partial_content.push_str(partial);
             let preview = assistant_response_preview(partial, message_mode, max_characters);
@@ -651,7 +716,7 @@ async fn generate_for_character(
         })
         .await
     } else {
-        structured_completion(api_client, body, schema, 120).await
+        structured_completion(&api_client, body, schema, 120).await
     };
     let raw = match completion {
         Ok(raw) => raw,
@@ -767,7 +832,7 @@ fn envelope_to_messages(
 
 #[allow(clippy::too_many_arguments)]
 async fn request_director(
-    api_client: &AiApiClient,
+    clients: &mut RequestClients<'_>,
     situation: &Value,
     actors: &[Value],
     messages: &[Value],
@@ -776,7 +841,7 @@ async fn request_director(
     max_turns: usize,
     banned_actor_id: Option<&str>,
     continuation_generation: bool,
-    model: &str,
+    selection: &RoleSelection,
     secret_mode: bool,
     room: &Value,
     usages: &mut Vec<Value>,
@@ -807,9 +872,10 @@ async fn request_director(
         banned_actor_id,
         continuation_generation,
     );
+    let api_client = clients.for_selection(selection)?;
     let schema = director_schema(&eligible_ids);
     let mut request = json!({
-        "model": model,
+        "model": selection.model,
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
@@ -828,10 +894,10 @@ async fn request_director(
         room,
         character_id: format!("{}:director", string(situation, "id")),
         character_name: "指揮役".to_owned(),
-        model: model.to_owned(),
+        model: selection.model.clone(),
         prompt: &prompt,
     };
-    let raw = match structured_completion(api_client, request, schema, 120).await {
+    let raw = match structured_completion(&api_client, request, schema, 120).await {
         Ok(raw) => raw,
         Err(error) => {
             if !secret_mode {
@@ -880,7 +946,7 @@ async fn request_director(
             usages,
             &raw,
             &format!("{}:director", string(situation, "id")),
-            model,
+            &selection.model,
             "director",
         );
         full_json_logs.push(json!({
@@ -901,14 +967,14 @@ async fn request_director(
 
 #[allow(clippy::too_many_arguments)]
 async fn maybe_summarize(
-    api_client: &AiApiClient,
+    clients: &mut RequestClients<'_>,
     history: &[Value],
     previous_summary: String,
     enabled: bool,
     history_limit: usize,
     prior_message_count: usize,
     group: bool,
-    model: Option<&str>,
+    selection: Option<&RoleSelection>,
     situation: Option<&Value>,
     participants: &[Value],
 ) -> AppResult<(Option<String>, Vec<Value>)> {
@@ -921,11 +987,12 @@ async fn maybe_summarize(
     if to_summarize.len() < 2 {
         return Ok((existing, history.to_vec()));
     }
-    let model = model.ok_or_else(|| {
+    let selection = selection.ok_or_else(|| {
         AppError::BadRequest(
             "summaryModel または aiApiConfig.modelDefaults.summaryModel が必要です。".to_owned(),
         )
     })?;
+    let api_client = clients.for_selection(selection)?;
     let named_messages = if group {
         with_speaker_names(to_summarize, participants, situation)
     } else {
@@ -933,9 +1000,9 @@ async fn maybe_summarize(
     };
     let (system, user) = summary_prompts(&named_messages, existing.as_deref(), group);
     let raw = structured_completion(
-        api_client,
+        &api_client,
         json!({
-            "model": model,
+            "model": selection.model,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
@@ -965,13 +1032,13 @@ struct ScoredMemory {
 
 async fn search_memories(
     state: &AppState,
-    api_client: &AiApiClient,
-    payload: &Value,
-    embedding_model: &str,
+    clients: &mut RequestClients<'_>,
+    selection: &RoleSelection,
     character_id: &str,
     room_id: &str,
     messages: &[Value],
 ) -> AppResult<Vec<ScoredMemory>> {
+    let api_client = clients.for_selection(selection)?;
     if character_id.is_empty() {
         return Ok(Vec::new());
     }
@@ -1007,12 +1074,11 @@ async fn search_memories(
         .iter()
         .filter_map(|message| message.get("id").and_then(Value::as_str))
         .collect::<HashSet<_>>();
-    let query_embedding =
-        request_embedding(api_client, payload, &query, embedding_model, "search_query")
-            .await
-            .ok()
-            .flatten()
-            .map(|embedding| embedding.values);
+    let query_embedding = request_embedding(&api_client, &query, &selection.model, "search_query")
+        .await
+        .ok()
+        .flatten()
+        .map(|embedding| embedding.values);
     let now = now_ms() as f64;
     let mut scored = rows
         .into_iter()
@@ -1036,7 +1102,7 @@ async fn search_memories(
             let lexical = lexical_similarity(&query, &content);
             let vector = query_embedding
                 .as_ref()
-                .filter(|_| string(&memory, "embeddingModel") == embedding_model)
+                .filter(|_| string(&memory, "embeddingModel") == selection.model)
                 .and_then(|query| {
                     memory
                         .get("embedding")
@@ -1115,8 +1181,8 @@ struct ExtractionContext {
 }
 
 async fn extract_memory_candidates(
-    api_client: &AiApiClient,
-    model: &str,
+    clients: &mut RequestClients<'_>,
+    selection: &RoleSelection,
     context: ExtractionContext,
     generated: &[Value],
     room_id: &str,
@@ -1132,7 +1198,7 @@ async fn extract_memory_candidates(
     recent.reverse();
     recent.extend(generated.iter().cloned());
     let body = json!({
-        "model": model,
+        "model": selection.model,
         "messages": [
             {
                 "role": "system",
@@ -1151,7 +1217,8 @@ async fn extract_memory_candidates(
         "temperature": 0.1,
         "stream": false,
     });
-    let raw = structured_completion(api_client, body, memory_schema(), 60).await?;
+    let api_client = clients.for_selection(selection)?;
+    let raw = structured_completion(&api_client, body, memory_schema(), 60).await?;
     push_usage(usages, &raw, &context.character, "memory-extraction");
     let content = extract_message_text(&raw);
     let setting = character_setting(&context.character);

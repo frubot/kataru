@@ -15,6 +15,8 @@ import {
     DEFAULT_CHARACTER_PRESENCE_PENALTY,
     DEFAULT_CHARACTER_REPETITION_PENALTY,
 } from '@/lib/store';
+import { type AiApiType } from '@/lib/aiApi';
+import ApiTypeSelect from './ApiTypeSelect';
 import ImageGenerationModal from './ImageGenerationModal';
 import ExpressionDiffModal from './ExpressionDiffModal';
 import CostumeDiffModal from './CostumeDiffModal';
@@ -54,6 +56,7 @@ function buildInitialCharacterDraft(
         protagonistPrompt: generatedDraft?.protagonistPrompt ?? character?.protagonistPrompt ?? '',
         userConstraints: character?.userConstraints ?? '',
         model: character?.model.trim() || defaultChatModel,
+        aiApiType: character?.aiApiType,
         enableThinking: character?.enableThinking ?? false,
         enableMemory: character?.enableMemory ?? true,
         maxCharacters: character?.maxCharacters != null ? String(character.maxCharacters) : '',
@@ -331,7 +334,7 @@ function CharacterSettingsModalContent({
     initialGeneratedDraft,
     onOpenMemoryList,
 }: CharacterSettingsModalProps) {
-    const { createCharacter, updateCharacter, defaultChatModel } = useStore();
+    const { createCharacter, updateCharacter, defaultChatModel, aiApiType: globalApiType, modelDefaultsByApiType } = useStore();
     const [initialDraft] = useState(() => buildInitialCharacterDraft(
         character,
         defaultChatModel,
@@ -343,6 +346,7 @@ function CharacterSettingsModalContent({
     const [protagonistPrompt, setProtagonistPrompt] = useState(initialDraft.protagonistPrompt);
     const [userConstraints, setUserConstraints] = useState(initialDraft.userConstraints);
     const [model, setModel] = useState(initialDraft.model);
+    const [characterApiType, setCharacterApiType] = useState<AiApiType | undefined>(initialDraft.aiApiType);
 
     // Thinking settings
     const [enableThinking, setEnableThinking] = useState(initialDraft.enableThinking);
@@ -393,6 +397,7 @@ function CharacterSettingsModalContent({
             protagonistPrompt,
             userConstraints,
             model,
+            aiApiType: characterApiType,
             enableThinking,
             enableMemory,
             maxCharacters,
@@ -428,6 +433,7 @@ function CharacterSettingsModalContent({
             protagonistPrompt: protagonistPrompt.trim() ? protagonistPrompt : undefined,
             userConstraints: userConstraints.trim() ? userConstraints : undefined,
             model: resolvedModel,
+            aiApiType: characterApiType,
             enableThinking,
             enableMemory,
             maxCharacters: maxCharacters ? Math.max(1, Math.round(Number(maxCharacters))) : undefined,
@@ -449,7 +455,7 @@ function CharacterSettingsModalContent({
             updateCharacter(character.id, updates);
         }
         onClose();
-    }, [character, costumes, createCharacter, defaultChatModel, enableMemory, enableThinking, expressions, frequencyPenalty, icon, initialDraft, isNew, maxCharacters, maxHistory, model, name, onClose, presencePenalty, protagonistPrompt, repetitionPenalty, speechStyle, systemPrompt, temperature, topK, topP, updateCharacter, userConstraints]);
+    }, [character, characterApiType, costumes, createCharacter, defaultChatModel, enableMemory, enableThinking, expressions, frequencyPenalty, icon, initialDraft, isNew, maxCharacters, maxHistory, model, name, onClose, presencePenalty, protagonistPrompt, repetitionPenalty, speechStyle, systemPrompt, temperature, topK, topP, updateCharacter, userConstraints]);
 
     const attemptClose = useCallback(() => {
         const currentDraft = {
@@ -459,6 +465,7 @@ function CharacterSettingsModalContent({
             protagonistPrompt,
             userConstraints,
             model,
+            aiApiType: characterApiType,
             enableThinking,
             enableMemory,
             maxCharacters,
@@ -483,7 +490,7 @@ function CharacterSettingsModalContent({
         }
 
         onClose();
-    }, [character, costumes, defaultChatModel, enableMemory, enableThinking, expressions, frequencyPenalty, icon, isNew, maxCharacters, maxHistory, model, name, onClose, presencePenalty, protagonistPrompt, repetitionPenalty, speechStyle, systemPrompt, temperature, topK, topP, userConstraints]);
+    }, [character, characterApiType, costumes, defaultChatModel, enableMemory, enableThinking, expressions, frequencyPenalty, icon, isNew, maxCharacters, maxHistory, model, name, onClose, presencePenalty, protagonistPrompt, repetitionPenalty, speechStyle, systemPrompt, temperature, topK, topP, userConstraints]);
 
     const childModalOpen = imageGenOpen || expressionsOpen || costumesOpen;
     useModalKeyboard({
@@ -923,12 +930,25 @@ function CharacterSettingsModalContent({
                                 {/* モデル */}
                                 <div>
                                     <label style={{ ...labelStyle, fontSize: '0.8125rem', marginBottom: '0.375rem' }}>モデル</label>
-                                    <ModelSelector
-                                        value={model}
-                                        onChange={setModel}
-                                        outputModality="text"
-                                        placeholder={`例: ${defaultChatModel}`}
-                                    />
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
+                                        <ApiTypeSelect
+                                            value={characterApiType}
+                                            globalApiType={globalApiType}
+                                            ariaLabel="このキャラクターの接続先"
+                                            onChange={(apiType) => {
+                                                setCharacterApiType(apiType);
+                                                const provider = apiType ?? globalApiType;
+                                                setModel(modelDefaultsByApiType[provider].defaultChatModel);
+                                            }}
+                                        />
+                                        <ModelSelector
+                                            value={model}
+                                            onChange={setModel}
+                                            outputModality="text"
+                                            apiType={characterApiType ?? globalApiType}
+                                            placeholder={`例: ${modelDefaultsByApiType[characterApiType ?? globalApiType].defaultChatModel}`}
+                                        />
+                                    </div>
                                 </div>
 
                                 {/* Maximum reply characters */}

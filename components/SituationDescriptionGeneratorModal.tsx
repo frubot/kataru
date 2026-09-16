@@ -25,7 +25,8 @@ export default function SituationDescriptionGeneratorModal({
     participants,
     initialModel,
 }: Props) {
-    const { getAiApiConfig } = useStore();
+    const { aiApiType, roleApiTypes, getAiApiConfig } = useStore();
+    const generationApiType = roleApiTypes.defaultAutoGenerationModel ?? aiApiType;
     const [direction, setDirection] = useState('');
     const [model, setModel] = useState('');
     const [generated, setGenerated] = useState('');
@@ -169,6 +170,7 @@ export default function SituationDescriptionGeneratorModal({
                             value={model}
                             onChange={setModel}
                             outputModality="text"
+                            apiType={generationApiType}
                             disabled={generating}
                             placeholder={`例: ${initialModel}`}
                         />

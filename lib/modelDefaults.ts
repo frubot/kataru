@@ -25,6 +25,21 @@ export interface ModelDefaults {
     memoryEmbeddingModel: string;
 }
 
+export type ModelRoleKey = keyof ModelDefaults;
+
+export const MODEL_DEFAULT_FIELDS: readonly ModelRoleKey[] = [
+    'summaryModel',
+    'defaultChatModel',
+    'defaultDirectorModel',
+    'defaultAutoGenerationModel',
+    'titleGenerationModel',
+    'replySuggestionModel',
+    'defaultImageModel',
+    'expressionDetectionModel',
+    'memoryExtractionModel',
+    'memoryEmbeddingModel',
+];
+
 export type ModelDefaultsByApiType = Record<AiApiType, ModelDefaults>;
 
 export const DEFAULT_MODEL_DEFAULTS: ModelDefaults = {

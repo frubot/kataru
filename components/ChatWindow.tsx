@@ -102,6 +102,7 @@ type ConversationCharacter = {
     protagonistPrompt?: string;
     userConstraints?: string;
     model: string;
+    aiApiType?: string;
     maxCharacters?: number;
     maxHistory?: number;
     temperature?: number;
@@ -136,6 +137,7 @@ function toConversationCharacter(character: Character | null): ConversationChara
         protagonistPrompt: character.protagonistPrompt,
         userConstraints: character.userConstraints,
         model: character.model,
+        aiApiType: character.aiApiType,
         maxCharacters: character.maxCharacters,
         maxHistory: character.maxHistory,
         temperature: character.temperature,
@@ -175,6 +177,7 @@ function toConversationSituation(situation: Situation | null | undefined) {
         priorMessages: situation.priorMessages,
         director: {
             model: situation.director.model,
+            aiApiType: situation.director.aiApiType,
             systemPrompt: situation.director.systemPrompt,
             maxAutoTurns: situation.director.maxAutoTurns,
             stopPolicy: situation.director.stopPolicy,

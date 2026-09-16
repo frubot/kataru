@@ -51,8 +51,9 @@ export default function ExpressionDiffModal({
     onRename,
     onRemove,
 }: Props) {
-    const { defaultImageModel, aiApiType, getAiApiConfig } = useStore();
-    const canGenerateDiffs = aiApiType === 'openrouter';
+    const { defaultImageModel, aiApiType, roleApiTypes, getAiApiConfig } = useStore();
+    const imageApiType = roleApiTypes.defaultImageModel ?? aiApiType;
+    const canGenerateDiffs = imageApiType === 'openrouter';
     const [selectedCostumeName, setSelectedCostumeName] = useState(DEFAULT_COSTUME_NAME);
     const [newName, setNewName] = useState('');
     const [newPromptDetail, setNewPromptDetail] = useState('');
@@ -509,6 +510,7 @@ export default function ExpressionDiffModal({
                                     value={model}
                                     onChange={setModel}
                                     outputModality="image"
+                                    apiType={imageApiType}
                                     disabled={!!busy || !canGenerateDiffs}
                                     placeholder={`例: ${defaultImageModel}`}
                                 />

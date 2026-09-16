@@ -6,6 +6,7 @@ import {
     DEFAULT_OPENROUTER_IGNORED_PROVIDERS,
     normalizeOpenAiCompatibleBaseUrl,
     normalizeOpenRouterIgnoredProviders,
+    normalizeRoleApiTypes,
     type AiApiType,
 } from '../aiApi';
 import { resolveAiSettingsMigration } from '../aiSettingsMigration';
@@ -34,6 +35,7 @@ import {
 import { normalizeCharacters } from './characters';
 import { fire, nextRoomLoadSequence, persistGroup, toStoredRoom } from './persistence';
 import {
+    activeModelDefaults,
     clearThemeCache,
     DEFAULT_CONVERSATION_COMPRESSION_ENABLED,
     DEFAULT_THEME_SELECTION,
@@ -74,7 +76,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
         hydrate: async () => {
             if (get().hydrated) return;
             await db.migrateLegacyDatabase();
-            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, storedDefaultViewMode, currentRoomId, vnTypingSpeed, storedKeyboardShortcuts, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedConversationCompressionEnabled, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion] = await Promise.all([
+            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, storedDefaultViewMode, currentRoomId, vnTypingSpeed, storedKeyboardShortcuts, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedRoleApiTypes, storedConversationCompressionEnabled, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion] = await Promise.all([
                 db.getAllCharacters(),
                 db.getAllGroups(),
                 db.getAllRooms(),
@@ -99,6 +101,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 db.getMeta<string>('memoryEmbeddingModel'),
                 db.getMeta<ModelDefaultsByApiType>('modelDefaultsByApiType'),
                 db.getMeta<unknown>('modelDefaultsByProvider'),
+                db.getMeta<unknown>('roleApiTypes'),
                 db.getMeta<boolean>('conversationCompressionEnabled'),
                 db.getMeta<boolean>('generateTitleOnFirstReply'),
                 db.getMeta<boolean>('replySuggestionsEnabled'),
@@ -172,8 +175,13 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
             });
             const resolvedAiApiType = aiSettingsMigration.aiApiType;
             const modelDefaultsByApiType = aiSettingsMigration.modelDefaultsByApiType;
-            const activeModelDefaults = modelDefaultsByApiType[resolvedAiApiType];
-            const characters = normalizeCharacters(loadedCharacters, activeModelDefaults.defaultChatModel);
+            const roleApiTypes = normalizeRoleApiTypes(storedRoleApiTypes);
+            const resolvedModelDefaults = activeModelDefaults({
+                aiApiType: resolvedAiApiType,
+                roleApiTypes,
+                modelDefaultsByApiType,
+            });
+            const characters = normalizeCharacters(loadedCharacters, resolvedModelDefaults.defaultChatModel);
             const changedCharacters = characters.filter((character, index) => character !== loadedCharacters[index]);
             if (changedCharacters.length > 0) {
                 await Promise.all(changedCharacters.map((character) => db.putCharacter(character)));
@@ -182,8 +190,8 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 characters,
                 groups: storedGroups,
                 rooms: storedRooms.map((r) => ({ ...r, messages: [] })),
-                fallbackModel: activeModelDefaults.defaultChatModel,
-                directorFallbackModel: activeModelDefaults.defaultDirectorModel,
+                fallbackModel: resolvedModelDefaults.defaultChatModel,
+                directorFallbackModel: resolvedModelDefaults.defaultDirectorModel,
             });
             const groups = normalized.groups;
             const rooms: Room[] = normalized.rooms;
@@ -241,6 +249,9 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
             if (aiSettingsMigration.shouldPersistModelDefaultsByApiType) {
                 persistModelDefaultsByApiType(modelDefaultsByApiType);
             }
+            if (JSON.stringify(storedRoleApiTypes ?? {}) !== JSON.stringify(roleApiTypes)) {
+                fire(db.setMeta('roleApiTypes', roleApiTypes));
+            }
             if (storedConversationCompressionEnabled !== resolvedConversationCompressionEnabled) fire(db.setMeta('conversationCompressionEnabled', resolvedConversationCompressionEnabled));
             if (storedGenerateTitleOnFirstReply !== resolvedGenerateTitleOnFirstReply) fire(db.setMeta('generateTitleOnFirstReply', resolvedGenerateTitleOnFirstReply));
             if (storedReplySuggestionsEnabled !== resolvedReplySuggestionsEnabled) fire(db.setMeta('replySuggestionsEnabled', resolvedReplySuggestionsEnabled));
@@ -269,8 +280,9 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 defaultViewMode: resolvedDefaultViewMode,
                 vnTypingSpeed: resolvedVnTypingSpeed,
                 keyboardShortcuts: resolvedKeyboardShortcuts,
-                ...activeModelDefaults,
+                ...resolvedModelDefaults,
                 modelDefaultsByApiType,
+                roleApiTypes,
                 conversationCompressionEnabled: resolvedConversationCompressionEnabled,
                 generateTitleOnFirstReply: resolvedGenerateTitleOnFirstReply,
                 replySuggestionsEnabled: resolvedReplySuggestionsEnabled,
@@ -317,6 +329,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 memoryExtractionModel: DEFAULT_MEMORY_EXTRACTION_MODEL,
                 memoryEmbeddingModel: DEFAULT_MEMORY_EMBEDDING_MODEL,
                 modelDefaultsByApiType: normalizeModelDefaultsByApiType(undefined),
+                roleApiTypes: {},
                 conversationCompressionEnabled: DEFAULT_CONVERSATION_COMPRESSION_ENABLED,
                 generateTitleOnFirstReply: false,
                 replySuggestionsEnabled: false,

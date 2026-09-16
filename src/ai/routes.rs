@@ -19,7 +19,10 @@ pub use generation::{
 pub use image::generate_image;
 pub use memory::extract_memories;
 
-pub(crate) use common::{optional_model, resolve_model};
+pub(crate) use common::{
+    RoleSelection, optional_role_selection, resolve_role_selection, role_api_type,
+    role_default_selection,
+};
 pub(crate) use memory::{memory_extraction_prompt, memory_schema, parse_memory_updates};
 pub(crate) use structured::{
     extract_message_text, structured_completion, structured_completion_streaming,

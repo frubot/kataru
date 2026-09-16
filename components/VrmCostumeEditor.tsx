@@ -3,15 +3,17 @@ import type { Costume, VrmAvatar } from '@/lib/store/types';
 import type { VrmPreview } from './VrmAvatarView';
 import VrmModelEditor from './VrmModelEditor';
 
-export default function VrmCostumeEditor({ costume, name, existingNames, expressionNames = [], onSave, onCancel }: {
+export default function VrmCostumeEditor({ costume, initialAvatar, name, existingNames, expressionNames = [], onSave, onCancel }: {
     costume?: Costume;
+    /** Avatar picked via the unified upload input before this editor mounts. */
+    initialAvatar?: VrmAvatar;
     name: string;
     existingNames: string[];
     expressionNames?: string[];
     onSave: (costume: Costume) => void;
     onCancel?: () => void;
 }) {
-    const [avatar, setAvatar] = useState<VrmAvatar | undefined>(costume?.vrm);
+    const [avatar, setAvatar] = useState<VrmAvatar | undefined>(costume?.vrm ?? initialAvatar);
     const [ready, setReady] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');

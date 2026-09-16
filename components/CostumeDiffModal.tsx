@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { X, Loader2, Trash2, RefreshCw, Shirt, Sparkles, Upload } from 'lucide-react';
 import type { Costume } from '@/lib/store';
+import type { VrmAvatar } from '@/lib/store/types';
 import { useStore } from '@/lib/store';
+import { readVrmFile } from '@/lib/vrm';
 import { buildBaseImageRequest } from '@/lib/imageSource';
 import { cropRectToPng, loadImage, resizeToMaxEdge } from '@/lib/imageUtils';
 import { CropArea, createInitialCrop, type CropBox } from './ImageCropArea';
@@ -17,7 +19,7 @@ const NEW_BUSY_KEY = '__new__';
 const UPLOAD_BUSY_KEY = '__upload__';
 const DEFAULT_COSTUME_NAME = 'default';
 
-type AddMode = 'generate' | 'upload' | 'vrm';
+type AddMode = 'generate' | 'upload';
 
 interface Props {
     isOpen: boolean;
@@ -36,7 +38,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
     const [newPromptDetail, setNewPromptDetail] = useState('');
     const [addMode, setAddMode] = useState<AddMode>('generate');
     const [editingVrm, setEditingVrm] = useState<Costume | null>(null);
-    const [vrmDraftKey, setVrmDraftKey] = useState(0);
+    const [vrmDraft, setVrmDraft] = useState<VrmAvatar | null>(null);
     const [model, setModel] = useState(defaultImageModel);
     const [busy, setBusy] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -52,6 +54,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
         if (!isOpen) {
             setNewName('');
             setEditingVrm(null);
+            setVrmDraft(null);
             setNewPromptDetail('');
             setAddMode(canGenerateDiffs ? 'generate' : 'upload');
             setModel(defaultImageModel);
@@ -178,13 +181,28 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
         if (!file) return;
 
         if (!validateName()) return;
+
+        if (file.name.toLowerCase().endsWith('.vrm')) {
+            setBusy(UPLOAD_BUSY_KEY);
+            clearUploadDraft();
+            try {
+                setVrmDraft(await readVrmFile(file));
+            } catch (err) {
+                setError(err instanceof Error ? err.message : 'VRMの読み込みに失敗しました');
+            } finally {
+                setBusy(null);
+            }
+            return;
+        }
+
         if (!file.type.startsWith('image/')) {
-            setError('画像ファイルを選択してください。');
+            setError('画像または .vrm ファイルを選択してください。');
             return;
         }
 
         setBusy(UPLOAD_BUSY_KEY);
         clearUploadDraft();
+        setVrmDraft(null);
         try {
             const dataUrl: string = await new Promise((resolve, reject) => {
                 const reader = new FileReader();
@@ -278,6 +296,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                 onClick={() => {
                                     setAddMode('generate');
                                     clearUploadDraft();
+                                    setVrmDraft(null);
                                 }}
                                 disabled={!!busy || !canGenerateDiffs}
                                 style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
@@ -291,10 +310,8 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                 disabled={!!busy}
                                 style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
                             >
-                                <Upload size={14} /> 2D画像
+                                <Upload size={14} /> アップロード
                             </button>
-                            <button type="button" className={addMode === 'vrm' ? 'btn btn-primary' : 'btn btn-ghost'} disabled={!!busy}
-                                onClick={() => { setAddMode('vrm'); setEditingVrm(null); clearUploadDraft(); }} style={{ flex: 1 }}>3D（VRM）</button>
                         </div>
                         {addMode === 'generate' && (
                             <div style={{ marginBottom: 8 }}>
@@ -344,9 +361,11 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                             </p>
                         ) : addMode === 'upload' ? (
                             <p style={hintStyle}>
-                                {uploadImage
+                                {vrmDraft
+                                    ? '3Dモデルの表示位置と表情の対応を調整して追加します'
+                                    : uploadImage
                                     ? '切り取り範囲を調整してから追加します'
-                                    : '画像を選択すると 2:3 の切り取り範囲を調整できます'}
+                                    : '画像（2:3に切り取り）または .vrm の3Dモデルを選択できます'}
                             </p>
                         ) : null}
                         {addMode === 'upload' && uploadImage && uploadNatural && uploadCrop && (
@@ -366,7 +385,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                         <input
                             ref={fileInputRef}
                             type="file"
-                            accept="image/*"
+                            accept="image/*,.vrm"
                             onChange={handleFileUpload}
                             style={{ display: 'none' }}
                         />
@@ -374,9 +393,11 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
 
                     {error && <p style={{ color: 'var(--error)', fontSize: '0.8125rem' }}>{error}</p>}
 
-                    {addMode === 'vrm' && !editingVrm && <VrmCostumeEditor key={vrmDraftKey} name={newName}
+                    {addMode === 'upload' && vrmDraft && !editingVrm && <VrmCostumeEditor name={newName}
+                        initialAvatar={vrmDraft}
                         existingNames={costumes.map((costume) => costume.name)} expressionNames={expressionNames}
-                        onSave={(costume) => { onUpsert(costume); setNewName(''); setVrmDraftKey((value) => value + 1); }} />}
+                        onSave={(costume) => { onUpsert(costume); setNewName(''); setVrmDraft(null); }}
+                        onCancel={() => setVrmDraft(null)} />}
                     {editingVrm && <div>
                         <h3 style={labelStyle}>{editingVrm.name} の3D設定</h3>
                         <VrmCostumeEditor key={editingVrm.name} costume={editingVrm} name={editingVrm.name}
@@ -400,7 +421,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                 {busy === NEW_BUSY_KEY && <Loader2 size={16} className="animate-spin" />}
                                 {busy === NEW_BUSY_KEY ? '生成中...' : '生成'}
                             </button>
-                        ) : addMode === 'upload' ? (
+                        ) : addMode === 'upload' && !vrmDraft ? (
                             <>
                                 {uploadImage && (
                                     <button

@@ -146,7 +146,8 @@ function toConversationCharacter(character: Character | null): ConversationChara
         repetitionPenalty: character.repetitionPenalty,
         enableThinking: character.enableThinking,
         enableMemory: character.enableMemory,
-        expressions: character.expressions?.map(({ name }) => ({ name })),
+        // Resolved through the default costume so a VRM avatar exposes its mapped names.
+        expressions: getVisualNovelExpressionNames(character).map((name) => ({ name })),
         costumes: character.costumes?.map((costume) => ({
             name: costume.name,
             expressions: getVisualNovelExpressionNames(character, costume.name).map((name) => ({ name })),

@@ -21,7 +21,7 @@ import {
 import { applyVrmRelaxedPose, createVrmIdleAnimation } from '@/lib/vrmPose';
 import StoredImage from './StoredImage';
 
-export type VrmPreview = { expressions: string[]; capture: () => string };
+export type VrmPreview = { expressions: string[]; capture: (mode?: 'portrait' | 'avatar') => string };
 type Props = {
     avatar: VrmAvatar;
     expression?: string | null;
@@ -279,13 +279,23 @@ export default function VrmAvatarView({ avatar, expression, fallbackImage, name,
                 render(0);
                 live.current.ready = true;
                 setStatus('ready');
-                live.current.onReady?.({ expressions, capture: () => {
+                live.current.onReady?.({ expressions, capture: (mode: 'portrait' | 'avatar' = 'portrait') => {
                     if (disposed || !renderer) throw new Error('プレビューを読み直してください。');
                     render(0, true);
+                    const source = renderer.domElement;
                     const thumbnail = document.createElement('canvas');
-                    thumbnail.width = 400;
-                    thumbnail.height = 600;
-                    thumbnail.getContext('2d')!.drawImage(renderer.domElement, 0, 0, 400, 600);
+                    const context = thumbnail.getContext('2d')!;
+                    if (mode === 'avatar') {
+                        // Chat icons are square: crop the upper part of the portrait.
+                        thumbnail.width = 400;
+                        thumbnail.height = 400;
+                        const size = Math.min(source.width, source.height);
+                        context.drawImage(source, (source.width - size) / 2, 0, size, size, 0, 0, 400, 400);
+                    } else {
+                        thumbnail.width = 400;
+                        thumbnail.height = 600;
+                        context.drawImage(source, 0, 0, 400, 600);
+                    }
                     return thumbnail.toDataURL('image/png');
                 } });
                 const tick = (now: number) => {

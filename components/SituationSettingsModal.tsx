@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Check, ChevronDown, ChevronRight, ChevronUp, EllipsisVertical, Image as ImageIcon, MessagesSquare, Plus, RotateCcw, Search, Shirt, Smile, Sparkles, Trash2, User, Users, X } from 'lucide-react';
 import {
     Character,
+    Costume,
     DEFAULT_CHARACTER_MAX_HISTORY,
     DEFAULT_CHARACTER_TEMPERATURE,
     DEFAULT_CHARACTER_TOP_P,
@@ -42,6 +43,7 @@ type TemporaryActorDraft = {
     model: string;
     icon: string | null;
     expressions: Expression[];
+    costumes: Costume[];
     temperature: number | null;
     topP: number | null;
     topK: number | null;
@@ -136,6 +138,7 @@ function createTemporaryDraft(): TemporaryActorDraft {
         model: '',
         icon: null,
         expressions: [],
+        costumes: [],
         temperature: null,
         topP: null,
         topK: null,
@@ -872,13 +875,25 @@ function TemporaryActorSettingsModal({
                 isOpen={imageGenOpen}
                 onClose={() => setImageGenOpen(false)}
                 transparentFullBody
-                onComplete={(avatar, fullBody) => {
+                expressionNames={draft.expressions.map((expression) => expression.name)}
+                initialVrm={draft.costumes.find((costume) => costume.name.toLowerCase() === DEFAULT_COSTUME_NAME && costume.kind === 'vrm')?.vrm}
+                vrmPreviewName={draft.name || 'キャラクター'}
+                vrmFallbackImage={draft.icon ?? undefined}
+                onComplete={(avatar, fullBody, vrm) => {
                     setDraft((current) => {
                         const expressions = current.expressions.filter(
                             (expression) => expression.name !== NEUTRAL_EXPRESSION_NAME,
                         );
                         expressions.unshift({ name: NEUTRAL_EXPRESSION_NAME, image: fullBody });
-                        return { ...current, icon: avatar, expressions };
+                        const costumes = current.costumes.filter(
+                            (costume) => costume.name.toLowerCase() !== DEFAULT_COSTUME_NAME,
+                        );
+                        costumes.unshift({
+                            name: DEFAULT_COSTUME_NAME,
+                            ...(vrm ? { kind: 'vrm' as const, vrm } : {}),
+                            image: fullBody,
+                        });
+                        return { ...current, icon: avatar, expressions, costumes };
                     });
                     setImageGenOpen(false);
                 }}
@@ -949,6 +964,7 @@ function buildInitialState(
                 model: actor.model ?? '',
                 icon: actor.icon ?? null,
                 expressions: actor.expressions ?? [],
+                costumes: actor.costumes ?? [],
                 temperature: typeof actor.temperature === 'number' ? actor.temperature : null,
                 topP: typeof actor.topP === 'number' ? actor.topP : null,
                 topK: typeof actor.topK === 'number' ? actor.topK : null,
@@ -1576,6 +1592,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
             model: actor.model.trim() || defaultChatModel,
             ...(actor.icon ? { icon: actor.icon } : {}),
             ...(actor.expressions.length > 0 ? { expressions: actor.expressions } : {}),
+            ...(actor.costumes.length > 0 ? { costumes: actor.costumes } : {}),
             ...(actor.temperature !== null ? { temperature: actor.temperature } : {}),
             ...(actor.topP !== null ? { topP: actor.topP } : {}),
             ...(actor.topK !== null ? { topK: actor.topK } : {}),

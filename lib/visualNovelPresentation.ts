@@ -46,7 +46,7 @@ function findCostume(character: Character | null | undefined, costumeName: strin
     return (character.costumes ?? []).find((costume) => costume.name === costumeName) ?? null;
 }
 
-function findDefaultCostume(character: Character | null | undefined) {
+function findDefaultCostume(character: VisualNovelExpressionSource | null | undefined) {
     return (character?.costumes ?? []).find((costume) => costume.name.toLowerCase() === DEFAULT_COSTUME_NAME) ?? null;
 }
 
@@ -88,13 +88,18 @@ export function getVisualNovelCostumeOptions(
     character: Character | null | undefined,
 ): VisualNovelCostumeOption[] {
     if (!character) return [];
-    const defaultImage = findDefaultCostume(character)?.image
+    const defaultCostume = findDefaultCostume(character);
+    const defaultVrm = defaultCostume?.kind === 'vrm' ? defaultCostume.vrm : undefined;
+    const defaultImage = defaultCostume?.image
         ?? resolveVisualNovelExpressionImage(character, null, DEFAULT_COSTUME_NAME);
     return [
         {
             name: DEFAULT_COSTUME_NAME,
+            ...(defaultVrm ? { kind: 'vrm' as const } : {}),
             image: defaultImage,
-            expressionCount: character.expressions?.length ?? 0,
+            expressionCount: defaultVrm
+                ? getVrmExpressionNames(defaultVrm).length - 1
+                : character.expressions?.length ?? 0,
         },
         ...(character.costumes ?? [])
             .filter((costume) => costume.name.toLowerCase() !== DEFAULT_COSTUME_NAME)
@@ -115,11 +120,14 @@ export function getVisualNovelExpressionNames(
     const selectedCostume = costumeName !== DEFAULT_COSTUME_NAME
         ? (character.costumes ?? []).find((costume) => costume.name === costumeName)
         : null;
-    const names = selectedCostume
-        ? selectedCostume.kind === 'vrm' && selectedCostume.vrm
-            ? getVrmExpressionNames(selectedCostume.vrm)
-            : [NEUTRAL_EXPRESSION_NAME, ...(selectedCostume.expressions ?? []).map((expression) => expression.name)]
-        : (character.expressions ?? []).map((expression) => expression.name);
+    // The avatar flow stores a 3D model on the reserved default costume; its usable
+    // names come from the expression map rather than the flat 2D expression list.
+    const activeCostume = selectedCostume ?? findDefaultCostume(character);
+    const names = activeCostume?.kind === 'vrm' && activeCostume.vrm
+        ? getVrmExpressionNames(activeCostume.vrm)
+        : selectedCostume
+            ? [NEUTRAL_EXPRESSION_NAME, ...(selectedCostume.expressions ?? []).map((expression) => expression.name)]
+            : (character.expressions ?? []).map((expression) => expression.name);
     const seen = new Set<string>();
     return names
         .map((name) => name.trim())

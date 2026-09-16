@@ -1108,7 +1108,11 @@ function CharacterSettingsModalContent({
                 isOpen={imageGenOpen}
                 onClose={() => setImageGenOpen(false)}
                 transparentFullBody
-                onComplete={(avatar, fullBody) => {
+                expressionNames={expressions.map((expression) => expression.name)}
+                initialVrm={costumes.find((c) => c.name.toLowerCase() === DEFAULT_COSTUME_NAME && c.kind === 'vrm')?.vrm}
+                vrmPreviewName={name || 'キャラクター'}
+                vrmFallbackImage={icon ?? undefined}
+                onComplete={(avatar, fullBody, vrm) => {
                     setIcon(avatar);
                     setExpressions((prev) => {
                         const next = prev.filter((e) => e.name !== NEUTRAL_NAME);
@@ -1120,6 +1124,7 @@ function CharacterSettingsModalContent({
                         const next = prev.filter((c) => c.name.toLowerCase() !== DEFAULT_COSTUME_NAME);
                         next.unshift({
                             name: DEFAULT_COSTUME_NAME,
+                            ...(vrm ? { kind: 'vrm' as const, vrm } : {}),
                             promptDetail: existingDefault?.promptDetail,
                             image: fullBody,
                         });

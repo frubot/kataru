@@ -28,6 +28,21 @@ export function isVrmSource(source: unknown, allowAsset = true): source is strin
     );
 }
 
+/** Read a picked .vrm file into an avatar record with default framing. */
+export async function readVrmFile(file: File): Promise<VrmAvatar> {
+    if (!file.name.toLowerCase().endsWith('.vrm')) throw new Error('.vrmファイルを選択してください。');
+    if (file.size > MAX_VRM_BYTES) throw new Error('VRMは50MB以下にしてください。');
+    const buffer = await file.arrayBuffer();
+    validateVrmBuffer(buffer);
+    const source = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(VRM_DATA_PREFIX + String(reader.result).split(',')[1]);
+        reader.onerror = () => reject(new Error('ファイルを読み込めませんでした。'));
+        reader.readAsDataURL(file);
+    });
+    return { source, framing: { ...DEFAULT_VRM_FRAMING }, expressionMap: {} };
+}
+
 /** Inspect before GLTFLoader runs so imported models cannot fetch external resources. */
 export function validateVrmBuffer(buffer: ArrayBuffer): void {
     const invalid = () => new Error('有効なVRM 0.x / 1.0ファイルを選択してください。');

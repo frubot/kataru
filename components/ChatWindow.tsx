@@ -1504,13 +1504,14 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     );
 
     const showChatWallpaper = !isVisualNovelMode && !!chatWallpaper;
+    const vnBackgroundImage = situation?.backgroundImage || chatWallpaper;
 
     return (
         <div className={`chat-container ${isVisualNovelMode ? 'vn-mode' : ''} ${isMessageMode ? 'message-mode' : ''} ${showChatWallpaper ? 'has-wallpaper' : ''}`}>
-            {isVisualNovelMode && situation?.backgroundImage && (
+            {isVisualNovelMode && vnBackgroundImage && (
                 <div className="vn-background" aria-hidden="true">
                     <StoredImage
-                        src={situation.backgroundImage}
+                        src={vnBackgroundImage}
                         alt=""
                         className="vn-background-image"
                         loading="eager"
@@ -1604,7 +1605,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     castCharacters={situationVnCastCharacters}
                     expressionImage={vnExpressionImage}
                     expression={situationVnPresentation.sceneExpression}
-                    backgroundImage={situation?.backgroundImage}
+                    backgroundImage={vnBackgroundImage}
                     bounceActive={vnBounceActive}
                     replySuggestions={replySuggestions}
                     hasReplySuggestions={showReplySuggestions}

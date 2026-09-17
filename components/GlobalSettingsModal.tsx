@@ -1283,7 +1283,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         </span>
                                     )}
                                     <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                                        ゲームモード以外のチャット画面の背景として表示されます。
+                                        チャット画面の背景として表示されます。ゲームモードではシチュエーションの背景が優先されます。
                                     </p>
                                 </div>
                             </div>
@@ -1782,7 +1782,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                     isOpen
                     currentImage={chatWallpaper}
                     title="壁紙を編集"
-                    usageHint="ゲームモード以外のチャット画面の背景として表示されます。"
+                    usageHint="チャット画面の背景として表示されます。ゲームモードではシチュエーションの背景が優先されます。"
                     generationHint="人物や文字を含まない、チャット画面用の横長背景として生成します。"
                     removeConfirmMessage="設定中の壁紙を削除しますか？"
                     onClose={() => setWallpaperEditorOpen(false)}

@@ -269,9 +269,6 @@ export default function ModelSelector({
                                 {filteredResults.length > 1 && (
                                     <div className="model-selector-group-header">
                                         <span className="model-selector-group-name">{result.connection.name}</span>
-                                        <span className="model-selector-group-kind">
-                                            {AI_CONNECTION_KIND_LABELS[result.connection.kind]}
-                                        </span>
                                     </div>
                                 )}
                                 {'error' in result ? (

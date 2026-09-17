@@ -465,7 +465,6 @@ body {
 
 .model-selector-search:focus-within {
   border-color: var(--accent-primary);
-  box-shadow: 0 0 0 3px rgba(var(--accent-primary-rgb), 0.16);
 }
 
 .model-selector-search input {
@@ -652,12 +651,6 @@ body {
   letter-spacing: 0.02em;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.model-selector-group-kind {
-  flex-shrink: 0;
-  color: var(--text-muted);
-  font-size: 0.625rem;
 }
 
 .model-selector-group-error {

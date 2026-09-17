@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
 import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Check, ChevronDown, RefreshCw, ExternalLink, Plus, type LucideIcon } from 'lucide-react';
 import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, RoomViewMode, getDefaultModelDefaults } from '@/lib/store';
-import { AI_CONNECTION_KIND_LABELS, isAiConnectionKind } from '@/lib/aiApi';
-import { useAiConnections } from '@/lib/aiConnections';
+import { AI_CONNECTION_KIND_LABELS, isAiConnectionKind, type AiConnectionKind } from '@/lib/aiApi';
+import { useAiConnections, type AiConnectionStatus } from '@/lib/aiConnections';
 import { MODEL_DEFAULT_FIELDS, modelRefsEqual, type ModelRef, type ModelRoleKey } from '@/lib/modelDefaults';
 import type { ModelOutputModality } from '@/lib/availableModels';
 import { createFullBackup, downloadJson, parseImportFile, reassignIds, type ParsedImport } from '@/lib/importExport';
@@ -335,6 +335,18 @@ interface RoleModelFieldProps {
     capability?: 'embeddings' | 'imageGeneration';
 }
 
+function connectionSupportsCapability(
+    kind: AiConnectionKind | null,
+    connection: AiConnectionStatus | null,
+    capability: 'embeddings' | 'imageGeneration',
+): boolean {
+    return kind === 'openrouter'
+        || (kind === 'openai-compatible'
+            && (capability === 'embeddings'
+                ? connection?.embeddingsEnabled ?? true
+                : connection?.imageGenerationEnabled === true));
+}
+
 /** A role's model selector row for the models settings tab. */
 function RoleModelField({
     role,
@@ -349,11 +361,8 @@ function RoleModelField({
     const connection = connections.find((candidate) => candidate.id === value.connectionId) ?? null;
     const kind = connection?.kind ?? (isAiConnectionKind(value.connectionId) ? value.connectionId : null);
     const capabilitySupported = !capability
-        || kind === 'openrouter'
-        || (kind === 'openai-compatible'
-            && (capability === 'embeddings'
-                ? connection?.embeddingsEnabled ?? true
-                : connection?.imageGenerationEnabled === true));
+        || connectionSupportsCapability(kind, connection, capability)
+        || connections.some((candidate) => connectionSupportsCapability(candidate.kind, candidate, capability));
 
     return (
         <div className="global-settings-selector-row global-settings-selector-row-divider">

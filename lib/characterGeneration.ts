@@ -21,7 +21,6 @@ export interface GeneratedCharacterDraft {
 type GeneratedCharacterTextField = Exclude<keyof GeneratedCharacterProfile, 'speechExamples'>;
 
 const CHARACTER_FIELD_LABELS: Array<[GeneratedCharacterTextField, string]> = [
-    ['name', '名前'],
     ['gender', '性別'],
     ['occupation', '職業'],
     ['firstPerson', '一人称'],

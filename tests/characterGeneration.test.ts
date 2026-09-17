@@ -52,6 +52,8 @@ describe('character generation profile', () => {
         expect(characterPrompt).toContain('## 職業\n高校生・天文部員');
         expect(characterPrompt).toContain('## 性格\n好奇心旺盛で世話焼き');
         expect(characterPrompt).toContain('## 特徴\n星座に詳しく');
+        expect(characterPrompt).not.toContain('## 名前');
+        expect(characterPrompt).not.toContain('ミナ');
         expect(characterPrompt).not.toContain('口調');
         expect(characterPrompt).not.toContain('## 詳細');
         expect(speechStyle).toBe([

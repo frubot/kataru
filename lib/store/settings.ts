@@ -110,12 +110,13 @@ export function modelDefaultsFromState(state: ModelDefaults): ModelDefaults {
     });
 }
 
-export function persistModelDefaults(state: ModelDefaults): void {
+export function persistModelDefaults(state: ModelDefaults): Promise<void> {
     const modelDefaults = modelDefaultsFromState(state);
     modelDefaultsWriteQueue = modelDefaultsWriteQueue
         .catch(() => undefined)
         .then(() => db.setMeta('modelDefaults', modelDefaults));
     fire(modelDefaultsWriteQueue);
+    return modelDefaultsWriteQueue;
 }
 
 export async function waitForModelDefaultsWrites(): Promise<void> {

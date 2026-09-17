@@ -697,25 +697,52 @@ impl AiConfigManager {
             .filter(|value| !value.is_empty())
             .map(str::to_owned);
         let id = {
-            let mut inner = self.inner.lock().expect("AI config lock poisoned");
-            let id = generate_connection_id(&inner.persisted);
-            let mut persisted = inner.persisted.clone();
-            persisted.connections.push(PersistedConnection {
-                id: id.clone(),
-                name: input.name.as_deref().and_then(normalize_name),
-                kind: Some(input.kind),
-                base_url,
-                embeddings_enabled: input.embeddings_enabled,
-                image_generation_enabled: input.image_generation_enabled,
-                ignored_providers: (!input.ignored_providers.is_empty())
-                    .then(|| normalize_provider_slugs(input.ignored_providers)),
-            });
-            save_persisted_config(&self.config_path, &persisted)?;
-            inner.persisted = persisted;
-            id
+            let inner = self.inner.lock().expect("AI config lock poisoned");
+            generate_connection_id(&inner.persisted)
         };
-        if let Some(api_key) = api_key {
-            self.set_api_key(&id, &api_key)?;
+        let record = PersistedConnection {
+            id: id.clone(),
+            name: input.name.as_deref().and_then(normalize_name),
+            kind: Some(input.kind),
+            base_url,
+            embeddings_enabled: input.embeddings_enabled,
+            image_generation_enabled: input.image_generation_enabled,
+            ignored_providers: (!input.ignored_providers.is_empty())
+                .then(|| normalize_provider_slugs(input.ignored_providers)),
+        };
+        // Write the credential before persisting so a secret-store failure
+        // leaves no half-created connection behind. Secret-store IO is slow,
+        // so it always happens outside the `inner` lock.
+        let secret_key = api_key.as_ref().map(|_| {
+            secret_key_name(&id, &effective_base_url(&record, &self.environment))
+        });
+        if let (Some(secret_key), Some(api_key)) = (&secret_key, &api_key) {
+            self.secret_store
+                .set(secret_key, api_key)
+                .map_err(secret_store_error)?;
+        }
+        let save_result = {
+            let mut inner = self.inner.lock().expect("AI config lock poisoned");
+            let mut persisted = inner.persisted.clone();
+            persisted.connections.push(record);
+            let save_result = save_persisted_config(&self.config_path, &persisted);
+            if save_result.is_ok() {
+                inner.persisted = persisted;
+                if let Some(api_key) = api_key {
+                    inner.stored_api_keys.insert(id.clone(), api_key);
+                    inner.secret_store_available = true;
+                }
+            }
+            save_result
+        };
+        if let Err(save_error) = save_result {
+            // Best-effort rollback of the credential written above.
+            if let Some(secret_key) = &secret_key
+                && let Err(error) = self.secret_store.delete(secret_key)
+            {
+                tracing::warn!(%error, "failed to roll back credential of unsaved connection");
+            }
+            return Err(save_error);
         }
         Ok(id)
     }
@@ -1508,6 +1535,24 @@ impl SecretStore for MemorySecretStore {
 }
 
 #[cfg(test)]
+struct FailingSecretStore;
+
+#[cfg(test)]
+impl SecretStore for FailingSecretStore {
+    fn get(&self, _key: &str) -> Result<Option<String>, String> {
+        Ok(None)
+    }
+
+    fn set(&self, _key: &str, _value: &str) -> Result<(), String> {
+        Err("simulated credential store failure".to_owned())
+    }
+
+    fn delete(&self, _key: &str) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -1932,5 +1977,71 @@ mod tests {
                 .unwrap();
             assert!(ids.insert(id));
         }
+    }
+
+    #[test]
+    fn failed_secret_store_write_leaves_no_connection_behind() {
+        let directory = tempfile::tempdir().unwrap();
+        let manager = AiConfigManager::with_parts(
+            directory.path().join(CONFIG_FILE_NAME),
+            PersistedConfig::default(),
+            EnvironmentConfig::default(),
+            Arc::new(FailingSecretStore),
+        )
+        .unwrap();
+
+        assert!(
+            manager
+                .create_connection(NewConnection {
+                    name: None,
+                    kind: ConnectionKind::Anthropic,
+                    base_url: None,
+                    api_key: Some("secret".to_owned()),
+                    embeddings_enabled: None,
+                    image_generation_enabled: None,
+                    ignored_providers: Vec::new(),
+                })
+                .is_err()
+        );
+        // Only the three built-ins exist and nothing was persisted.
+        assert_eq!(manager.status().connections.len(), 3);
+        assert!(!directory.path().join(CONFIG_FILE_NAME).exists());
+    }
+
+    #[test]
+    fn failed_connection_save_rolls_back_the_stored_key() {
+        let directory = tempfile::tempdir().unwrap();
+        let secrets = Arc::new(MemorySecretStore::default());
+        let manager = AiConfigManager::with_parts(
+            // A missing directory makes save_persisted_config fail.
+            directory.path().join("missing").join(CONFIG_FILE_NAME),
+            PersistedConfig::default(),
+            EnvironmentConfig::default(),
+            secrets.clone(),
+        )
+        .unwrap();
+
+        assert!(
+            manager
+                .create_connection(NewConnection {
+                    name: None,
+                    kind: ConnectionKind::Anthropic,
+                    base_url: None,
+                    api_key: Some("secret".to_owned()),
+                    embeddings_enabled: None,
+                    image_generation_enabled: None,
+                    ignored_providers: Vec::new(),
+                })
+                .is_err()
+        );
+        assert_eq!(manager.status().connections.len(), 3);
+        assert!(
+            secrets
+                .values
+                .lock()
+                .expect("memory secrets lock")
+                .is_empty(),
+            "the pre-written credential must be rolled back"
+        );
     }
 }

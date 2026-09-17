@@ -274,11 +274,16 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
             const resolvedReplySuggestionsEnabled = storedReplySuggestionsEnabled === true;
             // 旧接続設定を組み込み接続へベストエフォートで引き継ぐ（失敗しても続行）。
             const resolvedOpenRouterIgnoredProviders = normalizeOpenRouterIgnoredProviders(storedOpenRouterIgnoredProviders);
-            const connectionUpdates: Promise<unknown>[] = [];
+            let openRouterUpdateSucceeded = true;
             if (resolvedOpenRouterIgnoredProviders.length > 0) {
-                connectionUpdates.push(updateAiConnection('openrouter', {
-                    ignoredProviders: resolvedOpenRouterIgnoredProviders,
-                }));
+                try {
+                    await updateAiConnection('openrouter', {
+                        ignoredProviders: resolvedOpenRouterIgnoredProviders,
+                    });
+                } catch (error) {
+                    openRouterUpdateSucceeded = false;
+                    console.error('[db]', error);
+                }
             }
             const openAiConnectionUpdate: UpdateAiConnectionInput = {};
             const storedOpenAiBaseUrl = typeof storedOpenAiCompatibleBaseUrl === 'string'
@@ -293,38 +298,46 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
             if (typeof storedOpenAiCompatibleImageGenerationEnabled === 'boolean') {
                 openAiConnectionUpdate.imageGenerationEnabled = storedOpenAiCompatibleImageGenerationEnabled;
             }
+            let openAiCompatibleUpdateSucceeded = true;
             if (Object.keys(openAiConnectionUpdate).length > 0) {
-                connectionUpdates.push(updateAiConnection('openai-compatible', openAiConnectionUpdate));
-            }
-            if (connectionUpdates.length > 0) {
-                fire(Promise.all(connectionUpdates).then(() => undefined));
+                try {
+                    await updateAiConnection('openai-compatible', openAiConnectionUpdate);
+                } catch (error) {
+                    openAiCompatibleUpdateSucceeded = false;
+                    console.error('[db]', error);
+                }
             }
 
+            let modelDefaultsPersisted = true;
             if (JSON.stringify(storedModelDefaults) !== JSON.stringify(resolvedModelDefaults)) {
-                persistModelDefaults(resolvedModelDefaults);
+                try {
+                    await persistModelDefaults(resolvedModelDefaults);
+                } catch {
+                    modelDefaultsPersisted = false;
+                }
             }
-            // 移行済みの旧メタキーを削除する。
-            const legacyMetaEntries: [string, unknown][] = [
-                ['aiApiType', storedAiApiType],
-                ['aiProvider', storedLegacyAiProvider],
-                ['roleApiTypes', storedRoleApiTypes],
-                ['modelDefaultsByApiType', storedModelDefaultsByApiType],
-                ['modelDefaultsByProvider', storedLegacyModelDefaultsByProvider],
-                ['openRouterIgnoredProviders', storedOpenRouterIgnoredProviders],
-                ['openAiCompatibleBaseUrl', storedOpenAiCompatibleBaseUrl],
-                ['openAiCompatibleEmbeddingsEnabled', storedOpenAiCompatibleEmbeddingsEnabled],
-                ['openAiCompatibleImageGenerationEnabled', storedOpenAiCompatibleImageGenerationEnabled],
-                ['summaryModel', storedSummaryModel],
-                ['defaultChatModel', storedDefaultChatModel],
-                ['defaultDirectorModel', storedDefaultDirectorModel],
-                ['defaultAutoGenerationModel', storedDefaultAutoGenerationModel],
-                ['titleGenerationModel', storedTitleGenerationModel],
-                ['defaultImageModel', storedDefaultImageModel],
-                ['memoryExtractionModel', storedMemoryExtractionModel],
-                ['memoryEmbeddingModel', storedMemoryEmbeddingModel],
+            // 移行に成功した旧メタキーのみ削除する（失敗したものは次回起動時に再試行）。
+            const legacyMetaEntries: [string, unknown, boolean][] = [
+                ['aiApiType', storedAiApiType, modelDefaultsPersisted],
+                ['aiProvider', storedLegacyAiProvider, modelDefaultsPersisted],
+                ['roleApiTypes', storedRoleApiTypes, modelDefaultsPersisted],
+                ['modelDefaultsByApiType', storedModelDefaultsByApiType, modelDefaultsPersisted],
+                ['modelDefaultsByProvider', storedLegacyModelDefaultsByProvider, modelDefaultsPersisted],
+                ['openRouterIgnoredProviders', storedOpenRouterIgnoredProviders, openRouterUpdateSucceeded],
+                ['openAiCompatibleBaseUrl', storedOpenAiCompatibleBaseUrl, openAiCompatibleUpdateSucceeded],
+                ['openAiCompatibleEmbeddingsEnabled', storedOpenAiCompatibleEmbeddingsEnabled, openAiCompatibleUpdateSucceeded],
+                ['openAiCompatibleImageGenerationEnabled', storedOpenAiCompatibleImageGenerationEnabled, openAiCompatibleUpdateSucceeded],
+                ['summaryModel', storedSummaryModel, modelDefaultsPersisted],
+                ['defaultChatModel', storedDefaultChatModel, modelDefaultsPersisted],
+                ['defaultDirectorModel', storedDefaultDirectorModel, modelDefaultsPersisted],
+                ['defaultAutoGenerationModel', storedDefaultAutoGenerationModel, modelDefaultsPersisted],
+                ['titleGenerationModel', storedTitleGenerationModel, modelDefaultsPersisted],
+                ['defaultImageModel', storedDefaultImageModel, modelDefaultsPersisted],
+                ['memoryExtractionModel', storedMemoryExtractionModel, modelDefaultsPersisted],
+                ['memoryEmbeddingModel', storedMemoryEmbeddingModel, modelDefaultsPersisted],
             ];
-            for (const [key, value] of legacyMetaEntries) {
-                if (value !== undefined) fire(db.deleteMeta(key));
+            for (const [key, value, migrated] of legacyMetaEntries) {
+                if (value !== undefined && migrated) fire(db.deleteMeta(key));
             }
 
             const hasExistingContent = loadedCharacters.length > 0 || storedGroups.length > 0 || storedRooms.length > 0;

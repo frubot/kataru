@@ -16,7 +16,8 @@ import {
     useAiConnections,
     type UpdateAiConnectionInput,
 } from '@/lib/aiConnections';
-import { modelRefsEqual, serializeModelRef } from '@/lib/modelDefaults';
+import { getAvailableModels, type AvailableModel } from '@/lib/availableModels';
+import { serializeModelRef } from '@/lib/modelDefaults';
 import { useStore } from '@/lib/store';
 
 interface FirstRunGuideProps {
@@ -62,7 +63,9 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
         setDefaultDirectorModel,
         setDefaultAutoGenerationModel,
         setTitleGenerationModel,
+        setReplySuggestionModel,
         setSummaryModel,
+        setExpressionDetectionModel,
         setMemoryExtractionModel,
         createCharacter,
         createRoom,
@@ -81,6 +84,10 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
     const [anthropicModel, setAnthropicModel] = useState(DEFAULT_ANTHROPIC_TEXT_MODEL);
     const [connectionState, setConnectionState] = useState<ConnectionState>('idle');
     const [connectionMessage, setConnectionMessage] = useState('');
+    const [checkSucceeded, setCheckSucceeded] = useState(false);
+    const [availableTextModels, setAvailableTextModels] = useState<AvailableModel[]>([]);
+    const [modelListFailed, setModelListFailed] = useState(false);
+    const [selectedGuideModel, setSelectedGuideModel] = useState('');
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
     const [speechStyle, setSpeechStyle] = useState('');
@@ -90,10 +97,18 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
 
     const connection = connections.find((candidate) => candidate.id === selectedConnectionId) ?? null;
 
+    const resetCheckResult = () => {
+        setCheckSucceeded(false);
+        setAvailableTextModels([]);
+        setModelListFailed(false);
+        setSelectedGuideModel('');
+    };
+
     useEffect(() => {
         if (step !== 'connection') return;
         setConnectionState('idle');
         setConnectionMessage('');
+        resetCheckResult();
         setApiKey('');
         setBaseUrl(connection?.baseUrl ?? '');
         setAnthropicModel(
@@ -108,6 +123,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
         setSelectedConnectionId(connectionId);
         setConnectionState('idle');
         setConnectionMessage('');
+        resetCheckResult();
     };
 
     const saveAndCheckConnection = async () => {
@@ -118,7 +134,6 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
         const trimmedBaseUrl = baseUrl.trim().replace(/\/+$/, '');
         const baseChanged = connection.baseUrlEditable
             && trimmedBaseUrl !== (connection.baseUrl ?? '');
-        const trimmedAnthropicModel = anthropicModel.trim();
 
         if (kind === 'openrouter' && !connection.apiKey.configured && !trimmedApiKey) {
             setConnectionState('error');
@@ -128,11 +143,6 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
         if (kind !== 'openrouter' && connection.baseUrlEditable && !trimmedBaseUrl) {
             setConnectionState('error');
             setConnectionMessage('エンドポイントを入力してください。');
-            return;
-        }
-        if (kind === 'anthropic' && !trimmedAnthropicModel) {
-            setConnectionState('error');
-            setConnectionMessage('Anthropicで使用するモデルIDを入力してください。');
             return;
         }
         if (
@@ -165,15 +175,6 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
             if (Object.keys(update).length > 0) {
                 await updateAiConnection(connection.id, update);
             }
-            if (kind === 'anthropic') {
-                const modelRef = { connectionId: connection.id, model: trimmedAnthropicModel };
-                setDefaultChatModel(modelRef);
-                setDefaultDirectorModel(modelRef);
-                setDefaultAutoGenerationModel(modelRef);
-                setTitleGenerationModel(modelRef);
-                setSummaryModel(modelRef);
-                setMemoryExtractionModel(modelRef);
-            }
             setApiKey('');
 
             const response = await fetch('/api/ai/status', {
@@ -189,7 +190,19 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                 throw new Error(data.message || `接続の確認に失敗しました (${response.status})`);
             }
             if (data.ready === true) {
-                setStep('character');
+                if (kind === 'openrouter') {
+                    setStep('character');
+                    setConnectionState('idle');
+                    return;
+                }
+                const models = await getAvailableModels(connection.id, 'text', { force: true })
+                    .catch(() => [] as AvailableModel[]);
+                setAvailableTextModels(models);
+                setModelListFailed(models.length === 0);
+                setSelectedGuideModel(
+                    models[0]?.id ?? (kind === 'anthropic' ? anthropicModel.trim() : ''),
+                );
+                setCheckSucceeded(true);
                 setConnectionState('idle');
                 return;
             }
@@ -199,6 +212,21 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
             setConnectionState('error');
             setConnectionMessage(error instanceof Error ? error.message : '接続の確認に失敗しました。');
         }
+    };
+
+    const applyModelAndAdvance = () => {
+        const model = selectedGuideModel.trim();
+        if (!connection || !model) return;
+        const modelRef = { connectionId: connection.id, model };
+        setDefaultChatModel(modelRef);
+        setDefaultDirectorModel(modelRef);
+        setDefaultAutoGenerationModel(modelRef);
+        setTitleGenerationModel(modelRef);
+        setReplySuggestionModel(modelRef);
+        setSummaryModel(modelRef);
+        setExpressionDetectionModel(modelRef);
+        setMemoryExtractionModel(modelRef);
+        setStep('character');
     };
 
     const generateCharacter = async () => {
@@ -258,14 +286,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
         ? false
         : connectionKind === 'openrouter'
             ? apiKey.trim().length > 0
-            : connectionKind === 'anthropic'
-                ? baseChanged
-                    || apiKey.trim().length > 0
-                    || !modelRefsEqual(defaultChatModel, {
-                        connectionId: connection.id,
-                        model: anthropicModel.trim(),
-                    })
-                : baseChanged || apiKey.trim().length > 0;
+            : baseChanged || apiKey.trim().length > 0;
     const connectionBusy = connectionsLoading || connectionState === 'checking';
     return (
         <section className="chat-container onboarding-container" aria-label="はじめ方">
@@ -412,7 +433,10 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                                 value={baseUrl}
                                                 disabled={!connection.baseUrlEditable || connectionBusy}
                                                 spellCheck={false}
-                                                onChange={(event) => setBaseUrl(event.target.value)}
+                                                onChange={(event) => {
+                                                    setBaseUrl(event.target.value);
+                                                    if (checkSucceeded) resetCheckResult();
+                                                }}
                                             />
                                             {!connection.baseUrlEditable && (
                                                 <p className="ai-connection-help">
@@ -444,7 +468,10 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                             : connectionKind === 'openai-compatible'
                                                 ? 'APIキーを入力（ローカルAPIでは省略可）'
                                                 : `${AI_CONNECTION_KIND_LABELS[connectionKind]} APIキーを入力`}
-                                        onChange={(event) => setApiKey(event.target.value)}
+                                        onChange={(event) => {
+                                            setApiKey(event.target.value);
+                                            if (checkSucceeded) resetCheckResult();
+                                        }}
                                     />
                                     {!connection.apiKey.editable && (
                                         <p className="ai-connection-help">
@@ -452,21 +479,45 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                         </p>
                                     )}
 
-                                    {connectionKind === 'anthropic' && (
+                                    {checkSucceeded && (
                                         <>
-                                            <label className="ai-connection-label" htmlFor="onboarding-anthropic-model">
+                                            <p className="ai-connection-message success" role="status">
+                                                接続を確認しました。使用するモデルを選んでください。
+                                            </p>
+                                            <label className="ai-connection-label" htmlFor="onboarding-guide-model">
                                                 使用するモデル
                                             </label>
-                                            <input
-                                                id="onboarding-anthropic-model"
-                                                className="input"
-                                                type="text"
-                                                value={anthropicModel}
-                                                disabled={connectionBusy}
-                                                spellCheck={false}
-                                                placeholder={DEFAULT_ANTHROPIC_TEXT_MODEL}
-                                                onChange={(event) => setAnthropicModel(event.target.value)}
-                                            />
+                                            {modelListFailed ? (
+                                                <>
+                                                    <input
+                                                        id="onboarding-guide-model"
+                                                        className="input"
+                                                        type="text"
+                                                        value={selectedGuideModel}
+                                                        spellCheck={false}
+                                                        placeholder={connectionKind === 'anthropic'
+                                                            ? DEFAULT_ANTHROPIC_TEXT_MODEL
+                                                            : 'モデルIDを入力'}
+                                                        onChange={(event) => setSelectedGuideModel(event.target.value)}
+                                                    />
+                                                    <p className="ai-connection-help">
+                                                        モデル一覧を取得できなかったため、モデルIDを入力してください。
+                                                    </p>
+                                                </>
+                                            ) : (
+                                                <select
+                                                    id="onboarding-guide-model"
+                                                    className="input"
+                                                    value={selectedGuideModel}
+                                                    onChange={(event) => setSelectedGuideModel(event.target.value)}
+                                                >
+                                                    {availableTextModels.map((model) => (
+                                                        <option key={model.id} value={model.id}>
+                                                            {model.name === model.id ? model.name : `${model.name} (${model.id})`}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            )}
                                             <p className="ai-connection-help">
                                                 既定モデルに設定されます。あとから変更できます。
                                             </p>
@@ -491,19 +542,30 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                 >
                                     初期設定をスキップ
                                 </button>
-                                <button
-                                    type="button"
-                                    className="btn btn-primary"
-                                    onClick={() => void saveAndCheckConnection()}
-                                    disabled={!connection || connectionBusy}
-                                >
-                                    {connectionState === 'checking' && <Loader2 size={16} className="animate-spin" />}
-                                    {connectionState === 'checking'
-                                        ? '保存・確認中…'
-                                        : hasConnectionChanges
-                                            ? '保存して接続確認'
-                                            : '接続を確認'}
-                                </button>
+                                {checkSucceeded ? (
+                                    <button
+                                        type="button"
+                                        className="btn btn-primary"
+                                        onClick={applyModelAndAdvance}
+                                        disabled={!selectedGuideModel.trim()}
+                                    >
+                                        次へ
+                                    </button>
+                                ) : (
+                                    <button
+                                        type="button"
+                                        className="btn btn-primary"
+                                        onClick={() => void saveAndCheckConnection()}
+                                        disabled={!connection || connectionBusy}
+                                    >
+                                        {connectionState === 'checking' && <Loader2 size={16} className="animate-spin" />}
+                                        {connectionState === 'checking'
+                                            ? '保存・確認中…'
+                                            : hasConnectionChanges
+                                                ? '保存して接続確認'
+                                                : '接続を確認'}
+                                    </button>
+                                )}
                             </div>
                         </>
                     ) : (

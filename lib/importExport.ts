@@ -1,5 +1,6 @@
 import type {
     Character,
+    ExportedConnection,
     MemoryRecord,
     Message,
     ParsedBackup,
@@ -8,13 +9,14 @@ import type {
     UsageRecord,
 } from './store/types';
 import * as db from './db';
+import { getAiConnections } from './aiConnections';
 import { isAiConnectionKind } from './aiApi';
 import { DEFAULT_MODEL_DEFAULTS, normalizeModelRef, type ModelRef } from './modelDefaults';
 import { normalizeCharactersForCostumeDiffs } from './visualDiffMigration';
 import { generateId } from './id';
 import { isVrmSource } from './vrm';
 
-export type { ParsedBackup } from './store/types';
+export type { ExportedConnection, ParsedBackup } from './store/types';
 
 type StoredRoom = Omit<Room, 'messages'>;
 type StoredMessage = Message & { roomId: string };
@@ -30,6 +32,7 @@ export interface FullBackup {
         messages: StoredMessage[];
         memories: MemoryRecord[];
         usageRecords: UsageRecord[];
+        connections?: ExportedConnection[];
     };
 }
 
@@ -115,19 +118,39 @@ function isValidSituation(situation: Situation, characterIds: Set<string>): bool
 }
 
 export async function createFullBackup(): Promise<string> {
-    const [characters, groups, rooms, messagesAll, memories, usageRecords] = await Promise.all([
+    const [characters, groups, rooms, messagesAll, memories, usageRecords, connections] = await Promise.all([
         db.getAllCharactersWithImages(),
         db.getAllGroupsWithImages(),
         db.getAllRooms(),
         db.getAllMessages(),
         db.getAllMemories(),
         db.getAllUsageRecords(),
+        getAiConnections().then((response) => response.connections).catch(() => null),
     ]);
     const backup: FullBackup = {
         version: 1,
         exportedAt: Date.now(),
         type: 'full',
-        data: { characters, situations: groups, rooms, messages: messagesAll, memories, usageRecords },
+        data: {
+            characters,
+            situations: groups,
+            rooms,
+            messages: messagesAll,
+            memories,
+            usageRecords,
+            // 復元先での接続再作成に必要なメタデータのみ。apiKey等の秘密情報は含めない。
+            ...(connections ? {
+                connections: connections.map((connection) => ({
+                    id: connection.id,
+                    name: connection.name,
+                    kind: connection.kind,
+                    ...(connection.baseUrl ? { baseUrl: connection.baseUrl } : {}),
+                    embeddingsEnabled: connection.embeddingsEnabled,
+                    imageGenerationEnabled: connection.imageGenerationEnabled,
+                    ignoredProviders: connection.ignoredProviders,
+                })),
+            } : {}),
+        },
     };
     return JSON.stringify(backup, null, 2);
 }
@@ -262,6 +285,11 @@ function parseFullBackupValue(parsed: unknown): ParsedBackup {
     }));
     const usageRecords = b.data.usageRecords;
     const memories = b.data.memories;
+    const connections = Array.isArray(b.data.connections)
+        ? b.data.connections
+            .map(parseExportedConnection)
+            .filter((connection): connection is ExportedConnection => connection !== null)
+        : undefined;
 
     for (const c of characters) {
         if (typeof c.id !== 'string' || typeof c.name !== 'string') {
@@ -329,17 +357,42 @@ function parseFullBackupValue(parsed: unknown): ParsedBackup {
         (memory.sourceRoomId && !roomIds.has(memory.sourceRoomId))
     );
     const validMemories = memories.filter((memory) => !orphanedMemories.includes(memory));
-    if (orphanedRecords.length > 0) {
-        return {
-            characters,
-            groups,
-            rooms,
-            memories: validMemories,
-            usageRecords: usageRecords.filter((u) => validUsageCharacterIds.has(u.characterId)),
-        };
-    }
+    const result: ParsedBackup = {
+        characters,
+        groups,
+        rooms,
+        memories: validMemories,
+        usageRecords: orphanedRecords.length > 0
+            ? usageRecords.filter((u) => validUsageCharacterIds.has(u.characterId))
+            : usageRecords,
+    };
+    if (connections) result.connections = connections;
+    return result;
+}
 
-    return { characters, groups, rooms, memories: validMemories, usageRecords };
+function parseExportedConnection(value: unknown): ExportedConnection | null {
+    if (!isRecord(value)
+        || typeof value.id !== 'string'
+        || value.id.length === 0
+        || typeof value.name !== 'string'
+        || !isAiConnectionKind(value.kind)) {
+        return null;
+    }
+    const connection: ExportedConnection = { id: value.id, name: value.name, kind: value.kind };
+    if (typeof value.baseUrl === 'string' && value.baseUrl.length > 0) {
+        connection.baseUrl = value.baseUrl;
+    }
+    if (typeof value.embeddingsEnabled === 'boolean') {
+        connection.embeddingsEnabled = value.embeddingsEnabled;
+    }
+    if (typeof value.imageGenerationEnabled === 'boolean') {
+        connection.imageGenerationEnabled = value.imageGenerationEnabled;
+    }
+    if (Array.isArray(value.ignoredProviders)) {
+        connection.ignoredProviders = value.ignoredProviders
+            .filter((provider): provider is string => typeof provider === 'string');
+    }
+    return connection;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -607,5 +660,13 @@ export function reassignIds(parsed: ParsedBackup): ParsedBackup {
         characterId: actorIdMap.get(u.characterId) ?? charIdMap.get(u.characterId) ?? u.characterId,
     }));
 
-    return { characters, groups, rooms, memories, usageRecords };
+    // 接続メタデータはインポート側で参照修復に使うため、そのまま引き継ぐ。
+    return {
+        characters,
+        groups,
+        rooms,
+        memories,
+        usageRecords,
+        ...(parsed.connections ? { connections: parsed.connections } : {}),
+    };
 }

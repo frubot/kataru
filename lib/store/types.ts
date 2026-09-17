@@ -1,6 +1,6 @@
 import type { StoreApi } from 'zustand';
 
-import type { AiApiConfig, ModelRef } from '../aiApi';
+import type { AiApiConfig, AiConnectionKind, ModelRef } from '../aiApi';
 import type {
     KeyboardShortcut,
     KeyboardShortcutAction,
@@ -83,6 +83,7 @@ export interface MemoryRecord {
     confidence: number;
     embedding?: number[];
     embeddingModel?: string;
+    embeddingConnectionId?: string;
     sourceMessageIds: string[];
     createdAt: number;
     updatedAt: number;
@@ -251,12 +252,24 @@ export interface UsageRecord {
     cost: number;
 }
 
+/** フルバックアップに含めるAI接続のメタデータ。apiKey等の秘密情報は含めない。 */
+export interface ExportedConnection {
+    id: string;
+    name: string;
+    kind: AiConnectionKind;
+    baseUrl?: string;
+    embeddingsEnabled?: boolean;
+    imageGenerationEnabled?: boolean;
+    ignoredProviders?: string[];
+}
+
 export interface ParsedBackup {
     characters: Character[];
     groups: Situation[];
     rooms: Room[];
     memories: MemoryRecord[];
     usageRecords: UsageRecord[];
+    connections?: ExportedConnection[];
 }
 
 export interface FullJsonDebugLog {

@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
+import { clearAiConnectionsCache } from '../lib/aiConnections';
+
 import {
     createCharacterBackup,
     createCharacterBackupFilename,
@@ -167,14 +169,56 @@ describe('createFullBackup and parseFullBackup', () => {
             get_all_memories: backup.data.memories,
             get_all_usage_records: backup.data.usageRecords,
         };
+        const connectionsResponse = {
+            connections: [
+                {
+                    id: 'openrouter',
+                    name: 'OpenRouter',
+                    kind: 'openrouter',
+                    baseUrl: 'https://openrouter.ai/api/v1',
+                    baseUrlSource: 'default',
+                    baseUrlEditable: false,
+                    apiKey: { configured: true, source: 'stored', editable: true },
+                    builtin: true,
+                    editable: true,
+                    deletable: false,
+                    embeddingsEnabled: true,
+                    imageGenerationEnabled: false,
+                    ignoredProviders: [],
+                },
+                {
+                    id: 'cx_local',
+                    name: 'ローカルLLM',
+                    kind: 'openai-compatible',
+                    baseUrl: 'http://localhost:1234/v1',
+                    baseUrlSource: 'stored',
+                    baseUrlEditable: true,
+                    apiKey: { configured: false, source: null, editable: true },
+                    builtin: false,
+                    editable: true,
+                    deletable: true,
+                    embeddingsEnabled: true,
+                    imageGenerationEnabled: false,
+                    ignoredProviders: [],
+                },
+            ],
+            secretStoreAvailable: true,
+        };
         const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
-            const request = JSON.parse(String(init?.body)) as { op: string };
+            if (init?.body === undefined) {
+                return {
+                    ok: true,
+                    json: async () => connectionsResponse,
+                };
+            }
+            const request = JSON.parse(String(init.body)) as { op: string };
             return {
                 ok: true,
                 json: async () => ({ result: responses[request.op] }),
             };
         });
         vi.stubGlobal('fetch', fetchMock);
+        clearAiConnectionsCache();
 
         const json = await createFullBackup();
         const envelope = JSON.parse(json) as FullBackup;
@@ -198,7 +242,29 @@ describe('createFullBackup and parseFullBackup', () => {
         }]);
         expect(restored.memories).toEqual(backup.data.memories);
         expect(restored.usageRecords).toEqual(backup.data.usageRecords);
-        expect(fetchMock).toHaveBeenCalledTimes(6);
+        expect(envelope.data.connections).toEqual([
+            {
+                id: 'openrouter',
+                name: 'OpenRouter',
+                kind: 'openrouter',
+                baseUrl: 'https://openrouter.ai/api/v1',
+                embeddingsEnabled: true,
+                imageGenerationEnabled: false,
+                ignoredProviders: [],
+            },
+            {
+                id: 'cx_local',
+                name: 'ローカルLLM',
+                kind: 'openai-compatible',
+                baseUrl: 'http://localhost:1234/v1',
+                embeddingsEnabled: true,
+                imageGenerationEnabled: false,
+                ignoredProviders: [],
+            },
+        ]);
+        expect(JSON.stringify(envelope.data.connections)).not.toContain('apiKey');
+        expect(restored.connections).toEqual(envelope.data.connections);
+        expect(fetchMock).toHaveBeenCalledTimes(7);
     });
 
     test('reassigns IDs while preserving cross-collection references', () => {

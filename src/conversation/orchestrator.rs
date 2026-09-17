@@ -1091,7 +1091,10 @@ async fn search_memories(
             let lexical = lexical_similarity(&query, &content);
             let vector = query_embedding
                 .as_ref()
-                .filter(|_| string(&memory, "embeddingModel") == selection.model)
+                .filter(|_| {
+                    string(&memory, "embeddingModel") == selection.model
+                        && string(&memory, "embeddingConnectionId") == api_client.connection_id()
+                })
                 .and_then(|query| {
                     memory
                         .get("embedding")

@@ -42,8 +42,9 @@ describe('developer inspector data helpers', () => {
 
     test('pinned memories outrank ordinary memories without changing their content', () => {
         const memory = createMemoryRecord('character-1', '紅茶が好き')!;
-        const ordinary = scoreMemory(memory, '無関係な質問', null, 'embedding-model');
-        const pinned = scoreMemory({ ...memory, pinned: true }, '無関係な質問', null, 'embedding-model');
+        const embeddingModel = { connectionId: 'conn-1', model: 'embedding-model' };
+        const ordinary = scoreMemory(memory, '無関係な質問', null, embeddingModel);
+        const pinned = scoreMemory({ ...memory, pinned: true }, '無関係な質問', null, embeddingModel);
         expect(pinned).toBeGreaterThan(ordinary + 1);
     });
 

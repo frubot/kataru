@@ -148,7 +148,7 @@ async function requestMemoryEmbedding(
     model: ModelRef,
     inputType: EmbeddingInputType,
     aiApiConfig: AiApiConfig,
-): Promise<{ embedding: number[]; model: string } | null> {
+): Promise<{ embedding: number[]; model: string; connectionId: string } | null> {
     const trimmed = input.trim();
     if (!trimmed || typeof window === 'undefined') return null;
 
@@ -175,6 +175,7 @@ async function requestMemoryEmbedding(
         return {
             embedding,
             model: typeof data.model === 'string' ? data.model : model.model,
+            connectionId: model.connectionId,
         };
     } catch {
         return null;
@@ -203,7 +204,11 @@ async function persistMemoryWithEmbedding(
             archived: false,
         };
         await db.putMemory(nextMemory);
-        if (!nextMemory.embedding || nextMemory.embeddingModel !== embeddingModel.model) {
+        if (
+            !nextMemory.embedding
+            || nextMemory.embeddingModel !== embeddingModel.model
+            || nextMemory.embeddingConnectionId !== embeddingModel.connectionId
+        ) {
             const embedded = await requestMemoryEmbedding(
                 nextMemory.content,
                 embeddingModel,
@@ -215,6 +220,7 @@ async function persistMemoryWithEmbedding(
                     ...nextMemory,
                     embedding: embedded.embedding,
                     embeddingModel: embedded.model,
+                    embeddingConnectionId: embedded.connectionId,
                     updatedAt: Date.now(),
                 });
             }
@@ -229,6 +235,7 @@ async function persistMemoryWithEmbedding(
         ...memory,
         embedding: embedded.embedding,
         embeddingModel: embedded.model,
+        embeddingConnectionId: embedded.connectionId,
         updatedAt: Date.now(),
     });
 }
@@ -288,10 +295,13 @@ export function scoreMemory(
     memory: MemoryRecord,
     query: string,
     queryEmbedding: number[] | null,
-    embeddingModel: string,
+    embeddingModel: ModelRef,
 ): number {
     const lexical = lexicalMemorySimilarity(query, memory.content);
-    const vector = queryEmbedding && memory.embedding && memory.embeddingModel === embeddingModel
+    const vector = queryEmbedding
+        && memory.embedding
+        && memory.embeddingModel === embeddingModel.model
+        && memory.embeddingConnectionId === embeddingModel.connectionId
         ? Math.max(0, cosineSimilarity(queryEmbedding, memory.embedding))
         : 0;
     const importance = Math.min(1, Math.max(0, memory.importance));
@@ -377,7 +387,9 @@ export function createMemorySlice(set: StoreSet, get: StoreGet): MemorySlice {
                 content: nextContent,
                 ...(updates.pinned === undefined ? {} : { pinned: updates.pinned }),
                 updatedAt: Date.now(),
-                ...(contentChanged ? { embedding: undefined, embeddingModel: undefined } : {}),
+                ...(contentChanged
+                    ? { embedding: undefined, embeddingModel: undefined, embeddingConnectionId: undefined }
+                    : {}),
             };
             await db.putMemory(nextMemory);
             if (contentChanged) {
@@ -398,6 +410,7 @@ export function createMemorySlice(set: StoreSet, get: StoreGet): MemorySlice {
                             ...latestMemory,
                             embedding: embedded.embedding,
                             embeddingModel: embedded.model,
+                            embeddingConnectionId: embedded.connectionId,
                             updatedAt: Date.now(),
                         };
                         await db.putMemory(nextMemory);
@@ -473,7 +486,7 @@ export function createMemorySlice(set: StoreSet, get: StoreGet): MemorySlice {
             return candidates
                 .map((memory) => ({
                     memory,
-                    score: scoreMemory(memory, query, queryEmbedding, embeddingModel.model),
+                    score: scoreMemory(memory, query, queryEmbedding, embeddingModel),
                 }))
                 .sort((a, b) => b.score - a.score || b.memory.updatedAt - a.memory.updatedAt)
                 .slice(0, Math.max(1, limit))

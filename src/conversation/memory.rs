@@ -71,6 +71,32 @@ pub(super) async fn prepare_conversation_memories(
         .as_ref()
         .map(|selection| selection.model.clone())
         .unwrap_or_default();
+    // The effective connection id is only known once the client is resolved,
+    // so the client must be built before needs_embedding is decided.
+    let api_client = if embedding_model.is_empty() {
+        None
+    } else {
+        match AiApiClient::from_state_for(
+            state,
+            ai_api_config_value(payload),
+            embedding_selection
+                .as_ref()
+                .and_then(|selection| selection.connection_id.as_deref()),
+        ) {
+            Ok(api_client) => Some(api_client),
+            Err(error) => {
+                tracing::warn!(
+                    classification = error.diagnostic_class(),
+                    "Memory embedding client could not be initialized; preserving memories without new embeddings"
+                );
+                None
+            }
+        }
+    };
+    let embedding_connection_id = api_client
+        .as_ref()
+        .map(|client| client.connection_id().to_owned())
+        .unwrap_or_default();
     let now = now_millis();
     let mut prepared = merge_memory_candidates(
         selected,
@@ -78,27 +104,15 @@ pub(super) async fn prepare_conversation_memories(
         &character_id,
         &string(payload.get("room").unwrap_or(&Value::Null), "id"),
         &embedding_model,
+        &embedding_connection_id,
         now,
     );
     if !prepared.iter().any(|memory| memory.needs_embedding) {
         return Ok(prepared.into_iter().map(|memory| memory.value).collect());
     }
 
-    let api_client = match AiApiClient::from_state_for(
-        state,
-        ai_api_config_value(payload),
-        embedding_selection
-            .as_ref()
-            .and_then(|selection| selection.connection_id.as_deref()),
-    ) {
-        Ok(api_client) => api_client,
-        Err(error) => {
-            tracing::warn!(
-                classification = error.diagnostic_class(),
-                "Memory embedding client could not be initialized; preserving memories without new embeddings"
-            );
-            return Ok(prepared.into_iter().map(|memory| memory.value).collect());
-        }
+    let Some(api_client) = api_client else {
+        return Ok(prepared.into_iter().map(|memory| memory.value).collect());
     };
     let requests = prepared.iter().map(|memory| {
         let content = string(&memory.value, "content");
@@ -132,6 +146,10 @@ pub(super) async fn prepare_conversation_memories(
         };
         object.insert("embedding".to_owned(), json!(embedding.values));
         object.insert("embeddingModel".to_owned(), Value::String(embedding.model));
+        object.insert(
+            "embeddingConnectionId".to_owned(),
+            Value::String(api_client.connection_id().to_owned()),
+        );
         object.insert("updatedAt".to_owned(), Value::from(now_millis()));
     }
     Ok(prepared.into_iter().map(|memory| memory.value).collect())
@@ -250,6 +268,7 @@ fn merge_memory_candidates(
     character_id: &str,
     room_id: &str,
     embedding_model: &str,
+    embedding_connection_id: &str,
     now: i64,
 ) -> Vec<PreparedMemory> {
     let mut prepared: Vec<PreparedMemory> = Vec::new();
@@ -264,7 +283,8 @@ fn merge_memory_candidates(
             let merged = merge_memory(&existing[index], &candidate, now);
             let needs_embedding = !embedding_model.is_empty()
                 && (!has_embedding(&merged)
-                    || string(&merged, "embeddingModel") != embedding_model);
+                    || string(&merged, "embeddingModel") != embedding_model
+                    || string(&merged, "embeddingConnectionId") != embedding_connection_id);
             existing[index] = merged.clone();
             (merged, needs_embedding)
         } else {
@@ -311,6 +331,7 @@ fn normalize_new_memory(memory: &mut Value, character_id: &str, room_id: &str, n
     object.insert("usageCount".to_owned(), Value::from(0));
     object.remove("embedding");
     object.remove("embeddingModel");
+    object.remove("embeddingConnectionId");
 }
 
 fn merge_memory(existing: &Value, candidate: &Value, now: i64) -> Value {
@@ -583,6 +604,7 @@ mod tests {
             "character-1",
             "room-new",
             "new-model",
+            "conn-new",
             100,
         );
 
@@ -598,5 +620,67 @@ mod tests {
         assert_eq!(prepared[0].value["sourceRoomId"], "room-new");
         assert_eq!(prepared[0].value["archived"], false);
         assert!(prepared[0].needs_embedding);
+    }
+
+    #[test]
+    fn merge_reembeds_when_embedding_connection_differs() {
+        let candidate = || {
+            json!({
+                "id": "memory-new",
+                "content": "abcdefghij",
+                "scope": "character",
+                "kind": "fact",
+                "importance": 0.9,
+                "confidence": 0.9,
+            })
+        };
+        let existing = |connection_id: Option<&str>| {
+            let mut memory = json!({
+                "id": "memory-existing",
+                "characterId": "character-1",
+                "content": "abcdefghij",
+                "scope": "character",
+                "kind": "fact",
+                "embedding": [0.1, 0.2],
+                "embeddingModel": "new-model",
+            });
+            if let Some(connection_id) = connection_id {
+                memory["embeddingConnectionId"] = Value::String(connection_id.to_owned());
+            }
+            memory
+        };
+
+        let same_connection = merge_memory_candidates(
+            vec![candidate()],
+            vec![existing(Some("conn-a"))],
+            "character-1",
+            "",
+            "new-model",
+            "conn-a",
+            100,
+        );
+        assert!(!same_connection[0].needs_embedding);
+
+        let other_connection = merge_memory_candidates(
+            vec![candidate()],
+            vec![existing(Some("conn-b"))],
+            "character-1",
+            "",
+            "new-model",
+            "conn-a",
+            100,
+        );
+        assert!(other_connection[0].needs_embedding);
+
+        let legacy_connection = merge_memory_candidates(
+            vec![candidate()],
+            vec![existing(None)],
+            "character-1",
+            "",
+            "new-model",
+            "conn-a",
+            100,
+        );
+        assert!(legacy_connection[0].needs_embedding);
     }
 }

@@ -449,6 +449,8 @@ struct ResolvedConnection {
     builtin: bool,
     editable: bool,
     deletable: bool,
+    /// Whether the connection appears in `status()` (the settings list).
+    listed: bool,
     embeddings_enabled: bool,
     image_generation_enabled: bool,
     ignored_providers: Vec<String>,
@@ -541,6 +543,20 @@ impl AiConfigManager {
         };
         let api_key_editable = env_api_key.is_none();
         let editable = !builtin || (env_base_url.is_none() && env_api_key.is_none());
+        // Unconfigured built-ins stay hidden from the connection list: their
+        // records always exist so legacy ids and environment overrides keep
+        // resolving, but they are only listed once something (stored fields,
+        // a stored API key, or environment variables) actually configures
+        // them.
+        let listed = !builtin
+            || env_base_url.is_some()
+            || env_api_key.is_some()
+            || inner.stored_api_keys.contains_key(&record.id)
+            || record.name.is_some()
+            || record.base_url.is_some()
+            || record.embeddings_enabled.is_some()
+            || record.image_generation_enabled.is_some()
+            || record.ignored_providers.is_some();
         ResolvedConnection {
             id: record.id.clone(),
             name: record
@@ -556,7 +572,8 @@ impl AiConfigManager {
             api_key_editable,
             builtin,
             editable,
-            deletable: !builtin,
+            deletable: editable,
+            listed,
             embeddings_enabled: record.embeddings_enabled.unwrap_or(true),
             image_generation_enabled: record.image_generation_enabled.unwrap_or(false),
             ignored_providers: record.ignored_providers.clone().unwrap_or_default(),
@@ -603,6 +620,7 @@ impl AiConfigManager {
             connections: self
                 .resolve_all(&inner)
                 .into_iter()
+                .filter(|resolved| resolved.listed)
                 .map(|resolved| ConnectionStatus {
                     id: resolved.id,
                     name: resolved.name,
@@ -903,15 +921,31 @@ impl AiConfigManager {
             let mut inner = self.inner.lock().expect("AI config lock poisoned");
             let index = Self::connection_index(&inner, id)?;
             let record = &inner.persisted.connections[index];
-            if is_builtin_id(&record.id) {
+            let builtin = is_builtin_id(&record.id);
+            let kind = record.kind.expect("normalized connections have a kind");
+            if builtin
+                && (self.environment.base_url(kind).is_some()
+                    || self.environment.api_key(kind).is_some())
+            {
                 return Err(AppError::BadRequest(
-                    "組み込み接続は削除できません。".to_owned(),
+                    "環境変数で設定されている組み込み接続は削除できません。".to_owned(),
                 ));
             }
             let base_url = effective_base_url(record, &self.environment);
             let secret_key = secret_key_name(&record.id, &base_url);
             let mut persisted = inner.persisted.clone();
-            persisted.connections.remove(index);
+            if builtin {
+                // The reserved id keeps resolving so stored model references
+                // do not break; the pristine record drops out of the
+                // connection list again.
+                persisted.connections[index] = PersistedConnection {
+                    id: record.id.clone(),
+                    kind: Some(kind),
+                    ..PersistedConnection::default()
+                };
+            } else {
+                persisted.connections.remove(index);
+            }
             save_persisted_config(&self.config_path, &persisted)?;
             inner.persisted = persisted;
             inner.stored_api_keys.remove(id);
@@ -1279,13 +1313,13 @@ pub fn run_cli_command_if_requested() -> AppResult<bool> {
         [command] if command == "show" => print_config_status(&manager.status()),
         [command, key] if command == "get" => {
             if let Some(id) = legacy_base_url_connection(key) {
-                let status = manager.status();
-                let connection = status
-                    .connections
-                    .iter()
-                    .find(|connection| connection.id == id)
+                // Built-ins are hidden from `status()` until configured, so
+                // look them up in the full effective config instead.
+                let effective = manager.effective();
+                let connection = effective
+                    .connection(id)
                     .ok_or_else(|| unsupported_config_key(key))?;
-                println!("{}", connection.base_url.as_deref().unwrap_or_default());
+                println!("{}", connection.base_url);
             } else {
                 return Err(unsupported_config_key(key));
             }
@@ -1337,6 +1371,9 @@ pub fn run_cli_command_if_requested() -> AppResult<bool> {
 }
 
 fn print_config_status(status: &ConnectionsStatus) {
+    if status.connections.is_empty() {
+        println!("設定済みの接続はありません。kataru config connection add で追加できます。");
+    }
     for connection in &status.connections {
         println!(
             "{} [{}]{}",
@@ -1597,29 +1634,36 @@ mod tests {
     }
 
     #[test]
-    fn builtin_connections_always_exist_with_legacy_ids() {
+    fn builtin_connections_stay_unlisted_until_configured() {
         let directory = tempfile::tempdir().unwrap();
-        let status = manager(directory.path()).status();
+        let manager = manager(directory.path());
 
-        assert_eq!(status.connections.len(), 3);
-        let openrouter = connection(&status, "openrouter");
+        // Nothing has been configured yet: the built-ins resolve internally
+        // but are not listed.
+        assert!(manager.status().connections.is_empty());
+        let effective = manager.effective();
+        assert_eq!(effective.connections.len(), 3);
+        let openrouter = effective.connection("openrouter").unwrap();
         assert_eq!(openrouter.name, "OpenRouter");
-        assert_eq!(
-            openrouter.base_url.as_deref(),
-            Some(OPENROUTER_BASE_URL)
-        );
+        assert_eq!(openrouter.base_url, OPENROUTER_BASE_URL);
         assert!(!openrouter.base_url_editable);
         assert!(openrouter.builtin);
         assert!(openrouter.editable);
-        assert!(!openrouter.deletable);
+        assert!(openrouter.deletable);
         assert_eq!(
-            connection(&status, "openai-compatible").base_url.as_deref(),
-            Some(DEFAULT_OPENAI_BASE_URL)
+            effective.connection("openai-compatible").unwrap().base_url,
+            DEFAULT_OPENAI_BASE_URL
         );
         assert_eq!(
-            connection(&status, "anthropic").base_url.as_deref(),
-            Some(DEFAULT_ANTHROPIC_BASE_URL)
+            effective.connection("anthropic").unwrap().base_url,
+            DEFAULT_ANTHROPIC_BASE_URL
         );
+
+        // Any stored configuration lists the built-in again.
+        manager.set_api_key("openrouter", "secret").unwrap();
+        let status = manager.status();
+        assert_eq!(status.connections.len(), 1);
+        assert_eq!(status.connections[0].id, "openrouter");
     }
 
     #[test]
@@ -1894,13 +1938,49 @@ mod tests {
     }
 
     #[test]
-    fn builtin_connections_cannot_be_deleted() {
+    fn deleting_a_builtin_connection_resets_it_to_unlisted() {
         let directory = tempfile::tempdir().unwrap();
         let manager = manager(directory.path());
-        for id in ["openrouter", "openai-compatible", "anthropic"] {
-            assert!(manager.delete_connection(id).is_err());
-        }
-        assert_eq!(manager.status().connections.len(), 3);
+        manager.set_api_key("openrouter", "secret").unwrap();
+        manager
+            .update_connection(
+                "openrouter",
+                ConnectionUpdate {
+                    ignored_providers: Some(vec!["deepinfra".to_owned()]),
+                    ..ConnectionUpdate::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(manager.status().connections.len(), 1);
+
+        manager.delete_connection("openrouter").unwrap();
+        assert!(manager.status().connections.is_empty());
+        // The reserved id keeps resolving, back to a pristine state.
+        let effective = manager.effective();
+        let openrouter = effective.connection("openrouter").unwrap();
+        assert!(openrouter.api_key.is_none());
+        assert!(openrouter.ignored_providers.is_empty());
+    }
+
+    #[test]
+    fn environment_locked_builtins_cannot_be_deleted() {
+        let directory = tempfile::tempdir().unwrap();
+        let manager = AiConfigManager::with_parts(
+            directory.path().join(CONFIG_FILE_NAME),
+            PersistedConfig::default(),
+            EnvironmentConfig {
+                openrouter_api_key: Some("env-key".to_owned()),
+                ..EnvironmentConfig::default()
+            },
+            Arc::new(MemorySecretStore::default()),
+        )
+        .unwrap();
+
+        assert_eq!(manager.status().connections.len(), 1);
+        assert!(manager.delete_connection("openrouter").is_err());
+        assert_eq!(manager.status().connections.len(), 1);
+        // Built-ins without an environment override can be deleted.
+        manager.delete_connection("openai-compatible").unwrap();
     }
 
     #[test]
@@ -2003,8 +2083,9 @@ mod tests {
                 })
                 .is_err()
         );
-        // Only the three built-ins exist and nothing was persisted.
-        assert_eq!(manager.status().connections.len(), 3);
+        // Only the three (unlisted) built-ins exist and nothing was persisted.
+        assert!(manager.status().connections.is_empty());
+        assert_eq!(manager.effective().connections.len(), 3);
         assert!(!directory.path().join(CONFIG_FILE_NAME).exists());
     }
 
@@ -2034,7 +2115,7 @@ mod tests {
                 })
                 .is_err()
         );
-        assert_eq!(manager.status().connections.len(), 3);
+        assert!(manager.status().connections.is_empty());
         assert!(
             secrets
                 .values

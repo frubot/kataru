@@ -472,6 +472,13 @@ export default function AiConnectionSettings() {
             {connections.map((connection) => (
                 <AiConnectionCard key={connection.id} connection={connection} />
             ))}
+            {connections.length === 0 && (
+                <div className="card ai-connection-card">
+                    <p className="ai-connection-message">
+                        接続先がまだありません。「接続先を追加」から利用するAIサービスを追加してください。
+                    </p>
+                </div>
+            )}
             <AddAiConnectionCard />
         </div>
     );

@@ -9,9 +9,11 @@ import {
 import {
     AI_CONNECTION_KIND_LABELS,
     DEFAULT_ANTHROPIC_TEXT_MODEL,
+    isAiConnectionKind,
     type AiConnectionKind,
 } from '@/lib/aiApi';
 import {
+    createAiConnection,
     updateAiConnection,
     useAiConnections,
     type UpdateAiConnectionInput,
@@ -35,6 +37,14 @@ interface ConnectionStatusResponse {
 }
 
 const OPENAI_DEFAULT_BASE_URL = 'https://api.openai.com/v1';
+const ANTHROPIC_DEFAULT_BASE_URL = 'https://api.anthropic.com/v1';
+
+/** Endpoint prefill used when the picked kind has no connection yet. */
+const KIND_DEFAULT_BASE_URL: Record<AiConnectionKind, string> = {
+    openrouter: '',
+    'openai-compatible': OPENAI_DEFAULT_BASE_URL,
+    anthropic: ANTHROPIC_DEFAULT_BASE_URL,
+};
 
 const CONNECTION_OPTIONS: readonly {
     id: AiConnectionKind;
@@ -79,6 +89,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
     } = useAiConnections();
     const [step, setStep] = useState<GuideStep>('api-type');
     const [selectedConnectionId, setSelectedConnectionId] = useState<string>('openrouter');
+    const [createdConnectionId, setCreatedConnectionId] = useState<string | null>(null);
     const [baseUrl, setBaseUrl] = useState('');
     const [apiKey, setApiKey] = useState('');
     const [anthropicModel, setAnthropicModel] = useState(DEFAULT_ANTHROPIC_TEXT_MODEL);
@@ -95,7 +106,19 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
     const [isGenerating, setGenerating] = useState(false);
     const [generationError, setGenerationError] = useState('');
 
-    const connection = connections.find((candidate) => candidate.id === selectedConnectionId) ?? null;
+    // The picked kind may not have a connection yet; in that case the guide
+    // creates it on demand when the user checks the connection.
+    const connection = (createdConnectionId
+        ? connections.find((candidate) => candidate.id === createdConnectionId)
+        : undefined)
+        ?? connections.find((candidate) => candidate.id === selectedConnectionId)
+        ?? connections.find((candidate) => candidate.kind === selectedConnectionId)
+        ?? null;
+    const connectionKind: AiConnectionKind = connection?.kind
+        ?? (isAiConnectionKind(selectedConnectionId) ? selectedConnectionId : 'openrouter');
+    const baseUrlEditable = connection?.baseUrlEditable ?? connectionKind !== 'openrouter';
+    const apiKeyEditable = connection?.apiKey.editable ?? true;
+    const apiKeyConfigured = connection?.apiKey.configured ?? false;
 
     const resetCheckResult = () => {
         setCheckSucceeded(false);
@@ -110,7 +133,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
         setConnectionMessage('');
         resetCheckResult();
         setApiKey('');
-        setBaseUrl(connection?.baseUrl ?? '');
+        setBaseUrl(connection?.baseUrl ?? KIND_DEFAULT_BASE_URL[connectionKind]);
         setAnthropicModel(
             defaultChatModel.connectionId === 'anthropic' && defaultChatModel.model.startsWith('claude-')
                 ? defaultChatModel.model
@@ -121,33 +144,34 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
 
     const selectConnection = (connectionId: string) => {
         setSelectedConnectionId(connectionId);
+        setCreatedConnectionId(null);
         setConnectionState('idle');
         setConnectionMessage('');
         resetCheckResult();
     };
 
     const saveAndCheckConnection = async () => {
-        if (connectionState === 'checking' || !connection) return;
+        if (connectionState === 'checking') return;
 
-        const kind = connection.kind;
+        const kind = connectionKind;
         const trimmedApiKey = apiKey.trim();
         const trimmedBaseUrl = baseUrl.trim().replace(/\/+$/, '');
-        const baseChanged = connection.baseUrlEditable
-            && trimmedBaseUrl !== (connection.baseUrl ?? '');
+        const baseChanged = baseUrlEditable
+            && trimmedBaseUrl !== (connection?.baseUrl ?? '');
 
-        if (kind === 'openrouter' && !connection.apiKey.configured && !trimmedApiKey) {
+        if (kind === 'openrouter' && !apiKeyConfigured && !trimmedApiKey) {
             setConnectionState('error');
             setConnectionMessage('OpenRouter APIキーを入力してください。');
             return;
         }
-        if (kind !== 'openrouter' && connection.baseUrlEditable && !trimmedBaseUrl) {
+        if (kind !== 'openrouter' && baseUrlEditable && !trimmedBaseUrl) {
             setConnectionState('error');
             setConnectionMessage('エンドポイントを入力してください。');
             return;
         }
         if (
             kind === 'anthropic'
-            && (!connection.apiKey.configured || baseChanged)
+            && (!apiKeyConfigured || baseChanged)
             && !trimmedApiKey
         ) {
             setConnectionState('error');
@@ -157,7 +181,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
         if (
             kind === 'openai-compatible'
             && trimmedBaseUrl === OPENAI_DEFAULT_BASE_URL
-            && (!connection.apiKey.configured || baseChanged)
+            && (!apiKeyConfigured || baseChanged)
             && !trimmedApiKey
         ) {
             setConnectionState('error');
@@ -169,11 +193,26 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
         setConnectionMessage('');
 
         try {
-            const update: UpdateAiConnectionInput = {};
-            if (baseChanged) update.baseUrl = trimmedBaseUrl;
-            if (connection.apiKey.editable && trimmedApiKey) update.apiKey = trimmedApiKey;
-            if (Object.keys(update).length > 0) {
-                await updateAiConnection(connection.id, update);
+            let connectionId: string;
+            if (connection) {
+                const update: UpdateAiConnectionInput = {};
+                if (baseChanged) update.baseUrl = trimmedBaseUrl;
+                if (apiKeyEditable && trimmedApiKey) update.apiKey = trimmedApiKey;
+                if (Object.keys(update).length > 0) {
+                    await updateAiConnection(connection.id, update);
+                }
+                connectionId = connection.id;
+            } else {
+                const beforeIds = new Set(connections.map((candidate) => candidate.id));
+                const created = (await createAiConnection({
+                    name: AI_CONNECTION_KIND_LABELS[kind],
+                    kind,
+                    ...(kind === 'openrouter' ? {} : { baseUrl: trimmedBaseUrl }),
+                    ...(trimmedApiKey ? { apiKey: trimmedApiKey } : {}),
+                })).connections.find((candidate) => !beforeIds.has(candidate.id));
+                if (!created) throw new Error('接続先を作成できませんでした。');
+                setCreatedConnectionId(created.id);
+                connectionId = created.id;
             }
             setApiKey('');
 
@@ -182,7 +221,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                 credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    aiApiConfig: { ...getAiApiConfig(), connectionId: connection.id },
+                    aiApiConfig: { ...getAiApiConfig(), connectionId },
                 }),
             });
             const data = await response.json().catch(() => ({})) as ConnectionStatusResponse;
@@ -195,7 +234,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                     setConnectionState('idle');
                     return;
                 }
-                const models = await getAvailableModels(connection.id, 'text', { force: true })
+                const models = await getAvailableModels(connectionId, 'text', { force: true })
                     .catch(() => [] as AvailableModel[]);
                 setAvailableTextModels(models);
                 setModelListFailed(models.length === 0);
@@ -278,12 +317,10 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
     };
 
     const stepNumber = step === 'api-type' ? 1 : step === 'connection' ? 2 : 3;
-    const connectionKind = connection?.kind ?? 'openrouter';
-    const baseChanged = connection != null
-        && connection.baseUrlEditable
-        && baseUrl.trim().replace(/\/+$/, '') !== (connection.baseUrl ?? '');
+    const baseChanged = baseUrlEditable
+        && baseUrl.trim().replace(/\/+$/, '') !== (connection?.baseUrl ?? '');
     const hasConnectionChanges = connection == null
-        ? false
+        ? true
         : connectionKind === 'openrouter'
             ? apiKey.trim().length > 0
             : baseChanged || apiKey.trim().length > 0;
@@ -405,9 +442,9 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                     <Loader2 size={16} className="animate-spin" aria-hidden="true" />
                                     AI接続設定を読み込んでいます…
                                 </div>
-                            ) : !connection ? (
+                            ) : connectionsError && !connection ? (
                                 <div className="onboarding-status error" role="alert">
-                                    <span>{connectionsError || 'AI接続設定を読み込めませんでした。'}</span>
+                                    <span>{connectionsError}</span>
                                     <button type="button" onClick={() => void reloadConnections()}>
                                         再読み込み
                                     </button>
@@ -415,7 +452,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                             ) : (
                                 <div className="ai-connection-card onboarding-connection-card">
 
-                                    {!secretStoreAvailable && !connection.apiKey.configured && (
+                                    {!secretStoreAvailable && !apiKeyConfigured && (
                                         <p className="ai-connection-message error" role="alert">
                                             OSの資格情報ストアを利用できません。環境変数でAPIキーを設定してください。
                                         </p>
@@ -431,19 +468,19 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                                 className="input"
                                                 type="url"
                                                 value={baseUrl}
-                                                disabled={!connection.baseUrlEditable || connectionBusy}
+                                                disabled={!baseUrlEditable || connectionBusy}
                                                 spellCheck={false}
                                                 onChange={(event) => {
                                                     setBaseUrl(event.target.value);
                                                     if (checkSucceeded) resetCheckResult();
                                                 }}
                                             />
-                                            {!connection.baseUrlEditable && (
+                                            {!baseUrlEditable && (
                                                 <p className="ai-connection-help">
                                                     環境変数が設定されているため、変更できません。
                                                 </p>
                                             )}
-                                            {baseChanged && connection.apiKey.configured && (
+                                            {baseChanged && apiKeyConfigured && (
                                                 <p className="ai-connection-help warning">
                                                     接続先を変更すると、現在保存されているAPIキーは解除されます。
                                                 </p>
@@ -459,11 +496,11 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                         className="input"
                                         type="password"
                                         value={apiKey}
-                                        disabled={!connection.apiKey.editable || connectionBusy}
+                                        disabled={!apiKeyEditable || connectionBusy}
                                         autoComplete="new-password"
                                         spellCheck={false}
-                                        autoFocus={connection.apiKey.editable && !connection.apiKey.configured}
-                                        placeholder={connection.apiKey.configured
+                                        autoFocus={apiKeyEditable && !apiKeyConfigured}
+                                        placeholder={apiKeyConfigured
                                             ? '変更する場合のみ入力'
                                             : connectionKind === 'openai-compatible'
                                                 ? 'APIキーを入力（ローカルAPIでは省略可）'
@@ -473,7 +510,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                             if (checkSucceeded) resetCheckResult();
                                         }}
                                     />
-                                    {!connection.apiKey.editable && (
+                                    {!apiKeyEditable && (
                                         <p className="ai-connection-help">
                                             環境変数が設定されているため、変更できません。
                                         </p>
@@ -556,7 +593,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                         type="button"
                                         className="btn btn-primary"
                                         onClick={() => void saveAndCheckConnection()}
-                                        disabled={!connection || connectionBusy}
+                                        disabled={connectionBusy || (connection == null && connectionsError != null)}
                                     >
                                         {connectionState === 'checking' && <Loader2 size={16} className="animate-spin" />}
                                         {connectionState === 'checking'

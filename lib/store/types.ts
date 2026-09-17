@@ -306,6 +306,7 @@ export interface AppState {
     onboardingVersion: number;
     themeMode: ThemeMode;
     themePalette: ThemePalette;
+    chatWallpaper?: string;
     defaultViewMode: RoomViewMode;
     vnTypingSpeed: VnTypingSpeed;
     keyboardShortcuts: KeyboardShortcutSettings;
@@ -339,6 +340,7 @@ export interface AppState {
 
     setThemeMode: (mode: ThemeMode) => void;
     setThemePalette: (palette: ThemePalette) => void;
+    setChatWallpaper: (image?: string) => void;
     setDefaultViewMode: (viewMode: RoomViewMode) => void;
     toggleThemeMode: () => void;
     toggleTheme: () => void;

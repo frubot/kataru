@@ -17,6 +17,10 @@ interface SituationBackgroundModalProps {
     isOpen: boolean;
     currentImage?: string;
     initialPrompt?: string;
+    title?: string;
+    usageHint?: string;
+    generationHint?: string;
+    removeConfirmMessage?: string;
     onClose: () => void;
     onComplete: (image?: string) => void;
 }
@@ -25,6 +29,10 @@ export default function SituationBackgroundModal({
     isOpen,
     currentImage,
     initialPrompt = '',
+    title = '背景を編集',
+    usageHint = 'ビジュアルノベル表示のシーン背景として使用されます。',
+    generationHint = '人物や文字を含まない、ビジュアルノベル用の横長背景として生成します。',
+    removeConfirmMessage = '設定中の背景を削除しますか？',
     onClose,
     onComplete,
 }: SituationBackgroundModalProps) {
@@ -53,7 +61,7 @@ export default function SituationBackgroundModal({
             ? selectedConnection?.imageGenerationEnabled === true
                 ? 'OpenAI互換APIでは、テキストからの画像生成だけを試します。'
                 : 'この接続先での画像生成は無効です。ファイルからアップロードしてください。'
-            : '人物や文字を含まない、ビジュアルノベル用の横長背景として生成します。';
+            : generationHint;
 
     const attemptClose = () => {
         if (generating) return;
@@ -130,7 +138,7 @@ export default function SituationBackgroundModal({
     };
 
     const handleRemove = () => {
-        if (!window.confirm('設定中の背景を削除しますか？')) return;
+        if (!window.confirm(removeConfirmMessage)) return;
         onComplete(undefined);
         onClose();
     };
@@ -151,11 +159,11 @@ export default function SituationBackgroundModal({
                 style={{ maxWidth: 720 }}
                 role="dialog"
                 aria-modal="true"
-                aria-label="背景を編集"
+                aria-label={title}
             >
                 <div className="settings-form-modal-actions" style={{ justifyContent: 'space-between' }}>
                     <h2 style={{ margin: 0, paddingLeft: '0.25rem', fontSize: '0.9375rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <ImageIcon size={18} /> 背景を編集
+                        <ImageIcon size={18} /> {title}
                     </h2>
                     <button
                         type="button"
@@ -175,12 +183,12 @@ export default function SituationBackgroundModal({
                             <div style={previewFrameStyle}>
                                 <StoredImage
                                     src={currentImage}
-                                    alt="設定中の背景"
+                                    alt="設定中の画像"
                                     style={previewImageStyle}
                                     loading="eager"
                                 />
                             </div>
-                            <p style={hintStyle}>ビジュアルノベル表示のシーン背景として使用されます。</p>
+                            <p style={hintStyle}>{usageHint}</p>
                             <div className="image-generation-inline-actions">
                                 <button type="button" className="btn btn-danger" onClick={handleRemove}>
                                     <Trash2 size={16} /> 削除
@@ -193,7 +201,7 @@ export default function SituationBackgroundModal({
                     ) : candidate ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                             <div style={previewFrameStyle}>
-                                <img src={candidate} alt="選択した背景のプレビュー" style={previewImageStyle} />
+                                <img src={candidate} alt="選択した画像のプレビュー" style={previewImageStyle} />
                             </div>
                             <p style={hintStyle}>画面いっぱいに表示するときは、表示領域に合わせて画像の端が切り取られる場合があります。</p>
                             <div className="image-generation-inline-actions">

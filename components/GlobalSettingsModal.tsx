@@ -6,10 +6,13 @@ import { useAiConnections, type AiConnectionStatus } from '@/lib/aiConnections';
 import { MODEL_DEFAULT_FIELDS, modelRefsEqual, type ModelRef, type ModelRoleKey } from '@/lib/modelDefaults';
 import type { ModelOutputModality } from '@/lib/availableModels';
 import { createFullBackup, downloadJson, parseImportFile, reassignIds, type ParsedImport } from '@/lib/importExport';
+import { resizeToMaxEdgeAsJpeg } from '@/lib/imageUtils';
 import StatisticsPanel from '@/components/StatisticsPanel';
 import AiConnectionSettings from '@/components/AiConnectionSettings';
 import ModelSelector from '@/components/ModelSelector';
 import KeyboardSettingsPanel from '@/components/KeyboardSettingsPanel';
+import SituationBackgroundModal from '@/components/SituationBackgroundModal';
+import StoredImage from '@/components/StoredImage';
 import { useModalKeyboard } from '@/components/useModalKeyboard';
 
 interface GlobalSettingsModalProps {
@@ -393,7 +396,7 @@ function RoleModelField({
 
 export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding }: GlobalSettingsModalProps) {
     const {
-        themeMode, themePalette, defaultViewMode, vnTypingSpeed,
+        themeMode, themePalette, chatWallpaper, defaultViewMode, vnTypingSpeed,
         summaryModel, setSummaryModel,
         defaultChatModel, setDefaultChatModel,
         defaultDirectorModel, setDefaultDirectorModel,
@@ -410,7 +413,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         replySuggestionsEnabled, setReplySuggestionsEnabled,
         fullJsonDebugEnabled, detailedErrorLoggingEnabled, fullJsonDebugLogs,
         memoryInspectorEnabled, summaryInspectorEnabled,
-        setThemeMode, setThemePalette, setDefaultViewMode, setVnTypingSpeed,
+        setThemeMode, setThemePalette, setChatWallpaper, setDefaultViewMode, setVnTypingSpeed,
         setFullJsonDebugEnabled, setDetailedErrorLoggingEnabled, clearFullJsonDebugLogs,
         setMemoryInspectorEnabled, setSummaryInspectorEnabled,
         clearAllHistory, resetApplication, mergeBackup, restoreBackup,
@@ -449,6 +452,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
     const [isPaletteMenuOpen, setPaletteMenuOpen] = useState(false);
     const [isDefaultViewModeMenuOpen, setDefaultViewModeMenuOpen] = useState(false);
     const [isAiConnectionAddOpen, setAiConnectionAddOpen] = useState(false);
+    const [isWallpaperEditorOpen, setWallpaperEditorOpen] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const themeModeMenuRef = useRef<HTMLDivElement>(null);
     const paletteMenuRef = useRef<HTMLDivElement>(null);
@@ -490,7 +494,8 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         onClose: handleKeyboardClose,
         canClose: !isImporting
             && !isClearingHistory
-            && !isResetting,
+            && !isResetting
+            && !isWallpaperEditorOpen,
     });
 
     useEffect(() => {
@@ -1243,6 +1248,44 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                 </div>
 
                                 <VnSpeedSlider value={vnTypingSpeed} onChange={setVnTypingSpeed} />
+
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+                                        <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
+                                            壁紙
+                                        </span>
+                                        <button
+                                            type="button"
+                                            className="btn btn-secondary"
+                                            onClick={() => setWallpaperEditorOpen(true)}
+                                        >
+                                            {chatWallpaper ? '変更' : '設定'}
+                                        </button>
+                                    </div>
+                                    {chatWallpaper ? (
+                                        <div style={{
+                                            width: 'min(100%, 22rem)',
+                                            aspectRatio: '16 / 9',
+                                            overflow: 'hidden',
+                                            border: '1px solid var(--border-color)',
+                                            borderRadius: '0.625rem',
+                                            background: 'var(--bg-secondary)',
+                                        }}>
+                                            <StoredImage
+                                                src={chatWallpaper}
+                                                alt="設定中の壁紙"
+                                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                            />
+                                        </div>
+                                    ) : (
+                                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                            設定されていません
+                                        </span>
+                                    )}
+                                    <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                                        ゲームモード以外のチャット画面の背景として表示されます。
+                                    </p>
+                                </div>
                             </div>
                         </div>
 
@@ -1734,6 +1777,26 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                 </div>
             </div>
             </div>
+            {isWallpaperEditorOpen && (
+                <SituationBackgroundModal
+                    isOpen
+                    currentImage={chatWallpaper}
+                    title="壁紙を編集"
+                    usageHint="ゲームモード以外のチャット画面の背景として表示されます。"
+                    generationHint="人物や文字を含まない、チャット画面用の横長背景として生成します。"
+                    removeConfirmMessage="設定中の壁紙を削除しますか？"
+                    onClose={() => setWallpaperEditorOpen(false)}
+                    onComplete={(image) => {
+                        if (!image) {
+                            setChatWallpaper(undefined);
+                            return;
+                        }
+                        void resizeToMaxEdgeAsJpeg(image, 1920)
+                            .then((jpeg) => setChatWallpaper(jpeg))
+                            .catch(() => setChatWallpaper(image));
+                    }}
+                />
+            )}
         </div>
     );
 }

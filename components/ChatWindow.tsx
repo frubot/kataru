@@ -291,6 +291,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         addFullJsonDebugLog,
         clearFullJsonDebugLogs,
         getAiApiConfig,
+        chatWallpaper,
     } = useStore();
     const isGroupRoom = situation != null || (groupCharacters != null && groupCharacters.length > 1);
     const rawRoomViewMode = resolveRoomViewMode(room);
@@ -1502,14 +1503,27 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         />
     );
 
+    const showChatWallpaper = !isVisualNovelMode && !!chatWallpaper;
+
     return (
-        <div className={`chat-container ${isVisualNovelMode ? 'vn-mode' : ''} ${isMessageMode ? 'message-mode' : ''}`}>
+        <div className={`chat-container ${isVisualNovelMode ? 'vn-mode' : ''} ${isMessageMode ? 'message-mode' : ''} ${showChatWallpaper ? 'has-wallpaper' : ''}`}>
             {isVisualNovelMode && situation?.backgroundImage && (
                 <div className="vn-background" aria-hidden="true">
                     <StoredImage
                         src={situation.backgroundImage}
                         alt=""
                         className="vn-background-image"
+                        loading="eager"
+                        fetchPriority="high"
+                    />
+                </div>
+            )}
+            {showChatWallpaper && (
+                <div className="chat-wallpaper" aria-hidden="true">
+                    <StoredImage
+                        src={chatWallpaper}
+                        alt=""
+                        className="chat-wallpaper-image"
                         loading="eager"
                         fetchPriority="high"
                     />

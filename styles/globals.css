@@ -2999,6 +2999,48 @@ body {
   background: color-mix(in srgb, var(--accent-primary) 6%, transparent);
 }
 
+.chat-container.has-wallpaper {
+  position: relative;
+  isolation: isolate;
+}
+
+.chat-wallpaper {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.chat-wallpaper::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--bg-primary) 42%, transparent);
+}
+
+.mode-light .chat-wallpaper::after {
+  background: color-mix(in srgb, var(--bg-primary) 30%, transparent);
+}
+
+.chat-wallpaper-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+
+.chat-container.has-wallpaper .chat-messages {
+  background: transparent;
+}
+
+.chat-container.has-wallpaper .chat-input {
+  background: color-mix(in srgb, var(--bg-secondary) 82%, transparent);
+  backdrop-filter: blur(6px);
+}
+
 .chat-header {
   display: flex;
   align-items: center;

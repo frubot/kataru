@@ -146,6 +146,7 @@ type SettingsSlice = Pick<
     AppState,
     | 'themeMode'
     | 'themePalette'
+    | 'chatWallpaper'
     | 'defaultViewMode'
     | 'vnTypingSpeed'
     | 'keyboardShortcuts'
@@ -169,6 +170,7 @@ type SettingsSlice = Pick<
     | 'fullJsonDebugLogs'
     | 'setThemeMode'
     | 'setThemePalette'
+    | 'setChatWallpaper'
     | 'setDefaultViewMode'
     | 'toggleThemeMode'
     | 'toggleTheme'
@@ -203,6 +205,7 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
     return {
         themeMode: DEFAULT_THEME_SELECTION.mode,
         themePalette: DEFAULT_THEME_SELECTION.palette,
+        chatWallpaper: undefined,
         defaultViewMode: DEFAULT_VIEW_MODE,
         vnTypingSpeed: DEFAULT_VN_TYPING_SPEED,
         keyboardShortcuts: createDefaultKeyboardShortcuts(),
@@ -225,6 +228,13 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
             set({ themePalette });
             writeThemeCache(get().themeMode, themePalette);
             fire(db.setMeta('themePalette', themePalette));
+        },
+        setChatWallpaper: (image) => {
+            const chatWallpaper = typeof image === 'string' && image.trim() ? image : undefined;
+            set({ chatWallpaper });
+            fire(chatWallpaper
+                ? db.setMeta('chatWallpaper', chatWallpaper)
+                : db.deleteMeta('chatWallpaper'));
         },
         setDefaultViewMode: (defaultViewMode) => {
             set({ defaultViewMode });

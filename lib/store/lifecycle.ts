@@ -110,13 +110,14 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
         hydrate: async () => {
             if (get().hydrated) return;
             await db.migrateLegacyDatabase();
-            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, storedDefaultViewMode, currentRoomId, vnTypingSpeed, storedKeyboardShortcuts, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedModelDefaults, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedRoleApiTypes, storedConversationCompressionEnabled, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion] = await Promise.all([
+            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, storedChatWallpaper, storedDefaultViewMode, currentRoomId, vnTypingSpeed, storedKeyboardShortcuts, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedModelDefaults, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedRoleApiTypes, storedConversationCompressionEnabled, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion] = await Promise.all([
                 db.getAllCharacters(),
                 db.getAllGroups(),
                 db.getAllRooms(),
                 db.getAllUsageRecords(),
                 db.getMeta<ThemeMode>('themeMode'),
                 db.getMeta<ThemePalette>('themePalette'),
+                db.getMeta<string>('chatWallpaper'),
                 db.getMeta<RoomViewMode>('defaultViewMode'),
                 db.getMeta<string | null>('currentRoomId'),
                 db.getMeta<VnTypingSpeed>('vnTypingSpeed'),
@@ -254,6 +255,9 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 mode: themeMode,
                 palette: themePalette,
             });
+            const resolvedChatWallpaper = typeof storedChatWallpaper === 'string' && storedChatWallpaper.trim()
+                ? storedChatWallpaper
+                : undefined;
             const resolvedDefaultViewMode = isRoomViewMode(storedDefaultViewMode)
                 ? storedDefaultViewMode
                 : DEFAULT_VIEW_MODE;
@@ -363,6 +367,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 usageRecords,
                 themeMode: resolvedTheme.mode,
                 themePalette: resolvedTheme.palette,
+                chatWallpaper: resolvedChatWallpaper,
                 defaultViewMode: resolvedDefaultViewMode,
                 vnTypingSpeed: resolvedVnTypingSpeed,
                 keyboardShortcuts: resolvedKeyboardShortcuts,
@@ -394,6 +399,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 onboardingVersion: 0,
                 themeMode: DEFAULT_THEME_SELECTION.mode,
                 themePalette: DEFAULT_THEME_SELECTION.palette,
+                chatWallpaper: undefined,
                 defaultViewMode: DEFAULT_VIEW_MODE,
                 vnTypingSpeed: DEFAULT_VN_TYPING_SPEED,
                 keyboardShortcuts: createDefaultKeyboardShortcuts(),

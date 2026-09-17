@@ -1,20 +1,20 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Check, ChevronDown, RefreshCw, Search } from 'lucide-react';
 
+import { AI_CONNECTION_KIND_LABELS } from '@/lib/aiApi';
+import { useAiConnections } from '@/lib/aiConnections';
 import {
-    getAvailableModels,
+    getAvailableModelsForConnections,
+    type AiConnectionModelsResult,
     type AvailableModel,
     type ModelOutputModality,
 } from '@/lib/availableModels';
-import { aiApiConfigForType, type AiApiType } from '@/lib/aiApi';
-import { useStore } from '@/lib/store';
+import { modelRefsEqual, type ModelRef } from '@/lib/modelDefaults';
 
 interface ModelSelectorProps {
-    value: string;
-    onChange: (model: string) => void;
+    value: ModelRef;
+    onChange: (model: ModelRef) => void;
     outputModality: ModelOutputModality;
-    /** Service to list models from; defaults to the global `aiApiType`. */
-    apiType?: AiApiType;
     id?: string;
     disabled?: boolean;
     placeholder?: string;
@@ -22,11 +22,22 @@ interface ModelSelectorProps {
     style?: CSSProperties;
 }
 
+type ModelOption = {
+    connectionId: string;
+    model: AvailableModel;
+};
+
+function connectionMatchesQuery(result: AiConnectionModelsResult, normalizedQuery: string): boolean {
+    const connection = result.connection;
+    return connection.name.toLocaleLowerCase().includes(normalizedQuery)
+        || connection.id.toLocaleLowerCase().includes(normalizedQuery)
+        || AI_CONNECTION_KIND_LABELS[connection.kind].toLocaleLowerCase().includes(normalizedQuery);
+}
+
 export default function ModelSelector({
     value,
     onChange,
     outputModality,
-    apiType,
     id,
     disabled = false,
     placeholder = 'モデルを選択',
@@ -36,12 +47,15 @@ export default function ModelSelector({
     const generatedId = useId();
     const triggerId = id ?? `model-selector-${generatedId}`;
     const listboxId = `${triggerId}-listbox`;
-    const globalApiType = useStore((state) => state.aiApiType);
-    const effectiveApiType = apiType ?? globalApiType;
-    const getAiApiConfig = useStore((state) => state.getAiApiConfig);
+    const {
+        connections,
+        loading: connectionsLoading,
+        error: connectionsError,
+        reload: reloadConnections,
+    } = useAiConnections();
     const [isOpen, setOpen] = useState(false);
     const [query, setQuery] = useState('');
-    const [models, setModels] = useState<AvailableModel[]>([]);
+    const [results, setResults] = useState<AiConnectionModelsResult[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const rootRef = useRef<HTMLDivElement>(null);
@@ -51,32 +65,34 @@ export default function ModelSelector({
     const loadModels = useCallback(async (force = false) => {
         const requestId = requestIdRef.current + 1;
         requestIdRef.current = requestId;
+        if (connections.length === 0) {
+            setResults([]);
+            setLoading(false);
+            setError(null);
+            return;
+        }
         setLoading(true);
         setError(null);
         try {
-            const nextModels = await getAvailableModels(
-                aiApiConfigForType(getAiApiConfig(), effectiveApiType),
-                outputModality,
-                { force },
-            );
-            if (requestId === requestIdRef.current) setModels(nextModels);
+            const nextResults = await getAvailableModelsForConnections(connections, outputModality, { force });
+            if (requestId === requestIdRef.current) setResults(nextResults);
         } catch (caught) {
             if (requestId === requestIdRef.current) {
-                setModels([]);
+                setResults([]);
                 setError(caught instanceof Error ? caught.message : '利用可能なモデルを取得できませんでした。');
             }
         } finally {
             if (requestId === requestIdRef.current) setLoading(false);
         }
-    }, [getAiApiConfig, outputModality, effectiveApiType]);
+    }, [connections, outputModality]);
 
     useEffect(() => {
         requestIdRef.current += 1;
-        setModels([]);
+        setResults([]);
         setLoading(false);
         setError(null);
         void loadModels();
-    }, [effectiveApiType, loadModels]);
+    }, [loadModels]);
 
     useEffect(() => {
         if (isOpen) void loadModels();
@@ -99,19 +115,49 @@ export default function ModelSelector({
         return () => window.cancelAnimationFrame(frame);
     }, [isOpen]);
 
-    const filteredModels = useMemo(() => {
+    const filteredResults = useMemo(() => {
         const normalizedQuery = query.trim().toLocaleLowerCase();
-        if (!normalizedQuery) return models;
-        return models.filter((model) => (
-            model.id.toLocaleLowerCase().includes(normalizedQuery)
-            || model.name.toLocaleLowerCase().includes(normalizedQuery)
-        ));
-    }, [models, query]);
+        if (!normalizedQuery) return results;
+        return results.flatMap((result) => {
+            if (connectionMatchesQuery(result, normalizedQuery)) return [result];
+            if ('error' in result) return [];
+            const models = result.models.filter((model) => (
+                model.id.toLocaleLowerCase().includes(normalizedQuery)
+                || model.name.toLocaleLowerCase().includes(normalizedQuery)
+            ));
+            return models.length > 0 ? [{ connection: result.connection, models }] : [];
+        });
+    }, [results, query]);
 
-    const selectedModel = useMemo(
-        () => models.find((model) => model.id === value),
-        [models, value],
-    );
+    const filteredOptions = useMemo<ModelOption[]>(() => filteredResults.flatMap((result) => (
+        'error' in result
+            ? []
+            : result.models.map((model) => ({ connectionId: result.connection.id, model }))
+    )), [filteredResults]);
+
+    const selectedOption = useMemo(() => {
+        if (!value.model) return null;
+        const result = results.find((entry) => (
+            !('error' in entry) && entry.connection.id === value.connectionId
+        ));
+        if (!result || 'error' in result) return null;
+        const model = result.models.find((candidate) => candidate.id === value.model);
+        return model ? { connection: result.connection, model } : null;
+    }, [results, value]);
+
+    const selectedConnection = useMemo(() => (
+        value.model ? connections.find((connection) => connection.id === value.connectionId) ?? null : null
+    ), [connections, value]);
+
+    const showConnectionName = connections.length > 1;
+    const selectedLabel = value.model
+        ? showConnectionName
+            ? `${(selectedOption?.connection ?? selectedConnection)?.name ?? value.connectionId} / ${selectedOption?.model.name ?? value.model}`
+            : selectedOption?.model.name ?? value.model
+        : '';
+    const selectedTitle = value.model
+        ? `${(selectedOption?.connection ?? selectedConnection)?.name ?? value.connectionId} / ${value.model}`
+        : undefined;
 
     const openMenu = () => {
         if (disabled) return;
@@ -119,8 +165,8 @@ export default function ModelSelector({
         setOpen(true);
     };
 
-    const selectModel = (model: AvailableModel) => {
-        onChange(model.id);
+    const selectOption = (option: ModelOption) => {
+        onChange({ connectionId: option.connectionId, model: option.model.id });
         setOpen(false);
         setQuery('');
     };
@@ -144,10 +190,10 @@ export default function ModelSelector({
                         openMenu();
                     }
                 }}
-                title={selectedModel && selectedModel.name !== value ? value : undefined}
+                title={value.model && selectedOption?.model.name !== value.model ? selectedTitle : undefined}
             >
-                <span className={value ? 'model-selector-value' : 'model-selector-placeholder'}>
-                    {selectedModel?.name || value || placeholder}
+                <span className={value.model ? 'model-selector-value' : 'model-selector-placeholder'}>
+                    {selectedLabel || placeholder}
                 </span>
                 <ChevronDown
                     size={16}
@@ -166,16 +212,16 @@ export default function ModelSelector({
                                 type="search"
                                 value={query}
                                 aria-label="モデルを検索"
-                                placeholder="モデル名またはIDで検索"
+                                placeholder="モデル名・ID・接続先で検索"
                                 spellCheck={false}
                                 onChange={(event) => setQuery(event.target.value)}
                                 onKeyDown={(event) => {
                                     if (event.key === 'Escape') {
                                         event.preventDefault();
                                         setOpen(false);
-                                    } else if (event.key === 'Enter' && filteredModels.length === 1) {
+                                    } else if (event.key === 'Enter' && filteredOptions.length === 1) {
                                         event.preventDefault();
-                                        selectModel(filteredModels[0]);
+                                        selectOption(filteredOptions[0]);
                                     }
                                 }}
                             />
@@ -193,38 +239,70 @@ export default function ModelSelector({
                     </div>
 
                     <div id={listboxId} className="model-selector-options" role="listbox" aria-label="利用可能なモデル">
-                        {loading && models.length === 0 ? (
+                        {connectionsError && results.length === 0 ? (
+                            <div className="model-selector-status error" role="alert">
+                                <span>{connectionsError}</span>
+                                <button type="button" onClick={() => void reloadConnections()}>再試行</button>
+                            </div>
+                        ) : (loading || connectionsLoading) && results.length === 0 ? (
                             <p className="model-selector-status" role="status">モデル一覧を読み込んでいます…</p>
                         ) : error ? (
                             <div className="model-selector-status error" role="alert">
                                 <span>{error}</span>
                                 <button type="button" onClick={() => void loadModels(true)}>再試行</button>
                             </div>
-                        ) : filteredModels.length === 0 ? (
+                        ) : filteredResults.length === 0 ? (
                             <p className="model-selector-status">
-                                {models.length === 0 ? '利用可能なモデルがありません。' : '一致するモデルがありません。'}
+                                {results.length === 0
+                                    ? connections.length === 0
+                                        ? '接続先が設定されていません。'
+                                        : '利用可能なモデルがありません。'
+                                    : '一致するモデルがありません。'}
                             </p>
-                        ) : filteredModels.map((model) => {
-                            const selected = model.id === value;
-                            return (
-                                <button
-                                    key={model.id}
-                                    type="button"
-                                    className={selected ? 'model-selector-option selected' : 'model-selector-option'}
-                                    role="option"
-                                    aria-selected={selected}
-                                    onClick={() => selectModel(model)}
-                                >
-                                    <span className="model-selector-option-copy">
-                                        <span className="model-selector-option-name">{model.name}</span>
-                                        {model.name !== model.id && (
-                                            <span className="model-selector-option-id">{model.id}</span>
-                                        )}
-                                    </span>
-                                    {selected && <Check size={16} aria-hidden="true" />}
-                                </button>
-                            );
-                        })}
+                        ) : filteredResults.map((result) => (
+                            <div
+                                key={result.connection.id}
+                                className="model-selector-group"
+                                role="group"
+                                aria-label={result.connection.name}
+                            >
+                                {filteredResults.length > 1 && (
+                                    <div className="model-selector-group-header">
+                                        <span className="model-selector-group-name">{result.connection.name}</span>
+                                        <span className="model-selector-group-kind">
+                                            {AI_CONNECTION_KIND_LABELS[result.connection.kind]}
+                                        </span>
+                                    </div>
+                                )}
+                                {'error' in result ? (
+                                    <p className="model-selector-group-error" role="status">{result.error}</p>
+                                ) : result.models.map((model) => {
+                                    const option: ModelOption = { connectionId: result.connection.id, model };
+                                    const selected = modelRefsEqual(
+                                        { connectionId: result.connection.id, model: model.id },
+                                        value,
+                                    );
+                                    return (
+                                        <button
+                                            key={model.id}
+                                            type="button"
+                                            className={selected ? 'model-selector-option selected' : 'model-selector-option'}
+                                            role="option"
+                                            aria-selected={selected}
+                                            onClick={() => selectOption(option)}
+                                        >
+                                            <span className="model-selector-option-copy">
+                                                <span className="model-selector-option-name">{model.name}</span>
+                                                {model.name !== model.id && (
+                                                    <span className="model-selector-option-id">{model.id}</span>
+                                                )}
+                                            </span>
+                                            {selected && <Check size={16} aria-hidden="true" />}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        ))}
                     </div>
                 </div>
             )}

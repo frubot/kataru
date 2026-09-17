@@ -1,6 +1,6 @@
 import { generateId } from '../id';
-import { isAiApiType } from '../aiApi';
-import { DEFAULT_CHAT_MODEL } from '../modelDefaults';
+import { isAiConnectionKind, normalizeModelRef, type ModelRef } from '../aiApi';
+import { DEFAULT_MODEL_DEFAULTS } from '../modelDefaults';
 import type {
     Character,
     Costume,
@@ -26,7 +26,17 @@ export function defaultCharacterRoomName(characterName: string | undefined, inde
     return `${characterName?.trim() || 'Chat'} ${index}`;
 }
 
-export function createDefaultSituationDirector(model: string): SituationDirector {
+/** A legacy `model` string plus an optional sibling `aiApiType` folds into a
+ * single `ModelRef` source that `normalizeModelRef` understands. */
+function legacyModelRefSource(model: unknown, aiApiType: unknown): unknown {
+    if (model !== null && typeof model === 'object') return model;
+    if (typeof model === 'string' && model.trim()) {
+        return isAiConnectionKind(aiApiType) ? { model, aiApiType } : model;
+    }
+    return isAiConnectionKind(aiApiType) ? { aiApiType } : undefined;
+}
+
+export function createDefaultSituationDirector(model: ModelRef): SituationDirector {
     return {
         enabled: true,
         model,
@@ -41,18 +51,20 @@ export function normalizeSituationMaxHistory(maxHistory: unknown): number | unde
 }
 
 export function normalizeSituationDirector(
-    director: Situation['director'] | undefined,
-    fallbackModel: string,
+    director: (Situation['director'] & { aiApiType?: unknown }) | undefined,
+    fallbackModel: ModelRef,
 ): SituationDirector {
     const maxAutoTurns = Number.isFinite(director?.maxAutoTurns)
         ? Math.max(1, Math.min(10, Math.round(director!.maxAutoTurns)))
         : 3;
     const stopPolicy = director?.stopPolicy === 'after-one' ? 'after-one' : 'max-turns';
-    const model = director?.model?.trim() || fallbackModel;
+    const model = normalizeModelRef(
+        legacyModelRefSource(director?.model, director?.aiApiType),
+        fallbackModel,
+    );
     return {
         enabled: director?.enabled !== false,
         model,
-        ...(isAiApiType(director?.aiApiType) ? { aiApiType: director.aiApiType } : {}),
         ...(director?.systemPrompt?.trim() ? { systemPrompt: director.systemPrompt.trim() } : {}),
         maxAutoTurns,
         stopPolicy,
@@ -62,7 +74,7 @@ export function normalizeSituationDirector(
 export function normalizeSituationActor(
     rawActor: unknown,
     validCharacterIds: Set<string>,
-    fallbackModel: string,
+    fallbackModel: ModelRef,
 ): SituationActor | null {
     if (!isRecord(rawActor)) return null;
     const type = rawActor.type;
@@ -100,8 +112,7 @@ export function normalizeSituationActor(
             ...(typeof rawActor.userConstraints === 'string' && rawActor.userConstraints.trim()
                 ? { userConstraints: rawActor.userConstraints.trim() }
                 : {}),
-            model: typeof rawActor.model === 'string' && rawActor.model.trim() ? rawActor.model.trim() : fallbackModel,
-            ...(isAiApiType(rawActor.aiApiType) ? { aiApiType: rawActor.aiApiType } : {}),
+            model: normalizeModelRef(legacyModelRefSource(rawActor.model, rawActor.aiApiType), fallbackModel),
             ...(typeof rawActor.icon === 'string' && rawActor.icon ? { icon: rawActor.icon } : {}),
             ...(typeof rawActor.rolePrompt === 'string' && rawActor.rolePrompt.trim()
                 ? { rolePrompt: rawActor.rolePrompt.trim() }
@@ -200,7 +211,7 @@ export function normalizeSituationPriorMessages(
 export function normalizeSituation(
     situation: Situation,
     validCharacterIds: Set<string>,
-    fallbackModel: string,
+    fallbackModel: ModelRef,
     now = Date.now(),
     directorFallbackModel = fallbackModel,
 ): Situation | null {
@@ -233,7 +244,7 @@ export function normalizeSituation(
 export function resolveSituationParticipants(
     situation: Situation | null | undefined,
     characters: Character[],
-    fallbackModel = DEFAULT_CHAT_MODEL,
+    fallbackModel: ModelRef = DEFAULT_MODEL_DEFAULTS.defaultChatModel,
 ): SituationParticipant[] {
     if (!situation) return [];
     const byId = new Map(characters.map((character) => [character.id, character]));
@@ -261,8 +272,7 @@ export function resolveSituationParticipants(
                 systemPrompt: actor.systemPrompt,
                 speechStyle: actor.speechStyle,
                 userConstraints: actor.userConstraints,
-                model: actor.model?.trim() || fallbackModel,
-                aiApiType: actor.aiApiType,
+                model: actor.model ?? fallbackModel,
                 icon: actor.icon,
                 maxCharacters: actor.maxCharacters,
                 maxHistory: actor.maxHistory,
@@ -289,12 +299,14 @@ export function normalizeGroupData(params: {
     characters: Character[];
     groups: Situation[];
     rooms: Room[];
-    fallbackModel?: string;
-    directorFallbackModel?: string;
+    fallbackModel?: ModelRef;
+    directorFallbackModel?: ModelRef;
 }): { groups: Situation[]; rooms: Room[]; changedGroups: Situation[]; changedRooms: Room[] } {
     const now = Date.now();
-    const fallbackModel = params.fallbackModel?.trim() || DEFAULT_CHAT_MODEL;
-    const directorFallbackModel = params.directorFallbackModel?.trim() || fallbackModel;
+    const fallbackModel = normalizeModelRef(params.fallbackModel, DEFAULT_MODEL_DEFAULTS.defaultChatModel);
+    const directorFallbackModel = params.directorFallbackModel
+        ? normalizeModelRef(params.directorFallbackModel, fallbackModel)
+        : fallbackModel;
     const validCharacterIds = new Set(params.characters.map((character) => character.id));
     const groupsById = new Map<string, Situation>();
     const changedGroups: Situation[] = [];

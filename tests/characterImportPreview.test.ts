@@ -7,7 +7,7 @@ function characterWithImages(overrides: Partial<Character>): Character {
         id: 'character-1',
         name: '葵',
         systemPrompt: '',
-        model: 'test-model',
+        model: { connectionId: 'openrouter', model: 'test-model' },
         createdAt: 1,
         updatedAt: 1,
         ...overrides,

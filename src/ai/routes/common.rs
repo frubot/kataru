@@ -19,23 +19,23 @@ pub(super) fn ai_api_client_for(state: &AppState, body: &Value) -> AppResult<AiA
     AiApiClient::from_state(state, ai_api_config_value(body))
 }
 
-/// Builds a client for an explicit service override, falling back to the
-/// config's top-level `aiApiType` when `api_type` is `None`.
-pub(crate) fn ai_api_client_for_api_type(
+/// Builds a client for an explicit connection override, falling back to the
+/// config's top-level `connectionId` when `connection_id` is `None`.
+pub(crate) fn ai_api_client_for_connection(
     state: &AppState,
     body: &Value,
-    api_type: Option<&str>,
+    connection_id: Option<&str>,
 ) -> AppResult<AiApiClient> {
-    AiApiClient::from_state_for(state, ai_api_config_value(body), api_type)
+    AiApiClient::from_state_for(state, ai_api_config_value(body), connection_id)
 }
 
-/// Builds a client for the service chosen by a resolved role/entity selection.
+/// Builds a client for the connection chosen by a resolved role/entity selection.
 pub(crate) fn ai_api_client_for_selection(
     state: &AppState,
     body: &Value,
     selection: &RoleSelection,
 ) -> AppResult<AiApiClient> {
-    ai_api_client_for_api_type(state, body, selection.api_type.as_deref())
+    ai_api_client_for_connection(state, body, selection.connection_id.as_deref())
 }
 
 pub(super) fn required_string(body: &Value, field: &str, message: &str) -> AppResult<String> {
@@ -55,17 +55,18 @@ pub(super) fn optional_trimmed_string(body: &Value, field: &str) -> Option<Strin
         .map(ToOwned::to_owned)
 }
 
-/// A resolved model name plus the service it should run on.
-/// `api_type` is `None` when the request should use the config's top-level
-/// `aiApiType` (the global default service).
+/// A resolved model name plus the connection it should run on.
+/// `connection_id` is `None` when the request should use the config's
+/// top-level `connectionId` (the global default connection).
 pub(crate) struct RoleSelection {
     pub model: String,
-    pub api_type: Option<String>,
+    pub connection_id: Option<String>,
 }
 
 /// Reads a model field that may be either a plain string or a
-/// `{ "model": string, "aiApiType"?: string }` object.
-fn model_selection_parts(value: &Value) -> Option<(String, Option<String>)> {
+/// `{ "model": string, "connectionId"?: string }` object. The legacy
+/// `aiApiType` field name is accepted as a connection id.
+pub(crate) fn model_selection_parts(value: &Value) -> Option<(String, Option<String>)> {
     if let Some(model) = value
         .as_str()
         .map(str::trim)
@@ -77,47 +78,75 @@ fn model_selection_parts(value: &Value) -> Option<(String, Option<String>)> {
         return None;
     }
     let model = optional_trimmed_string(value, "model")?;
-    Some((model, optional_trimmed_string(value, "aiApiType")))
+    Some((
+        model,
+        optional_trimmed_string(value, "connectionId")
+            .or_else(|| optional_trimmed_string(value, "aiApiType")),
+    ))
 }
 
-/// Per-role service override carried on `aiApiConfig.roleApiTypes`.
-/// Keys are the `modelDefaults` field names (e.g. `summaryModel`).
-pub(crate) fn role_api_type(body: &Value, role: &str) -> Option<String> {
+/// Reads just the model name from a field that may be a plain string or a
+/// model selection object.
+pub(crate) fn model_string(value: &Value, field: &str) -> String {
+    value
+        .get(field)
+        .and_then(model_selection_parts)
+        .map(|(model, _)| model)
+        .unwrap_or_default()
+}
+
+/// Reads an entity-level connection override (`connectionId`, legacy
+/// `aiApiType`, or the entity's own model selection object).
+pub(crate) fn entity_connection_id(entity: &Value) -> Option<String> {
+    optional_trimmed_string(entity, "connectionId")
+        .or_else(|| optional_trimmed_string(entity, "aiApiType"))
+        .or_else(|| {
+            entity
+                .get("model")
+                .and_then(model_selection_parts)
+                .and_then(|(_, connection_id)| connection_id)
+        })
+}
+
+/// Per-role connection override carried on `aiApiConfig.roleApiTypes`.
+/// Keys are the `modelDefaults` field names (e.g. `summaryModel`) and values
+/// are connection ids.
+pub(crate) fn role_connection(body: &Value, role: &str) -> Option<String> {
     ai_api_config_value(body)
         .and_then(|config| config.get("roleApiTypes"))
         .and_then(|overrides| optional_trimmed_string(overrides, role))
 }
 
-/// Resolves only the service side of a role selection, without requiring a
+/// Resolves only the connection side of a role selection, without requiring a
 /// model to be present.
-pub(crate) fn role_selection_api_type(
+pub(crate) fn role_selection_connection(
     body: &Value,
     field: &str,
     role: &str,
 ) -> Option<String> {
     body.get(field)
         .and_then(model_selection_parts)
-        .and_then(|(_, api_type)| api_type)
+        .and_then(|(_, connection_id)| connection_id)
         .or_else(|| {
             ai_api_config_value(body)
                 .and_then(|config| config.get("modelDefaults"))
                 .and_then(|defaults| defaults.get(role))
                 .and_then(model_selection_parts)
-                .and_then(|(_, api_type)| api_type)
+                .and_then(|(_, connection_id)| connection_id)
         })
-        .or_else(|| role_api_type(body, role))
+        .or_else(|| role_connection(body, role))
 }
 
 /// Resolves a role's `modelDefaults` entry without consulting a top-level
 /// request field.
 pub(crate) fn role_default_selection(body: &Value, role: &str) -> Option<RoleSelection> {
-    let (model, api_type) = ai_api_config_value(body)
+    let (model, connection_id) = ai_api_config_value(body)
         .and_then(|config| config.get("modelDefaults"))
         .and_then(|defaults| defaults.get(role))
         .and_then(model_selection_parts)?;
     Some(RoleSelection {
         model,
-        api_type: api_type.or_else(|| role_api_type(body, role)),
+        connection_id: connection_id.or_else(|| role_connection(body, role)),
     })
 }
 
@@ -126,10 +155,10 @@ pub(crate) fn optional_role_selection(
     field: &str,
     role: &str,
 ) -> Option<RoleSelection> {
-    if let Some((model, api_type)) = body.get(field).and_then(model_selection_parts) {
+    if let Some((model, connection_id)) = body.get(field).and_then(model_selection_parts) {
         return Some(RoleSelection {
             model,
-            api_type: api_type.or_else(|| role_api_type(body, role)),
+            connection_id: connection_id.or_else(|| role_connection(body, role)),
         });
     }
     role_default_selection(body, role)
@@ -284,27 +313,61 @@ mod tests {
     }
 
     #[test]
-    fn selection_object_carries_a_service_override() {
-        let input = json!({
-            "model": {"model": "claude-sonnet-4-6", "aiApiType": "anthropic"}
-        });
+    fn selection_object_carries_a_connection_override() {
+        for connection_key in ["connectionId", "aiApiType"] {
+            let input = json!({
+                "model": {"model": "claude-sonnet-4-6", connection_key: "anthropic"}
+            });
 
-        let selection = resolve_role_selection(&input, "model", "summaryModel").unwrap();
-        assert_eq!(selection.model, "claude-sonnet-4-6");
-        assert_eq!(selection.api_type.as_deref(), Some("anthropic"));
+            let selection = resolve_role_selection(&input, "model", "summaryModel").unwrap();
+            assert_eq!(selection.model, "claude-sonnet-4-6");
+            assert_eq!(selection.connection_id.as_deref(), Some("anthropic"));
+        }
     }
 
     #[test]
-    fn role_api_types_override_the_global_service() {
+    fn model_string_reads_selection_objects() {
+        let input = json!({
+            "model": {"model": "claude-sonnet-4-6", "connectionId": "anthropic"},
+            "plain": "plain-model"
+        });
+
+        assert_eq!(model_string(&input, "model"), "claude-sonnet-4-6");
+        assert_eq!(model_string(&input, "plain"), "plain-model");
+        assert_eq!(model_string(&input, "missing"), "");
+    }
+
+    #[test]
+    fn entity_connection_id_accepts_new_and_legacy_fields() {
+        assert_eq!(
+            entity_connection_id(&json!({"connectionId": "cx_1"})).as_deref(),
+            Some("cx_1")
+        );
+        assert_eq!(
+            entity_connection_id(&json!({"aiApiType": "anthropic"})).as_deref(),
+            Some("anthropic")
+        );
+        assert_eq!(
+            entity_connection_id(
+                &json!({"model": {"model": "m", "connectionId": "cx_2"}})
+            )
+            .as_deref(),
+            Some("cx_2")
+        );
+        assert_eq!(entity_connection_id(&json!({"model": "m"})), None);
+    }
+
+    #[test]
+    fn role_api_types_override_the_global_connection() {
         let input = json!({
             "aiApiConfig": {
-                "aiApiType": "openrouter",
+                "connectionId": "openrouter",
                 "roleApiTypes": {"summaryModel": "anthropic"},
                 "modelDefaults": {"summaryModel": "claude-sonnet-4-6"}
             }
         });
 
         let selection = resolve_role_selection(&input, "model", "summaryModel").unwrap();
-        assert_eq!(selection.api_type.as_deref(), Some("anthropic"));
+        assert_eq!(selection.connection_id.as_deref(), Some("anthropic"));
     }
 }

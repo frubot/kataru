@@ -1,15 +1,6 @@
 import {
-    DEFAULT_AI_API_TYPE,
-    DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
-    DEFAULT_OPENAI_COMPATIBLE_EMBEDDINGS_ENABLED,
-    DEFAULT_OPENAI_COMPATIBLE_IMAGE_GENERATION_ENABLED,
-    DEFAULT_OPENROUTER_IGNORED_PROVIDERS,
-    normalizeOpenAiCompatibleBaseUrl,
-    normalizeOpenRouterIgnoredProviders,
-    normalizeRoleApiTypes,
+    normalizeModelRef,
     type AiApiConfig,
-    type AiApiType,
-    type RoleApiTypes,
 } from '../aiApi';
 import * as db from '../db';
 import { generateId } from '../id';
@@ -19,23 +10,9 @@ import {
     type KeyboardShortcutAction,
 } from '../keyboardShortcuts';
 import {
-    DEFAULT_AUTO_GENERATION_MODEL,
-    DEFAULT_CHAT_MODEL,
-    DEFAULT_DIRECTOR_MODEL,
-    DEFAULT_EXPRESSION_DETECTION_MODEL,
-    DEFAULT_IMAGE_MODEL,
-    DEFAULT_MEMORY_EMBEDDING_MODEL,
-    DEFAULT_MEMORY_EXTRACTION_MODEL,
-    DEFAULT_REPLY_SUGGESTION_MODEL,
-    DEFAULT_SUMMARY_MODEL,
-    DEFAULT_TITLE_GENERATION_MODEL,
     getDefaultModelDefaults,
-    MODEL_DEFAULT_FIELDS,
     normalizeModelDefaults,
-    normalizeModelDefaultsByApiType,
     type ModelDefaults,
-    type ModelDefaultsByApiType,
-    type ModelRoleKey,
 } from '../modelDefaults';
 import { fire } from './persistence';
 import type {
@@ -117,77 +94,9 @@ export function clearThemeCache(): void {
 const DEBUG_LOG_LIMIT = 50;
 let modelDefaultsWriteQueue: Promise<void> = Promise.resolve();
 
-export function persistModelDefaultsByApiType(modelDefaultsByApiType: ModelDefaultsByApiType): void {
-    modelDefaultsWriteQueue = modelDefaultsWriteQueue
-        .catch(() => undefined)
-        .then(() => db.setMeta('modelDefaultsByApiType', modelDefaultsByApiType));
-    fire(modelDefaultsWriteQueue);
-}
-
-export async function waitForModelDefaultsWrites(): Promise<void> {
-    await modelDefaultsWriteQueue.catch(() => undefined);
-}
-
-/** The service a role currently resolves to (its override or the global type). */
-export function roleApiTypeFor(
-    state: Pick<AppState, 'aiApiType' | 'roleApiTypes'>,
-    role: ModelRoleKey,
-): AiApiType {
-    return state.roleApiTypes[role] ?? state.aiApiType;
-}
-
-/** The effective model for every role, honoring per-role service overrides. */
-export function activeModelDefaults(
-    state: Pick<AppState, 'aiApiType' | 'roleApiTypes' | 'modelDefaultsByApiType'>,
-): ModelDefaults {
-    return Object.fromEntries(MODEL_DEFAULT_FIELDS.map((key) => [
-        key,
-        state.modelDefaultsByApiType[roleApiTypeFor(state, key)][key],
-    ])) as unknown as ModelDefaults;
-}
-
-function updateModelDefault<K extends keyof ModelDefaults>(
-    set: StoreSet,
-    get: StoreGet,
-    key: K,
-    value: ModelDefaults[K],
-): void {
-    const state = get();
-    const roleApiType = roleApiTypeFor(state, key);
-    const apiTypeDefaults = {
-        ...state.modelDefaultsByApiType[roleApiType],
-        [key]: value,
-    };
-    const modelDefaultsByApiType = {
-        ...state.modelDefaultsByApiType,
-        [roleApiType]: apiTypeDefaults,
-    };
-    set({ [key]: value, modelDefaultsByApiType } as Partial<AppState>);
-    persistModelDefaultsByApiType(modelDefaultsByApiType);
-}
-
-type AiConfigState = Pick<
-    AppState,
-    | 'aiApiType'
-    | 'roleApiTypes'
-    | 'openRouterIgnoredProviders'
-    | 'openAiCompatibleBaseUrl'
-    | 'openAiCompatibleEmbeddingsEnabled'
-    | 'openAiCompatibleImageGenerationEnabled'
-    | 'summaryModel'
-    | 'defaultChatModel'
-    | 'defaultDirectorModel'
-    | 'defaultAutoGenerationModel'
-    | 'titleGenerationModel'
-    | 'replySuggestionModel'
-    | 'defaultImageModel'
-    | 'expressionDetectionModel'
-    | 'memoryExtractionModel'
-    | 'memoryEmbeddingModel'
->;
-
-export function getAiApiConfigFromState(state: AiConfigState): AiApiConfig {
-    const modelDefaults = normalizeModelDefaults({
+/** The effective model selection for every role. */
+export function modelDefaultsFromState(state: ModelDefaults): ModelDefaults {
+    return normalizeModelDefaults({
         summaryModel: state.summaryModel,
         defaultChatModel: state.defaultChatModel,
         defaultDirectorModel: state.defaultDirectorModel,
@@ -198,15 +107,37 @@ export function getAiApiConfigFromState(state: AiConfigState): AiApiConfig {
         expressionDetectionModel: state.expressionDetectionModel,
         memoryExtractionModel: state.memoryExtractionModel,
         memoryEmbeddingModel: state.memoryEmbeddingModel,
-    }, getDefaultModelDefaults(state.aiApiType));
+    });
+}
+
+export function persistModelDefaults(state: ModelDefaults): void {
+    const modelDefaults = modelDefaultsFromState(state);
+    modelDefaultsWriteQueue = modelDefaultsWriteQueue
+        .catch(() => undefined)
+        .then(() => db.setMeta('modelDefaults', modelDefaults));
+    fire(modelDefaultsWriteQueue);
+}
+
+export async function waitForModelDefaultsWrites(): Promise<void> {
+    await modelDefaultsWriteQueue.catch(() => undefined);
+}
+
+function updateModelDefault<K extends keyof ModelDefaults>(
+    set: StoreSet,
+    get: StoreGet,
+    key: K,
+    value: ModelDefaults[K],
+): void {
+    const ref = normalizeModelRef(value, get()[key]);
+    set({ [key]: ref } as Partial<AppState>);
+    persistModelDefaults(get());
+}
+
+export function getAiApiConfigFromState(state: ModelDefaults): AiApiConfig {
+    const modelDefaults = modelDefaultsFromState(state);
     return {
-        aiApiType: state.aiApiType,
-        openRouterIgnoredProviders: normalizeOpenRouterIgnoredProviders(state.openRouterIgnoredProviders),
-        openAiCompatibleBaseUrl: normalizeOpenAiCompatibleBaseUrl(state.openAiCompatibleBaseUrl),
-        openAiCompatibleEmbeddingsEnabled: state.openAiCompatibleEmbeddingsEnabled,
-        openAiCompatibleImageGenerationEnabled: state.openAiCompatibleImageGenerationEnabled,
+        connectionId: modelDefaults.defaultChatModel.connectionId,
         modelDefaults,
-        roleApiTypes: normalizeRoleApiTypes(state.roleApiTypes),
     };
 }
 
@@ -227,16 +158,9 @@ type SettingsSlice = Pick<
     | 'expressionDetectionModel'
     | 'memoryExtractionModel'
     | 'memoryEmbeddingModel'
-    | 'modelDefaultsByApiType'
-    | 'roleApiTypes'
     | 'conversationCompressionEnabled'
     | 'generateTitleOnFirstReply'
     | 'replySuggestionsEnabled'
-    | 'aiApiType'
-    | 'openRouterIgnoredProviders'
-    | 'openAiCompatibleBaseUrl'
-    | 'openAiCompatibleEmbeddingsEnabled'
-    | 'openAiCompatibleImageGenerationEnabled'
     | 'fullJsonDebugEnabled'
     | 'detailedErrorLoggingEnabled'
     | 'memoryInspectorEnabled'
@@ -262,15 +186,9 @@ type SettingsSlice = Pick<
     | 'setExpressionDetectionModel'
     | 'setMemoryExtractionModel'
     | 'setMemoryEmbeddingModel'
-    | 'setRoleApiType'
     | 'setConversationCompressionEnabled'
     | 'setGenerateTitleOnFirstReply'
     | 'setReplySuggestionsEnabled'
-    | 'setAiApiType'
-    | 'setOpenRouterIgnoredProviders'
-    | 'setOpenAiCompatibleBaseUrl'
-    | 'setOpenAiCompatibleEmbeddingsEnabled'
-    | 'setOpenAiCompatibleImageGenerationEnabled'
     | 'getAiApiConfig'
     | 'setFullJsonDebugEnabled'
     | 'setDetailedErrorLoggingEnabled'
@@ -287,26 +205,10 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         defaultViewMode: DEFAULT_VIEW_MODE,
         vnTypingSpeed: DEFAULT_VN_TYPING_SPEED,
         keyboardShortcuts: createDefaultKeyboardShortcuts(),
-        summaryModel: DEFAULT_SUMMARY_MODEL,
-        defaultChatModel: DEFAULT_CHAT_MODEL,
-        defaultDirectorModel: DEFAULT_DIRECTOR_MODEL,
-        defaultAutoGenerationModel: DEFAULT_AUTO_GENERATION_MODEL,
-        titleGenerationModel: DEFAULT_TITLE_GENERATION_MODEL,
-        replySuggestionModel: DEFAULT_REPLY_SUGGESTION_MODEL,
-        defaultImageModel: DEFAULT_IMAGE_MODEL,
-        expressionDetectionModel: DEFAULT_EXPRESSION_DETECTION_MODEL,
-        memoryExtractionModel: DEFAULT_MEMORY_EXTRACTION_MODEL,
-        memoryEmbeddingModel: DEFAULT_MEMORY_EMBEDDING_MODEL,
-        modelDefaultsByApiType: normalizeModelDefaultsByApiType(undefined),
-        roleApiTypes: {},
+        ...getDefaultModelDefaults(),
         conversationCompressionEnabled: DEFAULT_CONVERSATION_COMPRESSION_ENABLED,
         generateTitleOnFirstReply: false,
         replySuggestionsEnabled: false,
-        aiApiType: DEFAULT_AI_API_TYPE,
-        openRouterIgnoredProviders: DEFAULT_OPENROUTER_IGNORED_PROVIDERS,
-        openAiCompatibleBaseUrl: DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
-        openAiCompatibleEmbeddingsEnabled: DEFAULT_OPENAI_COMPATIBLE_EMBEDDINGS_ENABLED,
-        openAiCompatibleImageGenerationEnabled: DEFAULT_OPENAI_COMPATIBLE_IMAGE_GENERATION_ENABLED,
         fullJsonDebugEnabled: false,
         detailedErrorLoggingEnabled: false,
         memoryInspectorEnabled: false,
@@ -360,20 +262,8 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
             fire(db.setMeta('keyboardShortcuts', keyboardShortcuts));
         },
         resetModelDefaults: () => {
-            const state = get();
-            const modelDefaultsByApiType = { ...state.modelDefaultsByApiType };
-            const flat = {} as Record<ModelRoleKey, string>;
-            for (const key of MODEL_DEFAULT_FIELDS) {
-                const roleApiType = roleApiTypeFor(state, key);
-                const defaults = getDefaultModelDefaults(roleApiType);
-                modelDefaultsByApiType[roleApiType] = {
-                    ...modelDefaultsByApiType[roleApiType],
-                    [key]: defaults[key],
-                };
-                flat[key] = defaults[key];
-            }
-            set({ ...flat, modelDefaultsByApiType });
-            persistModelDefaultsByApiType(modelDefaultsByApiType);
+            set({ ...getDefaultModelDefaults() });
+            persistModelDefaults(get());
         },
         setSummaryModel: (summaryModel) => {
             updateModelDefault(set, get, 'summaryModel', summaryModel);
@@ -405,19 +295,6 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         setMemoryEmbeddingModel: (memoryEmbeddingModel) => {
             updateModelDefault(set, get, 'memoryEmbeddingModel', memoryEmbeddingModel);
         },
-        setRoleApiType: (role, apiType) => {
-            const state = get();
-            const roleApiTypes: RoleApiTypes = { ...state.roleApiTypes };
-            if (apiType) {
-                roleApiTypes[role] = apiType;
-            } else {
-                delete roleApiTypes[role];
-            }
-            const effectiveApiType = apiType ?? state.aiApiType;
-            const model = state.modelDefaultsByApiType[effectiveApiType][role];
-            set({ roleApiTypes, [role]: model } as Partial<AppState>);
-            fire(db.setMeta('roleApiTypes', roleApiTypes));
-        },
         setConversationCompressionEnabled: (conversationCompressionEnabled) => {
             set({ conversationCompressionEnabled });
             fire(db.setMeta('conversationCompressionEnabled', conversationCompressionEnabled));
@@ -429,30 +306,6 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         setReplySuggestionsEnabled: (replySuggestionsEnabled) => {
             set({ replySuggestionsEnabled });
             fire(db.setMeta('replySuggestionsEnabled', replySuggestionsEnabled));
-        },
-        setAiApiType: (aiApiType) => {
-            const state = get();
-            const modelDefaults = activeModelDefaults({ ...state, aiApiType });
-            set({ aiApiType, ...modelDefaults });
-            fire(db.setMeta('aiApiType', aiApiType));
-        },
-        setOpenRouterIgnoredProviders: (providers) => {
-            const openRouterIgnoredProviders = normalizeOpenRouterIgnoredProviders(providers);
-            set({ openRouterIgnoredProviders });
-            fire(db.setMeta('openRouterIgnoredProviders', openRouterIgnoredProviders));
-        },
-        setOpenAiCompatibleBaseUrl: (openAiCompatibleBaseUrl) => {
-            const normalized = normalizeOpenAiCompatibleBaseUrl(openAiCompatibleBaseUrl);
-            set({ openAiCompatibleBaseUrl: normalized });
-            fire(db.setMeta('openAiCompatibleBaseUrl', normalized));
-        },
-        setOpenAiCompatibleEmbeddingsEnabled: (openAiCompatibleEmbeddingsEnabled) => {
-            set({ openAiCompatibleEmbeddingsEnabled });
-            fire(db.setMeta('openAiCompatibleEmbeddingsEnabled', openAiCompatibleEmbeddingsEnabled));
-        },
-        setOpenAiCompatibleImageGenerationEnabled: (openAiCompatibleImageGenerationEnabled) => {
-            set({ openAiCompatibleImageGenerationEnabled });
-            fire(db.setMeta('openAiCompatibleImageGenerationEnabled', openAiCompatibleImageGenerationEnabled));
         },
         getAiApiConfig: () => getAiApiConfigFromState(get()),
         setFullJsonDebugEnabled: (fullJsonDebugEnabled) => {

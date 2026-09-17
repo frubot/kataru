@@ -1,4 +1,13 @@
-import type { AiApiType } from './aiApi';
+/** A model on a named AI connection. `connectionId` is the server-side
+ * connection id (`openrouter` / `openai-compatible` / `anthropic` for the
+ * built-ins, `cx_*` for custom connections). */
+export interface ModelRef {
+    connectionId: string;
+    model: string;
+}
+
+/** The connection used when a stored value does not name one. */
+export const DEFAULT_CONNECTION_ID = 'openrouter';
 
 export const DEFAULT_SUMMARY_MODEL = 'google/gemma-4-31b-it';
 export const DEFAULT_CHAT_MODEL = 'z-ai/glm-5.2';
@@ -13,16 +22,16 @@ export const DEFAULT_MEMORY_EMBEDDING_MODEL = 'qwen/qwen3-embedding-8b';
 export const DEFAULT_ANTHROPIC_TEXT_MODEL = 'claude-sonnet-4-6';
 
 export interface ModelDefaults {
-    summaryModel: string;
-    defaultChatModel: string;
-    defaultDirectorModel: string;
-    defaultAutoGenerationModel: string;
-    titleGenerationModel: string;
-    replySuggestionModel: string;
-    defaultImageModel: string;
-    expressionDetectionModel: string;
-    memoryExtractionModel: string;
-    memoryEmbeddingModel: string;
+    summaryModel: ModelRef;
+    defaultChatModel: ModelRef;
+    defaultDirectorModel: ModelRef;
+    defaultAutoGenerationModel: ModelRef;
+    titleGenerationModel: ModelRef;
+    replySuggestionModel: ModelRef;
+    defaultImageModel: ModelRef;
+    expressionDetectionModel: ModelRef;
+    memoryExtractionModel: ModelRef;
+    memoryEmbeddingModel: ModelRef;
 }
 
 export type ModelRoleKey = keyof ModelDefaults;
@@ -40,76 +49,96 @@ export const MODEL_DEFAULT_FIELDS: readonly ModelRoleKey[] = [
     'memoryEmbeddingModel',
 ];
 
-export type ModelDefaultsByApiType = Record<AiApiType, ModelDefaults>;
+function defaultModelRef(model: string): ModelRef {
+    return { connectionId: DEFAULT_CONNECTION_ID, model };
+}
 
 export const DEFAULT_MODEL_DEFAULTS: ModelDefaults = {
-    summaryModel: DEFAULT_SUMMARY_MODEL,
-    defaultChatModel: DEFAULT_CHAT_MODEL,
-    defaultDirectorModel: DEFAULT_DIRECTOR_MODEL,
-    defaultAutoGenerationModel: DEFAULT_AUTO_GENERATION_MODEL,
-    titleGenerationModel: DEFAULT_TITLE_GENERATION_MODEL,
-    replySuggestionModel: DEFAULT_REPLY_SUGGESTION_MODEL,
-    defaultImageModel: DEFAULT_IMAGE_MODEL,
-    expressionDetectionModel: DEFAULT_EXPRESSION_DETECTION_MODEL,
-    memoryExtractionModel: DEFAULT_MEMORY_EXTRACTION_MODEL,
-    memoryEmbeddingModel: DEFAULT_MEMORY_EMBEDDING_MODEL,
+    summaryModel: defaultModelRef(DEFAULT_SUMMARY_MODEL),
+    defaultChatModel: defaultModelRef(DEFAULT_CHAT_MODEL),
+    defaultDirectorModel: defaultModelRef(DEFAULT_DIRECTOR_MODEL),
+    defaultAutoGenerationModel: defaultModelRef(DEFAULT_AUTO_GENERATION_MODEL),
+    titleGenerationModel: defaultModelRef(DEFAULT_TITLE_GENERATION_MODEL),
+    replySuggestionModel: defaultModelRef(DEFAULT_REPLY_SUGGESTION_MODEL),
+    defaultImageModel: defaultModelRef(DEFAULT_IMAGE_MODEL),
+    expressionDetectionModel: defaultModelRef(DEFAULT_EXPRESSION_DETECTION_MODEL),
+    memoryExtractionModel: defaultModelRef(DEFAULT_MEMORY_EXTRACTION_MODEL),
+    memoryEmbeddingModel: defaultModelRef(DEFAULT_MEMORY_EMBEDDING_MODEL),
 };
 
-const AI_API_TYPES: readonly AiApiType[] = ['openrouter', 'openai-compatible', 'anthropic'];
-
-export const DEFAULT_MODEL_DEFAULTS_BY_API_TYPE: ModelDefaultsByApiType = {
-    openrouter: DEFAULT_MODEL_DEFAULTS,
-    'openai-compatible': DEFAULT_MODEL_DEFAULTS,
-    anthropic: {
-        ...DEFAULT_MODEL_DEFAULTS,
-        summaryModel: DEFAULT_ANTHROPIC_TEXT_MODEL,
-        defaultChatModel: DEFAULT_ANTHROPIC_TEXT_MODEL,
-        defaultDirectorModel: DEFAULT_ANTHROPIC_TEXT_MODEL,
-        defaultAutoGenerationModel: DEFAULT_ANTHROPIC_TEXT_MODEL,
-        titleGenerationModel: DEFAULT_ANTHROPIC_TEXT_MODEL,
-        replySuggestionModel: DEFAULT_ANTHROPIC_TEXT_MODEL,
-        expressionDetectionModel: DEFAULT_ANTHROPIC_TEXT_MODEL,
-        memoryExtractionModel: DEFAULT_ANTHROPIC_TEXT_MODEL,
-    },
-};
-
-export function getDefaultModelDefaults(apiType: AiApiType): ModelDefaults {
-    return DEFAULT_MODEL_DEFAULTS_BY_API_TYPE[apiType];
+export function getDefaultModelDefaults(): ModelDefaults {
+    return { ...DEFAULT_MODEL_DEFAULTS };
 }
 
-function normalizeModelName(value: unknown, fallback: string): string {
-    return typeof value === 'string' && value.trim() ? value.trim() : fallback;
+export function isModelRef(value: unknown): value is ModelRef {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    const record = value as Record<string, unknown>;
+    return typeof record.model === 'string'
+        && record.model.trim().length > 0
+        && typeof record.connectionId === 'string'
+        && record.connectionId.trim().length > 0;
 }
 
-export function normalizeModelDefaults(value: unknown, fallback: ModelDefaults = DEFAULT_MODEL_DEFAULTS): ModelDefaults {
+/** Normalizes a stored/requested model selection into a `ModelRef`.
+ * Accepts a plain model name string, `{ model, connectionId }`, or the legacy
+ * `{ model, aiApiType }` shape (the old `aiApiType` values are the built-in
+ * connection ids). */
+export function normalizeModelRef(value: unknown, fallback: ModelRef): ModelRef {
+    if (typeof value === 'string') {
+        const model = value.trim();
+        return model
+            ? { connectionId: fallback.connectionId, model }
+            : { ...fallback };
+    }
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+        const record = value as Record<string, unknown>;
+        const connectionId = typeof record.connectionId === 'string' && record.connectionId.trim()
+            ? record.connectionId.trim()
+            : typeof record.aiApiType === 'string' && record.aiApiType.trim()
+                ? record.aiApiType.trim()
+                : fallback.connectionId;
+        const model = typeof record.model === 'string' && record.model.trim()
+            ? record.model.trim()
+            : fallback.model;
+        return { connectionId, model };
+    }
+    return { ...fallback };
+}
+
+/** The request-body shape for a model field: `{ model, connectionId }`. */
+export function serializeModelRef(ref: ModelRef): { model: string; connectionId: string } {
+    return { model: ref.model, connectionId: ref.connectionId };
+}
+
+export function modelRefModel(ref: ModelRef): string {
+    return ref.model;
+}
+
+export function modelRefConnectionId(ref: ModelRef): string {
+    return ref.connectionId;
+}
+
+export function modelRefsEqual(left: ModelRef, right: ModelRef): boolean {
+    return left.model === right.model && left.connectionId === right.connectionId;
+}
+
+export function normalizeModelDefaults(
+    value: unknown,
+    fallback: ModelDefaults = DEFAULT_MODEL_DEFAULTS,
+): ModelDefaults {
     const record = value && typeof value === 'object'
         ? value as Record<string, unknown>
         : {};
     return {
-        summaryModel: normalizeModelName(record.summaryModel, fallback.summaryModel),
-        defaultChatModel: normalizeModelName(record.defaultChatModel, fallback.defaultChatModel),
-        defaultDirectorModel: normalizeModelName(record.defaultDirectorModel, fallback.defaultDirectorModel),
-        defaultAutoGenerationModel: normalizeModelName(record.defaultAutoGenerationModel, fallback.defaultAutoGenerationModel),
-        titleGenerationModel: normalizeModelName(record.titleGenerationModel, fallback.titleGenerationModel),
-        replySuggestionModel: normalizeModelName(record.replySuggestionModel, fallback.replySuggestionModel),
-        defaultImageModel: normalizeModelName(record.defaultImageModel, fallback.defaultImageModel),
-        expressionDetectionModel: normalizeModelName(record.expressionDetectionModel, fallback.expressionDetectionModel),
-        memoryExtractionModel: normalizeModelName(record.memoryExtractionModel, fallback.memoryExtractionModel),
-        memoryEmbeddingModel: normalizeModelName(record.memoryEmbeddingModel, fallback.memoryEmbeddingModel),
+        summaryModel: normalizeModelRef(record.summaryModel, fallback.summaryModel),
+        defaultChatModel: normalizeModelRef(record.defaultChatModel, fallback.defaultChatModel),
+        defaultDirectorModel: normalizeModelRef(record.defaultDirectorModel, fallback.defaultDirectorModel),
+        defaultAutoGenerationModel: normalizeModelRef(record.defaultAutoGenerationModel, fallback.defaultAutoGenerationModel),
+        titleGenerationModel: normalizeModelRef(record.titleGenerationModel, fallback.titleGenerationModel),
+        replySuggestionModel: normalizeModelRef(record.replySuggestionModel, fallback.replySuggestionModel),
+        defaultImageModel: normalizeModelRef(record.defaultImageModel, fallback.defaultImageModel),
+        expressionDetectionModel: normalizeModelRef(record.expressionDetectionModel, fallback.expressionDetectionModel),
+        memoryExtractionModel: normalizeModelRef(record.memoryExtractionModel, fallback.memoryExtractionModel),
+        memoryEmbeddingModel: normalizeModelRef(record.memoryEmbeddingModel, fallback.memoryEmbeddingModel),
     };
-}
-
-export function normalizeModelDefaultsByApiType(
-    value: unknown,
-    fallback?: ModelDefaults,
-): ModelDefaultsByApiType {
-    const record = value && typeof value === 'object'
-        ? value as Partial<Record<AiApiType, unknown>>
-        : {};
-    return Object.fromEntries(
-        AI_API_TYPES.map((apiType) => [
-            apiType,
-            normalizeModelDefaults(record[apiType], fallback ?? getDefaultModelDefaults(apiType)),
-        ]),
-    ) as ModelDefaultsByApiType;
 }

@@ -19,17 +19,21 @@ import {
     resolveSituationParticipants,
 } from '../lib/store/situations';
 
+const TEST_MODEL = { connectionId: 'openrouter', model: 'model-1' };
+const FALLBACK_MODEL = { connectionId: 'openrouter', model: 'fallback-model' };
+const DIRECTOR_MODEL = { connectionId: 'openrouter', model: 'director-model' };
+
 describe('store pure helpers', () => {
     test('removes the legacy character token limit without reusing it as a character limit', () => {
         const [character] = normalizeCharacters([{
             id: 'character-1',
             name: '葵',
             systemPrompt: '',
-            model: 'model-1',
+            model: TEST_MODEL,
             maxTokens: 1024,
             createdAt: 1,
             updatedAt: 1,
-        } as Parameters<typeof normalizeCharacters>[0][number] & { maxTokens: number }], 'fallback-model');
+        } as Parameters<typeof normalizeCharacters>[0][number] & { maxTokens: number }], FALLBACK_MODEL);
 
         expect(character).not.toHaveProperty('maxTokens');
         expect(character.maxCharacters).toBeUndefined();
@@ -40,11 +44,11 @@ describe('store pure helpers', () => {
             id: 'character-1',
             name: '葵',
             systemPrompt: '',
-            model: 'model-1',
+            model: TEST_MODEL,
             enableSummary: false,
             createdAt: 1,
             updatedAt: 1,
-        } as Character & { enableSummary: boolean }], 'fallback-model');
+        } as Character & { enableSummary: boolean }], FALLBACK_MODEL);
 
         expect(character).not.toHaveProperty('enableSummary');
     });
@@ -119,7 +123,7 @@ describe('store pure helpers', () => {
             id: 'character-1',
             name: '葵',
             systemPrompt: '',
-            model: 'model-1',
+            model: TEST_MODEL,
             costumes: [{ name: '制服', image: 'uniform-image' }],
             createdAt: 1,
             updatedAt: 1,
@@ -129,7 +133,7 @@ describe('store pure helpers', () => {
             type: 'character',
             characterId: character.id,
             costumeName: ' 制服 ',
-        }, new Set([character.id]), 'fallback-model');
+        }, new Set([character.id]), FALLBACK_MODEL);
         expect(actor).toMatchObject({ costumeName: '制服' });
         if (!actor) throw new Error('Expected a normalized actor');
 
@@ -139,7 +143,7 @@ describe('store pure helpers', () => {
             actors: [actor],
             director: {
                 enabled: true,
-                model: 'model-1',
+                model: TEST_MODEL,
                 maxAutoTurns: 1,
                 stopPolicy: 'max-turns',
             },
@@ -172,7 +176,7 @@ describe('store pure helpers', () => {
             id: 'character-1',
             name: '葵',
             systemPrompt: '',
-            model: 'model-1',
+            model: TEST_MODEL,
             createdAt: 1,
             updatedAt: 1,
         };
@@ -234,7 +238,7 @@ describe('store pure helpers', () => {
             frequencyPenalty: 0,
             presencePenalty: -0.5,
             repetitionPenalty: 1.15,
-        }, new Set(), 'fallback-model');
+        }, new Set(), FALLBACK_MODEL);
 
         expect(actor).toMatchObject({
             type: 'temporary',
@@ -251,14 +255,14 @@ describe('store pure helpers', () => {
             actors: [actor],
             director: {
                 enabled: true,
-                model: 'director-model',
+                model: DIRECTOR_MODEL,
                 maxAutoTurns: 1,
                 stopPolicy: 'max-turns',
             },
             memoryMode: 'off',
             createdAt: 1,
             updatedAt: 1,
-        }, [], 'fallback-model');
+        }, [], FALLBACK_MODEL);
 
         expect(participants[0]).toMatchObject({
             actorId: 'actor-1',

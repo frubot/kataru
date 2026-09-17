@@ -11,16 +11,16 @@ use crate::{
 };
 
 use super::common::{
-    ai_api_client_for_api_type, raw_upstream_response, resolve_role_selection,
-    role_selection_api_type,
+    ai_api_client_for_connection, raw_upstream_response, resolve_role_selection,
+    role_selection_connection,
 };
 
 pub async fn embeddings(
     State(state): State<AppState>,
     Json(input): Json<Value>,
 ) -> AppResult<Response> {
-    let api_type = role_selection_api_type(&input, "model", "memoryEmbeddingModel");
-    let api_client = ai_api_client_for_api_type(&state, &input, api_type.as_deref())?;
+    let connection_id = role_selection_connection(&input, "model", "memoryEmbeddingModel");
+    let api_client = ai_api_client_for_connection(&state, &input, connection_id.as_deref())?;
     if !api_client.embeddings_enabled() {
         return Ok(Json(json!({ "data": [], "disabled": true })).into_response());
     }

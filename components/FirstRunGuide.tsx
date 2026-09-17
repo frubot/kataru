@@ -7,18 +7,17 @@ import {
     normalizeGeneratedCharacterProfile,
 } from '@/lib/characterGeneration';
 import {
-    getServerAiConfig,
-    setAnthropicConfig,
-    setOpenAiConfig,
-    setOpenRouterApiKey,
-    type ServerAiConfigStatus,
-} from '@/lib/serverAiConfig';
-import {
-    DEFAULT_ANTHROPIC_BASE_URL,
+    AI_CONNECTION_KIND_LABELS,
     DEFAULT_ANTHROPIC_TEXT_MODEL,
-    DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
+    type AiConnectionKind,
 } from '@/lib/aiApi';
-import { useStore, type AiApiType } from '@/lib/store';
+import {
+    updateAiConnection,
+    useAiConnections,
+    type UpdateAiConnectionInput,
+} from '@/lib/aiConnections';
+import { modelRefsEqual, serializeModelRef } from '@/lib/modelDefaults';
+import { useStore } from '@/lib/store';
 
 interface FirstRunGuideProps {
     onOpenSidebar: () => void;
@@ -34,8 +33,10 @@ interface ConnectionStatusResponse {
     message?: string;
 }
 
-const API_TYPE_OPTIONS: readonly {
-    id: AiApiType;
+const OPENAI_DEFAULT_BASE_URL = 'https://api.openai.com/v1';
+
+const CONNECTION_OPTIONS: readonly {
+    id: AiConnectionKind;
     title: string;
 }[] = [
     {
@@ -54,8 +55,6 @@ const API_TYPE_OPTIONS: readonly {
 
 export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: FirstRunGuideProps) {
     const {
-        aiApiType,
-        setAiApiType,
         getAiApiConfig,
         defaultChatModel,
         defaultAutoGenerationModel,
@@ -68,19 +67,18 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
         createCharacter,
         createRoom,
     } = useStore();
+    const {
+        connections,
+        secretStoreAvailable,
+        loading: connectionsLoading,
+        error: connectionsError,
+        reload: reloadConnections,
+    } = useAiConnections();
     const [step, setStep] = useState<GuideStep>('api-type');
-    const [serverConfig, setServerConfig] = useState<ServerAiConfigStatus | null>(null);
-    const [configLoading, setConfigLoading] = useState(false);
-    const [configLoadAttempt, setConfigLoadAttempt] = useState(0);
-    const [configError, setConfigError] = useState('');
-    const [openRouterApiKey, setOpenRouterApiKeyInput] = useState('');
-    const [openAiBaseUrl, setOpenAiBaseUrl] = useState('');
-    const [openAiApiKey, setOpenAiApiKeyInput] = useState('');
-    const [anthropicBaseUrl, setAnthropicBaseUrl] = useState('');
-    const [anthropicApiKey, setAnthropicApiKeyInput] = useState('');
-    const [anthropicModel, setAnthropicModel] = useState(
-        defaultChatModel.startsWith('claude-') ? defaultChatModel : DEFAULT_ANTHROPIC_TEXT_MODEL,
-    );
+    const [selectedConnectionId, setSelectedConnectionId] = useState<string>('openrouter');
+    const [baseUrl, setBaseUrl] = useState('');
+    const [apiKey, setApiKey] = useState('');
+    const [anthropicModel, setAnthropicModel] = useState(DEFAULT_ANTHROPIC_TEXT_MODEL);
     const [connectionState, setConnectionState] = useState<ConnectionState>('idle');
     const [connectionMessage, setConnectionMessage] = useState('');
     const [name, setName] = useState('');
@@ -90,99 +88,67 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
     const [isGenerating, setGenerating] = useState(false);
     const [generationError, setGenerationError] = useState('');
 
+    const connection = connections.find((candidate) => candidate.id === selectedConnectionId) ?? null;
+
     useEffect(() => {
         if (step !== 'connection') return;
-
-        let cancelled = false;
-        setConfigLoading(true);
-        setConfigError('');
         setConnectionState('idle');
         setConnectionMessage('');
+        setApiKey('');
+        setBaseUrl(connection?.baseUrl ?? '');
+        setAnthropicModel(
+            defaultChatModel.connectionId === 'anthropic' && defaultChatModel.model.startsWith('claude-')
+                ? defaultChatModel.model
+                : DEFAULT_ANTHROPIC_TEXT_MODEL,
+        );
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [step, connection?.id, connection?.baseUrl]);
 
-        void getServerAiConfig()
-            .then((status) => {
-                if (cancelled) return;
-                setServerConfig(status);
-                setOpenAiBaseUrl(status.openai.baseUrl);
-                setAnthropicBaseUrl(status.anthropic.baseUrl);
-                setOpenRouterApiKeyInput('');
-                setOpenAiApiKeyInput('');
-                setAnthropicApiKeyInput('');
-            })
-            .catch((error) => {
-                if (cancelled) return;
-                setServerConfig(null);
-                setConfigError(error instanceof Error ? error.message : 'AI接続設定を読み込めませんでした。');
-            })
-            .finally(() => {
-                if (!cancelled) setConfigLoading(false);
-            });
-
-        return () => {
-            cancelled = true;
-        };
-    }, [aiApiType, configLoadAttempt, step]);
-
-    const selectApiType = (apiType: AiApiType) => {
-        setAiApiType(apiType);
+    const selectConnection = (connectionId: string) => {
+        setSelectedConnectionId(connectionId);
         setConnectionState('idle');
         setConnectionMessage('');
     };
 
     const saveAndCheckConnection = async () => {
-        if (connectionState === 'checking' || !serverConfig) return;
+        if (connectionState === 'checking' || !connection) return;
 
-        const trimmedOpenRouterKey = openRouterApiKey.trim();
-        const trimmedOpenAiKey = openAiApiKey.trim();
-        const trimmedOpenAiBaseUrl = openAiBaseUrl.trim().replace(/\/+$/, '');
-        const openAiBaseChanged = trimmedOpenAiBaseUrl !== serverConfig.openai.baseUrl;
-        const trimmedAnthropicKey = anthropicApiKey.trim();
-        const trimmedAnthropicBaseUrl = anthropicBaseUrl.trim().replace(/\/+$/, '');
-        const anthropicBaseChanged = trimmedAnthropicBaseUrl !== serverConfig.anthropic.baseUrl;
+        const kind = connection.kind;
+        const trimmedApiKey = apiKey.trim();
+        const trimmedBaseUrl = baseUrl.trim().replace(/\/+$/, '');
+        const baseChanged = connection.baseUrlEditable
+            && trimmedBaseUrl !== (connection.baseUrl ?? '');
         const trimmedAnthropicModel = anthropicModel.trim();
 
-        if (aiApiType === 'openrouter' && !serverConfig.openrouter.configured && !trimmedOpenRouterKey) {
+        if (kind === 'openrouter' && !connection.apiKey.configured && !trimmedApiKey) {
             setConnectionState('error');
             setConnectionMessage('OpenRouter APIキーを入力してください。');
             return;
         }
-        if (
-            aiApiType === 'openai-compatible'
-            && !trimmedOpenAiBaseUrl
-            && serverConfig.openai.baseUrlEditable
-        ) {
+        if (kind !== 'openrouter' && connection.baseUrlEditable && !trimmedBaseUrl) {
             setConnectionState('error');
             setConnectionMessage('エンドポイントを入力してください。');
             return;
         }
-        if (
-            aiApiType === 'anthropic'
-            && !trimmedAnthropicBaseUrl
-            && serverConfig.anthropic.baseUrlEditable
-        ) {
-            setConnectionState('error');
-            setConnectionMessage('エンドポイントを入力してください。');
-            return;
-        }
-        if (aiApiType === 'anthropic' && !trimmedAnthropicModel) {
+        if (kind === 'anthropic' && !trimmedAnthropicModel) {
             setConnectionState('error');
             setConnectionMessage('Anthropicで使用するモデルIDを入力してください。');
             return;
         }
         if (
-            aiApiType === 'anthropic'
-            && (!serverConfig.anthropic.apiKey.configured || anthropicBaseChanged)
-            && !trimmedAnthropicKey
+            kind === 'anthropic'
+            && (!connection.apiKey.configured || baseChanged)
+            && !trimmedApiKey
         ) {
             setConnectionState('error');
             setConnectionMessage('Anthropic APIキーを入力してください。');
             return;
         }
         if (
-            aiApiType === 'openai-compatible'
-            && trimmedOpenAiBaseUrl === DEFAULT_OPENAI_COMPATIBLE_BASE_URL
-            && (!serverConfig.openai.apiKey.configured || openAiBaseChanged)
-            && !trimmedOpenAiKey
+            kind === 'openai-compatible'
+            && trimmedBaseUrl === OPENAI_DEFAULT_BASE_URL
+            && (!connection.apiKey.configured || baseChanged)
+            && !trimmedApiKey
         ) {
             setConnectionState('error');
             setConnectionMessage('OpenAI公式APIを使うにはAPIキーを入力してください。');
@@ -193,53 +159,30 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
         setConnectionMessage('');
 
         try {
-            let nextServerConfig = serverConfig;
-            if (aiApiType === 'openrouter' && serverConfig.openrouter.editable && trimmedOpenRouterKey) {
-                nextServerConfig = await setOpenRouterApiKey(trimmedOpenRouterKey);
-            } else if (aiApiType === 'openai-compatible') {
-                const update = {
-                    ...(serverConfig.openai.baseUrlEditable && openAiBaseChanged
-                        ? { baseUrl: trimmedOpenAiBaseUrl }
-                        : {}),
-                    ...(serverConfig.openai.apiKey.editable && trimmedOpenAiKey
-                        ? { apiKey: trimmedOpenAiKey }
-                        : {}),
-                };
-                if (Object.keys(update).length > 0) {
-                    nextServerConfig = await setOpenAiConfig(update);
-                }
-            } else if (aiApiType === 'anthropic') {
-                const update = {
-                    ...(serverConfig.anthropic.baseUrlEditable && anthropicBaseChanged
-                        ? { baseUrl: trimmedAnthropicBaseUrl }
-                        : {}),
-                    ...(serverConfig.anthropic.apiKey.editable && trimmedAnthropicKey
-                        ? { apiKey: trimmedAnthropicKey }
-                        : {}),
-                };
-                if (Object.keys(update).length > 0) {
-                    nextServerConfig = await setAnthropicConfig(update);
-                }
-                setDefaultChatModel(trimmedAnthropicModel);
-                setDefaultDirectorModel(trimmedAnthropicModel);
-                setDefaultAutoGenerationModel(trimmedAnthropicModel);
-                setTitleGenerationModel(trimmedAnthropicModel);
-                setSummaryModel(trimmedAnthropicModel);
-                setMemoryExtractionModel(trimmedAnthropicModel);
+            const update: UpdateAiConnectionInput = {};
+            if (baseChanged) update.baseUrl = trimmedBaseUrl;
+            if (connection.apiKey.editable && trimmedApiKey) update.apiKey = trimmedApiKey;
+            if (Object.keys(update).length > 0) {
+                await updateAiConnection(connection.id, update);
             }
-
-            setServerConfig(nextServerConfig);
-            setOpenAiBaseUrl(nextServerConfig.openai.baseUrl);
-            setAnthropicBaseUrl(nextServerConfig.anthropic.baseUrl);
-            setOpenRouterApiKeyInput('');
-            setOpenAiApiKeyInput('');
-            setAnthropicApiKeyInput('');
+            if (kind === 'anthropic') {
+                const modelRef = { connectionId: connection.id, model: trimmedAnthropicModel };
+                setDefaultChatModel(modelRef);
+                setDefaultDirectorModel(modelRef);
+                setDefaultAutoGenerationModel(modelRef);
+                setTitleGenerationModel(modelRef);
+                setSummaryModel(modelRef);
+                setMemoryExtractionModel(modelRef);
+            }
+            setApiKey('');
 
             const response = await fetch('/api/ai/status', {
                 method: 'POST',
                 credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ aiApiConfig: getAiApiConfig() }),
+                body: JSON.stringify({
+                    aiApiConfig: { ...getAiApiConfig(), connectionId: connection.id },
+                }),
             });
             const data = await response.json().catch(() => ({})) as ConnectionStatusResponse;
             if (!response.ok) {
@@ -270,8 +213,11 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     direction: description.trim(),
-                    model: defaultAutoGenerationModel,
-                    aiApiConfig: getAiApiConfig(),
+                    model: serializeModelRef(defaultAutoGenerationModel),
+                    aiApiConfig: {
+                        ...getAiApiConfig(),
+                        connectionId: defaultAutoGenerationModel.connectionId,
+                    },
                 }),
             });
             const data = await response.json().catch(() => ({}));
@@ -304,25 +250,23 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
     };
 
     const stepNumber = step === 'api-type' ? 1 : step === 'connection' ? 2 : 3;
-    const selectedApiKeyStatus = serverConfig
-        ? aiApiType === 'openrouter'
-            ? serverConfig.openrouter
-            : aiApiType === 'anthropic'
-                ? serverConfig.anthropic.apiKey
-                : serverConfig.openai.apiKey
-        : null;
-    const openAiBaseChanged = serverConfig != null
-        && openAiBaseUrl.trim().replace(/\/+$/, '') !== serverConfig.openai.baseUrl;
-    const anthropicBaseChanged = serverConfig != null
-        && anthropicBaseUrl.trim().replace(/\/+$/, '') !== serverConfig.anthropic.baseUrl;
-    const hasConnectionChanges = aiApiType === 'openrouter'
-        ? openRouterApiKey.trim().length > 0
-        : aiApiType === 'anthropic'
-            ? anthropicBaseChanged
-                || anthropicApiKey.trim().length > 0
-                || anthropicModel.trim() !== defaultChatModel
-            : openAiBaseChanged || openAiApiKey.trim().length > 0;
-    const connectionBusy = configLoading || connectionState === 'checking';
+    const connectionKind = connection?.kind ?? 'openrouter';
+    const baseChanged = connection != null
+        && connection.baseUrlEditable
+        && baseUrl.trim().replace(/\/+$/, '') !== (connection.baseUrl ?? '');
+    const hasConnectionChanges = connection == null
+        ? false
+        : connectionKind === 'openrouter'
+            ? apiKey.trim().length > 0
+            : connectionKind === 'anthropic'
+                ? baseChanged
+                    || apiKey.trim().length > 0
+                    || !modelRefsEqual(defaultChatModel, {
+                        connectionId: connection.id,
+                        model: anthropicModel.trim(),
+                    })
+                : baseChanged || apiKey.trim().length > 0;
+    const connectionBusy = connectionsLoading || connectionState === 'checking';
     return (
         <section className="chat-container onboarding-container" aria-label="はじめ方">
             <div className="chat-header mobile-only onboarding-mobile-header">
@@ -381,8 +325,8 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                             </p>
 
                             <div className="onboarding-api-type-list" role="radiogroup" aria-label="会話に使うAIのAPIの種類">
-                                {API_TYPE_OPTIONS.map(({ id, title}) => {
-                                    const selected = aiApiType === id;
+                                {CONNECTION_OPTIONS.map(({ id, title }) => {
+                                    const selected = selectedConnectionId === id;
                                     return (
                                         <button
                                             key={id}
@@ -390,7 +334,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                             role="radio"
                                             aria-checked={selected}
                                             className={`onboarding-api-type ${selected ? 'selected' : ''}`}
-                                            onClick={() => selectApiType(id)}
+                                            onClick={() => selectConnection(id)}
                                         >
                                             <span className="onboarding-api-type-copy">
                                                 <span className="onboarding-api-type-title">{title}</span>
@@ -423,115 +367,93 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                 <div>
                                     <p className="onboarding-step-label">2 / 3 · 接続設定</p>
                                     <h1>
-                                        {aiApiType === 'openrouter'
-                                            ? 'OpenRouterを設定'
-                                            : aiApiType === 'anthropic'
-                                                ? 'Claude API'
-                                                : 'OpenAI API'}
+                                        {connection ? connection.name : AI_CONNECTION_KIND_LABELS[connectionKind]}
                                     </h1>
                                 </div>
                             </div>
                             <p className="onboarding-lead">
-                                {aiApiType === 'openrouter'
+                                {connectionKind === 'openrouter'
                                     ? 'OpenRouterのAPIキーを保存して、会話できるか確認します。'
-                                    : aiApiType === 'anthropic'
+                                    : connectionKind === 'anthropic'
                                         ? 'Claude APIまたは互換APIのエンドポイントとAPIキーを設定します。'
                                         : 'OpenAI APIまたは互換APIのエンドポイントとAPIキーを設定します。'}
                             </p>
 
-                            {configLoading ? (
+                            {connectionsLoading && !connection ? (
                                 <div className="ai-connection-card ai-connection-loading onboarding-connection-card" aria-live="polite">
                                     <Loader2 size={16} className="animate-spin" aria-hidden="true" />
                                     AI接続設定を読み込んでいます…
                                 </div>
-                            ) : !serverConfig ? (
+                            ) : !connection ? (
                                 <div className="onboarding-status error" role="alert">
-                                    <span>{configError || 'AI接続設定を読み込めませんでした。'}</span>
-                                    <button type="button" onClick={() => setConfigLoadAttempt((attempt) => attempt + 1)}>
+                                    <span>{connectionsError || 'AI接続設定を読み込めませんでした。'}</span>
+                                    <button type="button" onClick={() => void reloadConnections()}>
                                         再読み込み
                                     </button>
                                 </div>
                             ) : (
                                 <div className="ai-connection-card onboarding-connection-card">
 
-                                    {!serverConfig.secretStoreAvailable && !selectedApiKeyStatus?.configured && (
+                                    {!secretStoreAvailable && !connection.apiKey.configured && (
                                         <p className="ai-connection-message error" role="alert">
                                             OSの資格情報ストアを利用できません。環境変数でAPIキーを設定してください。
                                         </p>
                                     )}
 
-                                    {aiApiType === 'openrouter' ? (
+                                    {connectionKind !== 'openrouter' && (
                                         <>
-                                            <label className="ai-connection-label" htmlFor="onboarding-openrouter-api-key">
-                                                APIキー
-                                            </label>
-                                            <input
-                                                id="onboarding-openrouter-api-key"
-                                                className="input"
-                                                type="password"
-                                                value={openRouterApiKey}
-                                                disabled={!serverConfig.openrouter.editable || connectionBusy}
-                                                autoComplete="new-password"
-                                                spellCheck={false}
-                                                autoFocus={serverConfig.openrouter.editable && !serverConfig.openrouter.configured}
-                                                placeholder={serverConfig.openrouter.configured
-                                                    ? '変更する場合のみ入力'
-                                                    : 'OpenRouter APIキーを入力'}
-                                                onChange={(event) => setOpenRouterApiKeyInput(event.target.value)}
-                                            />
-                                            {!serverConfig.openrouter.editable && (
-                                                <p className="ai-connection-help">
-                                                    環境変数 OPENROUTER_API_KEY が設定されているため、変更できません。
-                                                </p>
-                                            )}
-                                        </>
-                                    ) : aiApiType === 'anthropic' ? (
-                                        <>
-                                            <label className="ai-connection-label" htmlFor="onboarding-anthropic-base-url">
+                                            <label className="ai-connection-label" htmlFor="onboarding-base-url">
                                                 エンドポイント
                                             </label>
                                             <input
-                                                id="onboarding-anthropic-base-url"
+                                                id="onboarding-base-url"
                                                 className="input"
                                                 type="url"
-                                                value={anthropicBaseUrl}
-                                                disabled={!serverConfig.anthropic.baseUrlEditable || connectionBusy}
+                                                value={baseUrl}
+                                                disabled={!connection.baseUrlEditable || connectionBusy}
                                                 spellCheck={false}
-                                                placeholder={DEFAULT_ANTHROPIC_BASE_URL}
-                                                onChange={(event) => setAnthropicBaseUrl(event.target.value)}
+                                                onChange={(event) => setBaseUrl(event.target.value)}
                                             />
-                                            <p className="ai-connection-help">
-                                                {!serverConfig.anthropic.baseUrlEditable && '環境変数 ANTHROPIC_BASE_URL またはANTHROPIC_API_KEY が設定されているため、変更できません。'}
-                                            </p>
-                                            {anthropicBaseChanged && serverConfig.anthropic.apiKey.configured && (
+                                            {!connection.baseUrlEditable && (
+                                                <p className="ai-connection-help">
+                                                    環境変数が設定されているため、変更できません。
+                                                </p>
+                                            )}
+                                            {baseChanged && connection.apiKey.configured && (
                                                 <p className="ai-connection-help warning">
                                                     接続先を変更すると、現在保存されているAPIキーは解除されます。
                                                 </p>
                                             )}
+                                        </>
+                                    )}
 
-                                            <label className="ai-connection-label" htmlFor="onboarding-anthropic-api-key">
-                                                APIキー
-                                            </label>
-                                            <input
-                                                id="onboarding-anthropic-api-key"
-                                                className="input"
-                                                type="password"
-                                                value={anthropicApiKey}
-                                                disabled={!serverConfig.anthropic.apiKey.editable || connectionBusy}
-                                                autoComplete="new-password"
-                                                spellCheck={false}
-                                                autoFocus={serverConfig.anthropic.apiKey.editable && !serverConfig.anthropic.apiKey.configured}
-                                                placeholder={serverConfig.anthropic.apiKey.configured
-                                                    ? '変更する場合のみ入力'
-                                                    : 'Anthropic APIキーを入力'}
-                                                onChange={(event) => setAnthropicApiKeyInput(event.target.value)}
-                                            />
-                                            {!serverConfig.anthropic.apiKey.editable && (
-                                                <p className="ai-connection-help">
-                                                    環境変数 ANTHROPIC_API_KEY が設定されているため、変更できません。
-                                                </p>
-                                            )}
+                                    <label className="ai-connection-label" htmlFor="onboarding-api-key">
+                                        APIキー
+                                    </label>
+                                    <input
+                                        id="onboarding-api-key"
+                                        className="input"
+                                        type="password"
+                                        value={apiKey}
+                                        disabled={!connection.apiKey.editable || connectionBusy}
+                                        autoComplete="new-password"
+                                        spellCheck={false}
+                                        autoFocus={connection.apiKey.editable && !connection.apiKey.configured}
+                                        placeholder={connection.apiKey.configured
+                                            ? '変更する場合のみ入力'
+                                            : connectionKind === 'openai-compatible'
+                                                ? 'APIキーを入力（ローカルAPIでは省略可）'
+                                                : `${AI_CONNECTION_KIND_LABELS[connectionKind]} APIキーを入力`}
+                                        onChange={(event) => setApiKey(event.target.value)}
+                                    />
+                                    {!connection.apiKey.editable && (
+                                        <p className="ai-connection-help">
+                                            環境変数が設定されているため、変更できません。
+                                        </p>
+                                    )}
 
+                                    {connectionKind === 'anthropic' && (
+                                        <>
                                             <label className="ai-connection-label" htmlFor="onboarding-anthropic-model">
                                                 使用するモデル
                                             </label>
@@ -548,52 +470,6 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                             <p className="ai-connection-help">
                                                 既定モデルに設定されます。あとから変更できます。
                                             </p>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <label className="ai-connection-label" htmlFor="onboarding-openai-base-url">
-                                                エンドポイント
-                                            </label>
-                                            <input
-                                                id="onboarding-openai-base-url"
-                                                className="input"
-                                                type="url"
-                                                value={openAiBaseUrl}
-                                                disabled={!serverConfig.openai.baseUrlEditable || connectionBusy}
-                                                spellCheck={false}
-                                                placeholder={DEFAULT_OPENAI_COMPATIBLE_BASE_URL}
-                                                onChange={(event) => setOpenAiBaseUrl(event.target.value)}
-                                            />
-                                            <p className="ai-connection-help">
-                                                {!serverConfig.openai.baseUrlEditable && '環境変数 OPENAI_BASE_URL またはOPENAI_API_KEY が設定されているため、変更できません。'}
-                                            </p>
-                                            {openAiBaseChanged && serverConfig.openai.apiKey.configured && (
-                                                <p className="ai-connection-help warning">
-                                                    接続先を変更すると、現在保存されているAPIキーは解除されます。
-                                                </p>
-                                            )}
-
-                                            <label className="ai-connection-label" htmlFor="onboarding-openai-api-key">
-                                                APIキー
-                                            </label>
-                                            <input
-                                                id="onboarding-openai-api-key"
-                                                className="input"
-                                                type="password"
-                                                value={openAiApiKey}
-                                                disabled={!serverConfig.openai.apiKey.editable || connectionBusy}
-                                                autoComplete="new-password"
-                                                spellCheck={false}
-                                                placeholder={serverConfig.openai.apiKey.configured
-                                                    ? '変更する場合のみ入力'
-                                                    : 'APIキーを入力（ローカルAPIでは省略可）'}
-                                                onChange={(event) => setOpenAiApiKeyInput(event.target.value)}
-                                            />
-                                            {!serverConfig.openai.apiKey.editable && (
-                                                <p className="ai-connection-help">
-                                                    環境変数 OPENAI_API_KEY が設定されているため、変更できません。
-                                                </p>
-                                            )}
                                         </>
                                     )}
                                 </div>
@@ -619,7 +495,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                     type="button"
                                     className="btn btn-primary"
                                     onClick={() => void saveAndCheckConnection()}
-                                    disabled={!serverConfig || connectionBusy}
+                                    disabled={!connection || connectionBusy}
                                 >
                                     {connectionState === 'checking' && <Loader2 size={16} className="animate-spin" />}
                                     {connectionState === 'checking'

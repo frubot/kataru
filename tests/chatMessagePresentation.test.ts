@@ -9,7 +9,7 @@ const character: Character = {
     id: 'character-1',
     name: 'Alice',
     systemPrompt: '',
-    model: 'test',
+    model: { connectionId: 'openrouter', model: 'test' },
     icon: 'alice.png',
     createdAt: 0,
     updatedAt: 0,

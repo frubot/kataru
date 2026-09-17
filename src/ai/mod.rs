@@ -2,7 +2,7 @@ pub mod anthropic;
 pub mod api_client;
 pub mod routes;
 
-pub use api_client::{AiApiClient, AiApiConfig, AiApiKind, ai_api_config_value};
+pub use api_client::{AiApiClient, AiApiConfig, ai_api_config_value};
 pub use routes::{
     ModelCatalogCache, chat, connection_status, detect_expression_name, embeddings,
     extract_memories, generate_character, generate_image, generate_reply_suggestions,

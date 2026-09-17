@@ -19,7 +19,7 @@ const character: Character = {
     id: 'character-1',
     name: 'Alice',
     systemPrompt: '',
-    model: 'test',
+    model: { connectionId: 'openrouter', model: 'test' },
     icon: 'icon.png',
     expressions: [
         { name: 'neutral', image: 'neutral.png' },

@@ -7,6 +7,9 @@ import {
 } from '@/lib/avatarImageGeneration';
 import { CropArea, createInitialCrop, type CropBox } from './ImageCropArea';
 import { useStore } from '@/lib/store';
+import { isAiConnectionKind } from '@/lib/aiApi';
+import { useAiConnections } from '@/lib/aiConnections';
+import { serializeModelRef, type ModelRef } from '@/lib/modelDefaults';
 import type { VrmAvatar } from '@/lib/store/types';
 import { readVrmFile } from '@/lib/vrm';
 import ModelSelector from './ModelSelector';
@@ -45,10 +48,10 @@ export default function ImageGenerationModal({
     vrmPreviewName,
     vrmFallbackImage,
 }: Props) {
-    const { defaultImageModel, aiApiType, roleApiTypes, openAiCompatibleImageGenerationEnabled, getAiApiConfig } = useStore();
-    const imageApiType = roleApiTypes.defaultImageModel ?? aiApiType;
+    const { defaultImageModel, getAiApiConfig } = useStore();
+    const { connections } = useAiConnections();
     const [prompt, setPrompt] = useState('');
-    const [model, setModel] = useState(defaultImageModel);
+    const [model, setModel] = useState<ModelRef>(defaultImageModel);
     const [generating, setGenerating] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [fullBody, setFullBody] = useState<string | null>(null);
@@ -65,14 +68,17 @@ export default function ImageGenerationModal({
     const modalRef = useRef<HTMLDivElement>(null);
     const imgRef = useRef<HTMLImageElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const canGenerateImages = imageApiType === 'openrouter'
-        || (imageApiType === 'openai-compatible' && openAiCompatibleImageGenerationEnabled);
-    const providerImageGenerationHint = imageApiType === 'anthropic'
-        ? 'Anthropic APIでは画像生成を利用できません。ファイルからアップロードしてください。'
-        : imageApiType === 'openai-compatible'
-        ? openAiCompatibleImageGenerationEnabled
+    const selectedConnection = connections.find((connection) => connection.id === model.connectionId) ?? null;
+    const selectedKind = selectedConnection?.kind
+        ?? (isAiConnectionKind(model.connectionId) ? model.connectionId : null);
+    const canGenerateImages = selectedKind === 'openrouter'
+        || (selectedKind === 'openai-compatible' && selectedConnection?.imageGenerationEnabled === true);
+    const providerImageGenerationHint = selectedKind === 'anthropic'
+        ? 'Anthropic互換APIでは画像生成を利用できません。ファイルからアップロードしてください。'
+        : selectedKind === 'openai-compatible'
+        ? selectedConnection?.imageGenerationEnabled === true
             ? 'OpenAI互換APIでは、テキストからの画像生成だけを試します。'
-            : 'OpenAI互換APIでの画像生成は無効です。ファイルからアップロードしてください。'
+            : 'この接続先での画像生成は無効です。ファイルからアップロードしてください。'
         : null;
     const imageGenerationHint = providerImageGenerationHint
         ?? (transparentFullBody
@@ -117,7 +123,7 @@ export default function ImageGenerationModal({
     });
 
     const handleGenerate = async () => {
-        if (!canGenerateImages || !prompt.trim() || !model.trim() || generating) return;
+        if (!canGenerateImages || !prompt.trim() || !model.model.trim() || generating) return;
         setError(null);
         setGenerating(true);
         const controller = new AbortController();
@@ -130,9 +136,9 @@ export default function ImageGenerationModal({
                     prompt: transparentFullBody
                         ? buildTransparentFullBodyPrompt(prompt)
                         : prompt.trim(),
-                    model: model.trim(),
+                    model: serializeModelRef(model),
                     aspectRatio: IMAGE_ASPECT_RATIO,
-                    aiApiConfig: getAiApiConfig(),
+                    aiApiConfig: { ...getAiApiConfig(), connectionId: model.connectionId },
                 }),
                 signal: controller.signal,
             });
@@ -305,7 +311,6 @@ export default function ImageGenerationModal({
                                             value={model}
                                             onChange={setModel}
                                             outputModality="image"
-                                            apiType={imageApiType}
                                             disabled={generating || !canGenerateImages}
                                         />
                                     </div>
@@ -319,7 +324,7 @@ export default function ImageGenerationModal({
                                     <button
                                         className="btn btn-primary"
                                         onClick={handleGenerate}
-                                        disabled={generating || !canGenerateImages || !prompt.trim() || !model.trim()}
+                                        disabled={generating || !canGenerateImages || !prompt.trim() || !model.model.trim()}
                                         style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                                     >
                                         {generating && <Loader2 size={16} className="animate-spin" />}

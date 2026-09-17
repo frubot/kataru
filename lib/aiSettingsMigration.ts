@@ -15,6 +15,16 @@ export interface MigratableModelDefaults {
 
 export type MigratableModelDefaultsByApiType = Record<MigratableAiApiType, MigratableModelDefaults>;
 
+export type MigratableModelRoleKey = keyof MigratableModelDefaults;
+
+/** A role's resolved model on a named connection — the post-migration shape. */
+export interface MigratedModelRef {
+    connectionId: string;
+    model: string;
+}
+
+export type MigratedModelDefaults = Record<MigratableModelRoleKey, MigratedModelRef>;
+
 export interface AiSettingsMigrationInput {
     canonicalAiApiType: unknown;
     legacyAiProvider: unknown;
@@ -111,6 +121,34 @@ function normalizeModelDefaultsByApiType(
 
 function jsonEqual(left: unknown, right: unknown): boolean {
     return JSON.stringify(left) === JSON.stringify(right);
+}
+
+/** Legacy `roleApiTypes` overrides, restricted to known API types. The values
+ * double as built-in connection ids. */
+export function normalizeMigratableRoleApiTypes(
+    value: unknown,
+): Partial<Record<MigratableModelRoleKey, MigratableAiApiType>> {
+    const record = isRecord(value) ? value : {};
+    const result: Partial<Record<MigratableModelRoleKey, MigratableAiApiType>> = {};
+    for (const field of MODEL_FIELDS) {
+        if (isApiType(record[field])) result[field] = record[field];
+    }
+    return result;
+}
+
+/** Folds the resolved per-API-type model defaults and per-role service
+ * overrides into the flat per-role `{ connectionId, model }` map used by the
+ * connection-list schema. */
+export function foldMigratedModelDefaults(
+    modelDefaultsByApiType: MigratableModelDefaultsByApiType,
+    aiApiType: MigratableAiApiType,
+    roleApiTypes: Partial<Record<MigratableModelRoleKey, MigratableAiApiType>>,
+): MigratedModelDefaults {
+    return Object.fromEntries(MODEL_FIELDS.map((field) => {
+        const connectionId = roleApiTypes[field] ?? aiApiType;
+        const defaults = modelDefaultsByApiType[connectionId] ?? modelDefaultsByApiType[aiApiType];
+        return [field, { connectionId, model: defaults[field] }];
+    })) as MigratedModelDefaults;
 }
 
 export function resolveAiSettingsMigration(

@@ -1,12 +1,11 @@
 import type { StoreApi } from 'zustand';
 
-import type { AiApiConfig, AiApiType, RoleApiTypes } from '../aiApi';
+import type { AiApiConfig, ModelRef } from '../aiApi';
 import type {
     KeyboardShortcut,
     KeyboardShortcutAction,
     KeyboardShortcutSettings,
 } from '../keyboardShortcuts';
-import type { ModelDefaultsByApiType, ModelRoleKey } from '../modelDefaults';
 
 export interface Expression {
     name: string;
@@ -37,9 +36,7 @@ export interface Character {
     speechStyle?: string;
     protagonistPrompt?: string;
     userConstraints?: string;
-    model: string;
-    /** Service override for this character; absent = the global `aiApiType`. */
-    aiApiType?: AiApiType;
+    model: ModelRef;
     icon?: string;
     maxCharacters?: number;
     maxHistory?: number;
@@ -144,8 +141,7 @@ export type SituationActor =
         systemPrompt: string;
         speechStyle?: string;
         userConstraints?: string;
-        model?: string;
-        aiApiType?: AiApiType;
+        model?: ModelRef;
         icon?: string;
         rolePrompt?: string;
         directorDescription?: string;
@@ -164,9 +160,7 @@ export type SituationActor =
 
 export interface SituationDirector {
     enabled: boolean;
-    model: string;
-    /** Service override for the director; absent = the global `aiApiType`. */
-    aiApiType?: AiApiType;
+    model: ModelRef;
     systemPrompt?: string;
     maxAutoTurns: number;
     stopPolicy: 'after-one' | 'max-turns';
@@ -302,26 +296,19 @@ export interface AppState {
     defaultViewMode: RoomViewMode;
     vnTypingSpeed: VnTypingSpeed;
     keyboardShortcuts: KeyboardShortcutSettings;
-    summaryModel: string;
-    defaultChatModel: string;
-    defaultDirectorModel: string;
-    defaultAutoGenerationModel: string;
-    titleGenerationModel: string;
-    replySuggestionModel: string;
-    defaultImageModel: string;
-    expressionDetectionModel: string;
-    memoryExtractionModel: string;
-    memoryEmbeddingModel: string;
-    modelDefaultsByApiType: ModelDefaultsByApiType;
-    roleApiTypes: RoleApiTypes;
+    summaryModel: ModelRef;
+    defaultChatModel: ModelRef;
+    defaultDirectorModel: ModelRef;
+    defaultAutoGenerationModel: ModelRef;
+    titleGenerationModel: ModelRef;
+    replySuggestionModel: ModelRef;
+    defaultImageModel: ModelRef;
+    expressionDetectionModel: ModelRef;
+    memoryExtractionModel: ModelRef;
+    memoryEmbeddingModel: ModelRef;
     conversationCompressionEnabled: boolean;
     generateTitleOnFirstReply: boolean;
     replySuggestionsEnabled: boolean;
-    aiApiType: AiApiType;
-    openRouterIgnoredProviders: string[];
-    openAiCompatibleBaseUrl: string;
-    openAiCompatibleEmbeddingsEnabled: boolean;
-    openAiCompatibleImageGenerationEnabled: boolean;
     fullJsonDebugEnabled: boolean;
     detailedErrorLoggingEnabled: boolean;
     memoryInspectorEnabled: boolean;
@@ -347,33 +334,27 @@ export interface AppState {
     resetKeyboardShortcut: (action: KeyboardShortcutAction) => void;
     resetKeyboardShortcuts: () => void;
     resetModelDefaults: () => void;
-    setSummaryModel: (model: string) => void;
-    setDefaultChatModel: (model: string) => void;
-    setDefaultDirectorModel: (model: string) => void;
-    setDefaultAutoGenerationModel: (model: string) => void;
-    setTitleGenerationModel: (model: string) => void;
-    setReplySuggestionModel: (model: string) => void;
-    setDefaultImageModel: (model: string) => void;
-    setExpressionDetectionModel: (model: string) => void;
-    setMemoryExtractionModel: (model: string) => void;
-    setMemoryEmbeddingModel: (model: string) => void;
-    setRoleApiType: (role: ModelRoleKey, apiType?: AiApiType) => void;
+    setSummaryModel: (model: ModelRef) => void;
+    setDefaultChatModel: (model: ModelRef) => void;
+    setDefaultDirectorModel: (model: ModelRef) => void;
+    setDefaultAutoGenerationModel: (model: ModelRef) => void;
+    setTitleGenerationModel: (model: ModelRef) => void;
+    setReplySuggestionModel: (model: ModelRef) => void;
+    setDefaultImageModel: (model: ModelRef) => void;
+    setExpressionDetectionModel: (model: ModelRef) => void;
+    setMemoryExtractionModel: (model: ModelRef) => void;
+    setMemoryEmbeddingModel: (model: ModelRef) => void;
     setConversationCompressionEnabled: (enabled: boolean) => void;
     setGenerateTitleOnFirstReply: (enabled: boolean) => void;
     setReplySuggestionsEnabled: (enabled: boolean) => void;
-    setAiApiType: (apiType: AiApiType) => void;
-    setOpenRouterIgnoredProviders: (providers: string[]) => void;
-    setOpenAiCompatibleBaseUrl: (baseUrl: string) => void;
-    setOpenAiCompatibleEmbeddingsEnabled: (enabled: boolean) => void;
-    setOpenAiCompatibleImageGenerationEnabled: (enabled: boolean) => void;
     getAiApiConfig: () => AiApiConfig;
     setFullJsonDebugEnabled: (enabled: boolean) => void;
     setDetailedErrorLoggingEnabled: (enabled: boolean) => void;
     setMemoryInspectorEnabled: (enabled: boolean) => void;
     setSummaryInspectorEnabled: (enabled: boolean) => void;
 
-    createCharacter: (name: string, systemPrompt?: string, model?: string, extras?: CharacterExtras) => string;
-    updateCharacter: (id: string, updates: Partial<Pick<Character, 'name' | 'systemPrompt' | 'favorite' | 'speechStyle' | 'protagonistPrompt' | 'userConstraints' | 'model' | 'aiApiType' | 'icon' | 'maxCharacters' | 'maxHistory' | 'temperature' | 'topP' | 'topK' | 'frequencyPenalty' | 'presencePenalty' | 'repetitionPenalty' | 'enableThinking' | 'enableMemory' | 'expressions' | 'costumes'>>) => void;
+    createCharacter: (name: string, systemPrompt?: string, model?: ModelRef, extras?: CharacterExtras) => string;
+    updateCharacter: (id: string, updates: Partial<Pick<Character, 'name' | 'systemPrompt' | 'favorite' | 'speechStyle' | 'protagonistPrompt' | 'userConstraints' | 'model' | 'icon' | 'maxCharacters' | 'maxHistory' | 'temperature' | 'topP' | 'topK' | 'frequencyPenalty' | 'presencePenalty' | 'repetitionPenalty' | 'enableThinking' | 'enableMemory' | 'expressions' | 'costumes'>>) => void;
     deleteCharacter: (id: string) => void;
     duplicateCharacter: (id: string) => string;
     getCharacter: (id: string) => Character | undefined;

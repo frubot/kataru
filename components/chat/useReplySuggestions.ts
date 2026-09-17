@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 
-import type { AiApiConfig } from '../../lib/aiApi';
+import type { AiApiConfig, ModelRef } from '../../lib/aiApi';
 import {
     buildPromptRequestMessages,
     requestReplySuggestions,
@@ -21,7 +21,7 @@ type UseReplySuggestionsOptions = {
     groupCharacters?: SituationParticipant[] | null;
     isGroupRoom: boolean;
     enabled: boolean;
-    model: string;
+    model: ModelRef;
     situationPrompt?: string;
     isLoading: boolean;
     isSummarizing: boolean;
@@ -142,7 +142,7 @@ export function useReplySuggestions({
 
         void requestReplySuggestions({
             messages,
-            model: model.trim(),
+            model,
             protagonistPrompt,
             situationPrompt,
             aiApiConfig: getAiApiConfig(),

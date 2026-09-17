@@ -9,11 +9,12 @@ use serde_json::{Map, Value, json};
 use crate::{
     AppState,
     ai::{
-        AiApiClient, AiApiConfig, AiApiKind, ai_api_config_value,
+        AiApiClient, AiApiConfig, ai_api_config_value,
         routes::{
-            RoleSelection, extract_message_text, memory_extraction_prompt, memory_schema,
-            optional_role_selection, parse_memory_updates, resolve_role_selection, role_api_type,
-            role_default_selection, structured_completion, structured_completion_streaming,
+            RoleSelection, entity_connection_id, extract_message_text, memory_extraction_prompt,
+            memory_schema, model_string, optional_role_selection, parse_memory_updates,
+            resolve_role_selection, role_connection, role_default_selection, structured_completion,
+            structured_completion_streaming,
         },
     },
     error::{AppError, AppResult},
@@ -48,12 +49,12 @@ const MEMORY_MIN_CONFIDENCE: f64 = 0.7;
 const MEMORY_MAX_CANDIDATES: usize = 5;
 const CONTINATUION_TRIGGER: &str = "[内部指示] これは主人公の発言ではありません。主人公から新しい発言や行動はありません。直前の場面を繰り返さず、あなた自身が自発的に発言または行動して、自然な続きを作成してください。";
 
-/// Lazily builds and caches one `AiApiClient` per service kind so a single
-/// turn can mix roles/characters pinned to different services.
+/// Lazily builds and caches one `AiApiClient` per connection id so a single
+/// turn can mix roles/characters pinned to different connections.
 struct RequestClients<'a> {
     state: &'a AppState,
     api_config: Option<AiApiConfig>,
-    clients: HashMap<AiApiKind, AiApiClient>,
+    clients: HashMap<String, AiApiClient>,
 }
 
 impl<'a> RequestClients<'a> {
@@ -65,31 +66,24 @@ impl<'a> RequestClients<'a> {
         }
     }
 
-    fn for_api_type(&mut self, api_type: Option<&str>) -> AppResult<AiApiClient> {
+    fn for_connection(&mut self, connection_id: Option<&str>) -> AppResult<AiApiClient> {
         let client = AiApiClient::resolve_for(
             self.state.http_client.clone(),
             self.state.application_origin.clone(),
             &self.state.ai_config.effective(),
             self.api_config.clone(),
-            api_type,
+            connection_id,
         )?;
-        Ok(self.clients.entry(client.kind()).or_insert(client).clone())
+        Ok(self
+            .clients
+            .entry(client.connection_id().to_owned())
+            .or_insert(client)
+            .clone())
     }
 
     fn for_selection(&mut self, selection: &RoleSelection) -> AppResult<AiApiClient> {
-        self.for_api_type(selection.api_type.as_deref())
+        self.for_connection(selection.connection_id.as_deref())
     }
-}
-
-/// Optional per-entity service override carried on `aiApiType` fields of
-/// characters, participants, and `situation.director`.
-fn entity_api_type(entity: &Value) -> Option<String> {
-    entity
-        .get("aiApiType")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned)
 }
 
 fn director_selection(
@@ -97,33 +91,28 @@ fn director_selection(
     payload: &Value,
     participants: &[Value],
 ) -> AppResult<RoleSelection> {
-    if let Some(model) = situation
-        .pointer("/director/model")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        let api_type = situation
-            .pointer("/director/aiApiType")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_owned)
-            .or_else(|| role_api_type(payload, "defaultDirectorModel"));
+    let director = situation.get("director").filter(|value| value.is_object());
+    let director_model = director
+        .map(|value| model_string(value, "model"))
+        .filter(|model| !model.is_empty());
+    if let Some(model) = director_model {
+        let connection_id = director
+            .and_then(entity_connection_id)
+            .or_else(|| role_connection(payload, "defaultDirectorModel"));
         return Ok(RoleSelection {
-            model: model.to_owned(),
-            api_type,
+            model,
+            connection_id,
         });
     }
     if let Some(selection) = role_default_selection(payload, "defaultDirectorModel") {
         return Ok(selection);
     }
     if let Some(actor) = participants.first() {
-        let model = string(actor, "model");
+        let model = model_string(actor, "model").to_owned();
         if !model.is_empty() {
             return Ok(RoleSelection {
                 model,
-                api_type: entity_api_type(actor),
+                connection_id: entity_connection_id(actor),
             });
         }
     }
@@ -620,7 +609,7 @@ fn push_error_debug_log(
 
 fn character_completion_body(character: &Value, messages: Vec<Value>) -> Value {
     let mut body = json!({
-        "model": string(character, "model"),
+        "model": model_string(character, "model"),
         "messages": messages,
         "max_tokens": CHAT_COMPLETION_MAX_TOKENS,
         "temperature": number_f64(character, "temperature", DEFAULT_TEMPERATURE),
@@ -658,7 +647,7 @@ async fn generate_for_character(
     id_offset: usize,
     streaming_preview: Option<(&ConversationJobs, &str)>,
 ) -> AppResult<Vec<Value>> {
-    let api_client = clients.for_api_type(entity_api_type(character).as_deref())?;
+    let api_client = clients.for_connection(entity_connection_id(character).as_deref())?;
     let expression_names = expression_names(character, room, string(room, "viewMode") == "vn");
     let max_characters = character_max_characters(character);
     let schema = assistant_schema(
@@ -697,7 +686,7 @@ async fn generate_for_character(
         room,
         character_id: actor_id(character),
         character_name: string(character, "name"),
-        model: string(character, "model"),
+        model: model_string(character, "model"),
         prompt: &prompt,
     };
     let mut partial_content = String::new();
@@ -1406,7 +1395,7 @@ fn push_usage(usages: &mut Vec<Value>, raw: &Value, character: &Value, source: &
             source_id
         }
     };
-    push_usage_with_id(usages, raw, &id, &string(character, "model"), source);
+    push_usage_with_id(usages, raw, &id, &model_string(character, "model"), source);
 }
 
 fn push_usage_with_id(

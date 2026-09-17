@@ -89,7 +89,7 @@ pub(super) async fn prepare_conversation_memories(
         ai_api_config_value(payload),
         embedding_selection
             .as_ref()
-            .and_then(|selection| selection.api_type.as_deref()),
+            .and_then(|selection| selection.connection_id.as_deref()),
     ) {
         Ok(api_client) => api_client,
         Err(error) => {

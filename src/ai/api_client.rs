@@ -10,13 +10,15 @@ use serde_json::{Map, Value};
 
 use crate::{
     AppState,
-    ai_config::{DEFAULT_OPENAI_BASE_URL, EffectiveAiConfig},
+    ai_config::{
+        ConnectionKind, DEFAULT_CONNECTION_ID, DEFAULT_OPENAI_BASE_URL, EffectiveAiConfig,
+        EffectiveConnection,
+    },
     error::{AppError, AppResult},
 };
 
 use super::anthropic;
 
-const OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
 const LOCAL_API_KEY_FALLBACK: &str = "local";
 
 pub fn ai_api_config_value(body: &Value) -> Option<&Value> {
@@ -28,70 +30,22 @@ pub fn ai_api_config_value(body: &Value) -> Option<&Value> {
         })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum AiApiKind {
-    OpenRouter,
-    OpenAiCompatible,
-    Anthropic,
-}
-
-impl AiApiKind {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::OpenRouter => "openrouter",
-            Self::OpenAiCompatible => "openai-compatible",
-            Self::Anthropic => "anthropic",
-        }
-    }
-
-    /// Lenient mapping used for the top-level `aiApiType`: unknown or missing
-    /// values fall back to OpenRouter for backwards compatibility.
-    fn from_wire(value: Option<&str>) -> Self {
-        match value {
-            Some("openai-compatible") => Self::OpenAiCompatible,
-            Some("anthropic") => Self::Anthropic,
-            _ => Self::OpenRouter,
-        }
-    }
-
-    /// Strict parsing for per-role / per-entity overrides.
-    pub fn parse(value: &str) -> Option<Self> {
-        match value {
-            "openrouter" => Some(Self::OpenRouter),
-            "openai-compatible" => Some(Self::OpenAiCompatible),
-            "anthropic" => Some(Self::Anthropic),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct AiApiConfig {
-    #[serde(alias = "aiProvider")]
-    pub ai_api_type: Option<String>,
-    pub open_router_ignored_providers: Vec<String>,
-    pub open_ai_compatible_base_url: Option<String>,
-    pub open_ai_compatible_embeddings_enabled: bool,
-    pub open_ai_compatible_image_generation_enabled: bool,
-}
-
-impl Default for AiApiConfig {
-    fn default() -> Self {
-        Self {
-            ai_api_type: None,
-            open_router_ignored_providers: Vec::new(),
-            open_ai_compatible_base_url: None,
-            open_ai_compatible_embeddings_enabled: true,
-            open_ai_compatible_image_generation_enabled: false,
-        }
-    }
+    /// Preferred connection id. Legacy `aiApiType` / `aiProvider` values are
+    /// the built-in connection ids, so they keep resolving unchanged.
+    /// Provider filtering and feature flags always come from the stored
+    /// connection record, never from the request body.
+    #[serde(alias = "aiApiType", alias = "aiProvider", alias = "connection_id")]
+    pub connection_id: Option<String>,
 }
 
 #[derive(Clone)]
 pub struct AiApiClient {
     client: Client,
-    kind: AiApiKind,
+    connection_id: String,
+    kind: ConnectionKind,
     base_url: String,
     api_key: Option<String>,
     application_origin: String,
@@ -105,12 +59,12 @@ impl AiApiClient {
         Self::from_state_for(state, config, None)
     }
 
-    /// Builds a client for `api_type` when given (a per-role or per-entity
-    /// override), falling back to the config's top-level `aiApiType`.
+    /// Builds a client for `connection_id` when given (a per-role or
+    /// per-entity override), falling back to the config's `connectionId`.
     pub fn from_state_for(
         state: &AppState,
         config: Option<&Value>,
-        api_type: Option<&str>,
+        connection_id: Option<&str>,
     ) -> AppResult<Self> {
         let config = config
             .cloned()
@@ -120,7 +74,7 @@ impl AiApiClient {
             &state.application_origin,
             &state.ai_config.effective(),
             config,
-            api_type,
+            connection_id,
         )
     }
 
@@ -133,85 +87,68 @@ impl AiApiClient {
         Self::resolve_for(client, application_origin, server_config, config, None)
     }
 
+    /// Resolution order: the explicit `connection_id` argument, then
+    /// `config.connection_id`, then the built-in OpenRouter connection.
     pub fn resolve_for(
         client: Client,
         application_origin: impl AsRef<str>,
         server_config: &EffectiveAiConfig,
         config: Option<AiApiConfig>,
-        api_type: Option<&str>,
+        connection_id: Option<&str>,
     ) -> AppResult<Self> {
         let config = config.unwrap_or_default();
-        let kind = match api_type {
-            Some(value) => AiApiKind::parse(value).ok_or_else(|| {
-                AppError::BadRequest(format!("不明な aiApiType です: {value}"))
-            })?,
-            None => AiApiKind::from_wire(config.ai_api_type.as_deref()),
-        };
+        let requested = connection_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .or_else(|| {
+                config
+                    .connection_id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+            });
+        let id = requested.unwrap_or(DEFAULT_CONNECTION_ID);
+        let connection = server_config.connection(id).ok_or_else(|| {
+            AppError::BadRequest(format!("不明な接続先です: {id}"))
+        })?;
 
-        let (base_url, api_key) = match kind {
-            AiApiKind::OpenRouter => {
-                let api_key = server_config.openrouter_api_key.clone().ok_or_else(|| {
-                        AppError::Internal(
-                            "OpenRouter APIキーが設定されていません。設定画面または `kataru config set openrouter.api-key` で設定してください。".to_owned(),
-                        )
-                    })?;
-                (OPENROUTER_BASE_URL.to_owned(), Some(api_key))
-            }
-            AiApiKind::OpenAiCompatible => {
-                // The upstream host and API key are server-owned. In particular, never use
-                // openAiCompatibleBaseUrl supplied in a request, because doing so could send
-                // the server API key to an attacker-controlled host.
-                let base_url = server_config.openai_base_url.clone();
-                let api_key = server_config.openai_api_key.clone().or_else(|| {
-                    (base_url != DEFAULT_OPENAI_BASE_URL).then(|| LOCAL_API_KEY_FALLBACK.to_owned())
-                });
-                if api_key.is_none() {
-                    return Err(AppError::Internal(
-                        "OpenAI APIキーが設定されていません。設定画面または `kataru config set openai.api-key` で設定してください。".to_owned(),
-                    ));
-                }
-                (base_url, api_key)
-            }
-            AiApiKind::Anthropic => {
-                let api_key = server_config.anthropic_api_key.clone().ok_or_else(|| {
-                    AppError::Internal(
-                        "Anthropic APIキーが設定されていません。設定画面または `kataru config set anthropic.api-key` で設定してください。".to_owned(),
-                    )
-                })?;
-                (server_config.anthropic_base_url.clone(), Some(api_key))
-            }
-        };
+        // The upstream host and API key are server-owned. In particular, never
+        // use a base URL supplied in a request, because doing so could send the
+        // server API key to an attacker-controlled host.
+        let api_key = connection.api_key.clone().or_else(|| {
+            (connection.kind == ConnectionKind::OpenAiCompatible
+                && connection.base_url != DEFAULT_OPENAI_BASE_URL)
+                .then(|| LOCAL_API_KEY_FALLBACK.to_owned())
+        });
+        let api_key = api_key.ok_or_else(|| missing_api_key_error(connection))?;
 
         Ok(Self {
             client,
-            kind,
-            base_url,
-            api_key,
+            connection_id: connection.id.clone(),
+            kind: connection.kind,
+            base_url: connection.base_url.clone(),
+            api_key: Some(api_key),
             application_origin: application_origin.as_ref().to_owned(),
-            ignored_providers: normalize_provider_slugs(config.open_router_ignored_providers),
-            embeddings_enabled: config.open_ai_compatible_embeddings_enabled,
-            image_generation_enabled: config.open_ai_compatible_image_generation_enabled,
+            ignored_providers: normalize_provider_slugs(connection.ignored_providers.clone()),
+            embeddings_enabled: connection.embeddings_enabled,
+            image_generation_enabled: connection.image_generation_enabled,
         })
     }
 
     pub fn is_openrouter(&self) -> bool {
-        self.kind == AiApiKind::OpenRouter
+        self.kind == ConnectionKind::OpenRouter
     }
 
     pub fn is_openai_compatible(&self) -> bool {
-        self.kind == AiApiKind::OpenAiCompatible
+        self.kind == ConnectionKind::OpenAiCompatible
     }
 
     pub fn is_anthropic(&self) -> bool {
-        self.kind == AiApiKind::Anthropic
+        self.kind == ConnectionKind::Anthropic
     }
 
-    pub fn kind(&self) -> AiApiKind {
-        self.kind
-    }
-
-    pub fn api_type_name(&self) -> &'static str {
-        self.kind.as_str()
+    pub fn connection_id(&self) -> &str {
+        &self.connection_id
     }
 
     pub fn base_url(&self) -> &str {
@@ -378,7 +315,23 @@ impl AiApiClient {
     }
 }
 
-fn normalize_provider_slugs(values: Vec<String>) -> Vec<String> {
+fn missing_api_key_error(connection: &EffectiveConnection) -> AppError {
+    let message = if connection.builtin {
+        match connection.kind {
+            ConnectionKind::OpenRouter => "OpenRouter APIキーが設定されていません。設定画面または `kataru config set openrouter.api-key` で設定してください。".to_owned(),
+            ConnectionKind::OpenAiCompatible => "OpenAI APIキーが設定されていません。設定画面または `kataru config set openai.api-key` で設定してください。".to_owned(),
+            ConnectionKind::Anthropic => "Anthropic APIキーが設定されていません。設定画面または `kataru config set anthropic.api-key` で設定してください。".to_owned(),
+        }
+    } else {
+        format!(
+            "接続「{}」のAPIキーが設定されていません。設定画面で設定してください。",
+            connection.name
+        )
+    };
+    AppError::Internal(message)
+}
+
+pub(crate) fn normalize_provider_slugs(values: Vec<String>) -> Vec<String> {
     let mut seen = HashSet::new();
     values
         .into_iter()
@@ -455,16 +408,58 @@ fn safe_upstream_operation(operation: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ai_config::DEFAULT_OPENAI_BASE_URL;
+    use crate::ai_config::{
+        ANTHROPIC_CONNECTION_ID, ConfigSource, DEFAULT_ANTHROPIC_BASE_URL,
+        DEFAULT_OPENAI_BASE_URL, EffectiveConnection, OPENAI_COMPATIBLE_CONNECTION_ID,
+        OPENROUTER_CONNECTION_ID,
+    };
     use serde_json::json;
+
+    fn builtin(
+        id: &str,
+        kind: ConnectionKind,
+        base_url: &str,
+        api_key: Option<&str>,
+    ) -> EffectiveConnection {
+        EffectiveConnection {
+            id: id.to_owned(),
+            name: kind.label().to_owned(),
+            kind,
+            base_url: base_url.to_owned(),
+            api_key: api_key.map(str::to_owned),
+            source: api_key.map(|_| ConfigSource::Stored),
+            builtin: true,
+            editable: true,
+            deletable: false,
+            base_url_editable: !kind.has_fixed_base_url(),
+            embeddings_enabled: true,
+            image_generation_enabled: false,
+            ignored_providers: Vec::new(),
+        }
+    }
 
     fn server_config() -> EffectiveAiConfig {
         EffectiveAiConfig {
-            openrouter_api_key: Some("openrouter-secret".to_owned()),
-            openai_base_url: DEFAULT_OPENAI_BASE_URL.to_owned(),
-            openai_api_key: Some("openai-secret".to_owned()),
-            anthropic_base_url: "https://api.anthropic.com/v1".to_owned(),
-            anthropic_api_key: Some("anthropic-secret".to_owned()),
+            connections: vec![
+                builtin(
+                    OPENROUTER_CONNECTION_ID,
+                    ConnectionKind::OpenRouter,
+                    crate::ai_config::OPENROUTER_BASE_URL,
+                    Some("openrouter-secret"),
+                ),
+                builtin(
+                    OPENAI_COMPATIBLE_CONNECTION_ID,
+                    ConnectionKind::OpenAiCompatible,
+                    DEFAULT_OPENAI_BASE_URL,
+                    Some("openai-secret"),
+                ),
+                builtin(
+                    ANTHROPIC_CONNECTION_ID,
+                    ConnectionKind::Anthropic,
+                    DEFAULT_ANTHROPIC_BASE_URL,
+                    Some("anthropic-secret"),
+                ),
+            ],
         }
     }
 
@@ -481,7 +476,7 @@ mod tests {
     }
 
     #[test]
-    fn openrouter_remains_the_default_api_type() {
+    fn openrouter_remains_the_default_connection() {
         let api_client = AiApiClient::resolve(
             Client::new(),
             "http://127.0.0.1:37371",
@@ -491,6 +486,7 @@ mod tests {
         .unwrap();
 
         assert!(api_client.is_openrouter());
+        assert_eq!(api_client.connection_id(), "openrouter");
         assert_eq!(
             api_client.endpoint("models"),
             "https://openrouter.ai/api/v1/models"
@@ -504,11 +500,7 @@ mod tests {
             "http://127.0.0.1:37371",
             &server_config(),
             Some(AiApiConfig {
-                ai_api_type: Some("openai-compatible".to_owned()),
-                open_ai_compatible_base_url: Some("https://attacker.example/v1".to_owned()),
-                open_ai_compatible_embeddings_enabled: true,
-                open_ai_compatible_image_generation_enabled: false,
-                ..AiApiConfig::default()
+                connection_id: Some("openai-compatible".to_owned()),
             }),
         )
         .unwrap();
@@ -523,20 +515,28 @@ mod tests {
     #[test]
     fn custom_openai_endpoint_keeps_local_key_fallback() {
         let config = EffectiveAiConfig {
-            openrouter_api_key: None,
-            openai_base_url: "http://127.0.0.1:1234/v1".to_owned(),
-            openai_api_key: None,
-            anthropic_base_url: "https://api.anthropic.com/v1".to_owned(),
-            anthropic_api_key: None,
+            connections: vec![EffectiveConnection {
+                id: "cx_local".to_owned(),
+                name: "ローカル".to_owned(),
+                kind: ConnectionKind::OpenAiCompatible,
+                base_url: "http://127.0.0.1:1234/v1".to_owned(),
+                api_key: None,
+                source: None,
+                builtin: false,
+                editable: true,
+                deletable: true,
+                base_url_editable: true,
+                embeddings_enabled: true,
+                image_generation_enabled: false,
+                ignored_providers: Vec::new(),
+            }],
         };
-        let api_client = AiApiClient::resolve(
+        let api_client = AiApiClient::resolve_for(
             Client::new(),
             "http://127.0.0.1:37371",
             &config,
-            Some(AiApiConfig {
-                ai_api_type: Some("openai-compatible".to_owned()),
-                ..AiApiConfig::default()
-            }),
+            None,
+            Some("cx_local"),
         )
         .unwrap();
         let request = api_client
@@ -544,6 +544,7 @@ mod tests {
             .build()
             .unwrap();
 
+        assert_eq!(api_client.connection_id(), "cx_local");
         assert_eq!(
             request.headers().get("authorization").unwrap(),
             "Bearer local"
@@ -557,8 +558,7 @@ mod tests {
             "http://127.0.0.1:37371",
             &server_config(),
             Some(AiApiConfig {
-                ai_api_type: Some("anthropic".to_owned()),
-                ..AiApiConfig::default()
+                connection_id: Some("anthropic".to_owned()),
             }),
         )
         .unwrap();
@@ -588,18 +588,48 @@ mod tests {
     }
 
     #[test]
-    fn api_config_accepts_canonical_and_legacy_type_names() {
+    fn api_config_accepts_connection_id_and_legacy_type_names() {
         let canonical = serde_json::from_value::<AiApiConfig>(json!({
+            "connectionId": "cx_123"
+        }))
+        .unwrap();
+        let legacy_type = serde_json::from_value::<AiApiConfig>(json!({
             "aiApiType": "anthropic"
         }))
         .unwrap();
-        let legacy = serde_json::from_value::<AiApiConfig>(json!({
+        let legacy_provider = serde_json::from_value::<AiApiConfig>(json!({
             "aiProvider": "openai-compatible"
         }))
         .unwrap();
+        let snake_case = serde_json::from_value::<AiApiConfig>(json!({
+            "connection_id": "cx_abc"
+        }))
+        .unwrap();
 
-        assert_eq!(canonical.ai_api_type.as_deref(), Some("anthropic"));
-        assert_eq!(legacy.ai_api_type.as_deref(), Some("openai-compatible"));
+        assert_eq!(canonical.connection_id.as_deref(), Some("cx_123"));
+        assert_eq!(legacy_type.connection_id.as_deref(), Some("anthropic"));
+        assert_eq!(
+            legacy_provider.connection_id.as_deref(),
+            Some("openai-compatible")
+        );
+        assert_eq!(snake_case.connection_id.as_deref(), Some("cx_abc"));
+    }
+
+    #[test]
+    fn unknown_connection_ids_are_rejected() {
+        let error = AiApiClient::resolve(
+            Client::new(),
+            "http://127.0.0.1:37371",
+            &server_config(),
+            Some(AiApiConfig {
+                connection_id: Some("cx_missing".to_owned()),
+            }),
+        )
+        .err()
+        .expect("unknown connection must fail");
+
+        assert!(matches!(error, AppError::BadRequest(_)));
+        assert!(error.to_string().contains("cx_missing"));
     }
 
     #[test]
@@ -619,21 +649,15 @@ mod tests {
     }
 
     #[test]
-    fn openrouter_ignored_providers_merge_with_existing_routing_options() {
-        let api_client = AiApiClient::resolve(
-            Client::new(),
-            "http://127.0.0.1:37371",
-            &server_config(),
-            Some(AiApiConfig {
-                open_router_ignored_providers: vec![
-                    "deepinfra".to_owned(),
-                    " together ".to_owned(),
-                    "deepinfra".to_owned(),
-                ],
-                ..AiApiConfig::default()
-            }),
-        )
-        .unwrap();
+    fn openrouter_ignored_providers_come_from_the_connection_record() {
+        let mut config = server_config();
+        config.connections[0].ignored_providers = vec![
+            "deepinfra".to_owned(),
+            " together ".to_owned(),
+            "deepinfra".to_owned(),
+        ];
+        let api_client =
+            AiApiClient::resolve(Client::new(), "http://127.0.0.1:37371", &config, None).unwrap();
 
         let body = api_client.with_openrouter_provider_preferences(&json!({
             "model": "example/model",
@@ -652,14 +676,14 @@ mod tests {
 
     #[test]
     fn non_openrouter_requests_do_not_receive_provider_preferences() {
+        let mut config = server_config();
+        config.connections[1].ignored_providers = vec!["deepinfra".to_owned()];
         let api_client = AiApiClient::resolve(
             Client::new(),
             "http://127.0.0.1:37371",
-            &server_config(),
+            &config,
             Some(AiApiConfig {
-                ai_api_type: Some("openai-compatible".to_owned()),
-                open_router_ignored_providers: vec!["deepinfra".to_owned()],
-                ..AiApiConfig::default()
+                connection_id: Some("openai-compatible".to_owned()),
             }),
         )
         .unwrap();

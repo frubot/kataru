@@ -191,26 +191,14 @@ fn api_router() -> Router<AppState> {
         .route("/ai/status", post(ai::connection_status))
         .route("/ai/models", post(ai::models))
         .route("/ai/providers", post(ai::providers))
-        .route("/ai/config", get(ai_config::get_config))
         .route(
-            "/ai/config/openrouter",
-            axum::routing::put(ai_config::update_openrouter).delete(ai_config::delete_openrouter),
+            "/ai/connections",
+            get(ai_config::list_connections).post(ai_config::create_connection),
         )
         .route(
-            "/ai/config/openai",
-            axum::routing::put(ai_config::update_openai),
-        )
-        .route(
-            "/ai/config/openai/api-key",
-            axum::routing::delete(ai_config::delete_openai_api_key),
-        )
-        .route(
-            "/ai/config/anthropic",
-            axum::routing::put(ai_config::update_anthropic),
-        )
-        .route(
-            "/ai/config/anthropic/api-key",
-            axum::routing::delete(ai_config::delete_anthropic_api_key),
+            "/ai/connections/{id}",
+            axum::routing::put(ai_config::update_connection)
+                .delete(ai_config::delete_connection),
         )
         .route("/summarize", post(ai::summarize))
         .route("/embeddings", post(ai::embeddings))

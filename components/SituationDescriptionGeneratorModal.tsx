@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Loader2, Sparkles, X } from 'lucide-react';
 import { useStore } from '@/lib/store';
+import { serializeModelRef, type ModelRef } from '@/lib/modelDefaults';
 import ModelSelector from './ModelSelector';
 import { useModalKeyboard } from './useModalKeyboard';
 
@@ -12,7 +13,7 @@ interface Props {
     currentDescription: string;
     situationName: string;
     participants: string[];
-    initialModel: string;
+    initialModel: ModelRef;
 }
 
 export default function SituationDescriptionGeneratorModal({
@@ -25,10 +26,9 @@ export default function SituationDescriptionGeneratorModal({
     participants,
     initialModel,
 }: Props) {
-    const { aiApiType, roleApiTypes, getAiApiConfig } = useStore();
-    const generationApiType = roleApiTypes.defaultAutoGenerationModel ?? aiApiType;
+    const { getAiApiConfig } = useStore();
     const [direction, setDirection] = useState('');
-    const [model, setModel] = useState('');
+    const [model, setModel] = useState<ModelRef>(initialModel);
     const [generated, setGenerated] = useState('');
     const [draftDescription, setDraftDescription] = useState('');
     const [generating, setGenerating] = useState(false);
@@ -65,7 +65,7 @@ export default function SituationDescriptionGeneratorModal({
     if (!isOpen) return null;
 
     const handleGenerate = async () => {
-        if (!model.trim() || generating) return;
+        if (!model.model.trim() || generating) return;
         setError(null);
         setGenerating(true);
         const controller = new AbortController();
@@ -82,8 +82,8 @@ export default function SituationDescriptionGeneratorModal({
                     currentDescription: normalizedCurrent === normalizedDirection ? '' : normalizedCurrent,
                     situationName: situationName.trim(),
                     participants,
-                    model: model.trim(),
-                    aiApiConfig: getAiApiConfig(),
+                    model: serializeModelRef(model),
+                    aiApiConfig: { ...getAiApiConfig(), connectionId: model.connectionId },
                 }),
                 signal: controller.signal,
             });
@@ -170,9 +170,8 @@ export default function SituationDescriptionGeneratorModal({
                             value={model}
                             onChange={setModel}
                             outputModality="text"
-                            apiType={generationApiType}
                             disabled={generating}
-                            placeholder={`例: ${initialModel}`}
+                            placeholder={`例: ${initialModel.model}`}
                         />
                     </div>
 
@@ -212,7 +211,7 @@ export default function SituationDescriptionGeneratorModal({
                         <button
                             className={`btn btn-secondary generation-modal-regenerate${isRegenerating ? ' is-loading' : ''}`}
                             onClick={handleGenerate}
-                            disabled={generating || !model.trim()}
+                            disabled={generating || !model.model.trim()}
                         >
                             {isRegenerating && <Loader2 size={16} className="animate-spin" />}
                             再生成
@@ -221,7 +220,7 @@ export default function SituationDescriptionGeneratorModal({
                     <button
                         className="btn btn-primary"
                         onClick={generated ? handleApply : handleGenerate}
-                        disabled={generating || !model.trim() || (!!generated && !draftDescription.trim())}
+                        disabled={generating || !model.model.trim() || (!!generated && !draftDescription.trim())}
                     >
                         {isInitialGenerating && <Loader2 size={16} className="animate-spin" />}
                         {generated ? '説明に反映' : direction.trim() ? '生成' : 'おまかせ生成'}

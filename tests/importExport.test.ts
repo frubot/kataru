@@ -26,7 +26,7 @@ function character(id: string, name: string): Character {
         id,
         name,
         systemPrompt: `${name}のシステムプロンプト`,
-        model: 'test-model',
+        model: { connectionId: 'openrouter', model: 'test-model' },
         createdAt: 1,
         updatedAt: 2,
     };
@@ -44,7 +44,7 @@ function validBackup(): FullBackup {
         ],
         director: {
             enabled: false,
-            model: 'director-model',
+            model: { connectionId: 'openrouter', model: 'director-model' },
             maxAutoTurns: 3,
             stopPolicy: 'after-one',
         },
@@ -141,7 +141,7 @@ function validCharacterBackup(): CharacterBackup {
                 name: 'アリス',
                 systemPrompt: 'アリスのシステムプロンプト',
                 speechStyle: '丁寧に話す',
-                model: 'test-model',
+                model: { connectionId: 'openrouter', model: 'test-model' },
                 icon: 'data:image/png;base64,AA==',
                 expressions: [{
                     name: 'neutral',
@@ -311,6 +311,7 @@ describe('character sharing', () => {
 
         expect(parsed.characters).toHaveLength(1);
         expect(parsed.characters[0]).toMatchObject(backup.data.character);
+        expect(parsed.characters[0].model).toEqual({ connectionId: 'openrouter', model: 'test-model' });
         expect(parsed.characters[0].id).toEqual(expect.any(String));
         expect(parsed.characters[0].createdAt).toEqual(expect.any(Number));
         expect(parsed.characters[0].updatedAt).toEqual(expect.any(Number));
@@ -318,6 +319,24 @@ describe('character sharing', () => {
         expect(parsed.rooms).toEqual([]);
         expect(parsed.memories).toEqual([]);
         expect(parsed.usageRecords).toEqual([]);
+    });
+
+    test('accepts legacy string and aiApiType model fields in character files', () => {
+        const legacyString = validCharacterBackup();
+        legacyString.data.character.model = 'legacy-model' as never;
+        const parsedString = parseCharacterBackup(JSON.stringify(legacyString));
+        expect(parsedString.characters[0].model).toEqual({
+            connectionId: 'openrouter',
+            model: 'legacy-model',
+        });
+
+        const legacyRef = validCharacterBackup();
+        legacyRef.data.character.model = { model: 'legacy-model', aiApiType: 'anthropic' } as never;
+        const parsedRef = parseCharacterBackup(JSON.stringify(legacyRef));
+        expect(parsedRef.characters[0].model).toEqual({
+            connectionId: 'anthropic',
+            model: 'legacy-model',
+        });
     });
 
     test('recognizes both full backups and character files', () => {

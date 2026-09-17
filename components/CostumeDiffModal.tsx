@@ -3,6 +3,9 @@ import { X, Loader2, Trash2, RefreshCw, Shirt, Sparkles, Upload } from 'lucide-r
 import type { Costume } from '@/lib/store';
 import type { VrmAvatar } from '@/lib/store/types';
 import { useStore } from '@/lib/store';
+import { isAiConnectionKind } from '@/lib/aiApi';
+import { useAiConnections } from '@/lib/aiConnections';
+import { serializeModelRef, type ModelRef } from '@/lib/modelDefaults';
 import { readVrmFile } from '@/lib/vrm';
 import { buildBaseImageRequest } from '@/lib/imageSource';
 import { cropRectToPng, loadImage, resizeToMaxEdge } from '@/lib/imageUtils';
@@ -32,15 +35,14 @@ interface Props {
 }
 
 export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes, expressionNames, onUpsert, onRemove }: Props) {
-    const { defaultImageModel, aiApiType, roleApiTypes, getAiApiConfig } = useStore();
-    const imageApiType = roleApiTypes.defaultImageModel ?? aiApiType;
-    const canGenerateDiffs = imageApiType === 'openrouter';
+    const { defaultImageModel, getAiApiConfig } = useStore();
+    const { connections } = useAiConnections();
     const [newName, setNewName] = useState('');
     const [newPromptDetail, setNewPromptDetail] = useState('');
     const [addMode, setAddMode] = useState<AddMode>('generate');
     const [editingVrm, setEditingVrm] = useState<Costume | null>(null);
     const [vrmDraft, setVrmDraft] = useState<VrmAvatar | null>(null);
-    const [model, setModel] = useState(defaultImageModel);
+    const [model, setModel] = useState<ModelRef>(defaultImageModel);
     const [busy, setBusy] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const abortRef = useRef<AbortController | null>(null);
@@ -50,6 +52,11 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
     const [uploadImage, setUploadImage] = useState<string | null>(null);
     const [uploadNatural, setUploadNatural] = useState<{ w: number; h: number } | null>(null);
     const [uploadCrop, setUploadCrop] = useState<CropBox | null>(null);
+
+    const selectedConnection = connections.find((connection) => connection.id === model.connectionId) ?? null;
+    const selectedKind = selectedConnection?.kind
+        ?? (isAiConnectionKind(model.connectionId) ? model.connectionId : null);
+    const canGenerateDiffs = selectedKind === 'openrouter';
 
     useEffect(() => {
         if (!isOpen) {
@@ -112,7 +119,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
 
     const generate = async (name: string, busyKey: string, promptDetail?: string) => {
         if (!canGenerateDiffs) {
-            setError('選択中のAPIでは元画像を使う衣装差分生成に対応していません。アップロードを使ってください。');
+            setError('選択中の接続先では元画像を使う衣装差分生成に対応していません。アップロードを使ってください。');
             return;
         }
         if (!baseImage) {
@@ -131,10 +138,10 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     prompt,
-                    model: model.trim(),
+                    model: serializeModelRef(model),
                     ...buildBaseImageRequest(baseImage),
                     aspectRatio: COSTUME_ASPECT_RATIO,
-                    aiApiConfig: getAiApiConfig(),
+                    aiApiConfig: { ...getAiApiConfig(), connectionId: model.connectionId },
                 }),
                 signal: controller.signal,
             });
@@ -167,7 +174,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
 
     const handleAdd = () => {
         const name = validateName();
-        if (!name || busy || !model.trim() || !canGenerateDiffs) return;
+        if (!name || busy || !model.model.trim() || !canGenerateDiffs) return;
         generate(name, NEW_BUSY_KEY, newPromptDetail);
     };
 
@@ -321,9 +328,8 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                     value={model}
                                     onChange={setModel}
                                     outputModality="image"
-                                    apiType={imageApiType}
                                     disabled={!!busy || !canGenerateDiffs}
-                                    placeholder={`例: ${defaultImageModel}`}
+                                    placeholder={`例: ${defaultImageModel.model}`}
                                 />
                             </div>
                         )}
@@ -356,7 +362,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                         {addMode === 'generate' ? (
                             <p style={hintStyle}>
                                 {!canGenerateDiffs
-                                    ? '選択中のAPIでは元画像を使う差分生成に対応していません。アップロードで追加してください。'
+                                    ? '選択中の接続先では元画像を使う差分生成に対応していません。アップロードで追加してください。'
                                     : baseImage
                                     ? 'デフォルトの立ち絵をベースに、衣装だけを変更して生成します'
                                     : '生成には「アバター画像」から立ち絵の登録が必要です。アップロードなら衣装差分を直接追加できます。'}
@@ -417,7 +423,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                             <button
                                 className="btn btn-primary"
                                 onClick={handleAdd}
-                                disabled={!!busy || !canGenerateDiffs || !newName.trim() || !model.trim() || !baseImage}
+                                disabled={!!busy || !canGenerateDiffs || !newName.trim() || !model.model.trim() || !baseImage}
                                 style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                             >
                                 {busy === NEW_BUSY_KEY && <Loader2 size={16} className="animate-spin" />}

@@ -9,6 +9,7 @@ import {
     type GeneratedCharacterProfile,
 } from '@/lib/characterGeneration';
 import { useStore } from '@/lib/store';
+import { serializeModelRef, type ModelRef } from '@/lib/modelDefaults';
 import ModelSelector from './ModelSelector';
 import { useModalKeyboard } from './useModalKeyboard';
 
@@ -19,10 +20,9 @@ interface Props {
 }
 
 export default function CharacterGeneratorModal({ isOpen, onClose, onApply }: Props) {
-    const { defaultAutoGenerationModel, aiApiType, roleApiTypes, getAiApiConfig } = useStore();
-    const generationApiType = roleApiTypes.defaultAutoGenerationModel ?? aiApiType;
+    const { defaultAutoGenerationModel, getAiApiConfig } = useStore();
     const [direction, setDirection] = useState('');
-    const [model, setModel] = useState(defaultAutoGenerationModel);
+    const [model, setModel] = useState<ModelRef>(defaultAutoGenerationModel);
     const [generated, setGenerated] = useState<GeneratedCharacterProfile | null>(null);
     const [generating, setGenerating] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -57,7 +57,7 @@ export default function CharacterGeneratorModal({ isOpen, onClose, onApply }: Pr
     if (!isOpen) return null;
 
     const handleGenerate = async () => {
-        if (!model.trim() || generating) return;
+        if (!model.model.trim() || generating) return;
         setError(null);
         setGenerating(true);
         const controller = new AbortController();
@@ -69,8 +69,8 @@ export default function CharacterGeneratorModal({ isOpen, onClose, onApply }: Pr
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     direction: direction.trim(),
-                    model: model.trim(),
-                    aiApiConfig: getAiApiConfig(),
+                    model: serializeModelRef(model),
+                    aiApiConfig: { ...getAiApiConfig(), connectionId: model.connectionId },
                 }),
                 signal: controller.signal,
             });
@@ -159,9 +159,8 @@ export default function CharacterGeneratorModal({ isOpen, onClose, onApply }: Pr
                             value={model}
                             onChange={setModel}
                             outputModality="text"
-                            apiType={generationApiType}
                             disabled={generating}
-                            placeholder={`例: ${defaultAutoGenerationModel}`}
+                            placeholder={`例: ${defaultAutoGenerationModel.model}`}
                         />
                     </div>
 
@@ -203,7 +202,7 @@ export default function CharacterGeneratorModal({ isOpen, onClose, onApply }: Pr
                         <button
                             className={`btn btn-secondary generation-modal-regenerate${isRegenerating ? ' is-loading' : ''}`}
                             onClick={handleGenerate}
-                            disabled={generating || !model.trim()}
+                            disabled={generating || !model.model.trim()}
                         >
                             {isRegenerating && <Loader2 size={16} className="animate-spin" />}
                             再生成
@@ -212,7 +211,7 @@ export default function CharacterGeneratorModal({ isOpen, onClose, onApply }: Pr
                     <button
                         className="btn btn-primary"
                         onClick={generated ? handleApply : handleGenerate}
-                        disabled={generating || !model.trim()}
+                        disabled={generating || !model.model.trim()}
                     >
                         {isInitialGenerating && <Loader2 size={16} className="animate-spin" />}
                         {generated ? '設定に反映' : direction.trim() ? '生成' : 'おまかせ生成'}

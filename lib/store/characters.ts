@@ -1,7 +1,6 @@
 import * as db from '../db';
-import { isAiApiType } from '../aiApi';
+import { isAiConnectionKind, isModelRef, normalizeModelRef, type ModelRef } from '../aiApi';
 import { generateId } from '../id';
-import { DEFAULT_CHAT_MODEL } from '../modelDefaults';
 import { normalizeCharactersForCostumeDiffs } from '../visualDiffMigration';
 import { duplicateDedicatedMemories } from './memories';
 import { fire, persistGroup, shouldPersistRoom, toStoredRoom } from './persistence';
@@ -16,15 +15,31 @@ import type {
     StoreSet,
 } from './types';
 
-export function resolveCharacterModel(model: string | undefined, fallbackModel: string): string {
-    const normalizedModel = typeof model === 'string' ? model.trim() : '';
-    if (normalizedModel) return normalizedModel;
-    return fallbackModel.trim() || DEFAULT_CHAT_MODEL;
+/** A legacy `model` string plus an optional sibling `aiApiType` folds into a
+ * single `ModelRef` source that `normalizeModelRef` understands. */
+function legacyModelRefSource(model: unknown, aiApiType: unknown): unknown {
+    if (model !== null && typeof model === 'object') return model;
+    if (typeof model === 'string' && model.trim()) {
+        return isAiConnectionKind(aiApiType) ? { model, aiApiType } : model;
+    }
+    return isAiConnectionKind(aiApiType) ? { aiApiType } : undefined;
 }
 
-export function normalizeCharacterModel(character: Character, fallbackModel: string): Character {
-    const model = resolveCharacterModel(character.model, fallbackModel);
+export function resolveCharacterModel(model: unknown, fallbackModel: ModelRef): ModelRef {
+    return normalizeModelRef(model, fallbackModel);
+}
+
+export function normalizeCharacterModel(character: Character, fallbackModel: ModelRef): Character {
+    const stored = character as Character & {
+        model?: unknown;
+        aiApiType?: unknown;
+        thinkModeEnabled?: boolean;
+        maxTokens?: number;
+        enableSummary?: boolean;
+    };
+    const model = normalizeModelRef(legacyModelRefSource(stored.model, stored.aiApiType), fallbackModel);
     const normalized = { ...character } as Character & {
+        aiApiType?: unknown;
         thinkModeEnabled?: boolean;
         maxTokens?: number;
         enableSummary?: boolean;
@@ -32,17 +47,20 @@ export function normalizeCharacterModel(character: Character, fallbackModel: str
     const hadLegacyThinkMode = 'thinkModeEnabled' in normalized;
     const hadLegacyMaxTokens = 'maxTokens' in normalized;
     const hadLegacyEnableSummary = 'enableSummary' in normalized;
-    const hadInvalidApiType = 'aiApiType' in normalized && !isAiApiType(normalized.aiApiType);
+    const hadAiApiType = 'aiApiType' in normalized;
+    const modelUnchanged = isModelRef(stored.model)
+        && stored.model.model === model.model
+        && stored.model.connectionId === model.connectionId;
     delete normalized.thinkModeEnabled;
     delete normalized.maxTokens;
     delete normalized.enableSummary;
-    if (hadInvalidApiType) delete normalized.aiApiType;
-    return model === character.model && !hadLegacyThinkMode && !hadLegacyMaxTokens && !hadLegacyEnableSummary && !hadInvalidApiType
+    delete normalized.aiApiType;
+    return modelUnchanged && !hadLegacyThinkMode && !hadLegacyMaxTokens && !hadLegacyEnableSummary && !hadAiApiType
         ? character
         : { ...normalized, model };
 }
 
-export function normalizeCharacters(characters: Character[], fallbackModel: string): Character[] {
+export function normalizeCharacters(characters: Character[], fallbackModel: ModelRef): Character[] {
     return normalizeCharactersForCostumeDiffs(characters)
         .map((character) => normalizeCharacterModel(character, fallbackModel));
 }

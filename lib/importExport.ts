@@ -8,6 +8,8 @@ import type {
     UsageRecord,
 } from './store/types';
 import * as db from './db';
+import { isAiConnectionKind } from './aiApi';
+import { DEFAULT_MODEL_DEFAULTS, normalizeModelRef, type ModelRef } from './modelDefaults';
 import { normalizeCharactersForCostumeDiffs } from './visualDiffMigration';
 import { generateId } from './id';
 import { isVrmSource } from './vrm';
@@ -33,8 +35,8 @@ export interface FullBackup {
 
 export type SharedCharacter = Omit<
     Character,
-    'id' | 'favorite' | 'createdAt' | 'updatedAt' | 'enableThinking'
->;
+    'id' | 'favorite' | 'createdAt' | 'updatedAt' | 'enableThinking' | 'model'
+> & { model: string | ModelRef };
 
 export interface CharacterBackup {
     version: 1;
@@ -51,10 +53,13 @@ export interface ParsedImport {
 }
 
 function copySharedCharacter(character: Character | SharedCharacter): SharedCharacter {
+    const model = normalizeModelRef(character.model, DEFAULT_MODEL_DEFAULTS.defaultChatModel);
     return {
         name: character.name,
         systemPrompt: character.systemPrompt,
-        model: character.model,
+        // カスタム接続（cx_*）は他環境に存在しないため、共有ファイルでは組み込み
+        // 接続のIDだけを残し、それ以外はモデル名のみに落とす。
+        model: isAiConnectionKind(model.connectionId) ? model : model.model,
         ...(character.speechStyle !== undefined ? { speechStyle: character.speechStyle } : {}),
         ...(character.protagonistPrompt !== undefined ? { protagonistPrompt: character.protagonistPrompt } : {}),
         ...(character.userConstraints !== undefined ? { userConstraints: character.userConstraints } : {}),
@@ -397,13 +402,23 @@ function isValidVrmAvatar(value: unknown): boolean {
         && Object.entries(value.expressionMap).every(([name, target]) => name.trim() && name.length <= 256 && typeof target === 'string' && target.length <= 256);
 }
 
+/** 共有ファイルの model は新形式の ModelRef か旧形式の文字列/{ model, aiApiType }。 */
+function isValidSharedModel(value: unknown): boolean {
+    if (typeof value === 'string') return value.trim().length > 0;
+    return isRecord(value)
+        && typeof value.model === 'string'
+        && value.model.trim().length > 0
+        && (value.connectionId === undefined
+            || (typeof value.connectionId === 'string' && value.connectionId.trim().length > 0))
+        && (value.aiApiType === undefined || typeof value.aiApiType === 'string');
+}
+
 function isValidSharedCharacter(value: unknown): value is SharedCharacter {
     if (!isRecord(value)) return false;
     return typeof value.name === 'string'
         && value.name.trim().length > 0
         && typeof value.systemPrompt === 'string'
-        && typeof value.model === 'string'
-        && value.model.trim().length > 0
+        && isValidSharedModel(value.model)
         && isOptionalString(value.speechStyle)
         && isOptionalString(value.protagonistPrompt)
         && isOptionalString(value.userConstraints)
@@ -437,9 +452,11 @@ function parseCharacterBackupValue(parsed: unknown): ParsedBackup {
     }
 
     const now = Date.now();
+    const shared = copySharedCharacter(parsed.data.character);
     const character: Character = {
         id: generateId(),
-        ...copySharedCharacter(parsed.data.character),
+        ...shared,
+        model: normalizeModelRef(shared.model, DEFAULT_MODEL_DEFAULTS.defaultChatModel),
         createdAt: now,
         updatedAt: now,
     };

@@ -1,15 +1,15 @@
 import {
-    DEFAULT_AI_API_TYPE,
-    DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
-    DEFAULT_OPENAI_COMPATIBLE_EMBEDDINGS_ENABLED,
-    DEFAULT_OPENAI_COMPATIBLE_IMAGE_GENERATION_ENABLED,
-    DEFAULT_OPENROUTER_IGNORED_PROVIDERS,
-    normalizeOpenAiCompatibleBaseUrl,
+    DEFAULT_CONNECTION_ID,
     normalizeOpenRouterIgnoredProviders,
-    normalizeRoleApiTypes,
-    type AiApiType,
 } from '../aiApi';
-import { resolveAiSettingsMigration } from '../aiSettingsMigration';
+import { updateAiConnection, type UpdateAiConnectionInput } from '../aiConnections';
+import {
+    foldMigratedModelDefaults,
+    normalizeMigratableRoleApiTypes,
+    resolveAiSettingsMigration,
+    type MigratableModelDefaults,
+    type MigratableModelDefaultsByApiType,
+} from '../aiSettingsMigration';
 import * as db from '../db';
 import {
     createDefaultKeyboardShortcuts,
@@ -17,6 +17,7 @@ import {
     type KeyboardShortcutSettings,
 } from '../keyboardShortcuts';
 import {
+    DEFAULT_ANTHROPIC_TEXT_MODEL,
     DEFAULT_AUTO_GENERATION_MODEL,
     DEFAULT_CHAT_MODEL,
     DEFAULT_DIRECTOR_MODEL,
@@ -24,18 +25,16 @@ import {
     DEFAULT_IMAGE_MODEL,
     DEFAULT_MEMORY_EMBEDDING_MODEL,
     DEFAULT_MEMORY_EXTRACTION_MODEL,
-    DEFAULT_MODEL_DEFAULTS_BY_API_TYPE,
     DEFAULT_REPLY_SUGGESTION_MODEL,
     DEFAULT_SUMMARY_MODEL,
     DEFAULT_TITLE_GENERATION_MODEL,
-    normalizeModelDefaultsByApiType,
-    type ModelDefaults,
-    type ModelDefaultsByApiType,
+    getDefaultModelDefaults,
+    MODEL_DEFAULT_FIELDS,
+    normalizeModelDefaults,
 } from '../modelDefaults';
 import { normalizeCharacters } from './characters';
 import { fire, nextRoomLoadSequence, persistGroup, toStoredRoom } from './persistence';
 import {
-    activeModelDefaults,
     clearThemeCache,
     DEFAULT_CONVERSATION_COMPRESSION_ENABLED,
     DEFAULT_THEME_SELECTION,
@@ -43,7 +42,7 @@ import {
     DEFAULT_VN_TYPING_SPEED,
     isVnTypingSpeed,
     isRoomViewMode,
-    persistModelDefaultsByApiType,
+    persistModelDefaults,
     resolveThemeSelection,
     waitForModelDefaultsWrites,
     writeThemeCache,
@@ -61,7 +60,42 @@ import type {
 } from './types';
 
 export const CURRENT_ONBOARDING_VERSION = 1;
-export const CURRENT_AI_SETTINGS_SCHEMA_VERSION = 3;
+export const CURRENT_AI_SETTINGS_SCHEMA_VERSION = 4;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+const LEGACY_FLAT_MODEL_DEFAULTS: MigratableModelDefaults = {
+    summaryModel: DEFAULT_SUMMARY_MODEL,
+    defaultChatModel: DEFAULT_CHAT_MODEL,
+    defaultDirectorModel: DEFAULT_DIRECTOR_MODEL,
+    defaultAutoGenerationModel: DEFAULT_AUTO_GENERATION_MODEL,
+    titleGenerationModel: DEFAULT_TITLE_GENERATION_MODEL,
+    replySuggestionModel: DEFAULT_REPLY_SUGGESTION_MODEL,
+    defaultImageModel: DEFAULT_IMAGE_MODEL,
+    expressionDetectionModel: DEFAULT_EXPRESSION_DETECTION_MODEL,
+    memoryExtractionModel: DEFAULT_MEMORY_EXTRACTION_MODEL,
+    memoryEmbeddingModel: DEFAULT_MEMORY_EMBEDDING_MODEL,
+};
+
+const LEGACY_MODEL_DEFAULTS_BY_API_TYPE: MigratableModelDefaultsByApiType = {
+    openrouter: LEGACY_FLAT_MODEL_DEFAULTS,
+    'openai-compatible': LEGACY_FLAT_MODEL_DEFAULTS,
+    anthropic: {
+        ...LEGACY_FLAT_MODEL_DEFAULTS,
+        summaryModel: DEFAULT_ANTHROPIC_TEXT_MODEL,
+        defaultChatModel: DEFAULT_ANTHROPIC_TEXT_MODEL,
+        defaultDirectorModel: DEFAULT_ANTHROPIC_TEXT_MODEL,
+        defaultAutoGenerationModel: DEFAULT_ANTHROPIC_TEXT_MODEL,
+        titleGenerationModel: DEFAULT_ANTHROPIC_TEXT_MODEL,
+        replySuggestionModel: DEFAULT_ANTHROPIC_TEXT_MODEL,
+        expressionDetectionModel: DEFAULT_ANTHROPIC_TEXT_MODEL,
+        memoryExtractionModel: DEFAULT_ANTHROPIC_TEXT_MODEL,
+    },
+};
+
+const LEGACY_DEFAULT_OPENAI_COMPATIBLE_BASE_URL = 'https://api.openai.com/v1';
 
 type LifecycleSlice = Pick<
     AppState,
@@ -76,7 +110,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
         hydrate: async () => {
             if (get().hydrated) return;
             await db.migrateLegacyDatabase();
-            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, storedDefaultViewMode, currentRoomId, vnTypingSpeed, storedKeyboardShortcuts, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedRoleApiTypes, storedConversationCompressionEnabled, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion] = await Promise.all([
+            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, storedDefaultViewMode, currentRoomId, vnTypingSpeed, storedKeyboardShortcuts, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedModelDefaults, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedRoleApiTypes, storedConversationCompressionEnabled, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion] = await Promise.all([
                 db.getAllCharacters(),
                 db.getAllGroups(),
                 db.getAllRooms(),
@@ -91,6 +125,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 db.getMeta<boolean>('detailedErrorLoggingEnabled'),
                 db.getMeta<boolean>('memoryInspectorEnabled'),
                 db.getMeta<boolean>('summaryInspectorEnabled'),
+                db.getMeta<unknown>('modelDefaults'),
                 db.getMeta<string>('summaryModel'),
                 db.getMeta<string>('defaultChatModel'),
                 db.getMeta<string>('defaultDirectorModel'),
@@ -99,13 +134,13 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 db.getMeta<string>('defaultImageModel'),
                 db.getMeta<string>('memoryExtractionModel'),
                 db.getMeta<string>('memoryEmbeddingModel'),
-                db.getMeta<ModelDefaultsByApiType>('modelDefaultsByApiType'),
+                db.getMeta<unknown>('modelDefaultsByApiType'),
                 db.getMeta<unknown>('modelDefaultsByProvider'),
                 db.getMeta<unknown>('roleApiTypes'),
                 db.getMeta<boolean>('conversationCompressionEnabled'),
                 db.getMeta<boolean>('generateTitleOnFirstReply'),
                 db.getMeta<boolean>('replySuggestionsEnabled'),
-                db.getMeta<AiApiType>('aiApiType'),
+                db.getMeta<unknown>('aiApiType'),
                 db.getMeta<unknown>('aiProvider'),
                 db.getMeta<unknown>('openRouterIgnoredProviders'),
                 db.getMeta<string>('openAiCompatibleBaseUrl'),
@@ -138,7 +173,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
             const legacyDefaultDirectorModel = typeof storedDefaultDirectorModel === 'string' && storedDefaultDirectorModel.trim()
                 ? storedDefaultDirectorModel.trim()
                 : legacyDefaultChatModel || DEFAULT_DIRECTOR_MODEL;
-            const legacyModelDefaults: ModelDefaults = {
+            const legacyModelDefaults: MigratableModelDefaults = {
                 summaryModel: typeof storedSummaryModel === 'string' && storedSummaryModel.trim()
                     ? storedSummaryModel.trim()
                     : DEFAULT_SUMMARY_MODEL,
@@ -168,19 +203,25 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 canonicalModelDefaultsByApiType: storedModelDefaultsByApiType,
                 legacyModelDefaultsByProvider: storedLegacyModelDefaultsByProvider,
                 legacyModelDefaults: hasLegacyModelDefaults ? legacyModelDefaults : undefined,
-                defaultAiApiType: DEFAULT_AI_API_TYPE,
-                defaultModelDefaultsByApiType: DEFAULT_MODEL_DEFAULTS_BY_API_TYPE,
+                defaultAiApiType: DEFAULT_CONNECTION_ID,
+                defaultModelDefaultsByApiType: LEGACY_MODEL_DEFAULTS_BY_API_TYPE,
                 storedSchemaVersion: storedAiSettingsSchemaVersion,
                 currentSchemaVersion: CURRENT_AI_SETTINGS_SCHEMA_VERSION,
             });
-            const resolvedAiApiType = aiSettingsMigration.aiApiType;
-            const modelDefaultsByApiType = aiSettingsMigration.modelDefaultsByApiType;
-            const roleApiTypes = normalizeRoleApiTypes(storedRoleApiTypes);
-            const resolvedModelDefaults = activeModelDefaults({
-                aiApiType: resolvedAiApiType,
+            // 旧形式（グローバル aiApiType + 役割別 roleApiTypes + 種別ごとの
+            // modelDefaultsByApiType）を役割ごとの ModelRef に畳み込む。
+            const roleApiTypes = normalizeMigratableRoleApiTypes(storedRoleApiTypes);
+            const foldedModelDefaults = normalizeModelDefaults(foldMigratedModelDefaults(
+                aiSettingsMigration.modelDefaultsByApiType,
+                aiSettingsMigration.aiApiType,
                 roleApiTypes,
-                modelDefaultsByApiType,
-            });
+            ));
+            // meta 'modelDefaults' が既に新形式（値がオブジェクト）ならそれを優先する。
+            const storedModelDefaultsIsCurrent = isRecord(storedModelDefaults)
+                && MODEL_DEFAULT_FIELDS.some((field) => isRecord(storedModelDefaults[field]));
+            const resolvedModelDefaults = storedModelDefaultsIsCurrent
+                ? normalizeModelDefaults(storedModelDefaults, foldedModelDefaults)
+                : foldedModelDefaults;
             const characters = normalizeCharacters(loadedCharacters, resolvedModelDefaults.defaultChatModel);
             const changedCharacters = characters.filter((character, index) => character !== loadedCharacters[index]);
             if (changedCharacters.length > 0) {
@@ -231,14 +272,61 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 : DEFAULT_CONVERSATION_COMPRESSION_ENABLED;
             const resolvedGenerateTitleOnFirstReply = storedGenerateTitleOnFirstReply === true;
             const resolvedReplySuggestionsEnabled = storedReplySuggestionsEnabled === true;
+            // 旧接続設定を組み込み接続へベストエフォートで引き継ぐ（失敗しても続行）。
             const resolvedOpenRouterIgnoredProviders = normalizeOpenRouterIgnoredProviders(storedOpenRouterIgnoredProviders);
-            const resolvedOpenAiCompatibleBaseUrl = normalizeOpenAiCompatibleBaseUrl(storedOpenAiCompatibleBaseUrl);
-            const resolvedOpenAiCompatibleEmbeddingsEnabled = typeof storedOpenAiCompatibleEmbeddingsEnabled === 'boolean'
-                ? storedOpenAiCompatibleEmbeddingsEnabled
-                : DEFAULT_OPENAI_COMPATIBLE_EMBEDDINGS_ENABLED;
-            const resolvedOpenAiCompatibleImageGenerationEnabled = typeof storedOpenAiCompatibleImageGenerationEnabled === 'boolean'
-                ? storedOpenAiCompatibleImageGenerationEnabled
-                : DEFAULT_OPENAI_COMPATIBLE_IMAGE_GENERATION_ENABLED;
+            const connectionUpdates: Promise<unknown>[] = [];
+            if (resolvedOpenRouterIgnoredProviders.length > 0) {
+                connectionUpdates.push(updateAiConnection('openrouter', {
+                    ignoredProviders: resolvedOpenRouterIgnoredProviders,
+                }));
+            }
+            const openAiConnectionUpdate: UpdateAiConnectionInput = {};
+            const storedOpenAiBaseUrl = typeof storedOpenAiCompatibleBaseUrl === 'string'
+                ? storedOpenAiCompatibleBaseUrl.trim().replace(/\/+$/, '')
+                : '';
+            if (storedOpenAiBaseUrl && storedOpenAiBaseUrl !== LEGACY_DEFAULT_OPENAI_COMPATIBLE_BASE_URL) {
+                openAiConnectionUpdate.baseUrl = storedOpenAiBaseUrl;
+            }
+            if (typeof storedOpenAiCompatibleEmbeddingsEnabled === 'boolean') {
+                openAiConnectionUpdate.embeddingsEnabled = storedOpenAiCompatibleEmbeddingsEnabled;
+            }
+            if (typeof storedOpenAiCompatibleImageGenerationEnabled === 'boolean') {
+                openAiConnectionUpdate.imageGenerationEnabled = storedOpenAiCompatibleImageGenerationEnabled;
+            }
+            if (Object.keys(openAiConnectionUpdate).length > 0) {
+                connectionUpdates.push(updateAiConnection('openai-compatible', openAiConnectionUpdate));
+            }
+            if (connectionUpdates.length > 0) {
+                fire(Promise.all(connectionUpdates).then(() => undefined));
+            }
+
+            if (JSON.stringify(storedModelDefaults) !== JSON.stringify(resolvedModelDefaults)) {
+                persistModelDefaults(resolvedModelDefaults);
+            }
+            // 移行済みの旧メタキーを削除する。
+            const legacyMetaEntries: [string, unknown][] = [
+                ['aiApiType', storedAiApiType],
+                ['aiProvider', storedLegacyAiProvider],
+                ['roleApiTypes', storedRoleApiTypes],
+                ['modelDefaultsByApiType', storedModelDefaultsByApiType],
+                ['modelDefaultsByProvider', storedLegacyModelDefaultsByProvider],
+                ['openRouterIgnoredProviders', storedOpenRouterIgnoredProviders],
+                ['openAiCompatibleBaseUrl', storedOpenAiCompatibleBaseUrl],
+                ['openAiCompatibleEmbeddingsEnabled', storedOpenAiCompatibleEmbeddingsEnabled],
+                ['openAiCompatibleImageGenerationEnabled', storedOpenAiCompatibleImageGenerationEnabled],
+                ['summaryModel', storedSummaryModel],
+                ['defaultChatModel', storedDefaultChatModel],
+                ['defaultDirectorModel', storedDefaultDirectorModel],
+                ['defaultAutoGenerationModel', storedDefaultAutoGenerationModel],
+                ['titleGenerationModel', storedTitleGenerationModel],
+                ['defaultImageModel', storedDefaultImageModel],
+                ['memoryExtractionModel', storedMemoryExtractionModel],
+                ['memoryEmbeddingModel', storedMemoryEmbeddingModel],
+            ];
+            for (const [key, value] of legacyMetaEntries) {
+                if (value !== undefined) fire(db.deleteMeta(key));
+            }
+
             const hasExistingContent = loadedCharacters.length > 0 || storedGroups.length > 0 || storedRooms.length > 0;
             const normalizedOnboardingVersion = typeof storedOnboardingVersion === 'number' && Number.isFinite(storedOnboardingVersion)
                 ? Math.max(0, Math.floor(storedOnboardingVersion))
@@ -246,24 +334,9 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
             const resolvedOnboardingVersion = hasExistingContent
                 ? Math.max(normalizedOnboardingVersion, CURRENT_ONBOARDING_VERSION)
                 : normalizedOnboardingVersion;
-            if (aiSettingsMigration.shouldPersistModelDefaultsByApiType) {
-                persistModelDefaultsByApiType(modelDefaultsByApiType);
-            }
-            if (JSON.stringify(storedRoleApiTypes ?? {}) !== JSON.stringify(roleApiTypes)) {
-                fire(db.setMeta('roleApiTypes', roleApiTypes));
-            }
             if (storedConversationCompressionEnabled !== resolvedConversationCompressionEnabled) fire(db.setMeta('conversationCompressionEnabled', resolvedConversationCompressionEnabled));
             if (storedGenerateTitleOnFirstReply !== resolvedGenerateTitleOnFirstReply) fire(db.setMeta('generateTitleOnFirstReply', resolvedGenerateTitleOnFirstReply));
             if (storedReplySuggestionsEnabled !== resolvedReplySuggestionsEnabled) fire(db.setMeta('replySuggestionsEnabled', resolvedReplySuggestionsEnabled));
-            if (aiSettingsMigration.shouldPersistAiApiType) {
-                fire(db.setMeta('aiApiType', resolvedAiApiType));
-            }
-            if (JSON.stringify(storedOpenRouterIgnoredProviders) !== JSON.stringify(resolvedOpenRouterIgnoredProviders)) {
-                fire(db.setMeta('openRouterIgnoredProviders', resolvedOpenRouterIgnoredProviders));
-            }
-            if (storedOpenAiCompatibleBaseUrl !== resolvedOpenAiCompatibleBaseUrl) fire(db.setMeta('openAiCompatibleBaseUrl', resolvedOpenAiCompatibleBaseUrl));
-            if (storedOpenAiCompatibleEmbeddingsEnabled !== resolvedOpenAiCompatibleEmbeddingsEnabled) fire(db.setMeta('openAiCompatibleEmbeddingsEnabled', resolvedOpenAiCompatibleEmbeddingsEnabled));
-            if (storedOpenAiCompatibleImageGenerationEnabled !== resolvedOpenAiCompatibleImageGenerationEnabled) fire(db.setMeta('openAiCompatibleImageGenerationEnabled', resolvedOpenAiCompatibleImageGenerationEnabled));
             if (storedOnboardingVersion !== resolvedOnboardingVersion) fire(db.setMeta('onboardingVersion', resolvedOnboardingVersion));
             if (aiSettingsMigration.shouldPersistSchemaVersion) {
                 fire(db.setMeta('aiSettingsSchemaVersion', aiSettingsMigration.schemaVersion));
@@ -281,16 +354,9 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 vnTypingSpeed: resolvedVnTypingSpeed,
                 keyboardShortcuts: resolvedKeyboardShortcuts,
                 ...resolvedModelDefaults,
-                modelDefaultsByApiType,
-                roleApiTypes,
                 conversationCompressionEnabled: resolvedConversationCompressionEnabled,
                 generateTitleOnFirstReply: resolvedGenerateTitleOnFirstReply,
                 replySuggestionsEnabled: resolvedReplySuggestionsEnabled,
-                aiApiType: resolvedAiApiType,
-                openRouterIgnoredProviders: resolvedOpenRouterIgnoredProviders,
-                openAiCompatibleBaseUrl: resolvedOpenAiCompatibleBaseUrl,
-                openAiCompatibleEmbeddingsEnabled: resolvedOpenAiCompatibleEmbeddingsEnabled,
-                openAiCompatibleImageGenerationEnabled: resolvedOpenAiCompatibleImageGenerationEnabled,
                 fullJsonDebugEnabled: fullJsonDebugEnabled === true,
                 detailedErrorLoggingEnabled: detailedErrorLoggingEnabled === true,
                 memoryInspectorEnabled: memoryInspectorEnabled === true,
@@ -318,26 +384,10 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 defaultViewMode: DEFAULT_VIEW_MODE,
                 vnTypingSpeed: DEFAULT_VN_TYPING_SPEED,
                 keyboardShortcuts: createDefaultKeyboardShortcuts(),
-                summaryModel: DEFAULT_SUMMARY_MODEL,
-                defaultChatModel: DEFAULT_CHAT_MODEL,
-                defaultDirectorModel: DEFAULT_DIRECTOR_MODEL,
-                defaultAutoGenerationModel: DEFAULT_AUTO_GENERATION_MODEL,
-                titleGenerationModel: DEFAULT_TITLE_GENERATION_MODEL,
-                replySuggestionModel: DEFAULT_REPLY_SUGGESTION_MODEL,
-                defaultImageModel: DEFAULT_IMAGE_MODEL,
-                expressionDetectionModel: DEFAULT_EXPRESSION_DETECTION_MODEL,
-                memoryExtractionModel: DEFAULT_MEMORY_EXTRACTION_MODEL,
-                memoryEmbeddingModel: DEFAULT_MEMORY_EMBEDDING_MODEL,
-                modelDefaultsByApiType: normalizeModelDefaultsByApiType(undefined),
-                roleApiTypes: {},
+                ...getDefaultModelDefaults(),
                 conversationCompressionEnabled: DEFAULT_CONVERSATION_COMPRESSION_ENABLED,
                 generateTitleOnFirstReply: false,
                 replySuggestionsEnabled: false,
-                aiApiType: DEFAULT_AI_API_TYPE,
-                openRouterIgnoredProviders: DEFAULT_OPENROUTER_IGNORED_PROVIDERS,
-                openAiCompatibleBaseUrl: DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
-                openAiCompatibleEmbeddingsEnabled: DEFAULT_OPENAI_COMPATIBLE_EMBEDDINGS_ENABLED,
-                openAiCompatibleImageGenerationEnabled: DEFAULT_OPENAI_COMPATIBLE_IMAGE_GENERATION_ENABLED,
                 fullJsonDebugEnabled: false,
                 detailedErrorLoggingEnabled: false,
                 memoryInspectorEnabled: false,

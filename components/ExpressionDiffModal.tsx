@@ -2,6 +2,9 @@ import { useState, useEffect, useRef } from 'react';
 import { Check, X, Loader2, Pencil, Trash2, RefreshCw, Smile, Sparkles, Upload } from 'lucide-react';
 import type { Costume, Expression } from '@/lib/store';
 import { useStore } from '@/lib/store';
+import { isAiConnectionKind } from '@/lib/aiApi';
+import { useAiConnections } from '@/lib/aiConnections';
+import { serializeModelRef, type ModelRef } from '@/lib/modelDefaults';
 import {
     createExpressionNameRegistry,
     reserveUniqueExpressionName,
@@ -51,15 +54,18 @@ export default function ExpressionDiffModal({
     onRename,
     onRemove,
 }: Props) {
-    const { defaultImageModel, aiApiType, roleApiTypes, getAiApiConfig } = useStore();
-    const imageApiType = roleApiTypes.defaultImageModel ?? aiApiType;
-    const canGenerateDiffs = imageApiType === 'openrouter';
+    const { defaultImageModel, getAiApiConfig } = useStore();
+    const { connections } = useAiConnections();
     const [selectedCostumeName, setSelectedCostumeName] = useState(DEFAULT_COSTUME_NAME);
     const [newName, setNewName] = useState('');
     const [newPromptDetail, setNewPromptDetail] = useState('');
     const [autoDetectName, setAutoDetectName] = useState(false);
     const [addMode, setAddMode] = useState<AddMode>('generate');
-    const [model, setModel] = useState(defaultImageModel);
+    const [model, setModel] = useState<ModelRef>(defaultImageModel);
+    const selectedConnection = connections.find((connection) => connection.id === model.connectionId) ?? null;
+    const selectedKind = selectedConnection?.kind
+        ?? (isAiConnectionKind(model.connectionId) ? model.connectionId : null);
+    const canGenerateDiffs = selectedKind === 'openrouter';
     const [busy, setBusy] = useState<string | null>(null); // expression name being generated, or internal busy key
     const [error, setError] = useState<string | null>(null);
     const abortRef = useRef<AbortController | null>(null);
@@ -240,7 +246,7 @@ export default function ExpressionDiffModal({
         shouldDetectName = false,
     ) => {
         if (!canGenerateDiffs) {
-            setError('選択中のAPIでは元画像を使う表情差分生成に対応していません。アップロードを使ってください。');
+            setError('選択中の接続先では元画像を使う表情差分生成に対応していません。アップロードを使ってください。');
             return;
         }
         if (!neutral) {
@@ -259,10 +265,10 @@ export default function ExpressionDiffModal({
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     prompt,
-                    model: model.trim(),
+                    model: serializeModelRef(model),
                     ...buildBaseImageRequest(neutral.image),
                     aspectRatio: EXPRESSION_ASPECT_RATIO,
-                    aiApiConfig: getAiApiConfig(),
+                    aiApiConfig: { ...getAiApiConfig(), connectionId: model.connectionId },
                 }),
                 signal: controller.signal,
             });
@@ -291,7 +297,7 @@ export default function ExpressionDiffModal({
     };
 
     const handleAdd = () => {
-        if (busy || !model.trim() || !canGenerateDiffs) return;
+        if (busy || !model.model.trim() || !canGenerateDiffs) return;
         const name = autoDetectName ? '' : validateManualName();
         if (!autoDetectName && !name) return;
         void generate(name ?? '', NEW_BUSY_KEY, newPromptDetail, autoDetectName);
@@ -510,9 +516,8 @@ export default function ExpressionDiffModal({
                                     value={model}
                                     onChange={setModel}
                                     outputModality="image"
-                                    apiType={imageApiType}
                                     disabled={!!busy || !canGenerateDiffs}
-                                    placeholder={`例: ${defaultImageModel}`}
+                                    placeholder={`例: ${defaultImageModel.model}`}
                                 />
                             </div>
                         )}
@@ -567,7 +572,7 @@ export default function ExpressionDiffModal({
                         {addMode === 'generate' ? (
                             <p style={hintStyle}>
                                 {!canGenerateDiffs
-                                    ? '選択中のAPIでは元画像を使う差分生成に対応していません。アップロードで追加してください。'
+                                    ? '選択中の接続先では元画像を使う差分生成に対応していません。アップロードで追加してください。'
                                     : neutral
                                     ? autoDetectName
                                         && '説明が空の場合は異なる表情をおまかせで生成します'
@@ -626,7 +631,7 @@ export default function ExpressionDiffModal({
                             <button
                                 className="btn btn-primary"
                                 onClick={handleAdd}
-                                disabled={!!busy || !canGenerateDiffs || (!autoDetectName && !newName.trim()) || !model.trim() || !neutral}
+                                disabled={!!busy || !canGenerateDiffs || (!autoDetectName && !newName.trim()) || !model.model.trim() || !neutral}
                                 style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                             >
                                 {busy === NEW_BUSY_KEY && <Loader2 size={16} className="animate-spin" />}

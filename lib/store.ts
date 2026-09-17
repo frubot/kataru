@@ -23,13 +23,11 @@ export {
     getDefaultModelDefaults,
 } from './modelDefaults';
 export {
-    DEFAULT_AI_API_TYPE,
-    DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
-    DEFAULT_OPENAI_COMPATIBLE_EMBEDDINGS_ENABLED,
-    DEFAULT_OPENAI_COMPATIBLE_IMAGE_GENERATION_ENABLED,
-    DEFAULT_OPENROUTER_IGNORED_PROVIDERS,
+    DEFAULT_CONNECTION_ID,
     type AiApiConfig,
     type AiApiType,
+    type AiConnectionKind,
+    type ModelRef,
 } from './aiApi';
 export {
     CURRENT_AI_SETTINGS_SCHEMA_VERSION,

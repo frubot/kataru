@@ -1,15 +1,14 @@
 import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
 import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Check, ChevronDown, RefreshCw, ExternalLink, type LucideIcon } from 'lucide-react';
-import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, RoomViewMode, getDefaultModelDefaults, type AiApiType } from '@/lib/store';
-import { AI_API_TYPE_LABELS } from '@/lib/aiApi';
-import { MODEL_DEFAULT_FIELDS, type ModelRoleKey } from '@/lib/modelDefaults';
+import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, RoomViewMode, getDefaultModelDefaults } from '@/lib/store';
+import { AI_CONNECTION_KIND_LABELS, isAiConnectionKind } from '@/lib/aiApi';
+import { useAiConnections } from '@/lib/aiConnections';
+import { MODEL_DEFAULT_FIELDS, modelRefsEqual, type ModelRef, type ModelRoleKey } from '@/lib/modelDefaults';
 import type { ModelOutputModality } from '@/lib/availableModels';
 import { createFullBackup, downloadJson, parseImportFile, reassignIds, type ParsedImport } from '@/lib/importExport';
 import StatisticsPanel from '@/components/StatisticsPanel';
 import AiConnectionSettings from '@/components/AiConnectionSettings';
 import ModelSelector from '@/components/ModelSelector';
-import ApiTypeSelect from '@/components/ApiTypeSelect';
-import ProviderSelector from '@/components/ProviderSelector';
 import KeyboardSettingsPanel from '@/components/KeyboardSettingsPanel';
 import { useModalKeyboard } from '@/components/useModalKeyboard';
 
@@ -73,7 +72,7 @@ const SETTINGS_TABS = [
     { id: 'general', label: '一般' },
     { id: 'models', label: 'モデル' },
     { id: 'keyboard', label: 'キーボード' },
-    { id: 'debug', label: '開者' },
+    { id: 'debug', label: '開発者' },
     { id: 'statistics', label: '統計' },
 ] as const satisfies readonly { id: SettingsTab; label: string }[];
 
@@ -149,12 +148,6 @@ const VIEW_MODE_OPTIONS = [
     { id: 'message', label: 'メッセージ' },
     { id: 'vn', label: 'ゲーム' },
 ] as const satisfies readonly { id: RoomViewMode; label: string }[];
-
-const AI_API_TYPE_OPTIONS = [
-    { id: 'openrouter', label: 'OpenRouter' },
-    { id: 'openai-compatible', label: 'OpenAI / 互換API' },
-    { id: 'anthropic', label: 'Anthropic / 互換API' },
-] as const satisfies readonly { id: AiApiType; label: string }[];
 
 const VN_SPEED_INDEX: Record<VnTypingSpeed, number> = {
     slow: 0,
@@ -336,13 +329,13 @@ interface RoleModelFieldProps {
     role: ModelRoleKey;
     label: string;
     inputId: string;
-    value: string;
-    onChange: (model: string) => void;
+    value: ModelRef;
+    onChange: (model: ModelRef) => void;
     outputModality?: ModelOutputModality;
     capability?: 'embeddings' | 'imageGeneration';
 }
 
-/** A role's service picker + model selector row for the models settings tab. */
+/** A role's model selector row for the models settings tab. */
 function RoleModelField({
     role,
     label,
@@ -352,18 +345,15 @@ function RoleModelField({
     outputModality = 'text',
     capability,
 }: RoleModelFieldProps) {
-    const globalApiType = useStore((state) => state.aiApiType);
-    const roleApiType = useStore((state) => state.roleApiTypes[role]);
-    const setRoleApiType = useStore((state) => state.setRoleApiType);
-    const modelDefaultsByApiType = useStore((state) => state.modelDefaultsByApiType);
-    const embeddingsEnabled = useStore((state) => state.openAiCompatibleEmbeddingsEnabled);
-    const imageGenerationEnabled = useStore((state) => state.openAiCompatibleImageGenerationEnabled);
-    const effectiveApiType = roleApiType ?? globalApiType;
-    const apiTypeDefaults = modelDefaultsByApiType[effectiveApiType] ?? getDefaultModelDefaults(effectiveApiType);
+    const { connections } = useAiConnections();
+    const connection = connections.find((candidate) => candidate.id === value.connectionId) ?? null;
+    const kind = connection?.kind ?? (isAiConnectionKind(value.connectionId) ? value.connectionId : null);
     const capabilitySupported = !capability
-        || effectiveApiType === 'openrouter'
-        || (effectiveApiType === 'openai-compatible'
-            && (capability === 'embeddings' ? embeddingsEnabled : imageGenerationEnabled));
+        || kind === 'openrouter'
+        || (kind === 'openai-compatible'
+            && (capability === 'embeddings'
+                ? connection?.embeddingsEnabled ?? true
+                : connection?.imageGenerationEnabled === true));
 
     return (
         <div className="global-settings-selector-row global-settings-selector-row-divider">
@@ -374,24 +364,17 @@ function RoleModelField({
                 {label}
             </label>
             <div className="global-settings-selector-control global-settings-model-selector-control">
-                <ApiTypeSelect
-                    value={roleApiType}
-                    globalApiType={globalApiType}
-                    ariaLabel={`${label}の接続先`}
-                    onChange={(apiType) => setRoleApiType(role, apiType)}
-                />
                 {capabilitySupported ? (
                     <ModelSelector
                         id={inputId}
                         value={value}
                         onChange={onChange}
                         outputModality={outputModality}
-                        apiType={effectiveApiType}
-                        placeholder={`例: ${apiTypeDefaults[role]}`}
+                        placeholder={`例: ${getDefaultModelDefaults()[role].model}`}
                     />
                 ) : (
                     <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                        {AI_API_TYPE_LABELS[effectiveApiType]} では{capability === 'embeddings' ? '埋め込み' : '画像生成'}を利用できません。
+                        {kind ? AI_CONNECTION_KIND_LABELS[kind] : 'この接続先'} では{capability === 'embeddings' ? '埋め込み' : '画像生成'}を利用できません。
                     </p>
                 )}
             </div>
@@ -416,8 +399,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         conversationCompressionEnabled, setConversationCompressionEnabled,
         generateTitleOnFirstReply, setGenerateTitleOnFirstReply,
         replySuggestionsEnabled, setReplySuggestionsEnabled,
-        aiApiType, setAiApiType,
-        openRouterIgnoredProviders, setOpenRouterIgnoredProviders,
         fullJsonDebugEnabled, detailedErrorLoggingEnabled, fullJsonDebugLogs,
         memoryInspectorEnabled, summaryInspectorEnabled,
         setThemeMode, setThemePalette, setDefaultViewMode, setVnTypingSpeed,
@@ -425,9 +406,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         setMemoryInspectorEnabled, setSummaryInspectorEnabled,
         clearAllHistory, resetApplication, mergeBackup, restoreBackup,
     } = useStore();
-    const roleApiTypes = useStore((state) => state.roleApiTypes);
     const modelDefaultsAreUnchanged = MODEL_DEFAULT_FIELDS.every((role) => {
-        const roleApiType = roleApiTypes[role] ?? aiApiType;
         const current = {
             summaryModel,
             defaultChatModel,
@@ -440,7 +419,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
             memoryExtractionModel,
             memoryEmbeddingModel,
         }[role];
-        return current === getDefaultModelDefaults(roleApiType)[role];
+        return modelRefsEqual(current, getDefaultModelDefaults()[role]);
     });
     const [showClearConfirm, setShowClearConfirm] = useState(false);
     const [showResetConfirm, setShowResetConfirm] = useState(false);
@@ -460,12 +439,10 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
     const [isThemeModeMenuOpen, setThemeModeMenuOpen] = useState(false);
     const [isPaletteMenuOpen, setPaletteMenuOpen] = useState(false);
     const [isDefaultViewModeMenuOpen, setDefaultViewModeMenuOpen] = useState(false);
-    const [isAiApiTypeMenuOpen, setAiApiTypeMenuOpen] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const themeModeMenuRef = useRef<HTMLDivElement>(null);
     const paletteMenuRef = useRef<HTMLDivElement>(null);
     const defaultViewModeMenuRef = useRef<HTMLDivElement>(null);
-    const aiApiTypeMenuRef = useRef<HTMLDivElement>(null);
     const modalRef = useRef<HTMLDivElement>(null);
     const handleKeyboardClose = useCallback(() => {
         if (showClearConfirm) {
@@ -480,16 +457,14 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
             setShowRestoreConfirm(false);
             return;
         }
-        if (isThemeModeMenuOpen || isPaletteMenuOpen || isDefaultViewModeMenuOpen || isAiApiTypeMenuOpen) {
+        if (isThemeModeMenuOpen || isPaletteMenuOpen || isDefaultViewModeMenuOpen) {
             setThemeModeMenuOpen(false);
             setPaletteMenuOpen(false);
             setDefaultViewModeMenuOpen(false);
-            setAiApiTypeMenuOpen(false);
             return;
         }
         onClose();
     }, [
-        isAiApiTypeMenuOpen,
         isPaletteMenuOpen,
         isDefaultViewModeMenuOpen,
         isThemeModeMenuOpen,
@@ -513,7 +488,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
             setThemeModeMenuOpen(false);
             setPaletteMenuOpen(false);
             setDefaultViewModeMenuOpen(false);
-            setAiApiTypeMenuOpen(false);
         }
     }, [isOpen]);
 
@@ -587,20 +561,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         document.addEventListener('pointerdown', handlePointerDown);
         return () => document.removeEventListener('pointerdown', handlePointerDown);
     }, [isDefaultViewModeMenuOpen]);
-
-    useEffect(() => {
-        if (!isAiApiTypeMenuOpen) return;
-
-        const handlePointerDown = (event: PointerEvent) => {
-            const target = event.target;
-            if (target instanceof Node && !aiApiTypeMenuRef.current?.contains(target)) {
-                setAiApiTypeMenuOpen(false);
-            }
-        };
-
-        document.addEventListener('pointerdown', handlePointerDown);
-        return () => document.removeEventListener('pointerdown', handlePointerDown);
-    }, [isAiApiTypeMenuOpen]);
 
     if (!isOpen) return null;
 
@@ -1281,139 +1241,15 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
 
                         {activeTab === 'models' && (
                             <>
-                        {/* API type section */}
+                        {/* AI connections section */}
                         <div style={{ marginBottom: '1.5rem' }}>
                             <h3 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '0.75rem' }}>
                                 接続先
                             </h3>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                                <div
-                                    className="settings-select-anchor"
-                                    ref={aiApiTypeMenuRef}
-                                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}
-                                >
-                                    <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
-                                        APIの種類
-                                    </span>
-                                    <button
-                                        type="button"
-                                        className="settings-select-trigger"
-                                        aria-haspopup="menu"
-                                        aria-expanded={isAiApiTypeMenuOpen}
-                                        onClick={() => setAiApiTypeMenuOpen((open) => !open)}
-                                        style={{
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            gap: '0.5rem',
-                                            width: 'fit-content',
-                                            minHeight: '2.25rem',
-                                            padding: '0.5rem 0.625rem',
-                                            borderRadius: '0.5rem',
-                                            color: 'var(--text-primary)',
-                                            cursor: 'pointer',
-                                            fontSize: '0.8125rem',
-                                            fontWeight: 600,
-                                            transition: 'background 0.15s ease, border-color 0.15s ease',
-                                        }}
-                                    >
-                                        <span style={{ whiteSpace: 'nowrap' }}>
-                                            {AI_API_TYPE_OPTIONS.find(({ id }) => id === aiApiType)?.label ?? AI_API_TYPE_OPTIONS[0].label}
-                                        </span>
-                                        <ChevronDown
-                                            size={15}
-                                            aria-hidden="true"
-                                            style={{
-                                                flexShrink: 0,
-                                                color: 'var(--text-muted)',
-                                                transform: isAiApiTypeMenuOpen ? 'rotate(180deg)' : undefined,
-                                                transition: 'transform 0.15s ease',
-                                            }}
-                                        />
-                                    </button>
-                                    {isAiApiTypeMenuOpen && (
-                                        <div
-                                            role="menu"
-                                            aria-label="接続先"
-                                            style={{
-                                                position: 'absolute',
-                                                right: 0,
-                                                top: 'calc(100% + 0.5rem)',
-                                                width: 'min(100%, 16rem)',
-                                                minWidth: '12rem',
-                                                padding: '0.375rem',
-                                                border: '1px solid var(--border-color)',
-                                                borderRadius: '0.5rem',
-                                                background: 'var(--bg-primary)',
-                                                boxShadow: '0 12px 28px rgba(0, 0, 0, 0.24)',
-                                                zIndex: 20,
-                                            }}
-                                        >
-                                            {AI_API_TYPE_OPTIONS.map((option) => {
-                                                const selected = aiApiType === option.id;
-                                                return (
-                                                    <button
-                                                        key={option.id}
-                                                        type="button"
-                                                        className="settings-select-option"
-                                                        role="menuitemradio"
-                                                        aria-checked={selected}
-                                                        onClick={() => {
-                                                            setAiApiType(option.id);
-                                                            setAiApiTypeMenuOpen(false);
-                                                        }}
-                                                        style={{
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            width: '100%',
-                                                            minHeight: '2.5rem',
-                                                            padding: '0.5rem 0.625rem',
-                                                            border: 'none',
-                                                            borderRadius: '0.375rem',
-                                                            color: selected ? 'var(--accent-primary)' : 'var(--text-primary)',
-                                                            cursor: 'pointer',
-                                                            textAlign: 'left',
-                                                        }}
-                                                    >
-                                                        <span style={{ flex: 1, minWidth: 0, fontSize: '0.875rem', fontWeight: selected ? 600 : 500, textAlign: 'left' }}>
-                                                            {option.label}
-                                                        </span>
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
-                                    )}
-                                </div>
-
-                                <AiConnectionSettings apiType={aiApiType} />
-
-                                {aiApiType === 'openrouter' && (
-                                    <div className="global-settings-selector-row">
-                                        <label
-                                            htmlFor="openrouter-ignored-providers"
-                                            style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
-                                        >
-                                            使用しないプロバイダー
-                                        </label>
-                                        <div className="global-settings-selector-control global-settings-model-selector-control">
-                                            <ProviderSelector
-                                                id="openrouter-ignored-providers"
-                                                value={openRouterIgnoredProviders}
-                                                onChange={setOpenRouterIgnoredProviders}
-                                            />
-                                            <p style={{ marginTop: '0.375rem', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                                                選択したプロバイダーをOpenRouterのルーティング候補から除外します。
-                                            </p>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {aiApiType !== 'openrouter' && (
-                                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                                        互換APIでは一部の機能が制限されます。OpenRouterで全ての機能を利用できます。
-                                    </p>
-                                )}
-                            </div>
+                            <AiConnectionSettings />
+                            <p style={{ marginTop: '0.75rem', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                                OpenRouter以外の接続先では一部の機能が制限されます。全ての機能を利用するにはOpenRouterを使用してください。
+                            </p>
                         </div>
 
                         {/* Conversation Section */}
@@ -1427,7 +1263,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     className="btn btn-secondary global-settings-model-reset"
                                     onClick={resetModelDefaults}
                                     disabled={modelDefaultsAreUnchanged}
-                                    title="現在の接続先のモデル設定を初期値に戻す"
+                                    title="モデル設定を初期値に戻す"
                                 >
                                     リセット
                                 </button>

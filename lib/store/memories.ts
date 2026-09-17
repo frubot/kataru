@@ -1,4 +1,4 @@
-import { resolveRoleApiType, supportsAiApiFeature, type AiApiConfig } from '../aiApi';
+import { serializeModelRef, type AiApiConfig, type ModelRef } from '../aiApi';
 import * as db from '../db';
 import { generateId } from '../id';
 import { fire } from './persistence';
@@ -145,16 +145,12 @@ type EmbeddingInputType = 'search_document' | 'search_query';
 
 async function requestMemoryEmbedding(
     input: string,
-    model: string,
+    model: ModelRef,
     inputType: EmbeddingInputType,
     aiApiConfig: AiApiConfig,
 ): Promise<{ embedding: number[]; model: string } | null> {
     const trimmed = input.trim();
     if (!trimmed || typeof window === 'undefined') return null;
-    const embeddingApiType = resolveRoleApiType(aiApiConfig, 'memoryEmbeddingModel');
-    if (!supportsAiApiFeature(aiApiConfig, embeddingApiType, 'embeddings')) {
-        return null;
-    }
 
     try {
         const response = await fetch('/api/embeddings', {
@@ -163,9 +159,9 @@ async function requestMemoryEmbedding(
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 input: trimmed,
-                model,
+                model: serializeModelRef(model),
                 inputType,
-                aiApiConfig,
+                aiApiConfig: { ...aiApiConfig, connectionId: model.connectionId },
             }),
             signal: AbortSignal.timeout(EMBEDDING_TIMEOUT_MS),
         });
@@ -178,7 +174,7 @@ async function requestMemoryEmbedding(
         if (!Array.isArray(embedding) || !embedding.every((value) => typeof value === 'number')) return null;
         return {
             embedding,
-            model: typeof data.model === 'string' ? data.model : model,
+            model: typeof data.model === 'string' ? data.model : model.model,
         };
     } catch {
         return null;
@@ -187,7 +183,7 @@ async function requestMemoryEmbedding(
 
 async function persistMemoryWithEmbedding(
     memory: MemoryRecord,
-    embeddingModel: string,
+    embeddingModel: ModelRef,
     aiApiConfig: AiApiConfig,
 ): Promise<void> {
     const existing = await db.getMemoriesByCharacter(memory.characterId ?? '');
@@ -207,7 +203,7 @@ async function persistMemoryWithEmbedding(
             archived: false,
         };
         await db.putMemory(nextMemory);
-        if (!nextMemory.embedding || nextMemory.embeddingModel !== embeddingModel) {
+        if (!nextMemory.embedding || nextMemory.embeddingModel !== embeddingModel.model) {
             const embedded = await requestMemoryEmbedding(
                 nextMemory.content,
                 embeddingModel,
@@ -470,14 +466,14 @@ export function createMemorySlice(set: StoreSet, get: StoreGet): MemorySlice {
                 'search_query',
                 getAiApiConfigFromState(get()),
             );
-            const queryEmbedding = queryEmbeddingResult?.model === embeddingModel
+            const queryEmbedding = queryEmbeddingResult?.model === embeddingModel.model
                 ? queryEmbeddingResult.embedding
                 : null;
 
             return candidates
                 .map((memory) => ({
                     memory,
-                    score: scoreMemory(memory, query, queryEmbedding, embeddingModel),
+                    score: scoreMemory(memory, query, queryEmbedding, embeddingModel.model),
                 }))
                 .sort((a, b) => b.score - a.score || b.memory.updatedAt - a.memory.updatedAt)
                 .slice(0, Math.max(1, limit))

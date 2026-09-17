@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 
-import type { AiApiConfig } from '../../lib/aiApi';
+import type { AiApiConfig, ModelRef } from '../../lib/aiApi';
 import {
     buildPromptRequestMessages,
     requestRoomTitleWithRetry,
@@ -9,7 +9,7 @@ import type { Room, SituationParticipant } from '../../lib/store';
 
 type UseRoomTitleGenerationOptions = {
     groupCharacters?: SituationParticipant[] | null;
-    model: string;
+    model: ModelRef;
     getAiApiConfig: () => AiApiConfig;
     getRoom: (roomId: string) => Room | null | undefined;
     updateRoomName: (roomId: string, name: string) => void;
@@ -36,7 +36,7 @@ export function useRoomTitleGeneration({
         try {
             const title = await requestRoomTitleWithRetry({
                 messages,
-                model: model.trim(),
+                model,
                 aiApiConfig: getAiApiConfig(),
             });
             if (!title || title === originalRoomName) return;

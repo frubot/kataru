@@ -13,7 +13,10 @@ use serde_json::{Value, json};
 
 use crate::{
     AppState,
-    ai_config::{AiConfigManager, DEFAULT_OPENAI_BASE_URL, parse_config_data_dir},
+    ai_config::{
+        AiConfigManager, ConnectionKind, DEFAULT_OPENAI_BASE_URL, EffectiveConnection,
+        parse_config_data_dir,
+    },
     error::{AppError, AppResult},
 };
 
@@ -63,7 +66,7 @@ struct AvailableModel {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CachedModelList {
-    ai_api_type: String,
+    connection_id: String,
     base_url: String,
     output_modality: ModelOutputModality,
     updated_at: u64,
@@ -72,7 +75,7 @@ struct CachedModelList {
 
 impl CachedModelList {
     fn matches(&self, api_client: &AiApiClient, output_modality: ModelOutputModality) -> bool {
-        self.ai_api_type == api_client.api_type_name()
+        self.connection_id == api_client.connection_id()
             && self.base_url == api_client.base_url()
             && self.output_modality == output_modality
     }
@@ -145,14 +148,14 @@ impl ModelCatalogCache {
             *cache = load_model_cache(path)?;
         }
         cache.entries.retain(|cached| {
-            cached.ai_api_type != entry.ai_api_type
+            cached.connection_id != entry.connection_id
                 || cached.base_url != entry.base_url
                 || cached.output_modality != entry.output_modality
         });
         cache.entries.push(entry);
         cache.entries.sort_by(|left, right| {
-            left.ai_api_type
-                .cmp(&right.ai_api_type)
+            left.connection_id
+                .cmp(&right.connection_id)
                 .then_with(|| left.base_url.cmp(&right.base_url))
                 .then_with(|| {
                     left.output_modality
@@ -322,7 +325,7 @@ async fn refresh_models(
         .unwrap_or_default()
         .as_millis() as u64;
     let entry = CachedModelList {
-        ai_api_type: api_client.api_type_name().to_owned(),
+        connection_id: api_client.connection_id().to_owned(),
         base_url: api_client.base_url().to_owned(),
         output_modality,
         updated_at,
@@ -416,9 +419,11 @@ pub async fn run_models_cli_command_if_requested() -> AppResult<bool> {
         print_models_help();
         return Ok(true);
     }
-    let provider = match args.as_slice() {
-        [command] if command == "refresh" => "all",
-        [command, provider] if command == "refresh" => provider.as_str(),
+    let target = match args.as_slice() {
+        [command] if command == "refresh" => None,
+        [command, connection] if command == "refresh" => {
+            (connection != "all").then_some(connection.as_str())
+        }
         _ => {
             return Err(AppError::BadRequest(
                 "models コマンドの引数が不正です。kataru models --help を確認してください。"
@@ -428,45 +433,43 @@ pub async fn run_models_cli_command_if_requested() -> AppResult<bool> {
     };
     let manager = AiConfigManager::open(&data_dir)?;
     let effective = manager.effective();
-    let providers = if provider == "all" {
-        let mut providers = Vec::new();
-        if effective.openrouter_api_key.is_some() {
-            providers.push("openrouter");
+    let targets: Vec<&EffectiveConnection> = match target {
+        None => {
+            let configured: Vec<&EffectiveConnection> = effective
+                .connections
+                .iter()
+                .filter(|connection| connection_configured(connection))
+                .collect();
+            if configured.is_empty() {
+                return Err(AppError::BadRequest(
+                    "モデル一覧を取得できるAI接続設定がありません。先にAPIキーまたは互換APIを設定してください。"
+                        .to_owned(),
+                ));
+            }
+            configured
         }
-        if effective.openai_api_key.is_some()
-            || effective.openai_base_url != DEFAULT_OPENAI_BASE_URL
-        {
-            providers.push("openai-compatible");
+        Some(id) => {
+            let id = normalize_cli_connection(id);
+            vec![effective.connection(id).ok_or_else(|| {
+                AppError::BadRequest(format!("不明な接続先です: {id}"))
+            })?]
         }
-        if effective.anthropic_api_key.is_some() {
-            providers.push("anthropic");
-        }
-        if providers.is_empty() {
-            return Err(AppError::BadRequest(
-                "モデル一覧を取得できるAI接続設定がありません。先にAPIキーまたは互換APIを設定してください。"
-                    .to_owned(),
-            ));
-        }
-        providers
-    } else {
-        vec![normalize_cli_provider(provider)?]
     };
 
     let http_client = Client::builder()
         .user_agent(format!("Kataru/{}", env!("CARGO_PKG_VERSION")))
         .build()?;
     let cache = ModelCatalogCache::open(&data_dir)?;
-    for provider in providers {
+    for connection in targets {
         let api_client = AiApiClient::resolve(
             http_client.clone(),
             "http://127.0.0.1:37371",
             &effective,
             Some(AiApiConfig {
-                ai_api_type: Some(provider.to_owned()),
-                ..AiApiConfig::default()
+                connection_id: Some(connection.id.clone()),
             }),
         )?;
-        let modalities: &[ModelOutputModality] = if provider == "openrouter" {
+        let modalities: &[ModelOutputModality] = if connection.kind == ConnectionKind::OpenRouter {
             &[
                 ModelOutputModality::Text,
                 ModelOutputModality::Image,
@@ -478,7 +481,9 @@ pub async fn run_models_cli_command_if_requested() -> AppResult<bool> {
         for &modality in modalities {
             let entry = refresh_models(&cache, &api_client, modality).await?;
             println!(
-                "{provider}/{}: {}件のモデルを更新しました。",
+                "{}({})/{}: {}件のモデルを更新しました。",
+                connection.id,
+                connection.name,
                 modality.as_str(),
                 entry.data.len()
             );
@@ -487,20 +492,25 @@ pub async fn run_models_cli_command_if_requested() -> AppResult<bool> {
     Ok(true)
 }
 
-fn normalize_cli_provider(provider: &str) -> AppResult<&'static str> {
-    match provider {
-        "openrouter" => Ok("openrouter"),
-        "openai" | "openai-compatible" => Ok("openai-compatible"),
-        "anthropic" => Ok("anthropic"),
-        _ => Err(AppError::BadRequest(format!(
-            "未対応のAI接続先です: {provider}"
-        ))),
+/// A connection is refreshable when it has a credential, or when it is an
+/// OpenAI-compatible connection pointed at a custom (typically local) host.
+fn connection_configured(connection: &EffectiveConnection) -> bool {
+    connection.api_key.is_some()
+        || (connection.kind == ConnectionKind::OpenAiCompatible
+            && connection.base_url != DEFAULT_OPENAI_BASE_URL)
+}
+
+/// Legacy provider names map to the built-in connection ids.
+fn normalize_cli_connection(value: &str) -> &str {
+    match value {
+        "openai" => "openai-compatible",
+        other => other,
     }
 }
 
 fn print_models_help() {
     println!(
-        "Kataru models\n\n  models refresh [all|openrouter|openai|anthropic]\n\n  --data-dir <PATH>  キャッシュを保存するデータ保存先\n  --portable         実行ファイル横の kataru-data を使用"
+        "Kataru models\n\n  models refresh [all|<接続id>]\n  旧名 openrouter / openai / anthropic は組み込み接続idに解決されます\n\n  --data-dir <PATH>  キャッシュを保存するデータ保存先\n  --portable         実行ファイル横の kataru-data を使用"
     );
 }
 
@@ -599,7 +609,7 @@ mod tests {
         let cache = ModelCatalogCache::open(directory.path()).unwrap();
         cache
             .put(CachedModelList {
-                ai_api_type: "openrouter".to_owned(),
+                connection_id: "openrouter".to_owned(),
                 base_url: "https://openrouter.ai/api/v1".to_owned(),
                 output_modality: ModelOutputModality::Text,
                 updated_at: 123,
@@ -614,11 +624,21 @@ mod tests {
             Client::new(),
             "http://127.0.0.1:37371",
             &crate::ai_config::EffectiveAiConfig {
-                openrouter_api_key: Some("secret".to_owned()),
-                openai_base_url: DEFAULT_OPENAI_BASE_URL.to_owned(),
-                openai_api_key: None,
-                anthropic_base_url: "https://api.anthropic.com/v1".to_owned(),
-                anthropic_api_key: None,
+                connections: vec![crate::ai_config::EffectiveConnection {
+                    id: "openrouter".to_owned(),
+                    name: "OpenRouter".to_owned(),
+                    kind: ConnectionKind::OpenRouter,
+                    base_url: "https://openrouter.ai/api/v1".to_owned(),
+                    api_key: Some("secret".to_owned()),
+                    source: Some(crate::ai_config::ConfigSource::Stored),
+                    builtin: true,
+                    editable: true,
+                    deletable: false,
+                    base_url_editable: false,
+                    embeddings_enabled: true,
+                    image_generation_enabled: false,
+                    ignored_providers: Vec::new(),
+                }],
             },
             None,
         )

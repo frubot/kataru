@@ -2,19 +2,19 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Check, ChevronDown, RefreshCw, Search } from 'lucide-react';
 
 import { getAvailableProviders, type AvailableProvider } from '@/lib/availableProviders';
-import { useStore } from '@/lib/store';
 
 interface ProviderSelectorProps {
+    /** Connection whose provider list is fetched (an OpenRouter-kind connection). */
+    connectionId: string;
     value: string[];
     onChange: (providers: string[]) => void;
     id?: string;
 }
 
-export default function ProviderSelector({ value, onChange, id }: ProviderSelectorProps) {
+export default function ProviderSelector({ connectionId, value, onChange, id }: ProviderSelectorProps) {
     const generatedId = useId();
     const triggerId = id ?? `provider-selector-${generatedId}`;
     const listboxId = `${triggerId}-listbox`;
-    const getAiApiConfig = useStore((state) => state.getAiApiConfig);
     const [isOpen, setOpen] = useState(false);
     const [query, setQuery] = useState('');
     const [providers, setProviders] = useState<AvailableProvider[]>([]);
@@ -30,7 +30,7 @@ export default function ProviderSelector({ value, onChange, id }: ProviderSelect
         setLoading(true);
         setError(null);
         try {
-            const nextProviders = await getAvailableProviders(getAiApiConfig(), { force });
+            const nextProviders = await getAvailableProviders(connectionId, { force });
             if (requestId === requestIdRef.current) setProviders(nextProviders);
         } catch (caught) {
             if (requestId === requestIdRef.current) {
@@ -40,7 +40,14 @@ export default function ProviderSelector({ value, onChange, id }: ProviderSelect
         } finally {
             if (requestId === requestIdRef.current) setLoading(false);
         }
-    }, [getAiApiConfig]);
+    }, [connectionId]);
+
+    useEffect(() => {
+        requestIdRef.current += 1;
+        setProviders([]);
+        setLoading(false);
+        setError(null);
+    }, [connectionId]);
 
     useEffect(() => {
         if (isOpen) void loadProviders();

@@ -29,7 +29,7 @@ describe('VRM import and presentation', () => {
     test('exposes mapped emotions to the conversation while keeping blink and mouth controls automatic', () => {
         const avatar = { source: 'unused', framing: DEFAULT_VRM_FRAMING, expressionMap: { ...createVrmExpressionMap(['happy', 'angry', 'blink', 'aa', 'lookUp']), smile: 'happy', missing: '' } };
         const character = {
-            id: 'alice', name: 'Alice', model: 'test', systemPrompt: '', createdAt: 0, updatedAt: 0,
+            id: 'alice', name: 'Alice', model: { connectionId: 'openrouter', model: 'test' }, systemPrompt: '', createdAt: 0, updatedAt: 0,
             expressions: [{ name: 'sad', image: 'default-sad.png' }],
             costumes: [{ name: '3d', kind: 'vrm', image: 'preview.png', vrm: avatar }],
         } satisfies Character;
@@ -43,7 +43,7 @@ describe('VRM import and presentation', () => {
     test('a VRM stored on the default costume acts as the avatar', () => {
         const avatar = { source: 'unused', framing: DEFAULT_VRM_FRAMING, expressionMap: { happy: 'joy', missing: '' } };
         const character = {
-            id: 'alice', name: 'Alice', model: 'test', systemPrompt: '', createdAt: 0, updatedAt: 0,
+            id: 'alice', name: 'Alice', model: { connectionId: 'openrouter', model: 'test' }, systemPrompt: '', createdAt: 0, updatedAt: 0,
             icon: 'icon.png',
             expressions: [{ name: 'neutral', image: 'portrait.png' }],
             costumes: [{ name: 'default', kind: 'vrm', image: 'portrait.png', vrm: avatar }],
@@ -62,7 +62,7 @@ describe('VRM import and presentation', () => {
     test('resolves the default costume regardless of its stored name casing', () => {
         const avatar = { source: 'unused', framing: DEFAULT_VRM_FRAMING, expressionMap: {} };
         const character = {
-            id: 'alice', name: 'Alice', model: 'test', systemPrompt: '', createdAt: 0, updatedAt: 0,
+            id: 'alice', name: 'Alice', model: { connectionId: 'openrouter', model: 'test' }, systemPrompt: '', createdAt: 0, updatedAt: 0,
             costumes: [
                 { name: 'Default', kind: 'vrm', image: 'portrait.png', vrm: avatar },
                 { name: 'uniform', image: 'uniform.png' },

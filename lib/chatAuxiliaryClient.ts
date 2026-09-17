@@ -1,4 +1,4 @@
-import type { AiApiConfig } from './aiApi';
+import { serializeModelRef, type AiApiConfig, type ModelRef } from './aiApi';
 import type { Message, SituationParticipant } from './store/types';
 
 export type PromptRequestMessage = {
@@ -26,10 +26,14 @@ export function buildPromptRequestMessages(
         });
 }
 
+function aiApiConfigForModel(aiApiConfig: AiApiConfig, model: ModelRef): AiApiConfig {
+    return { ...aiApiConfig, connectionId: model.connectionId };
+}
+
 export async function requestRoomTitle(
     input: {
         messages: PromptRequestMessage[];
-        model: string;
+        model: ModelRef;
         aiApiConfig: AiApiConfig;
     },
     signal: AbortSignal,
@@ -38,7 +42,11 @@ export async function requestRoomTitle(
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(input),
+        body: JSON.stringify({
+            messages: input.messages,
+            model: serializeModelRef(input.model),
+            aiApiConfig: aiApiConfigForModel(input.aiApiConfig, input.model),
+        }),
         signal,
     });
     if (!response.ok) return null;
@@ -89,7 +97,7 @@ export async function requestRoomTitleWithRetry(
 export async function requestReplySuggestions(
     input: {
         messages: PromptRequestMessage[];
-        model: string;
+        model: ModelRef;
         protagonistPrompt: string;
         situationPrompt?: string;
         aiApiConfig: AiApiConfig;
@@ -100,7 +108,13 @@ export async function requestReplySuggestions(
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(input),
+        body: JSON.stringify({
+            messages: input.messages,
+            model: serializeModelRef(input.model),
+            protagonistPrompt: input.protagonistPrompt,
+            situationPrompt: input.situationPrompt,
+            aiApiConfig: aiApiConfigForModel(input.aiApiConfig, input.model),
+        }),
         signal,
     });
     if (!response.ok) throw new Error(`Reply suggestion request failed (${response.status})`);

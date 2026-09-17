@@ -3,6 +3,9 @@ import { Image as ImageIcon, Loader2, Sparkles, Trash2, Upload, X } from 'lucide
 import { resizeToMaxEdge } from '@/lib/imageUtils';
 import { buildSituationBackgroundPrompt } from '@/lib/situationBackgroundGeneration';
 import { useStore } from '@/lib/store';
+import { isAiConnectionKind } from '@/lib/aiApi';
+import { useAiConnections } from '@/lib/aiConnections';
+import { serializeModelRef, type ModelRef } from '@/lib/modelDefaults';
 import ModelSelector from './ModelSelector';
 import StoredImage from './StoredImage';
 import { useModalKeyboard } from './useModalKeyboard';
@@ -25,17 +28,11 @@ export default function SituationBackgroundModal({
     onClose,
     onComplete,
 }: SituationBackgroundModalProps) {
-    const {
-        aiApiType,
-        roleApiTypes,
-        defaultImageModel,
-        getAiApiConfig,
-        openAiCompatibleImageGenerationEnabled,
-    } = useStore();
-    const imageApiType = roleApiTypes.defaultImageModel ?? aiApiType;
+    const { defaultImageModel, getAiApiConfig } = useStore();
+    const { connections } = useAiConnections();
     const [selectingImage, setSelectingImage] = useState(!currentImage);
     const [prompt, setPrompt] = useState(initialPrompt);
-    const [model, setModel] = useState(defaultImageModel);
+    const [model, setModel] = useState<ModelRef>(defaultImageModel);
     const [candidate, setCandidate] = useState<string | null>(null);
     const [generating, setGenerating] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -45,14 +42,17 @@ export default function SituationBackgroundModal({
 
     useEffect(() => () => abortRef.current?.abort(), []);
 
-    const canGenerateImages = imageApiType === 'openrouter'
-        || (imageApiType === 'openai-compatible' && openAiCompatibleImageGenerationEnabled);
-    const providerHint = imageApiType === 'anthropic'
-        ? 'Anthropic APIでは画像生成を利用できません。ファイルからアップロードしてください。'
-        : imageApiType === 'openai-compatible'
-            ? openAiCompatibleImageGenerationEnabled
+    const selectedConnection = connections.find((connection) => connection.id === model.connectionId) ?? null;
+    const selectedKind = selectedConnection?.kind
+        ?? (isAiConnectionKind(model.connectionId) ? model.connectionId : null);
+    const canGenerateImages = selectedKind === 'openrouter'
+        || (selectedKind === 'openai-compatible' && selectedConnection?.imageGenerationEnabled === true);
+    const providerHint = selectedKind === 'anthropic'
+        ? 'Anthropic互換APIでは画像生成を利用できません。ファイルからアップロードしてください。'
+        : selectedKind === 'openai-compatible'
+            ? selectedConnection?.imageGenerationEnabled === true
                 ? 'OpenAI互換APIでは、テキストからの画像生成だけを試します。'
-                : 'OpenAI互換APIでの画像生成は無効です。ファイルからアップロードしてください。'
+                : 'この接続先での画像生成は無効です。ファイルからアップロードしてください。'
             : '人物や文字を含まない、ビジュアルノベル用の横長背景として生成します。';
 
     const attemptClose = () => {
@@ -69,7 +69,7 @@ export default function SituationBackgroundModal({
     });
 
     const handleGenerate = async () => {
-        if (!canGenerateImages || !prompt.trim() || !model.trim() || generating) return;
+        if (!canGenerateImages || !prompt.trim() || !model.model.trim() || generating) return;
         setError(null);
         setGenerating(true);
         const controller = new AbortController();
@@ -80,9 +80,9 @@ export default function SituationBackgroundModal({
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     prompt: buildSituationBackgroundPrompt(prompt),
-                    model: model.trim(),
+                    model: serializeModelRef(model),
                     aspectRatio: BACKGROUND_ASPECT_RATIO,
-                    aiApiConfig: getAiApiConfig(),
+                    aiApiConfig: { ...getAiApiConfig(), connectionId: model.connectionId },
                 }),
                 signal: controller.signal,
             });
@@ -242,7 +242,6 @@ export default function SituationBackgroundModal({
                                             value={model}
                                             onChange={setModel}
                                             outputModality="image"
-                                            apiType={imageApiType}
                                             disabled={generating || !canGenerateImages}
                                         />
                                     </div>
@@ -257,7 +256,7 @@ export default function SituationBackgroundModal({
                                         type="button"
                                         className="btn btn-primary"
                                         onClick={handleGenerate}
-                                        disabled={generating || !canGenerateImages || !prompt.trim() || !model.trim()}
+                                        disabled={generating || !canGenerateImages || !prompt.trim() || !model.model.trim()}
                                         style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                                     >
                                         {generating ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}

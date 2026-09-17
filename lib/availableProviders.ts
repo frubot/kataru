@@ -1,5 +1,3 @@
-import type { AiApiConfig } from './aiApi';
-
 export interface AvailableProvider {
     slug: string;
     name: string;
@@ -9,8 +7,9 @@ interface ProvidersResponse {
     data: AvailableProvider[];
 }
 
-let providerCache: AvailableProvider[] | null = null;
-let pendingRequest: Promise<AvailableProvider[]> | null = null;
+const providerCache = new Map<string, AvailableProvider[]>();
+const pendingRequests = new Map<string, Promise<AvailableProvider[]>>();
+const keyGenerations = new Map<string, number>();
 let cacheGeneration = 0;
 
 function isProvidersResponse(value: unknown): value is ProvidersResponse {
@@ -27,13 +26,13 @@ function isProvidersResponse(value: unknown): value is ProvidersResponse {
     ));
 }
 
-async function requestAvailableProviders(config: AiApiConfig): Promise<AvailableProvider[]> {
+async function requestAvailableProviders(connectionId: string): Promise<AvailableProvider[]> {
     const response = await fetch('/api/ai/providers', {
         method: 'POST',
         cache: 'no-store',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ aiApiConfig: config }),
+        body: JSON.stringify({ aiApiConfig: { connectionId } }),
     });
     const body: unknown = await response.json().catch(() => null);
     if (!response.ok) {
@@ -50,32 +49,43 @@ async function requestAvailableProviders(config: AiApiConfig): Promise<Available
 }
 
 export function getAvailableProviders(
-    config: AiApiConfig,
+    connectionId: string,
     options: { force?: boolean } = {},
 ): Promise<AvailableProvider[]> {
     if (options.force) {
-        cacheGeneration += 1;
-        providerCache = null;
-        pendingRequest = null;
+        keyGenerations.set(connectionId, (keyGenerations.get(connectionId) ?? 0) + 1);
+        providerCache.delete(connectionId);
+        pendingRequests.delete(connectionId);
     }
-    if (providerCache) return Promise.resolve(providerCache);
-    if (pendingRequest) return pendingRequest;
+    const cached = providerCache.get(connectionId);
+    if (cached) return Promise.resolve(cached);
+    const pending = pendingRequests.get(connectionId);
+    if (pending) return pending;
 
     const requestGeneration = cacheGeneration;
-    const request = requestAvailableProviders(config)
+    const requestKeyGeneration = keyGenerations.get(connectionId) ?? 0;
+    const request = requestAvailableProviders(connectionId)
         .then((providers) => {
-            if (requestGeneration === cacheGeneration) providerCache = providers;
+            if (
+                requestGeneration === cacheGeneration
+                && requestKeyGeneration === (keyGenerations.get(connectionId) ?? 0)
+            ) {
+                providerCache.set(connectionId, providers);
+            }
             return providers;
         })
         .finally(() => {
-            if (pendingRequest === request) pendingRequest = null;
+            if (pendingRequests.get(connectionId) === request) {
+                pendingRequests.delete(connectionId);
+            }
         });
-    pendingRequest = request;
+    pendingRequests.set(connectionId, request);
     return request;
 }
 
 export function clearAvailableProvidersCache(): void {
     cacheGeneration += 1;
-    providerCache = null;
-    pendingRequest = null;
+    providerCache.clear();
+    pendingRequests.clear();
+    keyGenerations.clear();
 }

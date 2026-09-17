@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { resolveAiSettingsMigration } from '../lib/aiSettingsMigration.ts';
+import {
+    foldMigratedModelDefaults,
+    normalizeMigratableRoleApiTypes,
+    resolveAiSettingsMigration,
+} from '../lib/aiSettingsMigration.ts';
 
 const fields = [
     'summaryModel',
@@ -131,4 +135,38 @@ test('does not resave canonical settings merely because legacy keys remain', () 
     assert.equal(result.shouldPersistAiApiType, false);
     assert.equal(result.shouldPersistModelDefaultsByApiType, false);
     assert.equal(result.shouldPersistSchemaVersion, false);
+});
+
+test('normalizeMigratableRoleApiTypes keeps only valid role overrides', () => {
+    assert.deepEqual(normalizeMigratableRoleApiTypes({
+        defaultChatModel: 'anthropic',
+        summaryModel: 'openai-compatible',
+        defaultImageModel: 'not-a-kind',
+        unknownRole: 'openrouter',
+    }), {
+        defaultChatModel: 'anthropic',
+        summaryModel: 'openai-compatible',
+    });
+    assert.deepEqual(normalizeMigratableRoleApiTypes(undefined), {});
+    assert.deepEqual(normalizeMigratableRoleApiTypes('anthropic'), {});
+});
+
+test('foldMigratedModelDefaults resolves each role to a ModelRef', () => {
+    const modelDefaultsByApiType = {
+        openrouter: defaults('openrouter'),
+        'openai-compatible': { ...defaults('openai'), defaultChatModel: 'local-model' },
+        anthropic: { ...defaults('anthropic'), defaultChatModel: 'claude-opus' },
+    };
+
+    // グローバル aiApiType がそのまま接続 id になる。
+    const folded = foldMigratedModelDefaults(modelDefaultsByApiType, 'openai-compatible', {});
+    assert.deepEqual(folded.defaultChatModel, { connectionId: 'openai-compatible', model: 'local-model' });
+    assert.deepEqual(folded.summaryModel, { connectionId: 'openai-compatible', model: 'openai-summaryModel' });
+
+    // 役割ごとの旧 roleApiTypes が接続 id を上書きする。
+    const withRoleOverride = foldMigratedModelDefaults(modelDefaultsByApiType, 'openai-compatible', {
+        defaultChatModel: 'anthropic',
+    });
+    assert.deepEqual(withRoleOverride.defaultChatModel, { connectionId: 'anthropic', model: 'claude-opus' });
+    assert.deepEqual(withRoleOverride.summaryModel, { connectionId: 'openai-compatible', model: 'openai-summaryModel' });
 });

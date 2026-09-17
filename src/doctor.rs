@@ -13,9 +13,7 @@ use serde_json::{Value, json};
 
 use crate::{
     ai::{AiApiClient, AiApiConfig},
-    ai_config::{
-        AiConfigManager, DEFAULT_ANTHROPIC_BASE_URL, DEFAULT_OPENAI_BASE_URL, EffectiveAiConfig,
-    },
+    ai_config::{AiConfigManager, ConnectionKind, DEFAULT_OPENAI_BASE_URL, EffectiveAiConfig},
     config::{default_data_dir, portable_data_dir},
     db::CURRENT_SCHEMA_VERSION,
     error::{AppError, AppResult},
@@ -251,10 +249,10 @@ async fn run_checks(options: &DoctorOptions) -> DoctorReport {
         match AiConfigManager::open(&options.data_dir) {
             Ok(manager) => {
                 let effective = manager.effective();
-                let providers = configured_providers(&effective);
-                checks.push(ai_configuration_check(&manager, &effective, &providers));
+                let connections = configured_connections(&effective);
+                checks.push(ai_configuration_check(&manager, &effective, &connections));
                 if options.network {
-                    checks.push(check_ai_connectivity(&effective, &providers).await);
+                    checks.push(check_ai_connectivity(&effective, &connections).await);
                 } else {
                     checks.push(DoctorCheck::new(
                         "ai_connectivity",
@@ -523,68 +521,47 @@ fn check_sqlite(path: &Path) -> (DoctorCheck, DoctorCheck) {
     (sqlite, migrations)
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-enum ProviderKind {
-    OpenRouter,
-    OpenAiCompatible,
-    Anthropic,
-}
-
-impl ProviderKind {
-    fn api_type(self) -> Option<String> {
-        match self {
-            Self::OpenRouter => None,
-            Self::OpenAiCompatible => Some("openai-compatible".to_owned()),
-            Self::Anthropic => Some("anthropic".to_owned()),
-        }
-    }
-
-    fn models_path(self) -> &'static str {
-        match self {
-            Self::OpenRouter => "models?output_modalities=text",
-            Self::OpenAiCompatible => "models",
-            Self::Anthropic => "models?limit=1",
-        }
+fn models_path(kind: ConnectionKind) -> &'static str {
+    match kind {
+        ConnectionKind::OpenRouter => "models?output_modalities=text",
+        ConnectionKind::OpenAiCompatible => "models",
+        ConnectionKind::Anthropic => "models?limit=1",
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct ConfiguredProvider {
-    kind: ProviderKind,
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ConfiguredConnection<'a> {
+    id: &'a str,
+    name: &'a str,
+    kind: ConnectionKind,
     endpoint: &'static str,
     credential_configured: bool,
 }
 
-fn configured_providers(config: &EffectiveAiConfig) -> Vec<ConfiguredProvider> {
-    let mut providers = Vec::new();
-    if config.openrouter_api_key.is_some() {
-        providers.push(ConfiguredProvider {
-            kind: ProviderKind::OpenRouter,
-            endpoint: "default-https",
-            credential_configured: true,
-        });
-    }
-    let openai_is_custom = config.openai_base_url != DEFAULT_OPENAI_BASE_URL;
-    if config.openai_api_key.is_some() || openai_is_custom {
-        providers.push(ConfiguredProvider {
-            kind: ProviderKind::OpenAiCompatible,
-            endpoint: endpoint_class(&config.openai_base_url),
-            credential_configured: config.openai_api_key.is_some(),
-        });
-    }
-    if config.anthropic_api_key.is_some() {
-        providers.push(ConfiguredProvider {
-            kind: ProviderKind::Anthropic,
-            endpoint: if config.anthropic_base_url == DEFAULT_ANTHROPIC_BASE_URL {
+/// A connection counts as configured when it holds a credential, or when it is
+/// an OpenAI-compatible connection pointed at a non-default (typically local)
+/// host, matching the request-time local-key fallback.
+fn configured_connections(config: &EffectiveAiConfig) -> Vec<ConfiguredConnection<'_>> {
+    config
+        .connections
+        .iter()
+        .filter(|connection| {
+            connection.api_key.is_some()
+                || (connection.kind == ConnectionKind::OpenAiCompatible
+                    && connection.base_url != DEFAULT_OPENAI_BASE_URL)
+        })
+        .map(|connection| ConfiguredConnection {
+            id: connection.id.as_str(),
+            name: connection.name.as_str(),
+            kind: connection.kind,
+            endpoint: if connection.base_url == connection.kind.default_base_url() {
                 "default-https"
             } else {
-                endpoint_class(&config.anthropic_base_url)
+                endpoint_class(&connection.base_url)
             },
-            credential_configured: true,
-        });
-    }
-    providers
+            credential_configured: connection.api_key.is_some(),
+        })
+        .collect()
 }
 
 fn endpoint_class(value: &str) -> &'static str {
@@ -608,29 +585,31 @@ fn endpoint_class(value: &str) -> &'static str {
 fn ai_configuration_check(
     manager: &AiConfigManager,
     config: &EffectiveAiConfig,
-    providers: &[ConfiguredProvider],
+    connections: &[ConfiguredConnection<'_>],
 ) -> DoctorCheck {
-    let provider_details = providers
+    let connection_details = connections
         .iter()
-        .map(|provider| {
+        .map(|connection| {
             json!({
-                "provider": provider.kind,
-                "endpoint": provider.endpoint,
-                "credentialConfigured": provider.credential_configured,
+                "id": connection.id,
+                "name": connection.name,
+                "kind": connection.kind,
+                "endpoint": connection.endpoint,
+                "credentialConfigured": connection.credential_configured,
             })
         })
         .collect::<Vec<_>>();
     let secret_store_available = manager.secret_store_available();
-    let (status, message) = if providers.is_empty() {
+    let any_credential = config
+        .connections
+        .iter()
+        .any(|connection| connection.api_key.is_some());
+    let (status, message) = if connections.is_empty() {
         (
             CheckStatus::Warning,
             "利用可能なAI接続設定がありません。設定画面または kataru config を使用してください。",
         )
-    } else if !secret_store_available
-        && config.openrouter_api_key.is_none()
-        && config.openai_api_key.is_none()
-        && config.anthropic_api_key.is_none()
-    {
+    } else if !secret_store_available && !any_credential {
         (
             CheckStatus::Warning,
             "AI接続先はありますが、OSの資格情報ストアを利用できません。",
@@ -643,7 +622,7 @@ fn ai_configuration_check(
         status,
         message,
         json!({
-            "configuredProviders": provider_details,
+            "configuredConnections": connection_details,
             "secretStoreAvailable": secret_store_available,
         }),
     )
@@ -652,7 +631,8 @@ fn ai_configuration_check(
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AiProbeResult {
-    provider: ProviderKind,
+    name: String,
+    kind: ConnectionKind,
     status: CheckStatus,
     code: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -661,9 +641,9 @@ struct AiProbeResult {
 
 async fn check_ai_connectivity(
     config: &EffectiveAiConfig,
-    providers: &[ConfiguredProvider],
+    connections: &[ConfiguredConnection<'_>],
 ) -> DoctorCheck {
-    if providers.is_empty() {
+    if connections.is_empty() {
         return DoctorCheck::new(
             "ai_connectivity",
             CheckStatus::Warning,
@@ -687,9 +667,9 @@ async fn check_ai_connectivity(
         }
     };
 
-    let mut results = Vec::with_capacity(providers.len());
-    for provider in providers {
-        results.push(probe_provider(&client, config, provider.kind).await);
+    let mut results = Vec::with_capacity(connections.len());
+    for connection in connections {
+        results.push(probe_connection(&client, config, connection).await);
     }
     let successes = results
         .iter()
@@ -727,14 +707,13 @@ async fn check_ai_connectivity(
     )
 }
 
-async fn probe_provider(
+async fn probe_connection(
     client: &Client,
     server_config: &EffectiveAiConfig,
-    kind: ProviderKind,
+    connection: &ConfiguredConnection<'_>,
 ) -> AiProbeResult {
     let api_config = AiApiConfig {
-        ai_api_type: kind.api_type(),
-        ..AiApiConfig::default()
+        connection_id: Some(connection.id.to_owned()),
     };
     let api_client = match AiApiClient::resolve(
         client.clone(),
@@ -745,7 +724,8 @@ async fn probe_provider(
         Ok(client) => client,
         Err(_) => {
             return AiProbeResult {
-                provider: kind,
+                name: connection.name.to_owned(),
+                kind: connection.kind,
                 status: CheckStatus::Error,
                 code: "invalid_configuration",
                 http_status: None,
@@ -753,13 +733,14 @@ async fn probe_provider(
         }
     };
     match api_client
-        .get(kind.models_path(), AI_PROBE_TIMEOUT)
+        .get(models_path(connection.kind), AI_PROBE_TIMEOUT)
         .send()
         .await
     {
-        Ok(response) => probe_http_status(kind, response.status().as_u16()),
+        Ok(response) => probe_http_status(connection, response.status().as_u16()),
         Err(error) => AiProbeResult {
-            provider: kind,
+            name: connection.name.to_owned(),
+            kind: connection.kind,
             status: CheckStatus::Warning,
             code: if error.is_timeout() {
                 "timeout"
@@ -773,7 +754,7 @@ async fn probe_provider(
     }
 }
 
-fn probe_http_status(provider: ProviderKind, status: u16) -> AiProbeResult {
+fn probe_http_status(connection: &ConfiguredConnection<'_>, status: u16) -> AiProbeResult {
     let (severity, code) = match status {
         200..=299 => (CheckStatus::Ok, "ready"),
         401 | 403 => (CheckStatus::Error, "authentication_rejected"),
@@ -783,7 +764,8 @@ fn probe_http_status(provider: ProviderKind, status: u16) -> AiProbeResult {
         _ => (CheckStatus::Warning, "unexpected_status"),
     };
     AiProbeResult {
-        provider,
+        name: connection.name.to_owned(),
+        kind: connection.kind,
         status: severity,
         code,
         http_status: Some(status),
@@ -835,6 +817,7 @@ fn print_help() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ai_config::{ConfigSource, EffectiveConnection};
     use tempfile::tempdir;
 
     #[test]
@@ -937,51 +920,87 @@ mod tests {
         assert!(!serialized.contains("super-secret"));
     }
 
+    fn connection(
+        id: &str,
+        kind: ConnectionKind,
+        base_url: &str,
+        api_key: Option<&str>,
+    ) -> EffectiveConnection {
+        EffectiveConnection {
+            id: id.to_owned(),
+            name: format!("{id} 接続"),
+            kind,
+            base_url: base_url.to_owned(),
+            api_key: api_key.map(str::to_owned),
+            source: api_key.map(|_| ConfigSource::Stored),
+            builtin: true,
+            editable: true,
+            deletable: false,
+            base_url_editable: true,
+            embeddings_enabled: false,
+            image_generation_enabled: false,
+            ignored_providers: Vec::new(),
+        }
+    }
+
     #[test]
-    fn provider_details_never_contain_api_keys_or_base_urls() {
+    fn connection_details_never_contain_api_keys_or_base_urls() {
         let config = EffectiveAiConfig {
-            openrouter_api_key: Some("openrouter-super-secret".to_owned()),
-            openai_base_url: "http://127.0.0.1:1234/v1/private-name".to_owned(),
-            openai_api_key: Some("openai-super-secret".to_owned()),
-            anthropic_base_url: DEFAULT_ANTHROPIC_BASE_URL.to_owned(),
-            anthropic_api_key: None,
+            connections: vec![
+                connection(
+                    "openrouter",
+                    ConnectionKind::OpenRouter,
+                    "https://openrouter.ai/api/v1",
+                    Some("openrouter-super-secret"),
+                ),
+                connection(
+                    "cx_local",
+                    ConnectionKind::OpenAiCompatible,
+                    "http://127.0.0.1:1234/v1/private-name",
+                    Some("openai-super-secret"),
+                ),
+            ],
         };
 
         let serialized = serde_json::to_string(
-            &configured_providers(&config)
+            &configured_connections(&config)
                 .iter()
-                .map(|provider| {
+                .map(|connection| {
                     json!({
-                        "provider": provider.kind,
-                        "endpoint": provider.endpoint,
-                        "credentialConfigured": provider.credential_configured,
+                        "id": connection.id,
+                        "name": connection.name,
+                        "kind": connection.kind,
+                        "endpoint": connection.endpoint,
+                        "credentialConfigured": connection.credential_configured,
                     })
                 })
                 .collect::<Vec<_>>(),
         )
-        .expect("serialize provider summary");
+        .expect("serialize connection summary");
 
         assert!(!serialized.contains("super-secret"));
         assert!(!serialized.contains("private-name"));
         assert!(serialized.contains("custom-loopback-http"));
+        assert!(serialized.contains("cx_local"));
     }
 
     #[test]
     fn http_probe_statuses_distinguish_configuration_and_offline_warnings() {
+        let target = ConfiguredConnection {
+            id: "openrouter",
+            name: "OpenRouter",
+            kind: ConnectionKind::OpenRouter,
+            endpoint: "default-https",
+            credential_configured: true,
+        };
+        assert_eq!(probe_http_status(&target, 200).status, CheckStatus::Ok);
+        assert_eq!(probe_http_status(&target, 401).status, CheckStatus::Error);
         assert_eq!(
-            probe_http_status(ProviderKind::OpenRouter, 200).status,
-            CheckStatus::Ok
-        );
-        assert_eq!(
-            probe_http_status(ProviderKind::OpenRouter, 401).status,
-            CheckStatus::Error
-        );
-        assert_eq!(
-            probe_http_status(ProviderKind::OpenRouter, 429).status,
+            probe_http_status(&target, 429).status,
             CheckStatus::Warning
         );
         assert_eq!(
-            probe_http_status(ProviderKind::OpenRouter, 503).status,
+            probe_http_status(&target, 503).status,
             CheckStatus::Warning
         );
     }

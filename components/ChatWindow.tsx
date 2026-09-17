@@ -9,6 +9,7 @@ import {
     RoomCompressionSnapshot,
 } from '@/lib/store';
 import type { MemoryRecord, SituationPriorMessage } from '@/lib/store';
+import { serializeModelRef, type ModelRef } from '@/lib/modelDefaults';
 import {
     ChatGenerationJobError,
     getChatErrorDebugInfo,
@@ -101,8 +102,7 @@ type ConversationCharacter = {
     speechStyle?: string;
     protagonistPrompt?: string;
     userConstraints?: string;
-    model: string;
-    aiApiType?: string;
+    model: ModelRef;
     maxCharacters?: number;
     maxHistory?: number;
     temperature?: number;
@@ -136,8 +136,7 @@ function toConversationCharacter(character: Character | null): ConversationChara
         speechStyle: character.speechStyle,
         protagonistPrompt: character.protagonistPrompt,
         userConstraints: character.userConstraints,
-        model: character.model,
-        aiApiType: character.aiApiType,
+        model: serializeModelRef(character.model),
         maxCharacters: character.maxCharacters,
         maxHistory: character.maxHistory,
         temperature: character.temperature,
@@ -176,8 +175,7 @@ function toConversationSituation(situation: Situation | null | undefined) {
         situationPrompt: situation.situationPrompt,
         priorMessages: situation.priorMessages,
         director: {
-            model: situation.director.model,
-            aiApiType: situation.director.aiApiType,
+            model: serializeModelRef(situation.director.model),
             systemPrompt: situation.director.systemPrompt,
             maxAutoTurns: situation.director.maxAutoTurns,
             stopPolicy: situation.director.stopPolicy,
@@ -825,10 +823,10 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     groupCharacters: groupCharacters?.map(toConversationParticipant),
                     messages: sourceRoom.messages,
                     secretMode: isSecretMode,
-                    summaryModel: globalSummaryModel,
+                    summaryModel: serializeModelRef(globalSummaryModel),
                     conversationCompressionEnabled,
-                    memoryExtractionModel,
-                    memoryEmbeddingModel,
+                    memoryExtractionModel: serializeModelRef(memoryExtractionModel),
+                    memoryEmbeddingModel: serializeModelRef(memoryEmbeddingModel),
                     aiApiConfig: getAiApiConfig(),
                     streamingPreview: shouldStreamPreview,
                     generationMode,

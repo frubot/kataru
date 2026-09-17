@@ -35,8 +35,8 @@ describe('room title generation', () => {
             { role: 'user' as const, content: 'こんにちは' },
             { role: 'assistant' as const, content: 'こんにちは！' },
         ],
-        model: 'model-1',
-        aiApiConfig: normalizeAiApiConfig({ aiApiType: 'openrouter' }),
+        model: { connectionId: 'openrouter', model: 'model-1' },
+        aiApiConfig: normalizeAiApiConfig({ connectionId: 'openrouter' }),
     };
 
     test('retries unsuccessful responses and returns the generated title', async () => {

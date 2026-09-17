@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
-import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Check, ChevronDown, RefreshCw, ExternalLink, type LucideIcon } from 'lucide-react';
+import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Check, ChevronDown, RefreshCw, ExternalLink, Plus, type LucideIcon } from 'lucide-react';
 import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, RoomViewMode, getDefaultModelDefaults } from '@/lib/store';
 import { AI_CONNECTION_KIND_LABELS, isAiConnectionKind } from '@/lib/aiApi';
 import { useAiConnections } from '@/lib/aiConnections';
@@ -439,6 +439,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
     const [isThemeModeMenuOpen, setThemeModeMenuOpen] = useState(false);
     const [isPaletteMenuOpen, setPaletteMenuOpen] = useState(false);
     const [isDefaultViewModeMenuOpen, setDefaultViewModeMenuOpen] = useState(false);
+    const [isAiConnectionAddOpen, setAiConnectionAddOpen] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const themeModeMenuRef = useRef<HTMLDivElement>(null);
     const paletteMenuRef = useRef<HTMLDivElement>(null);
@@ -1243,10 +1244,25 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                             <>
                         {/* AI connections section */}
                         <div style={{ marginBottom: '1.5rem' }}>
-                            <h3 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '0.75rem' }}>
-                                接続先
-                            </h3>
-                            <AiConnectionSettings />
+                            <div className="global-settings-model-heading-row">
+                                <h3 style={{ fontSize: '0.875rem', fontWeight: 700 }}>
+                                    接続先
+                                </h3>
+                                <button
+                                    type="button"
+                                    className="ai-connection-icon-button"
+                                    disabled={isAiConnectionAddOpen}
+                                    title="接続先を追加"
+                                    aria-label="接続先を追加"
+                                    onClick={() => setAiConnectionAddOpen(true)}
+                                >
+                                    <Plus size={16} aria-hidden="true" />
+                                </button>
+                            </div>
+                            <AiConnectionSettings
+                                addOpen={isAiConnectionAddOpen}
+                                onAddOpenChange={setAiConnectionAddOpen}
+                            />
                             <p style={{ marginTop: '0.75rem', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
                                 OpenRouter以外の接続先では一部の機能が制限されます。全ての機能を利用するにはOpenRouterを使用してください。
                             </p>

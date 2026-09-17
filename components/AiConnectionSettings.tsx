@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
+import { Pencil, RefreshCw, Save, Trash2 } from 'lucide-react';
 
 import { AI_CONNECTION_KIND_LABELS, type AiConnectionKind } from '@/lib/aiApi';
 import {
@@ -43,6 +43,7 @@ function AiConnectionCard({ connection }: { connection: AiConnectionStatus }) {
     const [embeddingsEnabled, setEmbeddingsEnabled] = useState(connection.embeddingsEnabled);
     const [imageGenerationEnabled, setImageGenerationEnabled] = useState(connection.imageGenerationEnabled);
     const [ignoredProviders, setIgnoredProviders] = useState(connection.ignoredProviders);
+    const [editing, setEditing] = useState(false);
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -120,147 +121,166 @@ function AiConnectionCard({ connection }: { connection: AiConnectionStatus }) {
                     <strong>{connection.name}</strong>
                     <span>{connection.baseUrl ?? AI_CONNECTION_KIND_LABELS[connection.kind]}</span>
                 </div>
-                <span className="ai-connection-badges">
-                    <span className="ai-connection-badge">{AI_CONNECTION_KIND_LABELS[connection.kind]}</span>
-                    {connection.builtin && <span className="ai-connection-badge muted">組み込み</span>}
+                <span className="ai-connection-heading-side">
+                    <span className="ai-connection-badges">
+                        <span className="ai-connection-badge">{AI_CONNECTION_KIND_LABELS[connection.kind]}</span>
+                        {connection.builtin && <span className="ai-connection-badge muted">組み込み</span>}
+                    </span>
+                    <span className="ai-connection-icon-actions">
+                        <button
+                            type="button"
+                            className={editing ? 'ai-connection-icon-button active' : 'ai-connection-icon-button'}
+                            title={editing ? '編集を閉じる' : '設定を編集'}
+                            aria-label={`${connection.name}の設定を編集`}
+                            aria-expanded={editing}
+                            onClick={() => setEditing((prev) => !prev)}
+                        >
+                            <Pencil size={14} aria-hidden="true" />
+                        </button>
+                        {connection.deletable && (
+                            <button
+                                type="button"
+                                className="ai-connection-icon-button danger"
+                                disabled={saving}
+                                title="接続先を削除"
+                                aria-label={`${connection.name}を削除`}
+                                onClick={handleDelete}
+                            >
+                                <Trash2 size={14} aria-hidden="true" />
+                            </button>
+                        )}
+                    </span>
                 </span>
             </div>
 
-            {!connection.builtin && (
-                <>
-                    <label className="ai-connection-label" htmlFor={`ai-connection-name-${connection.id}`}>
-                        接続名
+            {editing && (
+                <div className="ai-connection-details">
+                    {!connection.builtin && (
+                        <>
+                            <label className="ai-connection-label" htmlFor={`ai-connection-name-${connection.id}`}>
+                                接続名
+                            </label>
+                            <input
+                                id={`ai-connection-name-${connection.id}`}
+                                className="input"
+                                type="text"
+                                value={name}
+                                disabled={!connection.editable || saving}
+                                spellCheck={false}
+                                onChange={(event) => setName(event.target.value)}
+                            />
+                        </>
+                    )}
+
+                    <label className="ai-connection-label" htmlFor={`ai-connection-base-url-${connection.id}`}>
+                        エンドポイント
                     </label>
                     <input
-                        id={`ai-connection-name-${connection.id}`}
+                        id={`ai-connection-base-url-${connection.id}`}
                         className="input"
-                        type="text"
-                        value={name}
-                        disabled={!connection.editable || saving}
+                        type="url"
+                        value={baseUrl}
+                        disabled={!connection.baseUrlEditable || saving}
                         spellCheck={false}
-                        onChange={(event) => setName(event.target.value)}
+                        onChange={(event) => setBaseUrl(event.target.value)}
                     />
-                </>
-            )}
+                    {!connection.baseUrlEditable && (
+                        <p className="ai-connection-help">{baseUrlLockedHelp}</p>
+                    )}
+                    {baseUrlChanged && connection.apiKey.configured && (
+                        <p className="ai-connection-help warning">
+                            接続先を変更すると、現在保存されているAPIキーは解除されます。
+                        </p>
+                    )}
 
-            <label className="ai-connection-label" htmlFor={`ai-connection-base-url-${connection.id}`}>
-                エンドポイント
-            </label>
-            <input
-                id={`ai-connection-base-url-${connection.id}`}
-                className="input"
-                type="url"
-                value={baseUrl}
-                disabled={!connection.baseUrlEditable || saving}
-                spellCheck={false}
-                onChange={(event) => setBaseUrl(event.target.value)}
-            />
-            {!connection.baseUrlEditable && (
-                <p className="ai-connection-help">{baseUrlLockedHelp}</p>
-            )}
-            {baseUrlChanged && connection.apiKey.configured && (
-                <p className="ai-connection-help warning">
-                    接続先を変更すると、現在保存されているAPIキーは解除されます。
-                </p>
-            )}
-
-            <label className="ai-connection-label" htmlFor={`ai-connection-api-key-${connection.id}`}>
-                APIキー
-            </label>
-            <input
-                id={`ai-connection-api-key-${connection.id}`}
-                className="input"
-                type="password"
-                value={apiKey}
-                disabled={!connection.apiKey.editable || saving}
-                autoComplete="new-password"
-                spellCheck={false}
-                placeholder={apiKeyPlaceholder(connection)}
-                onChange={(event) => setApiKey(event.target.value)}
-            />
-            {!connection.apiKey.editable ? (
-                <p className="ai-connection-help">
-                    環境変数 {ENV_API_KEY_NAMES[connection.kind]} が設定されているため、変更できません。
-                </p>
-            ) : connection.apiKey.configured && connection.apiKey.source === 'environment' ? (
-                <p className="ai-connection-help">環境変数のAPIキーを使用中です。</p>
-            ) : !connection.apiKey.configured && connection.kind !== 'openai-compatible' ? (
-                <p className="ai-connection-help">APIキーが未設定です。</p>
-            ) : null}
-
-            {connection.kind === 'openai-compatible' && (
-                <>
-                    <label className="ai-connection-option">
-                        <input
-                            type="checkbox"
-                            checked={embeddingsEnabled}
-                            disabled={!connection.editable || saving}
-                            onChange={(event) => setEmbeddingsEnabled(event.target.checked)}
-                        />
-                        埋め込みモデルを利用する（メモリ検索）
+                    <label className="ai-connection-label" htmlFor={`ai-connection-api-key-${connection.id}`}>
+                        APIキー
                     </label>
-                    <label className="ai-connection-option">
-                        <input
-                            type="checkbox"
-                            checked={imageGenerationEnabled}
-                            disabled={!connection.editable || saving}
-                            onChange={(event) => setImageGenerationEnabled(event.target.checked)}
-                        />
-                        画像生成を利用する
-                    </label>
-                </>
-            )}
-
-            {connection.kind === 'openrouter' && (
-                <div>
-                    <span className="ai-connection-label">使用しないプロバイダー</span>
-                    <ProviderSelector
-                        connectionId={connection.id}
-                        value={ignoredProviders}
-                        onChange={setIgnoredProviders}
+                    <input
+                        id={`ai-connection-api-key-${connection.id}`}
+                        className="input"
+                        type="password"
+                        value={apiKey}
+                        disabled={!connection.apiKey.editable || saving}
+                        autoComplete="new-password"
+                        spellCheck={false}
+                        placeholder={apiKeyPlaceholder(connection)}
+                        onChange={(event) => setApiKey(event.target.value)}
                     />
-                    <p className="ai-connection-help" style={{ marginTop: '0.375rem' }}>
-                        選択したプロバイダーをOpenRouterのルーティング候補から除外します。
-                    </p>
+                    {!connection.apiKey.editable ? (
+                        <p className="ai-connection-help">
+                            環境変数 {ENV_API_KEY_NAMES[connection.kind]} が設定されているため、変更できません。
+                        </p>
+                    ) : connection.apiKey.configured && connection.apiKey.source === 'environment' ? (
+                        <p className="ai-connection-help">環境変数のAPIキーを使用中です。</p>
+                    ) : !connection.apiKey.configured && connection.kind !== 'openai-compatible' ? (
+                        <p className="ai-connection-help">APIキーが未設定です。</p>
+                    ) : null}
+
+                    {connection.kind === 'openai-compatible' && (
+                        <>
+                            <label className="ai-connection-option">
+                                <input
+                                    type="checkbox"
+                                    checked={embeddingsEnabled}
+                                    disabled={!connection.editable || saving}
+                                    onChange={(event) => setEmbeddingsEnabled(event.target.checked)}
+                                />
+                                埋め込みモデルを利用する（メモリ検索）
+                            </label>
+                            <label className="ai-connection-option">
+                                <input
+                                    type="checkbox"
+                                    checked={imageGenerationEnabled}
+                                    disabled={!connection.editable || saving}
+                                    onChange={(event) => setImageGenerationEnabled(event.target.checked)}
+                                />
+                                画像生成を利用する
+                            </label>
+                        </>
+                    )}
+
+                    {connection.kind === 'openrouter' && (
+                        <div>
+                            <span className="ai-connection-label">使用しないプロバイダー</span>
+                            <ProviderSelector
+                                connectionId={connection.id}
+                                value={ignoredProviders}
+                                onChange={setIgnoredProviders}
+                            />
+                            <p className="ai-connection-help" style={{ marginTop: '0.375rem' }}>
+                                選択したプロバイダーをOpenRouterのルーティング候補から除外します。
+                            </p>
+                        </div>
+                    )}
+
+                    <div className="ai-connection-actions">
+                        <button
+                            type="button"
+                            className="btn btn-ghost"
+                            disabled={!canSave || saving}
+                            onClick={handleSave}
+                        >
+                            <Save size={15} aria-hidden="true" />
+                            保存
+                        </button>
+                        {connection.apiKey.configured && connection.apiKey.editable && (
+                            <button
+                                type="button"
+                                className="btn btn-ghost"
+                                disabled={saving}
+                                onClick={() => void runUpdate(
+                                    () => updateAiConnection(connection.id, { clearApiKey: true }),
+                                    'APIキーを削除しました。',
+                                )}
+                            >
+                                <Trash2 size={15} aria-hidden="true" />
+                                キーを削除
+                            </button>
+                        )}
+                    </div>
                 </div>
             )}
-
-            <div className="ai-connection-actions">
-                <button
-                    type="button"
-                    className="btn btn-ghost"
-                    disabled={!canSave || saving}
-                    onClick={handleSave}
-                >
-                    <Save size={15} aria-hidden="true" />
-                    保存
-                </button>
-                {connection.apiKey.configured && connection.apiKey.editable && (
-                    <button
-                        type="button"
-                        className="btn btn-ghost"
-                        disabled={saving}
-                        onClick={() => void runUpdate(
-                            () => updateAiConnection(connection.id, { clearApiKey: true }),
-                            'APIキーを削除しました。',
-                        )}
-                    >
-                        <Trash2 size={15} aria-hidden="true" />
-                        キーを削除
-                    </button>
-                )}
-                {connection.deletable && (
-                    <button
-                        type="button"
-                        className="btn btn-ghost"
-                        disabled={saving}
-                        onClick={handleDelete}
-                    >
-                        <Trash2 size={15} aria-hidden="true" />
-                        接続を削除
-                    </button>
-                )}
-            </div>
 
             {message && <p className="ai-connection-message success" role="status">{message}</p>}
             {error && <p className="ai-connection-message error" role="alert">{error}</p>}
@@ -268,8 +288,7 @@ function AiConnectionCard({ connection }: { connection: AiConnectionStatus }) {
     );
 }
 
-function AddAiConnectionCard() {
-    const [open, setOpen] = useState(false);
+function AddAiConnectionCard({ onClose }: { onClose: () => void }) {
     const [name, setName] = useState('');
     const [kind, setKind] = useState<AiConnectionKind>('openai-compatible');
     const [baseUrl, setBaseUrl] = useState('');
@@ -307,26 +326,13 @@ function AddAiConnectionCard() {
                     : {}),
             });
             reset();
-            setOpen(false);
+            onClose();
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : '接続先を作成できませんでした。');
         } finally {
             setSaving(false);
         }
     };
-
-    if (!open) {
-        return (
-            <button
-                type="button"
-                className="btn btn-secondary ai-connection-add"
-                onClick={() => setOpen(true)}
-            >
-                <Plus size={16} aria-hidden="true" />
-                接続先を追加
-            </button>
-        );
-    }
 
     return (
         <div className="card ai-connection-card">
@@ -427,7 +433,7 @@ function AddAiConnectionCard() {
                     disabled={saving}
                     onClick={() => {
                         reset();
-                        setOpen(false);
+                        onClose();
                     }}
                 >
                     キャンセル
@@ -439,7 +445,12 @@ function AddAiConnectionCard() {
     );
 }
 
-export default function AiConnectionSettings() {
+interface AiConnectionSettingsProps {
+    addOpen: boolean;
+    onAddOpenChange: (open: boolean) => void;
+}
+
+export default function AiConnectionSettings({ addOpen, onAddOpenChange }: AiConnectionSettingsProps) {
     const { connections, secretStoreAvailable, loading, error, reload } = useAiConnections();
 
     if (loading && connections.length === 0) {
@@ -472,14 +483,14 @@ export default function AiConnectionSettings() {
             {connections.map((connection) => (
                 <AiConnectionCard key={connection.id} connection={connection} />
             ))}
-            {connections.length === 0 && (
+            {connections.length === 0 && !addOpen && (
                 <div className="card ai-connection-card">
                     <p className="ai-connection-message">
-                        接続先がまだありません。「接続先を追加」から利用するAIサービスを追加してください。
+                        接続先がまだありません。「+」から利用するAIサービスを追加してください。
                     </p>
                 </div>
             )}
-            <AddAiConnectionCard />
+            {addOpen && <AddAiConnectionCard onClose={() => onAddOpenChange(false)} />}
         </div>
     );
 }

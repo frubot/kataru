@@ -29,8 +29,8 @@ const VrmAvatarView = lazy(() => import('./VrmAvatarView'));
 
 const NEUTRAL_NAME = 'neutral';
 const DEFAULT_COSTUME_NAME = 'default';
-const CHARACTER_PROMPT_SECTION_TITLE = 'キャラクターについて';
-const SPEECH_STYLE_SECTION_TITLE = 'キャラクターの口調';
+const CHARACTER_PROMPT_SECTION_TITLE = 'プロフィール';
+const SPEECH_STYLE_SECTION_TITLE = '口調';
 const PROTAGONIST_PROMPT_SECTION_TITLE = '主人公について';
 const USER_CONSTRAINTS_SECTION_TITLE = '追加の制約';
 
@@ -761,7 +761,6 @@ function CharacterSettingsModalContent({
 
                     {/* プロンプト */}
                     <div style={sectionStyle}>
-                        <label style={labelStyle}>プロンプト</label>
                         <div style={promptSectionsStyle}>
                             <div>
                                 <div style={fixedPromptLabelStyle}>{CHARACTER_PROMPT_SECTION_TITLE}</div>

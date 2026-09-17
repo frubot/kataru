@@ -129,7 +129,7 @@ function AiConnectionCard({ connection }: { connection: AiConnectionStatus }) {
                     <span className="ai-connection-icon-actions">
                         <button
                             type="button"
-                            className={editing ? 'ai-connection-icon-button active' : 'ai-connection-icon-button'}
+                            className={editing ? 'ai-connection-icon-button edit active' : 'ai-connection-icon-button edit'}
                             title={editing ? '編集を閉じる' : '設定を編集'}
                             aria-label={`${connection.name}の設定を編集`}
                             aria-expanded={editing}

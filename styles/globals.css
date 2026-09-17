@@ -1925,6 +1925,10 @@ body {
   color: var(--accent-primary);
 }
 
+.ai-connection-icon-button.edit:hover:not(:disabled):not(.active) {
+  background: transparent;
+}
+
 .ai-connection-icon-button.danger:hover:not(:disabled) {
   background: transparent;
   color: var(--error);

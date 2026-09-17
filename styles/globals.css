@@ -1456,6 +1456,11 @@ body {
   border-bottom: none;
 }
 
+.prompt-section-row.prompt-section-row-plain {
+  grid-template-columns: 1fr;
+  padding-right: 0;
+}
+
 .prompt-section-label {
   min-width: 0;
   border: none;

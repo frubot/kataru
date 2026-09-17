@@ -167,15 +167,46 @@ function SectionRow({
     );
 }
 
+function PlainPromptEditor({ markdown, onChange, placeholder }: PromptSectionEditorProps) {
+    const bodyRef = useRef<HTMLTextAreaElement>(null);
+
+    useEffect(() => {
+        const ta = bodyRef.current;
+        if (!ta) return;
+        ta.style.height = 'auto';
+        ta.style.height = Math.min(ta.scrollHeight, 300) + 'px';
+    }, [markdown]);
+
+    return (
+        <div className="prompt-section-list">
+            <div className="prompt-section-row prompt-section-row-plain">
+                <textarea
+                    ref={bodyRef}
+                    className="prompt-section-body"
+                    value={markdown}
+                    onChange={(e) => onChange(e.target.value)}
+                    placeholder={placeholder ?? '内容'}
+                    rows={1}
+                />
+            </div>
+        </div>
+    );
+}
+
 // ---- Main component ----
 
 interface PromptSectionEditorProps {
     markdown: string;
     onChange: (markdown: string) => void;
     placeholder?: string;
+    plain?: boolean;
 }
 
-export default function PromptSectionEditor({
+export default function PromptSectionEditor(props: PromptSectionEditorProps) {
+    return props.plain ? <PlainPromptEditor {...props} /> : <SectionedPromptEditor {...props} />;
+}
+
+function SectionedPromptEditor({
     markdown,
     onChange,
     placeholder,

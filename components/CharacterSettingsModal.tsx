@@ -566,10 +566,11 @@ function CharacterSettingsModalContent({
         gap: '1.25rem',
     };
     const fixedPromptLabelStyle: React.CSSProperties = {
-        fontSize: '0.8125rem',
+        fontSize: '0.875rem',
         fontWeight: 600,
-        color: 'var(--text-secondary)',
+        color: 'var(--text-primary)',
         marginBottom: '0.5rem',
+        letterSpacing: '0.02em',
     };
 
     return (
@@ -776,6 +777,7 @@ function CharacterSettingsModalContent({
                                     markdown={speechStyle}
                                     onChange={setSpeechStyle}
                                     placeholder="例: 「それ、めっちゃいいじゃん！あとで私にも分けて？」"
+                                    plain
                                 />
                             </div>
                             <div>
@@ -792,6 +794,7 @@ function CharacterSettingsModalContent({
                                     markdown={userConstraints}
                                     onChange={setUserConstraints}
                                     placeholder="キャラクターに守らせたい制約を記述してください..."
+                                    plain
                                 />
                             </div>
                         </div>

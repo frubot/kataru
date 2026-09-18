@@ -43,8 +43,10 @@ import { formatAssistantMarkdown } from '@/lib/markdownUtils';
 import { getSituationVisualNovelTypingKey, resolveSituationVisualNovelInitialCharacterId } from '@/lib/situationVisualNovelPresentation';
 import {
     DEFAULT_COSTUME_NAME,
+    findVisualNovelCostume,
     getVisualNovelCostumeOptions,
     getVisualNovelExpressionNames,
+    getVisualNovelPreloadCandidates,
     resolveVisualNovelCostumeName,
     resolveVisualNovelExpressionImage,
     shouldTriggerVisualNovelBounce,
@@ -69,6 +71,7 @@ import { useVisualNovelPresentation } from './chat/useVisualNovelPresentation';
 import { useSituationVisualNovelPresentation } from './chat/useSituationVisualNovelPresentation';
 import VisualNovelLogView from './chat/VisualNovelLogView';
 import VisualNovelView from './chat/VisualNovelView';
+import type { VisualNovelStageSprite } from './chat/VisualNovelView';
 import StoredImage from './StoredImage';
 
 interface ChatWindowProps {
@@ -207,6 +210,44 @@ function toConversationRoom(room: Room) {
 function resolveRoomViewMode(room: Room | null | undefined): RoomViewMode {
     if (room?.viewMode === 'message' || room?.viewMode === 'vn') return room.viewMode;
     return 'chat';
+}
+
+const VN_BACKGROUND_CROSSFADE_MS = 620;
+
+function VisualNovelBackground({ src }: { src: string }) {
+    const [layers, setLayers] = useState(() => [{ key: 0, src }]);
+    const nextLayerKey = useRef(1);
+
+    useEffect(() => {
+        setLayers((current) => (
+            current[current.length - 1]?.src === src
+                ? current
+                : [...current.slice(-1), { key: nextLayerKey.current++, src }]
+        ));
+    }, [src]);
+
+    useEffect(() => {
+        if (layers.length <= 1) return;
+        const timer = setTimeout(() => {
+            setLayers((current) => current.slice(-1));
+        }, VN_BACKGROUND_CROSSFADE_MS);
+        return () => clearTimeout(timer);
+    }, [layers.length]);
+
+    return (
+        <div className="vn-background" aria-hidden="true">
+            {layers.map((layer, index) => (
+                <StoredImage
+                    key={layer.key}
+                    src={layer.src}
+                    alt=""
+                    className={`vn-background-image${index === layers.length - 1 ? ' vn-bg-fade-in' : ''}`}
+                    loading="eager"
+                    fetchPriority="high"
+                />
+            ))}
+        </div>
+    );
 }
 
 function waitForMessageModeBubbleDelay(): Promise<void> {
@@ -1386,6 +1427,56 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         ? groupCharacters ?? []
         : undefined;
 
+    const vnActiveSpriteId = situationVnPresentation.sceneCharacterId ?? situationVnInitialCharacterId;
+    const vnStageSprites = useMemo<VisualNovelStageSprite[] | undefined>(() => {
+        if (!isSituationVisualNovelMode || !groupCharacters || groupCharacters.length === 0) {
+            return undefined;
+        }
+        const expressions = situationVnPresentation.sceneExpressions ?? {};
+        return groupCharacters.map((participant) => {
+            const costumeName = resolveVisualNovelCostumeName(room, participant);
+            const costume = findVisualNovelCostume(participant, costumeName);
+            const vrm = costume?.kind === 'vrm' ? costume.vrm : undefined;
+            const expression = expressions[participant.id] ?? null;
+            return {
+                id: participant.id,
+                name: participant.name,
+                icon: participant.icon,
+                image: vrm
+                    ? costume?.image ?? participant.icon ?? null
+                    : resolveVisualNovelExpressionImage(participant, expression, costumeName),
+                expression,
+                vrm,
+                vrmFallbackImage: costume?.image ?? participant.icon ?? null,
+                active: vnActiveSpriteId != null && participant.id === vnActiveSpriteId,
+                bounce: vnBounceActive && participant.id === vnActiveSpriteId,
+            };
+        });
+    }, [
+        groupCharacters,
+        isSituationVisualNovelMode,
+        room,
+        situationVnPresentation.sceneExpressions,
+        vnActiveSpriteId,
+        vnBounceActive,
+    ]);
+
+    const vnStagePreloadSources = useMemo(() => {
+        if (!vnStageSprites?.length) return undefined;
+        const currentImages = new Set(vnStageSprites.map((sprite) => sprite.image).filter(Boolean));
+        const sources: string[] = [];
+        const seen = new Set<string>();
+        for (const participant of groupCharacters ?? []) {
+            const costumeName = resolveVisualNovelCostumeName(room, participant);
+            for (const candidate of getVisualNovelPreloadCandidates(participant, costumeName, undefined, 8)) {
+                if (!candidate || currentImages.has(candidate) || seen.has(candidate)) continue;
+                seen.add(candidate);
+                sources.push(candidate);
+            }
+        }
+        return sources;
+    }, [groupCharacters, room, vnStageSprites]);
+
     const handleEditLatestUserMessageInVn = useCallback(() => {
         if (!room || !latestEditableUserMessage || isLoading || isSummarizing) return;
         setEditingMessage({
@@ -1509,15 +1600,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     return (
         <div className={`chat-container ${isVisualNovelMode ? 'vn-mode' : ''} ${isMessageMode ? 'message-mode' : ''} ${showChatWallpaper ? 'has-wallpaper' : ''}`}>
             {isVisualNovelMode && vnBackgroundImage && (
-                <div className="vn-background" aria-hidden="true">
-                    <StoredImage
-                        src={vnBackgroundImage}
-                        alt=""
-                        className="vn-background-image"
-                        loading="eager"
-                        fetchPriority="high"
-                    />
-                </div>
+                <VisualNovelBackground src={vnBackgroundImage} />
             )}
             {showChatWallpaper && (
                 <div className="chat-wallpaper" aria-hidden="true">
@@ -1603,6 +1686,8 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     fallbackCharacterName={character?.name}
                     speakerName={vnSpeakerName}
                     castCharacters={situationVnCastCharacters}
+                    stageSprites={vnStageSprites}
+                    stagePreloadSources={vnStagePreloadSources}
                     expressionImage={vnExpressionImage}
                     expression={situationVnPresentation.sceneExpression}
                     backgroundImage={vnBackgroundImage}

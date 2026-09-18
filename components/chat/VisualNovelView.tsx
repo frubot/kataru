@@ -1,21 +1,79 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { Check, Copy, GitBranch, History, RefreshCw, Shirt, Undo2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import type { Character } from '@/lib/store';
+import type { VrmAvatar } from '@/lib/store/types';
 import { DEFAULT_COSTUME_NAME, findVisualNovelCostume } from '@/lib/visualNovelPresentation';
 import type { VisualNovelCostumeOption } from '@/lib/visualNovelPresentation';
+import { preloadVisualNovelImages } from '@/lib/visualNovelImagePreload';
 import StoredImage from '../StoredImage';
 import { useVisualNovelImagePreload } from './useVisualNovelImagePreload';
 import WaitingEllipsis from './WaitingEllipsis';
 
 const VrmAvatarView = lazy(() => import('../VrmAvatarView'));
 
+export type VisualNovelStageSprite = {
+    id: string;
+    name: string;
+    icon?: string;
+    image: string | null;
+    expression?: string | null;
+    vrm?: VrmAvatar;
+    vrmFallbackImage?: string | null;
+    active: boolean;
+    bounce: boolean;
+};
+
+const SPRITE_CROSSFADE_MS = 420;
+
+function SpriteImage({ src, alt }: { src: string; alt: string }) {
+    const [layers, setLayers] = useState(() => [{ key: 0, src }]);
+    const nextLayerKey = useRef(1);
+
+    useEffect(() => {
+        setLayers((current) => (
+            current[current.length - 1]?.src === src
+                ? current
+                : [...current.slice(-1), { key: nextLayerKey.current++, src }]
+        ));
+    }, [src]);
+
+    useEffect(() => {
+        if (layers.length <= 1) return;
+        const timer = setTimeout(() => {
+            setLayers((current) => current.slice(-1));
+        }, SPRITE_CROSSFADE_MS);
+        return () => clearTimeout(timer);
+    }, [layers.length]);
+
+    return (
+        <div className="vn-sprite-stack">
+            {layers.map((layer, index) => {
+                const topmost = index === layers.length - 1;
+                return (
+                    <StoredImage
+                        key={layer.key}
+                        src={layer.src}
+                        alt={topmost ? alt : ''}
+                        aria-hidden={!topmost}
+                        className={`vn-character-image ${topmost ? 'vn-sprite-img-in' : 'vn-sprite-img-out'}`}
+                        loading="eager"
+                        fetchPriority="high"
+                    />
+                );
+            })}
+        </div>
+    );
+}
+
 type VisualNovelViewProps = {
     character: Character | null;
     fallbackCharacterName?: string;
     speakerName?: string;
     castCharacters?: Character[];
+    stageSprites?: VisualNovelStageSprite[];
+    stagePreloadSources?: string[];
     expressionImage: string | null;
     expression?: string | null;
     backgroundImage?: string;
@@ -51,6 +109,8 @@ export default function VisualNovelView({
     fallbackCharacterName,
     speakerName,
     castCharacters,
+    stageSprites,
+    stagePreloadSources,
     expressionImage,
     expression,
     backgroundImage,
@@ -94,6 +154,12 @@ export default function VisualNovelView({
     });
 
     useEffect(() => {
+        if (!stageSprites?.length) return;
+        const visible = stageSprites.map((sprite) => sprite.image);
+        return preloadVisualNovelImages(stagePreloadSources ?? [], visible);
+    }, [stageSprites, stagePreloadSources]);
+
+    useEffect(() => {
         if (!costumeMenuOpen) return;
         const handlePointerDown = (event: PointerEvent) => {
             const target = event.target as Node | null;
@@ -121,18 +187,45 @@ export default function VisualNovelView({
     return (
         <div className={`vn-stage${hasReplySuggestions ? ' has-reply-suggestions' : ''}`}>
             <div className="vn-scene">
-                {character ? (
+                {stageSprites && stageSprites.length > 0 ? (
+                    <div className="vn-sprite-stage" aria-label="登場キャラクター">
+                        {stageSprites.map((sprite, index) => (
+                            <div
+                                key={sprite.id}
+                                className={`vn-sprite-slot ${sprite.active ? 'vn-sprite-lit' : 'vn-sprite-dim'}`}
+                                style={{ '--vn-sprite-order': index } as CSSProperties}
+                            >
+                                <div className={`vn-sprite-figure ${sprite.vrm ? 'vn-sprite-3d' : ''} ${sprite.bounce ? 'vn-character-bounce' : ''}`}>
+                                    {sprite.vrm ? (
+                                        <Suspense fallback={sprite.image ? <StoredImage src={sprite.image} alt={sprite.name} className="vn-character-image" /> : <span>3D表示を準備中…</span>}>
+                                            <VrmAvatarView
+                                                avatar={sprite.vrm}
+                                                expression={sprite.expression}
+                                                name={sprite.name}
+                                                fallbackImage={sprite.vrmFallbackImage ?? undefined}
+                                            />
+                                        </Suspense>
+                                    ) : sprite.image ? (
+                                        <SpriteImage src={sprite.image} alt={sprite.name} />
+                                    ) : (
+                                        <div className="vn-character-placeholder">
+                                            {sprite.icon ? (
+                                                <StoredImage src={sprite.icon} alt={sprite.name} />
+                                            ) : (
+                                                <span>{sprite.name.charAt(0) || '?'}</span>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : character ? (
                     <div className={`vn-character-wrap ${vrmAvatar ? 'vn-character-3d' : bounceActive ? 'vn-character-bounce' : ''}`}>
                         {vrmAvatar ? <Suspense fallback={expressionImage ? <StoredImage src={expressionImage} alt={character.name} className="vn-character-image" /> : <span>3D表示を準備中…</span>}>
                             <VrmAvatarView avatar={vrmAvatar} expression={expression} name={character.name} fallbackImage={selectedCostume?.image} interactive />
                         </Suspense> : expressionImage ? (
-                            <StoredImage
-                                src={expressionImage}
-                                alt={character.name}
-                                className="vn-character-image"
-                                loading="eager"
-                                fetchPriority="high"
-                            />
+                            <SpriteImage src={expressionImage} alt={character.name} />
                         ) : (
                             <div className="vn-character-placeholder">
                                 {character.icon ? (

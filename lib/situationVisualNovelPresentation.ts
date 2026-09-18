@@ -35,6 +35,7 @@ export type SituationVisualNovelPresentationState = {
     phase: 'intro' | 'conversation';
     sceneCharacterId?: string;
     sceneExpression?: string;
+    sceneExpressions?: Record<string, string | undefined>;
 };
 
 type InitialPresentationInput = {
@@ -197,18 +198,23 @@ export function buildSituationVisualNovelPreviewItems(
 function sceneFromItems(items: SituationVisualNovelItem[]): {
     sceneCharacterId?: string;
     sceneExpression?: string;
+    sceneExpressions?: Record<string, string | undefined>;
 } {
-    for (let index = items.length - 1; index >= 0; index--) {
-        const item = items[index];
+    let sceneCharacterId: string | undefined;
+    let sceneExpression: string | undefined;
+    const sceneExpressions: Record<string, string | undefined> = {};
+    for (const item of items) {
         if (item.role !== 'assistant') continue;
-        return {
-            sceneCharacterId: item.characterId,
-            sceneExpression: item.expression,
-        };
+        if (item.characterId) {
+            sceneExpressions[item.characterId] = item.expression ?? sceneExpressions[item.characterId];
+        }
+        sceneCharacterId = item.characterId;
+        sceneExpression = item.expression;
     }
     return {
-        sceneCharacterId: undefined,
-        sceneExpression: undefined,
+        sceneCharacterId,
+        sceneExpression,
+        sceneExpressions,
     };
 }
 
@@ -230,9 +236,16 @@ function sceneForVisibleItem(state: SituationVisualNovelPresentationState, item:
     if (item.role !== 'assistant' || (item.source === 'preview' && !item.content.trim())) {
         return { sceneCharacterId: state.sceneCharacterId, sceneExpression: state.sceneExpression };
     }
+    const sceneExpressions = item.characterId
+        ? {
+            ...state.sceneExpressions,
+            [item.characterId]: item.expression ?? state.sceneExpressions?.[item.characterId],
+        }
+        : state.sceneExpressions;
     return {
         sceneCharacterId: item.characterId,
         sceneExpression: item.expression ?? (item.characterId === state.sceneCharacterId ? state.sceneExpression : undefined),
+        sceneExpressions,
     };
 }
 

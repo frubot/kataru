@@ -3798,6 +3798,125 @@ body {
   object-fit: cover;
 }
 
+/* Visual novel multi-character stage */
+.vn-sprite-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0.25rem 1rem 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.vn-sprite-slot {
+  position: relative;
+  z-index: 1;
+  flex: 0 1 min(38vw, 560px);
+  width: min(38vw, 560px);
+  height: min(112%, 92vh);
+  margin: 0 -2.5vw -7rem;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  transform-origin: bottom center;
+  will-change: transform;
+  animation: vn-sprite-enter 560ms cubic-bezier(0.22, 0.8, 0.32, 1) both;
+  animation-delay: calc(var(--vn-sprite-order, 0) * 80ms);
+}
+
+.vn-sprite-slot:only-child {
+  flex-basis: min(70vw, 780px);
+  width: min(70vw, 780px);
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.vn-sprite-lit {
+  z-index: 2;
+}
+
+.vn-sprite-figure {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  transition: filter 360ms ease, opacity 360ms ease;
+}
+
+.vn-sprite-dim .vn-sprite-figure {
+  filter: brightness(0.55) saturate(0.72);
+}
+
+.vn-sprite-stack {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.vn-sprite-stack .vn-character-image {
+  position: absolute;
+  inset: 0;
+}
+
+.vn-sprite-img-in {
+  animation: vn-sprite-img-in 420ms ease both;
+}
+
+.vn-sprite-img-out {
+  animation: vn-sprite-img-out 420ms ease both;
+}
+
+.vn-bg-fade-in {
+  animation: vn-bg-fade-in 620ms ease both;
+}
+
+@keyframes vn-sprite-enter {
+  from {
+    opacity: 0;
+    transform: translateY(2.25rem);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes vn-sprite-img-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes vn-sprite-img-out {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes vn-bg-fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
 .vn-dialogue {
   --vn-dialogue-body-height: clamp(118px, 21vh, 240px);
   --vn-dialogue-topline-height: 32px;
@@ -4397,8 +4516,16 @@ body {
   .modal-content,
   .vn-log-view,
   .vn-character-bounce,
-  .vn-dialogue-advance-indicator {
+  .vn-dialogue-advance-indicator,
+  .vn-sprite-slot,
+  .vn-sprite-img-in,
+  .vn-sprite-img-out,
+  .vn-bg-fade-in {
     animation: none;
+  }
+
+  .vn-sprite-figure {
+    transition: none;
   }
 
   .waiting-ellipsis-dot {
@@ -4785,6 +4912,25 @@ body {
     max-width: 100%;
     height: 100%;
     margin-bottom: 0;
+  }
+
+  .vn-sprite-stage {
+    padding: 0.25rem 0 0;
+  }
+
+  .vn-sprite-slot {
+    flex-basis: min(52vw, 420px);
+    width: min(52vw, 420px);
+    height: clamp(430px, 76vh, 720px);
+    height: clamp(430px, 76svh, 720px);
+    margin: 0 -4vw 1.5rem;
+  }
+
+  .vn-sprite-slot:only-child {
+    flex-basis: min(112vw, 520px);
+    width: min(112vw, 520px);
+    margin-left: 0;
+    margin-right: 0;
   }
 
   .vn-dialogue {

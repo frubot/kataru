@@ -814,6 +814,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         activePreview: activeStreamingPreview,
         previewCharacter: streamingPreviewCharacter,
         formattedMessages: formattedStreamingPreviewMessages,
+        bubbles: streamingPreviewBubbles,
     } = useMemo(
         () => resolveChatStreamingPresentation({
             streamingPreview,
@@ -1750,8 +1751,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     isGroupRoom={isGroupRoom}
                     character={character}
                     activeStreamingPreview={activeStreamingPreview}
-                    streamingPreviewCharacter={streamingPreviewCharacter}
-                    formattedStreamingPreviewMessages={formattedStreamingPreviewMessages}
+                    streamingPreviewBubbles={streamingPreviewBubbles}
                     isLoading={isLoading}
                     isSummarizing={isSummarizing}
                     branchingMessageId={branchingMessageId}

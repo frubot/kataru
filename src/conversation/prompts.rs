@@ -453,14 +453,14 @@ pub fn director_jev_first_questions(actors: &[Value], eligible_ids: &[String]) -
     criteria.insert(
         JEV_PROTAGONIST_OPTION.to_owned(),
         Value::String(
-            "主人公（ユーザー）が次に発言すべき。キャラクターではなく主人公に発言権を返すのが自然な状態"
+            "主人公（ユーザー）が次に発言すべき"
                 .to_owned(),
         ),
     );
     criteria.insert(
         JEV_CONVERSATION_COMPLETE_OPTION.to_owned(),
         Value::String(
-            "会話は自然な終了点に達している。ただしキャラクター同士の会話を続けても違和感はない"
+            "会話を終えるべき。ただしキャラクター同士が会話を続けても違和感がない"
                 .to_owned(),
         ),
     );
@@ -471,7 +471,7 @@ pub fn director_jev_first_questions(actors: &[Value], eligible_ids: &[String]) -
     json!({
         "next_speaker": {
             "type": "choice",
-            "instructions": "ロールプレイの会話で、次に発言するのが最も自然な者を選んでください。",
+            "instructions": "この会話で次に発言するのが最も自然なキャラクターを選んでください。",
             "criteria": criteria,
         },
         "continue_naturally": {

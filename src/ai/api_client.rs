@@ -180,8 +180,24 @@ impl AiApiClient {
         )
     }
 
-    pub fn post(&self, path: &str, timeout: Duration) -> RequestBuilder {
-        let mut request = self.client.post(self.endpoint(path)).timeout(timeout);
+    /// System One (Jev) evaluations live outside the chat surface: TypeSafe
+    /// serves `POST /v1/systemone`, while OpenRouter normalizes the same
+    /// contract under the Decisions API at `/api/alpha/decisions`.
+    pub fn decisions_endpoint(&self) -> String {
+        if self.is_openrouter() {
+            format!(
+                "{}/alpha/decisions",
+                self.base_url
+                    .trim_end_matches('/')
+                    .trim_end_matches("/v1")
+            )
+        } else {
+            self.endpoint("systemone")
+        }
+    }
+
+    fn authorized_request(&self, request: RequestBuilder) -> RequestBuilder {
+        let mut request = request;
         if self.is_anthropic() {
             request = request
                 .header("x-api-key", self.api_key.as_deref().unwrap_or_default())
@@ -197,21 +213,18 @@ impl AiApiClient {
         request
     }
 
+    pub fn post(&self, path: &str, timeout: Duration) -> RequestBuilder {
+        self.authorized_request(self.client.post(self.endpoint(path)).timeout(timeout))
+    }
+
+    /// Builds a POST against an absolute URL for endpoints outside the
+    /// connection's versioned base path (e.g. the OpenRouter decisions API).
+    pub fn post_url(&self, url: &str, timeout: Duration) -> RequestBuilder {
+        self.authorized_request(self.client.post(url).timeout(timeout))
+    }
+
     pub fn get(&self, path: &str, timeout: Duration) -> RequestBuilder {
-        let mut request = self.client.get(self.endpoint(path)).timeout(timeout);
-        if self.is_anthropic() {
-            request = request
-                .header("x-api-key", self.api_key.as_deref().unwrap_or_default())
-                .header("anthropic-version", "2023-06-01");
-        } else if let Some(api_key) = &self.api_key {
-            request = request.bearer_auth(api_key);
-        }
-        if self.is_openrouter() {
-            request = request
-                .header("HTTP-Referer", &self.application_origin)
-                .header("X-Title", "Kataru");
-        }
-        request
+        self.authorized_request(self.client.get(self.endpoint(path)).timeout(timeout))
     }
 
     pub fn post_json(&self, path: &str, body: &Value, timeout_secs: u64) -> RequestBuilder {
@@ -278,6 +291,25 @@ impl AiApiClient {
             .send()
             .await;
         self.finish_request(path, started_at, result)
+    }
+
+    /// Sends JSON to an absolute URL. Provider routing preferences are not
+    /// applied: the targets of this method (e.g. the OpenRouter decisions
+    /// API) do not support them.
+    pub async fn send_json_url(
+        &self,
+        url: &str,
+        operation: &str,
+        body: &Value,
+        timeout_secs: u64,
+    ) -> AppResult<Response> {
+        let started_at = Instant::now();
+        let result = self
+            .post_url(url, Duration::from_secs(timeout_secs))
+            .json(body)
+            .send()
+            .await;
+        self.finish_request(operation, started_at, result)
     }
 
     pub async fn send_get(&self, path: &str, timeout: Duration) -> AppResult<Response> {
@@ -406,6 +438,7 @@ fn safe_upstream_operation(operation: &str) -> &'static str {
         "chat/completions" => "chat/completions",
         "embeddings" => "embeddings",
         "images/generations" => "images/generations",
+        "decisions" => "decisions",
         _ => "other",
     }
 }
@@ -495,6 +528,40 @@ mod tests {
         assert_eq!(
             api_client.endpoint("models"),
             "https://openrouter.ai/api/v1/models"
+        );
+    }
+
+    #[test]
+    fn decisions_endpoint_escapes_the_versioned_openrouter_base() {
+        let api_client = AiApiClient::resolve(
+            Client::new(),
+            "http://127.0.0.1:37371",
+            &server_config(),
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(
+            api_client.decisions_endpoint(),
+            "https://openrouter.ai/api/alpha/decisions"
+        );
+    }
+
+    #[test]
+    fn decisions_endpoint_uses_systemone_elsewhere() {
+        let api_client = AiApiClient::resolve(
+            Client::new(),
+            "http://127.0.0.1:37371",
+            &server_config(),
+            Some(AiApiConfig {
+                connection_id: Some("openai-compatible".to_owned()),
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(
+            api_client.decisions_endpoint(),
+            "https://api.openai.com/v1/systemone"
         );
     }
 

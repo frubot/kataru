@@ -20,6 +20,7 @@ import {
     useStore,
 } from '@/lib/store';
 import { DEFAULT_CONNECTION_ID, type ModelRef } from '@/lib/modelDefaults';
+import { useAiConnections } from '@/lib/aiConnections';
 import { generateId } from '@/lib/id';
 import {
     DEFAULT_COSTUME_NAME,
@@ -1462,6 +1463,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
     const [name, setName] = useState(initial.name);
     const [backgroundImage, setBackgroundImage] = useState(initial.backgroundImage);
     const [situationPrompt, setSituationPrompt] = useState(initial.situationPrompt);
+    const { connections } = useAiConnections();
     const [directorModel, setDirectorModel] = useState<ModelRef | undefined>(initial.directorModel);
     const [directorEngine, setDirectorEngine] = useState<'llm' | 'typesafe'>(initial.directorEngine);
     const [continueThreshold, setContinueThreshold] = useState<number>(initial.continueThreshold);
@@ -1495,6 +1497,15 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
     const costumeMenuCharacter = costumeMenu
         ? characters.find((character) => character.id === costumeMenu.characterId) ?? null
         : null;
+    const defaultJevModel = useMemo<ModelRef>(() => {
+        const usable = (kind: 'typesafe' | 'openrouter') => connections.find(
+            (connection) => connection.kind === kind && connection.apiKey.configured,
+        )?.id;
+        return {
+            connectionId: usable('typesafe') ?? usable('openrouter') ?? 'typesafe',
+            model: 'jev-latest',
+        };
+    }, [connections]);
     const parsedMaxTurns = Math.max(1, Math.min(10, Math.round(Number(maxAutoTurns) || 3)));
     const effectiveMaxTurns = actorCount <= 1 ? 1 : parsedMaxTurns;
     const parsedMaxHistory = maxHistory ? Math.max(1, Math.min(100, Math.round(Number(maxHistory)))) : undefined;
@@ -1739,7 +1750,9 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
 
         const director: SituationDirector = {
             enabled: true,
-            model: directorModel?.model.trim() ? directorModel : defaultDirectorModel,
+            model: directorModel?.model.trim()
+                ? directorModel
+                : directorEngine === 'typesafe' ? defaultJevModel : defaultDirectorModel,
             ...(situation?.director?.systemPrompt?.trim() ? { systemPrompt: situation.director.systemPrompt.trim() } : {}),
             maxAutoTurns: effectiveMaxTurns,
             stopPolicy: situation?.director?.stopPolicy === 'after-one' ? 'after-one' : 'max-turns',
@@ -1788,7 +1801,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
         }
 
         onClose();
-    }, [actorCount, actorOptions, backgroundImage, buildActors, characterActorMeta, continueThreshold, createSituationRoom, defaultDirectorModel, directorEngine, directorModel, effectiveMaxTurns, isEditing, maxAutoTurns, maxHistory, memoryReadOnly, name, onClose, onCreated, parsedMaxHistory, priorMessages, room, selectedCharacterIds, situation, situationPrompt, temporaryActors, updateRoomSettings, updateSituation]);
+    }, [actorCount, actorOptions, backgroundImage, buildActors, characterActorMeta, continueThreshold, createSituationRoom, defaultDirectorModel, defaultJevModel, directorEngine, directorModel, effectiveMaxTurns, isEditing, maxAutoTurns, maxHistory, memoryReadOnly, name, onClose, onCreated, parsedMaxHistory, priorMessages, room, selectedCharacterIds, situation, situationPrompt, temporaryActors, updateRoomSettings, updateSituation]);
 
     const modalRef = useRef<HTMLDivElement>(null);
     useModalKeyboard({
@@ -2356,8 +2369,10 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                                     <ModelSelector
                                         value={directorModel ?? { connectionId: DEFAULT_CONNECTION_ID, model: '' }}
                                         onChange={setDirectorModel}
-                                        outputModality="text"
-                                        placeholder={`例: ${defaultDirectorModel.model}`}
+                                        outputModality={directorEngine === 'typesafe' ? 'decisions' : 'text'}
+                                        placeholder={directorEngine === 'typesafe'
+                                            ? '例: jev-latest'
+                                            : `例: ${defaultDirectorModel.model}`}
                                     />
                                 </div>
                             </div>
@@ -2366,7 +2381,12 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                                 <div style={{ marginTop: '0.375rem' }}>
                                     <select
                                         value={directorEngine}
-                                        onChange={(event) => setDirectorEngine(event.target.value as 'llm' | 'typesafe')}
+                                        onChange={(event) => {
+                                            setDirectorEngine(event.target.value as 'llm' | 'typesafe');
+                                            // The two engines draw from disjoint model lists; a
+                                            // leftover ref would be sent to the wrong API.
+                                            setDirectorModel(undefined);
+                                        }}
                                         aria-label="指揮エンジン"
                                         style={fieldStyle}
                                     >

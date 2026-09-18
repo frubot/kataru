@@ -34,6 +34,7 @@ pub enum ModelOutputModality {
     Text,
     Image,
     Embeddings,
+    Decisions,
 }
 
 impl ModelOutputModality {
@@ -42,6 +43,7 @@ impl ModelOutputModality {
             None | Some("text") => Ok(Self::Text),
             Some("image") => Ok(Self::Image),
             Some("embeddings") => Ok(Self::Embeddings),
+            Some("decisions") => Ok(Self::Decisions),
             Some(_) => Err(AppError::BadRequest(
                 "outputModality が不正です。".to_owned(),
             )),
@@ -53,6 +55,7 @@ impl ModelOutputModality {
             Self::Text => "text",
             Self::Image => "image",
             Self::Embeddings => "embeddings",
+            Self::Decisions => "decisions",
         }
     }
 }
@@ -298,6 +301,7 @@ fn openrouter_models_path(output_modality: ModelOutputModality) -> &'static str 
         ModelOutputModality::Text => "models?output_modalities=text",
         ModelOutputModality::Image => "models?output_modalities=image",
         ModelOutputModality::Embeddings => "models?output_modalities=embeddings",
+        ModelOutputModality::Decisions => "models?output_modalities=decisions",
     }
 }
 
@@ -305,6 +309,15 @@ async fn fetch_models(
     api_client: &AiApiClient,
     output_modality: ModelOutputModality,
 ) -> AppResult<Vec<AvailableModel>> {
+    // Decision (System One) models exist only on TypeSafe-compatible
+    // connections and on OpenRouter; TypeSafe itself serves nothing else.
+    if output_modality == ModelOutputModality::Decisions {
+        if !api_client.is_openrouter() && !api_client.is_typesafe() {
+            return Ok(Vec::new());
+        }
+    } else if api_client.is_typesafe() {
+        return Ok(Vec::new());
+    }
     let path = if api_client.is_anthropic() {
         "models?limit=1000"
     } else if api_client.is_openrouter() {
@@ -475,14 +488,15 @@ pub async fn run_models_cli_command_if_requested() -> AppResult<bool> {
                 connection_id: Some(connection.id.clone()),
             }),
         )?;
-        let modalities: &[ModelOutputModality] = if connection.kind == ConnectionKind::OpenRouter {
-            &[
+        let modalities: &[ModelOutputModality] = match connection.kind {
+            ConnectionKind::OpenRouter => &[
                 ModelOutputModality::Text,
                 ModelOutputModality::Image,
                 ModelOutputModality::Embeddings,
-            ]
-        } else {
-            &[ModelOutputModality::Text]
+                ModelOutputModality::Decisions,
+            ],
+            ConnectionKind::Typesafe => &[ModelOutputModality::Decisions],
+            _ => &[ModelOutputModality::Text],
         };
         for &modality in modalities {
             let entry = refresh_models(&cache, &api_client, modality).await?;
@@ -630,6 +644,68 @@ mod tests {
             openrouter_models_path(ModelOutputModality::Embeddings),
             "models?output_modalities=embeddings"
         );
+        assert_eq!(
+            openrouter_models_path(ModelOutputModality::Decisions),
+            "models?output_modalities=decisions"
+        );
+    }
+
+    #[test]
+    fn decisions_modality_is_accepted_from_input() {
+        assert_eq!(
+            ModelOutputModality::from_input(&json!({ "outputModality": "decisions" })).unwrap(),
+            ModelOutputModality::Decisions
+        );
+    }
+
+    fn catalog_test_client(id: &str, kind: ConnectionKind) -> AiApiClient {
+        AiApiClient::resolve(
+            Client::new(),
+            "http://127.0.0.1:37371",
+            &crate::ai_config::EffectiveAiConfig {
+                connections: vec![EffectiveConnection {
+                    id: id.to_owned(),
+                    name: kind.label().to_owned(),
+                    kind,
+                    base_url: kind.default_base_url().to_owned(),
+                    api_key: Some("secret".to_owned()),
+                    source: Some(crate::ai_config::ConfigSource::Stored),
+                    builtin: true,
+                    editable: true,
+                    deletable: false,
+                    base_url_editable: !kind.has_fixed_base_url(),
+                    embeddings_enabled: true,
+                    image_generation_enabled: false,
+                    ignored_providers: Vec::new(),
+                }],
+            },
+            Some(AiApiConfig {
+                connection_id: Some(id.to_owned()),
+            }),
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn fetch_models_scopes_decisions_to_capable_connections() {
+        for kind in [ConnectionKind::OpenAiCompatible, ConnectionKind::Anthropic] {
+            let client = catalog_test_client(kind.builtin_id(), kind);
+            assert!(
+                fetch_models(&client, ModelOutputModality::Decisions)
+                    .await
+                    .unwrap()
+                    .is_empty()
+            );
+        }
+        let typesafe = catalog_test_client("typesafe", ConnectionKind::Typesafe);
+        for modality in [ModelOutputModality::Text, ModelOutputModality::Image] {
+            assert!(
+                fetch_models(&typesafe, modality)
+                    .await
+                    .unwrap()
+                    .is_empty()
+            );
+        }
     }
 
     #[test]

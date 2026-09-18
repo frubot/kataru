@@ -14,6 +14,20 @@ use crate::{
 pub const DEFAULT_JEV_MODEL: &str = "jev-latest";
 const SYSTEM_ONE_PATH: &str = "systemone";
 
+/// OpenRouter serves Jev under `typesafe/` slugs (`typesafe/jev-1.13`, with
+/// `~typesafe/jev-latest` as the redirecting alias). Bare TypeSafe model
+/// names resolve to the matching slug so a stored `jev-latest` keeps working
+/// when the director is routed through OpenRouter instead.
+fn openrouter_model(model: &str) -> String {
+    if model.starts_with('~') || model.contains('/') {
+        model.to_owned()
+    } else if model == DEFAULT_JEV_MODEL {
+        "~typesafe/jev-latest".to_owned()
+    } else {
+        format!("typesafe/{model}")
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct JevUsage {
     #[serde(default)]
@@ -46,8 +60,9 @@ pub struct NoulAnswer {
     pub noul: f64,
 }
 
-/// Evaluates `state` against typed `questions` via `POST /v1/systemone`.
-/// All questions are answered in parallel in a single call.
+/// Evaluates `state` against typed `questions` via `POST /v1/systemone` on
+/// TypeSafe, or the Decisions API (`POST /api/alpha/decisions`) on
+/// OpenRouter. All questions are answered in parallel in a single call.
 pub async fn system_one(
     api_client: &AiApiClient,
     model: &str,
@@ -55,14 +70,30 @@ pub async fn system_one(
     questions: &Value,
     timeout_secs: u64,
 ) -> AppResult<SystemOneResponse> {
+    let model = if api_client.is_openrouter() {
+        openrouter_model(model)
+    } else {
+        model.to_owned()
+    };
     let request = json!({
         "state": state,
         "model": model,
         "questions": questions,
     });
-    let response = api_client
-        .send_json(SYSTEM_ONE_PATH, &request, timeout_secs)
-        .await?;
+    let response = if api_client.is_openrouter() {
+        api_client
+            .send_json_url(
+                &api_client.decisions_endpoint(),
+                "decisions",
+                &request,
+                timeout_secs,
+            )
+            .await?
+    } else {
+        api_client
+            .send_json(SYSTEM_ONE_PATH, &request, timeout_secs)
+            .await?
+    };
     if !response.status().is_success() {
         return Err(upstream_error(response).await);
     }
@@ -133,6 +164,18 @@ mod tests {
         assert!((noul.noul - 0.91).abs() < f64::EPSILON);
 
         assert_eq!(response.usage.expect("usage").input_tokens, 312);
+    }
+
+    #[test]
+    fn openrouter_model_maps_bare_names_to_typesafe_slugs() {
+        assert_eq!(openrouter_model("jev-latest"), "~typesafe/jev-latest");
+        assert_eq!(openrouter_model("jev-1.13"), "typesafe/jev-1.13");
+        assert_eq!(openrouter_model("jev-preview"), "typesafe/jev-preview");
+        assert_eq!(
+            openrouter_model("~typesafe/jev-latest"),
+            "~typesafe/jev-latest"
+        );
+        assert_eq!(openrouter_model("typesafe/jev-1.13"), "typesafe/jev-1.13");
     }
 
     #[test]

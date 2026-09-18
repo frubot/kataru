@@ -1044,9 +1044,9 @@ async fn request_director_typesafe(
         });
     }
     let api_client = clients.for_selection(selection)?;
-    if !api_client.is_typesafe() {
+    if !api_client.is_typesafe() && !api_client.is_openrouter() {
         return Err(AppError::BadRequest(
-            "TypeSafeエンジンの指揮役にはTypeSafe AI接続が必要です。".into(),
+            "TypeSafeエンジンの指揮役にはTypeSafe AIまたはOpenRouter接続が必要です。".into(),
         ));
     }
 

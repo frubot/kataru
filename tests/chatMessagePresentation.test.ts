@@ -102,4 +102,95 @@ describe('streaming preview presentation', () => {
 
         expect(result.activePreview).toEqual(preview);
     });
+
+    test('keeps completed turns visible while a later turn streams', () => {
+        const result = resolveChatStreamingPresentation({
+            streamingPreview: {
+                roomId: 'room-1',
+                jobId: 'job-1',
+                content: 'two…',
+                characterId: 'char-b',
+                characterName: 'B',
+                turns: [
+                    {
+                        turnIndex: 0,
+                        content: 'one-a\n\none-b',
+                        characterId: 'char-a',
+                        characterName: 'A',
+                        formattedMessages: ['one-a', 'one-b'],
+                        complete: true,
+                    },
+                    {
+                        turnIndex: 1,
+                        content: 'two…',
+                        characterId: 'char-b',
+                        characterName: 'B',
+                        complete: false,
+                    },
+                ],
+            },
+            room: room([message('user', 'user', 'hello')]),
+            isLoading: true,
+            characterMap: null,
+            character,
+        });
+
+        expect(result.bubbles.map((bubble) => bubble.content)).toEqual([
+            'one-a',
+            'one-b',
+            'two…',
+        ]);
+        expect(result.bubbles.map((bubble) => bubble.streaming)).toEqual([
+            false,
+            false,
+            true,
+        ]);
+        expect(result.bubbles.map((bubble) => bubble.continuation)).toEqual([
+            false,
+            true,
+            false,
+        ]);
+        expect(result.bubbles.map((bubble) => bubble.characterId)).toEqual([
+            'char-a',
+            'char-a',
+            'char-b',
+        ]);
+    });
+
+    test('drops preview turns that are already persisted', () => {
+        const result = resolveChatStreamingPresentation({
+            streamingPreview: {
+                roomId: 'room-1',
+                jobId: 'job-1',
+                content: 'two',
+                characterId: 'char-b',
+                characterName: 'B',
+                turns: [
+                    {
+                        turnIndex: 0,
+                        content: 'one',
+                        characterId: 'char-a',
+                        characterName: 'A',
+                        complete: true,
+                    },
+                    {
+                        turnIndex: 1,
+                        content: 'two',
+                        characterId: 'char-b',
+                        characterName: 'B',
+                        complete: false,
+                    },
+                ],
+            },
+            room: room([
+                message('user', 'user', 'hello'),
+                message('assistant-1', 'assistant', 'one', { characterId: 'char-a' }),
+            ]),
+            isLoading: true,
+            characterMap: null,
+            character,
+        });
+
+        expect(result.bubbles.map((bubble) => bubble.content)).toEqual(['two']);
+    });
 });

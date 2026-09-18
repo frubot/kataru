@@ -126,6 +126,16 @@ export function buildChatMessagePresentations({
     });
 }
 
+export type ChatStreamingPreviewBubble = {
+    key: string;
+    content: string;
+    characterId?: string;
+    characterName?: string;
+    character?: Character | null;
+    streaming: boolean;
+    continuation: boolean;
+};
+
 type ResolveStreamingPresentationOptions = {
     streamingPreview: ChatStreamingPreview | null;
     room: Room | null;
@@ -157,19 +167,66 @@ export function resolveChatStreamingPresentation({
     const availableFormattedMessages = streamingPreview?.formattedMessages
         ?.filter((content) => content.trim())
         ?? [];
-    const previewAlreadyPersisted = availableFormattedMessages.length > 0
-        && availableFormattedMessages.every((content) =>
+    const previewForRoom = streamingPreview?.roomId === room?.id
+        ? streamingPreview
+        : null;
+    const persisted = (contents: string[], characterId?: string) => (
+        contents.length > 0
+        && contents.every((content) =>
             currentReplyAssistantMessages.some((message) =>
                 message.content === content
-                && (!streamingPreview?.characterId || message.characterId === streamingPreview.characterId)
+                && (!characterId || message.characterId === characterId)
             )
-        );
-    const activePreview = streamingPreview
-        && streamingPreview.roomId === room?.id
-        && isLoading
-        && streamingPreview.content.trim()
-        && !previewAlreadyPersisted
-        ? streamingPreview
+        )
+    );
+    const resolveBubbleCharacter = (characterId?: string) => (
+        characterId && characterMap ? characterMap.get(characterId) : character
+    );
+    const allBubbles: ChatStreamingPreviewBubble[] = [];
+    const pushBubble = (bubble: Omit<ChatStreamingPreviewBubble, 'continuation'>) => {
+        const previous = allBubbles.at(-1);
+        allBubbles.push({
+            ...bubble,
+            continuation: !!previous && previous.characterId === bubble.characterId,
+        });
+    };
+    if (previewForRoom?.turns?.length) {
+        for (const turn of previewForRoom.turns) {
+            const formatted = turn.formattedMessages?.filter((content) => content.trim()) ?? [];
+            const contents = (formatted.length > 0 ? formatted : [turn.content])
+                .filter((content) => content.trim());
+            const characterId = turn.characterId ?? previewForRoom.characterId;
+            if (contents.length === 0 || persisted(contents, characterId)) continue;
+            const bubbleCharacter = resolveBubbleCharacter(characterId);
+            contents.forEach((content, index) => pushBubble({
+                key: `${previewForRoom.jobId}:${turn.turnIndex}:${index}`,
+                content,
+                characterId,
+                characterName: turn.characterName ?? previewForRoom.characterName,
+                character: bubbleCharacter,
+                streaming: !turn.complete,
+            }));
+        }
+    } else if (previewForRoom) {
+        const contents = (
+            availableFormattedMessages.length > 0
+                ? availableFormattedMessages
+                : [previewForRoom.content]
+        ).filter((content) => content.trim());
+        if (contents.length > 0 && !persisted(contents, previewForRoom.characterId)) {
+            const bubbleCharacter = resolveBubbleCharacter(previewForRoom.characterId);
+            contents.forEach((content, index) => pushBubble({
+                key: `${previewForRoom.jobId}:${index}`,
+                content,
+                characterId: previewForRoom.characterId,
+                characterName: previewForRoom.characterName,
+                character: bubbleCharacter,
+                streaming: true,
+            }));
+        }
+    }
+    const activePreview = previewForRoom && isLoading && allBubbles.length > 0
+        ? previewForRoom
         : null;
     const previewCharacter = activePreview?.characterId && characterMap
         ? characterMap.get(activePreview.characterId)
@@ -179,5 +236,6 @@ export function resolveChatStreamingPresentation({
         activePreview,
         previewCharacter,
         formattedMessages: activePreview ? availableFormattedMessages : [],
+        bubbles: activePreview ? allBubbles : [],
     };
 }

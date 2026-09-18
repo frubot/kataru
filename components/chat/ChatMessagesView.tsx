@@ -12,6 +12,7 @@ import type { Character } from '@/lib/store';
 import type {
     ChatMessagePresentation,
     ChatStreamingPreview,
+    ChatStreamingPreviewBubble,
     PriorMessagePresentation,
 } from '@/lib/chatMessagePresentation';
 import MessageBubble from '../MessageBubble';
@@ -149,8 +150,7 @@ type ChatMessagesViewProps = {
     isGroupRoom: boolean;
     character: Character | null;
     activeStreamingPreview: ChatStreamingPreview | null;
-    streamingPreviewCharacter: Character | null | undefined;
-    formattedStreamingPreviewMessages: string[];
+    streamingPreviewBubbles: ChatStreamingPreviewBubble[];
     isLoading: boolean;
     isSummarizing: boolean;
     branchingMessageId: string | null;
@@ -201,8 +201,7 @@ export default function ChatMessagesView({
     isGroupRoom,
     character,
     activeStreamingPreview,
-    streamingPreviewCharacter,
-    formattedStreamingPreviewMessages,
+    streamingPreviewBubbles,
     isLoading,
     isSummarizing,
     branchingMessageId,
@@ -493,68 +492,66 @@ export default function ChatMessagesView({
                     ))
                 )
             )}
-            {formattedStreamingPreviewMessages.length > 0 && activeStreamingPreview ? (
-                <>
-                    {formattedStreamingPreviewMessages.map((content, index) => (
-                        <MessageBubble
-                            key={`${activeStreamingPreview.jobId}-preview-${index}`}
-                            messageId={`${activeStreamingPreview.jobId}-preview-${index}`}
-                            role="assistant"
-                            content={content}
-                            displayContent={content}
-                            index={messages.length + index}
-                            isArchived={false}
-                            isLastMessage={index === formattedStreamingPreviewMessages.length - 1}
-                            isLoading
-                            isHovered={false}
-                            isCopied={false}
-                            formatAssistantActions={formatAssistantActions}
-                            isAssistantContinuation={index > 0}
-                            showAssistantActions={false}
-                            showBranchAction={false}
-                            showMemoryIndicator={false}
-                            showArchiveDivider={false}
-                            memoryCharacterId={activeStreamingPreview.characterId}
-                            characterIcon={streamingPreviewCharacter?.icon}
-                            characterName={activeStreamingPreview.characterName ?? streamingPreviewCharacter?.name}
-                            isGroupRoom={isGroupRoom}
-                            onMouseEnter={NOOP}
-                            onMouseLeave={NOOP}
-                            onTouchStart={NOOP}
-                            onEdit={NOOP}
-                            onEditChange={NOOP}
-                            onCancelEdit={NOOP}
-                            onSubmitEdit={NOOP}
-                            onCopy={NOOP}
-                            onRegenerate={NOOP}
-                            onBranch={NOOP}
-                            onOpenMemoryList={NOOP}
+            {streamingPreviewBubbles.map((bubble, index) => (
+                bubble.streaming ? (
+                    <div key={bubble.key} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+                        <Avatar
+                            character={bubble.character}
+                            name={bubble.characterName ?? bubble.character?.name}
                         />
-                    ))}
-                </>
-            ) : activeStreamingPreview ? (
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
-                    <Avatar
-                        character={streamingPreviewCharacter}
-                        name={activeStreamingPreview.characterName}
-                    />
-                    <div className="assistant-message-content">
-                        {isGroupRoom && activeStreamingPreview.characterName && (
-                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.125rem', marginLeft: '0.25rem', fontWeight: 500 }}>
-                                {activeStreamingPreview.characterName}
+                        <div className="assistant-message-content">
+                            {isGroupRoom && (bubble.characterName ?? bubble.character?.name) && (
+                                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.125rem', marginLeft: '0.25rem', fontWeight: 500 }}>
+                                    {bubble.characterName ?? bubble.character?.name}
+                                </div>
+                            )}
+                            <div
+                                className="message-bubble assistant animate-slide-up streaming-preview-bubble"
+                                role="status"
+                                aria-live="polite"
+                                style={{ whiteSpace: 'pre-wrap' }}
+                            >
+                                {bubble.content}
                             </div>
-                        )}
-                        <div
-                            className="message-bubble assistant animate-slide-up streaming-preview-bubble"
-                            role="status"
-                            aria-live="polite"
-                            style={{ whiteSpace: 'pre-wrap' }}
-                        >
-                            {activeStreamingPreview.content}
                         </div>
                     </div>
-                </div>
-            ) : null}
+                ) : (
+                    <MessageBubble
+                        key={bubble.key}
+                        messageId={bubble.key}
+                        role="assistant"
+                        content={bubble.content}
+                        displayContent={bubble.content}
+                        index={messages.length + index}
+                        isArchived={false}
+                        isLastMessage={index === streamingPreviewBubbles.length - 1}
+                        isLoading
+                        isHovered={false}
+                        isCopied={false}
+                        formatAssistantActions={formatAssistantActions}
+                        isAssistantContinuation={bubble.continuation}
+                        showAssistantActions={false}
+                        showBranchAction={false}
+                        showMemoryIndicator={false}
+                        showArchiveDivider={false}
+                        memoryCharacterId={bubble.characterId}
+                        characterIcon={bubble.character?.icon}
+                        characterName={bubble.characterName ?? bubble.character?.name}
+                        isGroupRoom={isGroupRoom}
+                        onMouseEnter={NOOP}
+                        onMouseLeave={NOOP}
+                        onTouchStart={NOOP}
+                        onEdit={NOOP}
+                        onEditChange={NOOP}
+                        onCancelEdit={NOOP}
+                        onSubmitEdit={NOOP}
+                        onCopy={NOOP}
+                        onRegenerate={NOOP}
+                        onBranch={NOOP}
+                        onOpenMemoryList={NOOP}
+                    />
+                )
+            ))}
             {isLoading && !activeStreamingPreview && messages.at(-1)?.role !== 'assistant' && (
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
                     <Avatar character={isGroupRoom ? null : character} />

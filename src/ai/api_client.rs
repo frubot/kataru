@@ -147,6 +147,10 @@ impl AiApiClient {
         self.kind == ConnectionKind::Anthropic
     }
 
+    pub fn is_typesafe(&self) -> bool {
+        self.kind == ConnectionKind::Typesafe
+    }
+
     pub fn connection_id(&self) -> &str {
         &self.connection_id
     }
@@ -321,6 +325,7 @@ fn missing_api_key_error(connection: &EffectiveConnection) -> AppError {
             ConnectionKind::OpenRouter => "OpenRouter APIキーが設定されていません。設定画面または `kataru config set openrouter.api-key` で設定してください。".to_owned(),
             ConnectionKind::OpenAiCompatible => "OpenAI APIキーが設定されていません。設定画面または `kataru config set openai.api-key` で設定してください。".to_owned(),
             ConnectionKind::Anthropic => "Anthropic APIキーが設定されていません。設定画面または `kataru config set anthropic.api-key` で設定してください。".to_owned(),
+            ConnectionKind::Typesafe => "TypeSafe AI APIキーが設定されていません。設定画面または環境変数 TYPESAFE_API_KEY で設定してください。".to_owned(),
         }
     } else {
         format!(

@@ -16,7 +16,9 @@ use crate::{
             resolve_role_selection, role_connection, role_default_selection, structured_completion,
             structured_completion_streaming,
         },
+        typesafe::{DEFAULT_JEV_MODEL, SystemOneResponse, choice_answer, noul_answer, system_one},
     },
+    ai_config::TYPESAFE_CONNECTION_ID,
     error::{AppError, AppResult},
 };
 
@@ -25,9 +27,11 @@ use super::{
     jobs::ConversationJobs,
     memory::request_embedding,
     prompts::{
-        DIRECTOR_TRANSCRIPT_USER_HISTORY, SUMMARY_RECENT_USER_TURNS_TO_KEEP, actor_id,
-        assistant_schema, boolean, character_setting, character_system_prompt, director_prompts,
-        director_schema, string, summary_prompts, summary_schema,
+        DIRECTOR_TRANSCRIPT_USER_HISTORY, JEV_CONVERSATION_COMPLETE_OPTION, JEV_END_OPTION,
+        JEV_PROTAGONIST_OPTION, SUMMARY_RECENT_USER_TURNS_TO_KEEP, actor_id,
+        assistant_schema, boolean, character_setting, character_system_prompt,
+        director_jev_first_questions, director_jev_safe_question, director_jev_state,
+        director_prompts, director_schema, string, summary_prompts, summary_schema,
     },
     response::{
         AssistantEnvelope, DirectorDecision, assistant_expression_preview,
@@ -48,6 +52,9 @@ const MEMORY_MIN_IMPORTANCE: f64 = 0.4;
 const MEMORY_MIN_CONFIDENCE: f64 = 0.7;
 const MEMORY_MAX_CANDIDATES: usize = 5;
 const CONTINATUION_TRIGGER: &str = "[内部指示] これは主人公の発言ではありません。主人公から新しい発言や行動はありません。直前の場面を繰り返さず、あなた自身が自発的に発言または行動して、自然な続きを作成してください。";
+
+const JEV_CONTINUE_THRESHOLD: f64 = 0.5;
+const DIRECTOR_JEV_TIMEOUT_SECS: u64 = 30;
 
 /// Lazily builds and caches one `AiApiClient` per connection id so a single
 /// turn can mix roles/characters pinned to different connections.
@@ -117,6 +124,31 @@ fn director_selection(
         }
     }
     Err(AppError::BadRequest("指揮役モデルが設定されていません。".into()))
+}
+
+fn is_typesafe_director(situation: &Value) -> bool {
+    situation
+        .pointer("/director/engine")
+        .and_then(Value::as_str)
+        .is_some_and(|engine| engine == "typesafe")
+}
+
+/// Jev directors never fall back to an actor's chat model: the engine itself
+/// resolves to the built-in TypeSafe connection unless overridden explicitly.
+fn typesafe_director_selection(situation: &Value, payload: &Value) -> RoleSelection {
+    let director = situation.get("director").filter(|value| value.is_object());
+    let model = director
+        .map(|value| model_string(value, "model"))
+        .filter(|model| !model.is_empty())
+        .unwrap_or_else(|| DEFAULT_JEV_MODEL.to_owned());
+    let connection_id = director
+        .and_then(entity_connection_id)
+        .or_else(|| role_connection(payload, "defaultDirectorModel"))
+        .unwrap_or_else(|| TYPESAFE_CONNECTION_ID.to_owned());
+    RoleSelection {
+        model,
+        connection_id: Some(connection_id),
+    }
 }
 
 fn character_max_characters(character: &Value) -> usize {
@@ -331,7 +363,11 @@ async fn run_turn_inner(
             .pointer("/director/stopPolicy")
             .and_then(Value::as_str)
             == Some("after-one");
-        let director_selection = director_selection(situation, &payload, &participants)?;
+        let director_selection = if is_typesafe_director(situation) {
+            typesafe_director_selection(situation, &payload)
+        } else {
+            director_selection(situation, &payload, &participants)?
+        };
 
         for turn_index in 0..max_turns {
             let mut combined = active_history.clone();
@@ -354,6 +390,24 @@ async fn run_turn_inner(
                     reason: "Only participant".into(),
                     candidates: vec![(actor_id(&participants[0]), "Only participant".into())],
                 }
+            } else if is_typesafe_director(situation) {
+                request_director_typesafe(
+                    &mut clients,
+                    situation,
+                    &participants,
+                    &combined,
+                    &latest_user_message,
+                    turn_index,
+                    max_turns,
+                    banned_actor_id.as_deref(),
+                    generation_mode.is_continue(),
+                    &director_selection,
+                    secret_mode,
+                    &room,
+                    &mut usages,
+                    full_json_logs,
+                )
+                .await?
             } else {
                 request_director(
                     &mut clients,
@@ -952,6 +1006,293 @@ async fn request_director(
         }));
     }
     Ok(decision)
+}
+
+/// Jev (System One) director. The first call picks the next speaker among the
+/// eligible actors, the protagonist, a scene that finished but could continue,
+/// or a hard stop. When the scene merely finished but continuing still feels
+/// natural (Noul probability >= threshold), a second call picks an actor whose
+/// entrance would not break the scene; that call has no stop options.
+#[allow(clippy::too_many_arguments)]
+async fn request_director_typesafe(
+    clients: &mut RequestClients<'_>,
+    situation: &Value,
+    actors: &[Value],
+    messages: &[Value],
+    latest_user_message: &str,
+    turn_index: usize,
+    max_turns: usize,
+    banned_actor_id: Option<&str>,
+    continuation_generation: bool,
+    selection: &RoleSelection,
+    secret_mode: bool,
+    room: &Value,
+    usages: &mut Vec<Value>,
+    full_json_logs: &mut Vec<Value>,
+) -> AppResult<DirectorDecision> {
+    let actor_ids = actors.iter().map(actor_id).collect::<Vec<_>>();
+    let eligible_ids = actor_ids
+        .iter()
+        .filter(|id| Some(id.as_str()) != banned_actor_id)
+        .cloned()
+        .collect::<Vec<_>>();
+    if eligible_ids.is_empty() {
+        return Ok(DirectorDecision {
+            actor_id: None,
+            reason: "No eligible actor".into(),
+            candidates: Vec::new(),
+        });
+    }
+    let api_client = clients.for_selection(selection)?;
+    if !api_client.is_typesafe() {
+        return Err(AppError::BadRequest(
+            "TypeSafeエンジンの指揮役にはTypeSafe AI接続が必要です。".into(),
+        ));
+    }
+
+    let transcript_messages = slice_by_user_history(messages, DIRECTOR_TRANSCRIPT_USER_HISTORY);
+    let transcript = director_transcript(&transcript_messages, actors);
+    let state = director_jev_state(
+        situation,
+        actors,
+        &transcript,
+        latest_user_message,
+        turn_index,
+        max_turns,
+        banned_actor_id,
+        continuation_generation,
+    );
+    let first_questions = director_jev_first_questions(actors, &eligible_ids);
+    let prompt = serde_json::to_string_pretty(&json!({
+        "state": state,
+        "questions": first_questions,
+    }))
+    .expect("director request must be serializable");
+    let started = now_ms();
+    let debug_context = GenerationDebugContext {
+        room,
+        character_id: format!("{}:director", string(situation, "id")),
+        character_name: "指揮役".to_owned(),
+        model: selection.model.clone(),
+        prompt: &prompt,
+    };
+    let response = match system_one(
+        &api_client,
+        &selection.model,
+        &state,
+        &first_questions,
+        DIRECTOR_JEV_TIMEOUT_SECS,
+    )
+    .await
+    {
+        Ok(response) => response,
+        Err(error) => {
+            if !secret_mode {
+                push_error_debug_log(
+                    full_json_logs,
+                    &debug_context,
+                    "director-error",
+                    None,
+                    &error,
+                    now_ms().saturating_sub(started),
+                );
+            }
+            return Err(error);
+        }
+    };
+    let next = match choice_answer(&response, "next_speaker") {
+        Ok(next) => next,
+        Err(error) => {
+            if !secret_mode {
+                push_error_debug_log(
+                    full_json_logs,
+                    &debug_context,
+                    "director-error",
+                    None,
+                    &error,
+                    now_ms().saturating_sub(started),
+                );
+            }
+            return Err(error);
+        }
+    };
+
+    let continue_threshold = situation
+        .pointer("/director/continueThreshold")
+        .and_then(Value::as_f64)
+        .unwrap_or(JEV_CONTINUE_THRESHOLD)
+        .clamp(0.0, 1.0);
+
+    let next_choice = next.choice.as_str();
+    let mut selected_actor: Option<String> = None;
+    let mut second_response: Option<SystemOneResponse> = None;
+
+    if eligible_ids.iter().any(|id| id == next_choice) {
+        selected_actor = Some(next_choice.to_owned());
+    } else if next_choice == JEV_PROTAGONIST_OPTION || next_choice == JEV_END_OPTION {
+        selected_actor = None;
+    } else if next_choice == JEV_CONVERSATION_COMPLETE_OPTION {
+        let noul = match noul_answer(&response, "continue_naturally") {
+            Ok(noul) => noul,
+            Err(error) => {
+                if !secret_mode {
+                    push_error_debug_log(
+                        full_json_logs,
+                        &debug_context,
+                        "director-error",
+                        None,
+                        &error,
+                        now_ms().saturating_sub(started),
+                    );
+                }
+                return Err(error);
+            }
+        };
+        if noul.noul >= continue_threshold {
+            let safe_question = director_jev_safe_question(actors, &eligible_ids);
+            let second = match system_one(
+                &api_client,
+                &selection.model,
+                &state,
+                &safe_question,
+                DIRECTOR_JEV_TIMEOUT_SECS,
+            )
+            .await
+            {
+                Ok(second) => second,
+                Err(error) => {
+                    if !secret_mode {
+                        push_error_debug_log(
+                            full_json_logs,
+                            &debug_context,
+                            "director-error",
+                            None,
+                            &error,
+                            now_ms().saturating_sub(started),
+                        );
+                    }
+                    return Err(error);
+                }
+            };
+            let safe = match choice_answer(&second, "safe_speaker") {
+                Ok(safe) => safe,
+                Err(error) => {
+                    if !secret_mode {
+                        push_error_debug_log(
+                            full_json_logs,
+                            &debug_context,
+                            "director-error",
+                            None,
+                            &error,
+                            now_ms().saturating_sub(started),
+                        );
+                    }
+                    return Err(error);
+                }
+            };
+            if !eligible_ids.iter().any(|id| id == safe.choice.as_str()) {
+                let error = AppError::Upstream(
+                    format!("Jevが不明な発言者を返しました: {}", safe.choice),
+                    axum::http::StatusCode::BAD_GATEWAY,
+                );
+                if !secret_mode {
+                    push_error_debug_log(
+                        full_json_logs,
+                        &debug_context,
+                        "director-error",
+                        None,
+                        &error,
+                        now_ms().saturating_sub(started),
+                    );
+                }
+                return Err(error);
+            }
+            selected_actor = Some(safe.choice);
+            second_response = Some(second);
+        }
+    } else {
+        let error = AppError::Upstream(
+            format!("Jevが不明な選択肢を返しました: {next_choice}"),
+            axum::http::StatusCode::BAD_GATEWAY,
+        );
+        if !secret_mode {
+            push_error_debug_log(
+                full_json_logs,
+                &debug_context,
+                "director-error",
+                None,
+                &error,
+                now_ms().saturating_sub(started),
+            );
+        }
+        return Err(error);
+    }
+
+    let mut probabilities: Vec<(String, f64)> = next
+        .probabilities
+        .iter()
+        .filter(|(id, _)| eligible_ids.contains(id))
+        .map(|(id, probability)| (id.clone(), *probability))
+        .collect();
+    probabilities.sort_by(|a, b| b.1.total_cmp(&a.1));
+    let candidates = probabilities
+        .into_iter()
+        .map(|(id, probability)| (id, format!("{probability:.3}")))
+        .collect::<Vec<_>>();
+
+    if !secret_mode {
+        let situation_id = format!("{}:director", string(situation, "id"));
+        push_jev_usage(usages, &response, &situation_id, &selection.model);
+        if let Some(second) = &second_response {
+            push_jev_usage(usages, second, &situation_id, &selection.model);
+        }
+        let mut log = json!({
+            "roomId": string(room, "id"),
+            "roomName": string(room, "name"),
+            "characterId": debug_context.character_id,
+            "characterName": debug_context.character_name,
+            "model": debug_context.model,
+            "status": "success",
+            "source": "director-jev",
+            "prompt": prompt,
+            "json": serde_json::to_value(&response)
+                .expect("Jev response must be serializable"),
+            "elapsedMs": now_ms().saturating_sub(started),
+        });
+        if let Some(second) = &second_response {
+            log["secondJson"] = serde_json::to_value(second)
+                .expect("Jev response must be serializable");
+        }
+        full_json_logs.push(log);
+    }
+
+    Ok(DirectorDecision {
+        actor_id: selected_actor,
+        reason: "Jev".into(),
+        candidates,
+    })
+}
+
+fn push_jev_usage(
+    usages: &mut Vec<Value>,
+    response: &SystemOneResponse,
+    character_id: &str,
+    model: &str,
+) {
+    let Some(usage) = &response.usage else {
+        return;
+    };
+    usages.push(json!({
+        "id": format!("usage-{}", now_ms()),
+        "characterId": character_id,
+        "model": model,
+        "source": "director",
+        "promptTokens": usage.input_tokens,
+        "completionTokens": usage.output_tokens,
+        "totalTokens": usage.input_tokens + usage.output_tokens,
+        "cost": 0.0,
+        "timestamp": now_ms(),
+    }));
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2082,5 +2423,46 @@ mod tests {
             vec!["neutral", "uniform-happy"]
         );
         assert!(expression_names(&character, &room, false).is_empty());
+    }
+
+    #[test]
+    fn typesafe_engine_is_detected_from_director_config() {
+        assert!(is_typesafe_director(&json!({
+            "director": {"engine": "typesafe"}
+        })));
+        assert!(!is_typesafe_director(&json!({
+            "director": {"engine": "llm"}
+        })));
+        assert!(!is_typesafe_director(&json!({})));
+    }
+
+    #[test]
+    fn typesafe_director_selection_defaults_to_builtin_connection() {
+        let selection = typesafe_director_selection(&json!({}), &json!({}));
+        assert_eq!(selection.model, "jev-latest");
+        assert_eq!(
+            selection.connection_id.as_deref(),
+            Some(TYPESAFE_CONNECTION_ID)
+        );
+    }
+
+    #[test]
+    fn typesafe_director_selection_honors_overrides() {
+        let situation = json!({
+            "director": {
+                "engine": "typesafe",
+                "model": "jev-preview",
+                "connectionId": "cx_custom"
+            }
+        });
+        let selection = typesafe_director_selection(&situation, &json!({}));
+        assert_eq!(selection.model, "jev-preview");
+        assert_eq!(selection.connection_id.as_deref(), Some("cx_custom"));
+
+        let payload = json!({
+            "aiApiConfig": {"roleApiTypes": {"defaultDirectorModel": "cx_role"}}
+        });
+        let selection = typesafe_director_selection(&json!({}), &payload);
+        assert_eq!(selection.connection_id.as_deref(), Some("cx_role"));
     }
 }

@@ -1,6 +1,7 @@
 pub mod anthropic;
 pub mod api_client;
 pub mod routes;
+pub mod typesafe;
 
 pub use api_client::{AiApiClient, AiApiConfig, ai_api_config_value};
 pub use routes::{

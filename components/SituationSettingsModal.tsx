@@ -254,6 +254,106 @@ function MaxAutoTurnsSlider({ value, onChange }: MaxAutoTurnsSliderProps) {
     );
 }
 
+interface ContinueThresholdSliderProps {
+    value: number;
+    onChange: (value: number) => void;
+}
+
+function ContinueThresholdSlider({ value, onChange }: ContinueThresholdSliderProps) {
+    const percent = value * 100;
+
+    return (
+        <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.375rem', gap: '0.75rem' }}>
+                <label
+                    htmlFor="situation-continue-threshold"
+                    style={{
+                        fontSize: '0.8125rem',
+                        fontWeight: 500,
+                        color: 'var(--text-secondary)',
+                    }}
+                >
+                    会話継続のしきい値
+                </label>
+                <span
+                    style={{
+                        fontSize: '0.8125rem',
+                        fontWeight: 600,
+                        color: 'var(--accent-primary)',
+                        minWidth: '3.5rem',
+                        textAlign: 'right',
+                        fontVariantNumeric: 'tabular-nums',
+                    }}
+                >
+                    {value.toFixed(2)}
+                </span>
+            </div>
+
+            <div style={{ position: 'relative', height: '24px', display: 'flex', alignItems: 'center' }}>
+                <div
+                    style={{
+                        position: 'absolute',
+                        width: '100%',
+                        height: '4px',
+                        borderRadius: '2px',
+                        background: 'var(--bg-tertiary)',
+                        overflow: 'hidden',
+                    }}
+                >
+                    <div
+                        style={{
+                            width: `${percent}%`,
+                            height: '100%',
+                            background: 'var(--accent-primary)',
+                            borderRadius: '2px',
+                            transition: 'width 0.15s ease',
+                        }}
+                    />
+                </div>
+                <input
+                    id="situation-continue-threshold"
+                    type="range"
+                    aria-label="会話継続のしきい値"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={value}
+                    onChange={(event) => onChange(Number(event.target.value))}
+                    style={{
+                        position: 'absolute',
+                        width: '100%',
+                        height: '24px',
+                        opacity: 0,
+                        cursor: 'pointer',
+                        margin: 0,
+                        padding: 0,
+                        zIndex: 2,
+                    }}
+                />
+                <div
+                    style={{
+                        position: 'absolute',
+                        left: `calc(${percent}% - 8px)`,
+                        width: '16px',
+                        height: '16px',
+                        borderRadius: '50%',
+                        background: 'var(--accent-primary)',
+                        boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
+                        transition: 'left 0.15s ease',
+                        pointerEvents: 'none',
+                        zIndex: 1,
+                    }}
+                />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.25rem' }}>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>0.00</span>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>1.00</span>
+            </div>
+        </div>
+    );
+}
+
 interface MaxHistorySliderProps {
     value: string;
     onChange: (value: string) => void;
@@ -981,6 +1081,10 @@ function buildInitialState(
         backgroundImage: situation?.backgroundImage ?? '',
         situationPrompt: situation?.situationPrompt ?? '',
         directorModel: situation?.director?.model,
+        directorEngine: situation?.director?.engine === 'typesafe' ? 'typesafe' as const : 'llm' as const,
+        continueThreshold: typeof situation?.director?.continueThreshold === 'number'
+            ? situation.director.continueThreshold
+            : 0.5,
         maxAutoTurns: String(getInitialMaxTurns(situation, room)),
         maxHistory: situation?.maxHistory != null ? String(situation.maxHistory) : '',
         memoryReadOnly: situation?.memoryMode === 'readOnly',
@@ -997,6 +1101,8 @@ function serializeSituationDraft(draft: ReturnType<typeof buildInitialState>) {
         backgroundImage: draft.backgroundImage,
         situationPrompt: draft.situationPrompt,
         directorModel: draft.directorModel,
+        directorEngine: draft.directorEngine,
+        continueThreshold: draft.continueThreshold,
         maxAutoTurns: draft.maxAutoTurns,
         maxHistory: draft.maxHistory,
         memoryReadOnly: draft.memoryReadOnly,
@@ -1357,6 +1463,8 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
     const [backgroundImage, setBackgroundImage] = useState(initial.backgroundImage);
     const [situationPrompt, setSituationPrompt] = useState(initial.situationPrompt);
     const [directorModel, setDirectorModel] = useState<ModelRef | undefined>(initial.directorModel);
+    const [directorEngine, setDirectorEngine] = useState<'llm' | 'typesafe'>(initial.directorEngine);
+    const [continueThreshold, setContinueThreshold] = useState<number>(initial.continueThreshold);
     const [maxAutoTurns, setMaxAutoTurns] = useState(initial.maxAutoTurns);
     const [maxHistory, setMaxHistory] = useState(initial.maxHistory);
     const [memoryReadOnly, setMemoryReadOnly] = useState(initial.memoryReadOnly);
@@ -1613,6 +1721,8 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                 backgroundImage,
                 situationPrompt,
                 directorModel,
+                directorEngine,
+                continueThreshold,
                 maxAutoTurns,
                 maxHistory,
                 memoryReadOnly,
@@ -1633,6 +1743,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
             ...(situation?.director?.systemPrompt?.trim() ? { systemPrompt: situation.director.systemPrompt.trim() } : {}),
             maxAutoTurns: effectiveMaxTurns,
             stopPolicy: situation?.director?.stopPolicy === 'after-one' ? 'after-one' : 'max-turns',
+            ...(directorEngine === 'typesafe' ? { engine: 'typesafe' as const, continueThreshold } : {}),
         };
         const actors = buildActors();
         const effectiveActors = actors.length > 0 ? actors : situation?.actors ?? [];
@@ -1677,7 +1788,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
         }
 
         onClose();
-    }, [actorCount, actorOptions, backgroundImage, buildActors, characterActorMeta, createSituationRoom, defaultDirectorModel, directorModel, effectiveMaxTurns, isEditing, maxAutoTurns, maxHistory, memoryReadOnly, name, onClose, onCreated, parsedMaxHistory, priorMessages, room, selectedCharacterIds, situation, situationPrompt, temporaryActors, updateRoomSettings, updateSituation]);
+    }, [actorCount, actorOptions, backgroundImage, buildActors, characterActorMeta, continueThreshold, createSituationRoom, defaultDirectorModel, directorEngine, directorModel, effectiveMaxTurns, isEditing, maxAutoTurns, maxHistory, memoryReadOnly, name, onClose, onCreated, parsedMaxHistory, priorMessages, room, selectedCharacterIds, situation, situationPrompt, temporaryActors, updateRoomSettings, updateSituation]);
 
     const modalRef = useRef<HTMLDivElement>(null);
     useModalKeyboard({
@@ -2250,6 +2361,23 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                                     />
                                 </div>
                             </div>
+                            <div>
+                                <label style={sectionLabelStyle}>指揮エンジン</label>
+                                <div style={{ marginTop: '0.375rem' }}>
+                                    <select
+                                        value={directorEngine}
+                                        onChange={(event) => setDirectorEngine(event.target.value as 'llm' | 'typesafe')}
+                                        aria-label="指揮エンジン"
+                                        style={fieldStyle}
+                                    >
+                                        <option value="llm">LLM</option>
+                                        <option value="typesafe">TypeSafe AI (Jev)</option>
+                                    </select>
+                                </div>
+                            </div>
+                            {directorEngine === 'typesafe' && (
+                                <ContinueThresholdSlider value={continueThreshold} onChange={setContinueThreshold} />
+                            )}
                         </div>
                     </section>
                 </div>

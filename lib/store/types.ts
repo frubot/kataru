@@ -165,6 +165,8 @@ export interface SituationDirector {
     systemPrompt?: string;
     maxAutoTurns: number;
     stopPolicy: 'after-one' | 'max-turns';
+    engine?: 'llm' | 'typesafe';
+    continueThreshold?: number;
 }
 
 export type SituationPriorMessage =

@@ -21,7 +21,7 @@ pub use memory::extract_memories;
 
 pub(crate) use common::{
     RoleSelection, entity_connection_id, model_string, optional_role_selection,
-    resolve_role_selection, role_connection, role_default_selection,
+    resolve_role_selection, role_connection, role_default_selection, upstream_error,
 };
 pub(crate) use memory::{memory_extraction_prompt, memory_schema, parse_memory_updates};
 pub(crate) use structured::{

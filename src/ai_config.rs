@@ -31,6 +31,7 @@ use crate::{
 pub const OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
 pub const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 pub const DEFAULT_ANTHROPIC_BASE_URL: &str = "https://api.anthropic.com/v1";
+pub const DEFAULT_TYPESAFE_BASE_URL: &str = "https://api.typesafe.ai/v1";
 const CONFIG_FILE_NAME: &str = "server-config.json";
 const KEYRING_SERVICE: &str = "Kataru";
 
@@ -39,6 +40,7 @@ const KEYRING_SERVICE: &str = "Kataru";
 pub const OPENROUTER_CONNECTION_ID: &str = "openrouter";
 pub const OPENAI_COMPATIBLE_CONNECTION_ID: &str = "openai-compatible";
 pub const ANTHROPIC_CONNECTION_ID: &str = "anthropic";
+pub const TYPESAFE_CONNECTION_ID: &str = "typesafe";
 pub const DEFAULT_CONNECTION_ID: &str = OPENROUTER_CONNECTION_ID;
 const CUSTOM_ID_PREFIX: &str = "cx_";
 
@@ -50,6 +52,8 @@ pub enum ConnectionKind {
     OpenAiCompatible,
     #[serde(rename = "anthropic")]
     Anthropic,
+    #[serde(rename = "typesafe")]
+    Typesafe,
 }
 
 impl ConnectionKind {
@@ -58,6 +62,7 @@ impl ConnectionKind {
             Self::OpenRouter => "openrouter",
             Self::OpenAiCompatible => "openai-compatible",
             Self::Anthropic => "anthropic",
+            Self::Typesafe => "typesafe",
         }
     }
 
@@ -67,6 +72,7 @@ impl ConnectionKind {
             Self::OpenRouter => "OpenRouter",
             Self::OpenAiCompatible => "OpenAI 互換",
             Self::Anthropic => "Anthropic 互換",
+            Self::Typesafe => "TypeSafe AI",
         }
     }
 
@@ -81,6 +87,7 @@ impl ConnectionKind {
             "openrouter" => Some(Self::OpenRouter),
             "openai-compatible" => Some(Self::OpenAiCompatible),
             "anthropic" => Some(Self::Anthropic),
+            "typesafe" => Some(Self::Typesafe),
             _ => None,
         }
     }
@@ -90,6 +97,7 @@ impl ConnectionKind {
             Self::OpenRouter => OPENROUTER_BASE_URL,
             Self::OpenAiCompatible => DEFAULT_OPENAI_BASE_URL,
             Self::Anthropic => DEFAULT_ANTHROPIC_BASE_URL,
+            Self::Typesafe => DEFAULT_TYPESAFE_BASE_URL,
         }
     }
 
@@ -98,6 +106,7 @@ impl ConnectionKind {
             Self::OpenRouter => "OpenRouter",
             Self::OpenAiCompatible => "OpenAI",
             Self::Anthropic => "Anthropic",
+            Self::Typesafe => "TypeSafe",
         }
     }
 
@@ -112,6 +121,7 @@ impl ConnectionKind {
             Self::OpenRouter => "OPENROUTER_API_KEY",
             Self::OpenAiCompatible => "OPENAI_API_KEY",
             Self::Anthropic => "ANTHROPIC_API_KEY",
+            Self::Typesafe => "TYPESAFE_API_KEY",
         }
     }
 }
@@ -268,6 +278,7 @@ impl PersistedConfig {
         ensure_builtin(&mut self.connections, ConnectionKind::OpenRouter);
         ensure_builtin(&mut self.connections, ConnectionKind::OpenAiCompatible);
         ensure_builtin(&mut self.connections, ConnectionKind::Anthropic);
+        ensure_builtin(&mut self.connections, ConnectionKind::Typesafe);
         self.version = 2;
 
         let mut seen = HashMap::new();
@@ -330,6 +341,8 @@ struct EnvironmentConfig {
     openai_api_key: Option<String>,
     anthropic_base_url: Option<String>,
     anthropic_api_key: Option<String>,
+    typesafe_base_url: Option<String>,
+    typesafe_api_key: Option<String>,
 }
 
 impl EnvironmentConfig {
@@ -353,6 +366,15 @@ impl EnvironmentConfig {
                     .is_some()
                     .then(|| DEFAULT_ANTHROPIC_BASE_URL.to_owned())
             });
+        let typesafe_api_key = nonempty_env("TYPESAFE_API_KEY");
+        let typesafe_base_url = nonempty_env("TYPESAFE_BASE_URL")
+            .map(|value| normalize_api_base_url(&value, "TypeSafe"))
+            .transpose()?
+            .or_else(|| {
+                typesafe_api_key
+                    .is_some()
+                    .then(|| DEFAULT_TYPESAFE_BASE_URL.to_owned())
+            });
 
         Ok(Self {
             openrouter_api_key,
@@ -360,6 +382,8 @@ impl EnvironmentConfig {
             openai_api_key,
             anthropic_base_url,
             anthropic_api_key,
+            typesafe_base_url,
+            typesafe_api_key,
         })
     }
 
@@ -368,6 +392,7 @@ impl EnvironmentConfig {
             ConnectionKind::OpenRouter => self.openrouter_api_key.as_ref(),
             ConnectionKind::OpenAiCompatible => self.openai_api_key.as_ref(),
             ConnectionKind::Anthropic => self.anthropic_api_key.as_ref(),
+            ConnectionKind::Typesafe => self.typesafe_api_key.as_ref(),
         }
     }
 
@@ -376,6 +401,7 @@ impl EnvironmentConfig {
             ConnectionKind::OpenRouter => None,
             ConnectionKind::OpenAiCompatible => self.openai_base_url.as_ref(),
             ConnectionKind::Anthropic => self.anthropic_base_url.as_ref(),
+            ConnectionKind::Typesafe => self.typesafe_base_url.as_ref(),
         }
     }
 }
@@ -684,6 +710,7 @@ impl AiConfigManager {
                 ConnectionKind::OpenAiCompatible => "OPENAI_BASE_URL / OPENAI_API_KEY",
                 ConnectionKind::Anthropic => "ANTHROPIC_BASE_URL / ANTHROPIC_API_KEY",
                 ConnectionKind::OpenRouter => kind.env_api_key_name(),
+                ConnectionKind::Typesafe => "TYPESAFE_BASE_URL / TYPESAFE_API_KEY",
             };
             return Err(environment_override(names));
         }
@@ -1642,7 +1669,7 @@ mod tests {
         // but are not listed.
         assert!(manager.status().connections.is_empty());
         let effective = manager.effective();
-        assert_eq!(effective.connections.len(), 3);
+        assert_eq!(effective.connections.len(), 4);
         let openrouter = effective.connection("openrouter").unwrap();
         assert_eq!(openrouter.name, "OpenRouter");
         assert_eq!(openrouter.base_url, OPENROUTER_BASE_URL);
@@ -1657,6 +1684,10 @@ mod tests {
         assert_eq!(
             effective.connection("anthropic").unwrap().base_url,
             DEFAULT_ANTHROPIC_BASE_URL
+        );
+        assert_eq!(
+            effective.connection("typesafe").unwrap().base_url,
+            DEFAULT_TYPESAFE_BASE_URL
         );
 
         // Any stored configuration lists the built-in again.
@@ -1725,6 +1756,8 @@ mod tests {
                 openai_api_key: Some("openai-env".to_owned()),
                 anthropic_base_url: Some(DEFAULT_ANTHROPIC_BASE_URL.to_owned()),
                 anthropic_api_key: Some("anthropic-env".to_owned()),
+                typesafe_base_url: Some(DEFAULT_TYPESAFE_BASE_URL.to_owned()),
+                typesafe_api_key: Some("typesafe-env".to_owned()),
             },
             Arc::new(MemorySecretStore::default()),
         )
@@ -1734,11 +1767,14 @@ mod tests {
         let openrouter = effective.connection("openrouter").unwrap();
         let openai = effective.connection("openai-compatible").unwrap();
         let anthropic = effective.connection("anthropic").unwrap();
+        let typesafe = effective.connection("typesafe").unwrap();
         assert_eq!(openrouter.api_key.as_deref(), Some("openrouter-env"));
         assert_eq!(openai.base_url, DEFAULT_OPENAI_BASE_URL);
         assert_eq!(openai.api_key.as_deref(), Some("openai-env"));
         assert_eq!(anthropic.base_url, DEFAULT_ANTHROPIC_BASE_URL);
         assert_eq!(anthropic.api_key.as_deref(), Some("anthropic-env"));
+        assert_eq!(typesafe.base_url, DEFAULT_TYPESAFE_BASE_URL);
+        assert_eq!(typesafe.api_key.as_deref(), Some("typesafe-env"));
 
         let status = manager.status();
         let openai = connection(&status, "openai-compatible");
@@ -1838,7 +1874,7 @@ mod tests {
 
         let manager = AiConfigManager::open(directory.path()).unwrap();
         let effective = manager.effective();
-        assert_eq!(effective.connections.len(), 3);
+        assert_eq!(effective.connections.len(), 4);
         assert_eq!(
             effective.connection("openai-compatible").unwrap().base_url,
             "http://127.0.0.1:1234/v1"
@@ -1862,7 +1898,7 @@ mod tests {
         let saved: serde_json::Value =
             serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
         assert_eq!(saved["version"], 2);
-        assert!(saved["connections"].as_array().unwrap().len() == 3);
+        assert!(saved["connections"].as_array().unwrap().len() == 4);
         assert!(saved.get("openai").is_none());
     }
 
@@ -2083,9 +2119,9 @@ mod tests {
                 })
                 .is_err()
         );
-        // Only the three (unlisted) built-ins exist and nothing was persisted.
+        // Only the four (unlisted) built-ins exist and nothing was persisted.
         assert!(manager.status().connections.is_empty());
-        assert_eq!(manager.effective().connections.len(), 3);
+        assert_eq!(manager.effective().connections.len(), 4);
         assert!(!directory.path().join(CONFIG_FILE_NAME).exists());
     }
 

@@ -62,12 +62,18 @@ export function normalizeSituationDirector(
         legacyModelRefSource(director?.model, director?.aiApiType),
         fallbackModel,
     );
+    const continueThreshold = typeof director?.continueThreshold === 'number'
+        && Number.isFinite(director.continueThreshold)
+        ? Math.max(0, Math.min(1, director.continueThreshold))
+        : undefined;
     return {
         enabled: director?.enabled !== false,
         model,
         ...(director?.systemPrompt?.trim() ? { systemPrompt: director.systemPrompt.trim() } : {}),
         maxAutoTurns,
         stopPolicy,
+        ...(director?.engine === 'typesafe' ? { engine: 'typesafe' as const } : {}),
+        ...(continueThreshold !== undefined ? { continueThreshold } : {}),
     };
 }
 

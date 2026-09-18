@@ -526,6 +526,7 @@ fn models_path(kind: ConnectionKind) -> &'static str {
         ConnectionKind::OpenRouter => "models?output_modalities=text",
         ConnectionKind::OpenAiCompatible => "models",
         ConnectionKind::Anthropic => "models?limit=1",
+        ConnectionKind::Typesafe => "models",
     }
 }
 

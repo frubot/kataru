@@ -189,7 +189,7 @@ pub(super) fn copy_if_present(
     }
 }
 
-pub(super) async fn upstream_error(response: reqwest::Response) -> AppError {
+pub(crate) async fn upstream_error(response: reqwest::Response) -> AppError {
     let status = response.status();
     tracing::warn!(
         upstream_status = status.as_u16(),

@@ -162,4 +162,45 @@ describe('conversation result application', () => {
         expect(operations.addFullJsonDebugLog.mock.invocationCallOrder[0])
             .toBeLessThan(operations.refreshConversationRoom.mock.invocationCallOrder[0]);
     });
+
+    test('stringifies structured json payloads instead of crashing', async () => {
+        const operations = createOperations(sourceRoom);
+
+        await applyConversationResult(
+            {
+                data: {
+                    messages: [{
+                        id: 'server-message',
+                        role: 'assistant',
+                        content: '指揮役の応答',
+                        characterId: 'actor-1',
+                        timestamp: 1,
+                    }],
+                    fullJsonLogs: [{
+                        characterId: 'situation-1:director',
+                        characterName: '指揮役',
+                        model: 'jev-latest',
+                        status: 'success',
+                        source: 'director-jev',
+                        json: { model: 'jev-latest', answers: { next_speaker: { choice: 'actor-1' } } } as unknown as string,
+                        secondJson: '{"answers":{"safe_speaker":{"choice":"actor-2"}}}',
+                    }],
+                },
+                sourceRoom,
+                jobId: 'job-1',
+                isSecretMode: false,
+                isMessageMode: false,
+                shouldStreamPreview: false,
+                typingSpeed: 'default',
+                debugEnabled: true,
+            },
+            operations,
+        );
+
+        expect(operations.addFullJsonDebugLog).toHaveBeenCalledWith(expect.objectContaining({
+            source: 'director-jev',
+            json: expect.stringContaining('"next_speaker"'),
+            secondJson: '{"answers":{"safe_speaker":{"choice":"actor-2"}}}',
+        }));
+    });
 });

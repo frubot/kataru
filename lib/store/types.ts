@@ -285,6 +285,7 @@ export interface FullJsonDebugLog {
     source: string;
     prompt?: string;
     json: string;
+    secondJson?: string;
     httpStatus?: number;
     elapsedMs?: number;
     errorName?: string;

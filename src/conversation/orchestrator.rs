@@ -1255,13 +1255,15 @@ async fn request_director_typesafe(
             "status": "success",
             "source": "director-jev",
             "prompt": prompt,
-            "json": serde_json::to_value(&response)
+            "json": serde_json::to_string_pretty(&response)
                 .expect("Jev response must be serializable"),
             "elapsedMs": now_ms().saturating_sub(started),
         });
         if let Some(second) = &second_response {
-            log["secondJson"] = serde_json::to_value(second)
-                .expect("Jev response must be serializable");
+            log["secondJson"] = Value::String(
+                serde_json::to_string_pretty(second)
+                    .expect("Jev response must be serializable"),
+            );
         }
         full_json_logs.push(log);
     }

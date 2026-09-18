@@ -48,6 +48,12 @@ type RecordConversationDebugLogsOperations = Pick<
     'addFullJsonDebugLog' | 'getCurrentRoom'
 >;
 
+function debugLogText(value: unknown): string | undefined {
+    if (typeof value === 'string') return value;
+    if (value == null) return undefined;
+    return JSON.stringify(value, null, 2);
+}
+
 export function recordConversationDebugLogs(
     options: RecordConversationDebugLogsOptions,
     operations: RecordConversationDebugLogsOperations,
@@ -58,7 +64,8 @@ export function recordConversationDebugLogs(
     const currentRoom = operations.getCurrentRoom();
     const roomName = currentRoom?.id === sourceRoom.id ? currentRoom.name : sourceRoom.name;
     for (const log of data.fullJsonLogs ?? []) {
-        if (!log.json?.trim()) continue;
+        const json = debugLogText(log.json);
+        if (!json?.trim()) continue;
         operations.addFullJsonDebugLog({
             roomId: sourceRoom.id,
             roomName,
@@ -68,7 +75,8 @@ export function recordConversationDebugLogs(
             status: log.status,
             source: log.source,
             prompt: log.prompt,
-            json: log.json,
+            json,
+            secondJson: debugLogText(log.secondJson),
             httpStatus: log.httpStatus,
             elapsedMs: log.elapsedMs,
             errorName: log.errorName,

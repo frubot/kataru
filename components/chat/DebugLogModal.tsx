@@ -16,6 +16,8 @@ function getDebugSourceLabel(source: string): string {
             return '生成エラー';
         case 'director-json':
             return 'キャラクタールーターによる出力';
+        case 'director-jev':
+            return '指揮役による出力';
         case 'director-error':
             return 'キャラクタールーターのエラー';
         default:
@@ -131,6 +133,24 @@ export default function DebugLogModal({ logs, onClose, onClear }: DebugLogModalP
                                         lineHeight: 1.55,
                                         color: 'var(--text-secondary)',
                                     }}>{log.json}</pre>
+                                    {log.secondJson && (
+                                        <>
+                                            <div style={{ marginTop: '0.75rem', marginBottom: '0.375rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+                                                出力（2回目の応答）
+                                            </div>
+                                            <pre style={{
+                                                margin: 0,
+                                                maxHeight: '420px',
+                                                overflow: 'auto',
+                                                whiteSpace: 'pre-wrap',
+                                                wordBreak: 'break-word',
+                                                fontFamily: 'ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace',
+                                                fontSize: '0.8125rem',
+                                                lineHeight: 1.55,
+                                                color: 'var(--text-secondary)',
+                                            }}>{log.secondJson}</pre>
+                                        </>
+                                    )}
                                 </div>
                             ))}
                         </div>

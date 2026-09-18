@@ -20,7 +20,7 @@ export {
 
 /** The kind of API a connection speaks. Built-in connections use the same
  * value as their connection id. */
-export type AiConnectionKind = 'openrouter' | 'openai-compatible' | 'anthropic';
+export type AiConnectionKind = 'openrouter' | 'openai-compatible' | 'anthropic' | 'typesafe';
 
 /** 互換エイリアス。組み込み接続の id と同じ値を取る。 */
 export type AiApiType = AiConnectionKind;
@@ -29,6 +29,7 @@ export const AI_CONNECTION_KIND_LABELS: Record<AiConnectionKind, string> = {
     openrouter: 'OpenRouter',
     'openai-compatible': 'OpenAI / 互換API',
     anthropic: 'Anthropic / 互換API',
+    typesafe: 'TypeSafe AI (Jev)',
 };
 
 /** 互換エイリアス。 */
@@ -37,7 +38,7 @@ export const AI_API_TYPE_LABELS = AI_CONNECTION_KIND_LABELS;
 export const DEFAULT_AI_API_TYPE: AiApiType = DEFAULT_CONNECTION_ID;
 
 export function isAiConnectionKind(value: unknown): value is AiConnectionKind {
-    return value === 'openrouter' || value === 'openai-compatible' || value === 'anthropic';
+    return value === 'openrouter' || value === 'openai-compatible' || value === 'anthropic' || value === 'typesafe';
 }
 
 /** 互換エイリアス。 */

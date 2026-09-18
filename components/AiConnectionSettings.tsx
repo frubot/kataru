@@ -16,17 +16,20 @@ const CONNECTION_KIND_OPTIONS: readonly AiConnectionKind[] = [
     'openrouter',
     'openai-compatible',
     'anthropic',
+    'typesafe',
 ];
 
 const ENV_API_KEY_NAMES: Record<AiConnectionKind, string> = {
     openrouter: 'OPENROUTER_API_KEY',
     'openai-compatible': 'OPENAI_API_KEY',
     anthropic: 'ANTHROPIC_API_KEY',
+    typesafe: 'TYPESAFE_API_KEY',
 };
 
 const ENV_BASE_URL_NAMES: Partial<Record<AiConnectionKind, string>> = {
     'openai-compatible': 'OPENAI_BASE_URL',
     anthropic: 'ANTHROPIC_BASE_URL',
+    typesafe: 'TYPESAFE_BASE_URL',
 };
 
 function apiKeyPlaceholder(connection: AiConnectionStatus): string {
@@ -299,7 +302,8 @@ function AddAiConnectionCard({ onClose }: { onClose: () => void }) {
     const [error, setError] = useState<string | null>(null);
 
     const baseUrlFixed = kind === 'openrouter';
-    const canCreate = name.trim().length > 0 && (baseUrlFixed || baseUrl.trim().length > 0);
+    const baseUrlOptional = kind === 'typesafe';
+    const canCreate = name.trim().length > 0 && (baseUrlFixed || baseUrlOptional || baseUrl.trim().length > 0);
 
     const reset = () => {
         setName('');
@@ -378,7 +382,11 @@ function AddAiConnectionCard({ onClose }: { onClose: () => void }) {
                 value={baseUrl}
                 disabled={baseUrlFixed || saving}
                 spellCheck={false}
-                placeholder={baseUrlFixed ? 'OpenRouterのエンドポイントは固定です' : '例: http://localhost:1234/v1'}
+                placeholder={baseUrlFixed
+                    ? 'OpenRouterのエンドポイントは固定です'
+                    : kind === 'typesafe'
+                        ? '空欄で https://api.typesafe.ai/v1 を使用'
+                        : '例: http://localhost:1234/v1'}
                 onChange={(event) => setBaseUrl(event.target.value)}
             />
 

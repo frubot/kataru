@@ -38,12 +38,14 @@ interface ConnectionStatusResponse {
 
 const OPENAI_DEFAULT_BASE_URL = 'https://api.openai.com/v1';
 const ANTHROPIC_DEFAULT_BASE_URL = 'https://api.anthropic.com/v1';
+const TYPESAFE_DEFAULT_BASE_URL = 'https://api.typesafe.ai/v1';
 
 /** Endpoint prefill used when the picked kind has no connection yet. */
 const KIND_DEFAULT_BASE_URL: Record<AiConnectionKind, string> = {
     openrouter: '',
     'openai-compatible': OPENAI_DEFAULT_BASE_URL,
     anthropic: ANTHROPIC_DEFAULT_BASE_URL,
+    typesafe: TYPESAFE_DEFAULT_BASE_URL,
 };
 
 const CONNECTION_OPTIONS: readonly {

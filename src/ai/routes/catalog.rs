@@ -244,6 +244,7 @@ fn normalize_models_response(input: &Value) -> Vec<AvailableModel> {
     let entries = input
         .get("data")
         .and_then(Value::as_array)
+        .or_else(|| input.get("models").and_then(Value::as_array))
         .or_else(|| input.as_array())
         .into_iter()
         .flatten();
@@ -254,7 +255,12 @@ fn normalize_models_response(input: &Value) -> Vec<AvailableModel> {
                 (id, id)
             } else {
                 let record = entry.as_object()?;
-                let id = record.get("id")?.as_str()?;
+                // TypeSafe lists models as {name, description} without an id,
+                // so fall back to `name` for the model identifier.
+                let id = record
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .or_else(|| record.get("name").and_then(Value::as_str))?;
                 let name = record
                     .get("display_name")
                     .or_else(|| record.get("name"))
@@ -562,6 +568,34 @@ mod tests {
                 AvailableModel {
                     id: "plain-model".to_owned(),
                     name: "plain-model".to_owned()
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn model_list_normalizes_typesafe_models() {
+        let models = normalize_models_response(&json!({
+            "models": [
+                {
+                    "name": "jev-latest",
+                    "description": "Jev stable release",
+                    "release_date": "2026-09-15"
+                },
+                { "name": "jev-preview" }
+            ]
+        }));
+
+        assert_eq!(
+            models,
+            vec![
+                AvailableModel {
+                    id: "jev-latest".to_owned(),
+                    name: "jev-latest".to_owned()
+                },
+                AvailableModel {
+                    id: "jev-preview".to_owned(),
+                    name: "jev-preview".to_owned()
                 },
             ]
         );

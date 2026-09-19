@@ -1447,7 +1447,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                 flexDirection: 'column',
                                 gap: '1rem',
                             }}>
-                                <div className="global-settings-selector-row global-settings-selector-row-divider">
+                                <div className="global-settings-selector-row">
                                     <label
                                         htmlFor="tts-connection-input"
                                         style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
@@ -1482,7 +1482,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     </div>
                                 </div>
                                 {ttsConnectionKind !== 'voicevox' && (
-                                    <div className="global-settings-selector-row global-settings-selector-row-divider">
+                                    <div className="global-settings-selector-row">
                                         <label
                                             htmlFor="tts-model-input"
                                             style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
@@ -1503,7 +1503,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         </div>
                                     </div>
                                 )}
-                                <div className="global-settings-selector-row global-settings-selector-row-divider">
+                                <div className="global-settings-selector-row">
                                     <label
                                         htmlFor="tts-voice-input"
                                         style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
@@ -1534,7 +1534,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         </div>
                                     </div>
                                 </div>
-                                <div className="global-settings-selector-row global-settings-selector-row-divider">
+                                <div className="global-settings-selector-row">
                                     <label
                                         htmlFor="tts-speed-input"
                                         style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
@@ -1565,7 +1565,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         </span>
                                     </div>
                                 </div>
-                                <div className="global-settings-selector-row global-settings-selector-row-divider">
+                                <div className="global-settings-selector-row">
                                     <label
                                         htmlFor="tts-volume-input"
                                         style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
@@ -1603,11 +1603,11 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     ariaLabel: '新しい返答を自動で読み上げる',
                                 })}
                             </div>
-                            <p style={{ marginTop: '0.75rem', marginBottom: 0, fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                                {ttsCapableConnections.length === 0
-                                    ? '音声合成にはVOICEVOXの接続先、または「音声合成（TTS）を利用する」を有効にしたOpenAI互換の接続先が必要です。'
-                                    : '声、速度、音量はキャラクター設定の「高度な設定」から個別に上書きできます。'}
-                            </p>
+                            {ttsCapableConnections.length === 0 && (
+                                <p style={{ marginTop: '0.75rem', marginBottom: 0, fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                                    音声合成にはVOICEVOXの接続先、または「音声合成（TTS）を利用する」を有効にしたOpenAI互換の接続先が必要です。
+                                </p>
+                            )}
                         </div>
 
                             </>

@@ -48,6 +48,12 @@ export interface Character {
     repetitionPenalty?: number;
     enableThinking?: boolean;
     enableMemory?: boolean;
+    tts?: {
+        connectionId?: string;
+        model?: string;
+        voice?: string;
+        speed?: number;
+    };
     expressions?: Expression[];
     costumes?: Costume[];
     createdAt: number;
@@ -263,6 +269,7 @@ export interface ExportedConnection {
     baseUrl?: string;
     embeddingsEnabled?: boolean;
     imageGenerationEnabled?: boolean;
+    ttsEnabled?: boolean;
     ignoredProviders?: string[];
 }
 
@@ -327,6 +334,11 @@ export interface AppState {
     conversationCompressionEnabled: boolean;
     generateTitleOnFirstReply: boolean;
     replySuggestionsEnabled: boolean;
+    ttsConnectionId: string;
+    ttsModel: string;
+    ttsVoice: string;
+    ttsSpeed: number;
+    ttsAutoPlay: boolean;
     fullJsonDebugEnabled: boolean;
     detailedErrorLoggingEnabled: boolean;
     memoryInspectorEnabled: boolean;
@@ -366,6 +378,11 @@ export interface AppState {
     setConversationCompressionEnabled: (enabled: boolean) => void;
     setGenerateTitleOnFirstReply: (enabled: boolean) => void;
     setReplySuggestionsEnabled: (enabled: boolean) => void;
+    setTtsConnectionId: (id: string) => void;
+    setTtsModel: (model: string) => void;
+    setTtsVoice: (voice: string) => void;
+    setTtsSpeed: (speed: number) => void;
+    setTtsAutoPlay: (enabled: boolean) => void;
     getAiApiConfig: () => AiApiConfig;
     setFullJsonDebugEnabled: (enabled: boolean) => void;
     setDetailedErrorLoggingEnabled: (enabled: boolean) => void;
@@ -373,7 +390,7 @@ export interface AppState {
     setSummaryInspectorEnabled: (enabled: boolean) => void;
 
     createCharacter: (name: string, systemPrompt?: string, model?: ModelRef, extras?: CharacterExtras) => string;
-    updateCharacter: (id: string, updates: Partial<Pick<Character, 'name' | 'systemPrompt' | 'favorite' | 'speechStyle' | 'protagonistPrompt' | 'userConstraints' | 'model' | 'icon' | 'maxCharacters' | 'maxHistory' | 'temperature' | 'topP' | 'topK' | 'frequencyPenalty' | 'presencePenalty' | 'repetitionPenalty' | 'enableThinking' | 'enableMemory' | 'expressions' | 'costumes'>>) => void;
+    updateCharacter: (id: string, updates: Partial<Pick<Character, 'name' | 'systemPrompt' | 'favorite' | 'speechStyle' | 'protagonistPrompt' | 'userConstraints' | 'model' | 'icon' | 'maxCharacters' | 'maxHistory' | 'temperature' | 'topP' | 'topK' | 'frequencyPenalty' | 'presencePenalty' | 'repetitionPenalty' | 'enableThinking' | 'enableMemory' | 'tts' | 'expressions' | 'costumes'>>) => void;
     deleteCharacter: (id: string) => void;
     duplicateCharacter: (id: string) => string;
     getCharacter: (id: string) => Character | undefined;

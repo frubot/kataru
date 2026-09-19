@@ -52,6 +52,7 @@ pub struct AiApiClient {
     ignored_providers: Vec<String>,
     embeddings_enabled: bool,
     image_generation_enabled: bool,
+    tts_enabled: bool,
 }
 
 impl AiApiClient {
@@ -120,18 +121,21 @@ impl AiApiClient {
                 && connection.base_url != DEFAULT_OPENAI_BASE_URL)
                 .then(|| LOCAL_API_KEY_FALLBACK.to_owned())
         });
-        let api_key = api_key.ok_or_else(|| missing_api_key_error(connection))?;
+        if api_key.is_none() && connection.kind != ConnectionKind::Voicevox {
+            return Err(missing_api_key_error(connection));
+        }
 
         Ok(Self {
             client,
             connection_id: connection.id.clone(),
             kind: connection.kind,
             base_url: connection.base_url.clone(),
-            api_key: Some(api_key),
+            api_key,
             application_origin: application_origin.as_ref().to_owned(),
             ignored_providers: normalize_provider_slugs(connection.ignored_providers.clone()),
             embeddings_enabled: connection.embeddings_enabled,
             image_generation_enabled: connection.image_generation_enabled,
+            tts_enabled: connection.tts_enabled,
         })
     }
 
@@ -151,6 +155,10 @@ impl AiApiClient {
         self.kind == ConnectionKind::Typesafe
     }
 
+    pub fn is_voicevox(&self) -> bool {
+        self.kind == ConnectionKind::Voicevox
+    }
+
     pub fn connection_id(&self) -> &str {
         &self.connection_id
     }
@@ -165,6 +173,12 @@ impl AiApiClient {
 
     pub fn image_generation_enabled(&self) -> bool {
         self.is_openrouter() || (self.is_openai_compatible() && self.image_generation_enabled)
+    }
+
+    pub fn tts_enabled(&self) -> bool {
+        self.is_openrouter()
+            || self.is_voicevox()
+            || (self.is_openai_compatible() && self.tts_enabled)
     }
 
     pub fn endpoint(&self, path: &str) -> String {
@@ -358,6 +372,7 @@ fn missing_api_key_error(connection: &EffectiveConnection) -> AppError {
             ConnectionKind::OpenAiCompatible => "OpenAI APIキーが設定されていません。設定画面または `kataru config set openai.api-key` で設定してください。".to_owned(),
             ConnectionKind::Anthropic => "Anthropic APIキーが設定されていません。設定画面または `kataru config set anthropic.api-key` で設定してください。".to_owned(),
             ConnectionKind::Typesafe => "TypeSafe AI APIキーが設定されていません。設定画面または環境変数 TYPESAFE_API_KEY で設定してください。".to_owned(),
+            ConnectionKind::Voicevox => "VOICEVOX接続の設定が不正です。".to_owned(),
         }
     } else {
         format!(
@@ -439,6 +454,10 @@ fn safe_upstream_operation(operation: &str) -> &'static str {
         "embeddings" => "embeddings",
         "images/generations" => "images/generations",
         "decisions" => "decisions",
+        "audio/speech" => "audio/speech",
+        "audio_query" => "audio_query",
+        "synthesis" => "synthesis",
+        "speakers" => "speakers",
         _ => "other",
     }
 }
@@ -448,8 +467,8 @@ mod tests {
     use super::*;
     use crate::ai_config::{
         ANTHROPIC_CONNECTION_ID, ConfigSource, DEFAULT_ANTHROPIC_BASE_URL,
-        DEFAULT_OPENAI_BASE_URL, EffectiveConnection, OPENAI_COMPATIBLE_CONNECTION_ID,
-        OPENROUTER_CONNECTION_ID,
+        DEFAULT_OPENAI_BASE_URL, DEFAULT_VOICEVOX_BASE_URL, EffectiveConnection,
+        OPENAI_COMPATIBLE_CONNECTION_ID, OPENROUTER_CONNECTION_ID,
     };
     use serde_json::json;
 
@@ -472,6 +491,7 @@ mod tests {
             base_url_editable: !kind.has_fixed_base_url(),
             embeddings_enabled: true,
             image_generation_enabled: false,
+            tts_enabled: false,
             ignored_providers: Vec::new(),
         }
     }
@@ -507,6 +527,10 @@ mod tests {
             safe_upstream_operation("models?output_modalities=text"),
             "models"
         );
+        assert_eq!(safe_upstream_operation("audio/speech"), "audio/speech");
+        assert_eq!(safe_upstream_operation("audio_query"), "audio_query");
+        assert_eq!(safe_upstream_operation("synthesis"), "synthesis");
+        assert_eq!(safe_upstream_operation("speakers"), "speakers");
         assert_eq!(
             safe_upstream_operation("private/secret-value?api_key=secret"),
             "other"
@@ -600,6 +624,7 @@ mod tests {
                 base_url_editable: true,
                 embeddings_enabled: true,
                 image_generation_enabled: false,
+                tts_enabled: false,
                 ignored_providers: Vec::new(),
             }],
         };
@@ -621,6 +646,46 @@ mod tests {
             request.headers().get("authorization").unwrap(),
             "Bearer local"
         );
+    }
+
+    #[test]
+    fn voicevox_resolves_without_an_api_key() {
+        let config = EffectiveAiConfig {
+            connections: vec![EffectiveConnection {
+                id: "voicevox".to_owned(),
+                name: "VOICEVOX".to_owned(),
+                kind: ConnectionKind::Voicevox,
+                base_url: DEFAULT_VOICEVOX_BASE_URL.to_owned(),
+                api_key: None,
+                source: None,
+                builtin: true,
+                editable: true,
+                deletable: false,
+                base_url_editable: true,
+                embeddings_enabled: false,
+                image_generation_enabled: false,
+                tts_enabled: false,
+                ignored_providers: Vec::new(),
+            }],
+        };
+
+        let api_client = AiApiClient::resolve_for(
+            Client::new(),
+            "http://127.0.0.1:37371",
+            &config,
+            None,
+            Some("voicevox"),
+        )
+        .unwrap();
+        let request = api_client
+            .post("synthesis", Duration::from_secs(1))
+            .build()
+            .unwrap();
+
+        assert!(api_client.is_voicevox());
+        assert!(api_client.tts_enabled());
+        assert_eq!(request.url().as_str(), "http://127.0.0.1:50021/synthesis");
+        assert!(request.headers().get("authorization").is_none());
     }
 
     #[test]

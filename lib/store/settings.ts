@@ -1,4 +1,5 @@
 import {
+    DEFAULT_CONNECTION_ID,
     normalizeModelRef,
     type AiApiConfig,
 } from '../aiApi';
@@ -39,6 +40,13 @@ export const DEFAULT_CHARACTER_FREQUENCY_PENALTY = 0;
 export const DEFAULT_CHARACTER_PRESENCE_PENALTY = 0;
 export const DEFAULT_CHARACTER_REPETITION_PENALTY = 1;
 export const DEFAULT_CONVERSATION_COMPRESSION_ENABLED = true;
+export const DEFAULT_TTS_CONNECTION_ID = DEFAULT_CONNECTION_ID;
+export const DEFAULT_TTS_MODEL = 'deepgram/aura-2';
+export const DEFAULT_TTS_VOICE = 'aura-2-ama-ja';
+export const DEFAULT_TTS_SPEED = 1.0;
+export const DEFAULT_TTS_AUTO_PLAY = false;
+export const TTS_SPEED_MIN = 0.25;
+export const TTS_SPEED_MAX = 4.0;
 
 export function getThemeClassName(mode: ThemeMode, palette: ThemePalette): string {
     return `mode-${mode} palette-${palette}`;
@@ -63,6 +71,11 @@ export function isVnTypingSpeed(value: unknown): value is VnTypingSpeed {
 
 export function isRoomViewMode(value: unknown): value is RoomViewMode {
     return value === 'chat' || value === 'message' || value === 'vn';
+}
+
+export function normalizeTtsSpeed(value: unknown): number {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_TTS_SPEED;
+    return Math.min(TTS_SPEED_MAX, Math.max(TTS_SPEED_MIN, value));
 }
 
 export function resolveThemeSelection(params: { mode?: unknown; palette?: unknown }): ThemeSelection {
@@ -163,6 +176,11 @@ type SettingsSlice = Pick<
     | 'conversationCompressionEnabled'
     | 'generateTitleOnFirstReply'
     | 'replySuggestionsEnabled'
+    | 'ttsConnectionId'
+    | 'ttsModel'
+    | 'ttsVoice'
+    | 'ttsSpeed'
+    | 'ttsAutoPlay'
     | 'fullJsonDebugEnabled'
     | 'detailedErrorLoggingEnabled'
     | 'memoryInspectorEnabled'
@@ -192,6 +210,11 @@ type SettingsSlice = Pick<
     | 'setConversationCompressionEnabled'
     | 'setGenerateTitleOnFirstReply'
     | 'setReplySuggestionsEnabled'
+    | 'setTtsConnectionId'
+    | 'setTtsModel'
+    | 'setTtsVoice'
+    | 'setTtsSpeed'
+    | 'setTtsAutoPlay'
     | 'getAiApiConfig'
     | 'setFullJsonDebugEnabled'
     | 'setDetailedErrorLoggingEnabled'
@@ -213,6 +236,11 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         conversationCompressionEnabled: DEFAULT_CONVERSATION_COMPRESSION_ENABLED,
         generateTitleOnFirstReply: false,
         replySuggestionsEnabled: false,
+        ttsConnectionId: DEFAULT_TTS_CONNECTION_ID,
+        ttsModel: DEFAULT_TTS_MODEL,
+        ttsVoice: DEFAULT_TTS_VOICE,
+        ttsSpeed: DEFAULT_TTS_SPEED,
+        ttsAutoPlay: DEFAULT_TTS_AUTO_PLAY,
         fullJsonDebugEnabled: false,
         detailedErrorLoggingEnabled: false,
         memoryInspectorEnabled: false,
@@ -317,6 +345,30 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         setReplySuggestionsEnabled: (replySuggestionsEnabled) => {
             set({ replySuggestionsEnabled });
             fire(db.setMeta('replySuggestionsEnabled', replySuggestionsEnabled));
+        },
+        setTtsConnectionId: (id) => {
+            const ttsConnectionId = id.trim();
+            set({ ttsConnectionId });
+            fire(db.setMeta('ttsConnectionId', ttsConnectionId));
+        },
+        setTtsModel: (model) => {
+            const ttsModel = model.trim();
+            set({ ttsModel });
+            fire(db.setMeta('ttsModel', ttsModel));
+        },
+        setTtsVoice: (voice) => {
+            const ttsVoice = voice.trim();
+            set({ ttsVoice });
+            fire(db.setMeta('ttsVoice', ttsVoice));
+        },
+        setTtsSpeed: (speed) => {
+            const ttsSpeed = normalizeTtsSpeed(speed);
+            set({ ttsSpeed });
+            fire(db.setMeta('ttsSpeed', ttsSpeed));
+        },
+        setTtsAutoPlay: (ttsAutoPlay) => {
+            set({ ttsAutoPlay });
+            fire(db.setMeta('ttsAutoPlay', ttsAutoPlay));
         },
         getAiApiConfig: () => getAiApiConfigFromState(get()),
         setFullJsonDebugEnabled: (fullJsonDebugEnabled) => {

@@ -22,6 +22,7 @@ import CostumeDiffModal from './CostumeDiffModal';
 import PromptSectionEditor from './PromptSectionEditor';
 import StoredImage from './StoredImage';
 import ModelSelector from './ModelSelector';
+import TtsVoiceField from './TtsVoiceField';
 import { useModalKeyboard } from './useModalKeyboard';
 import { getVrmExpressionNames } from '@/lib/vrm';
 
@@ -68,6 +69,8 @@ function buildInitialCharacterDraft(
         icon: character?.icon ?? null,
         expressions: character?.expressions ?? [],
         costumes: character?.costumes ?? [],
+        ttsVoice: character?.tts?.voice ?? '',
+        ttsSpeed: character?.tts?.speed,
     };
 }
 
@@ -332,7 +335,7 @@ function CharacterSettingsModalContent({
     initialGeneratedDraft,
     onOpenMemoryList,
 }: CharacterSettingsModalProps) {
-    const { createCharacter, updateCharacter, defaultChatModel } = useStore();
+    const { createCharacter, updateCharacter, defaultChatModel, ttsConnectionId } = useStore();
     const [initialDraft] = useState(() => buildInitialCharacterDraft(
         character,
         defaultChatModel,
@@ -369,6 +372,10 @@ function CharacterSettingsModalContent({
     // Expressions
     const [expressions, setExpressions] = useState<Expression[]>(initialDraft.expressions);
     const [costumes, setCostumes] = useState<Costume[]>(initialDraft.costumes);
+
+    // TTS overrides (空欄は全体設定に従う)
+    const [ttsVoice, setTtsVoice] = useState(initialDraft.ttsVoice);
+    const [ttsSpeed, setTtsSpeed] = useState<number | undefined>(initialDraft.ttsSpeed);
     const [imageGenOpen, setImageGenOpen] = useState(false);
     const [expressionsOpen, setExpressionsOpen] = useState(false);
     const [costumesOpen, setCostumesOpen] = useState(false);
@@ -407,6 +414,8 @@ function CharacterSettingsModalContent({
             icon,
             expressions,
             costumes,
+            ttsVoice,
+            ttsSpeed,
         };
         if (!isNew && character && JSON.stringify(currentDraft) === JSON.stringify(initialDraft)) {
             onClose();
@@ -442,6 +451,9 @@ function CharacterSettingsModalContent({
             icon: icon ?? undefined,
             expressions: expressions.length > 0 ? expressions : undefined,
             costumes: costumes.length > 0 ? costumes : undefined,
+            tts: (ttsVoice.trim() || ttsSpeed != null)
+                ? { voice: ttsVoice.trim() || undefined, speed: ttsSpeed }
+                : undefined,
         };
 
         if (isNew || !character) {
@@ -450,7 +462,7 @@ function CharacterSettingsModalContent({
             updateCharacter(character.id, updates);
         }
         onClose();
-    }, [character, costumes, createCharacter, defaultChatModel, enableMemory, enableThinking, expressions, frequencyPenalty, icon, initialDraft, isNew, maxCharacters, maxHistory, model, name, onClose, presencePenalty, protagonistPrompt, repetitionPenalty, speechStyle, systemPrompt, temperature, topK, topP, updateCharacter, userConstraints]);
+    }, [character, costumes, createCharacter, defaultChatModel, enableMemory, enableThinking, expressions, frequencyPenalty, icon, initialDraft, isNew, maxCharacters, maxHistory, model, name, onClose, presencePenalty, protagonistPrompt, repetitionPenalty, speechStyle, systemPrompt, temperature, topK, topP, ttsSpeed, ttsVoice, updateCharacter, userConstraints]);
 
     const attemptClose = useCallback(() => {
         const currentDraft = {
@@ -473,6 +485,8 @@ function CharacterSettingsModalContent({
             icon,
             expressions,
             costumes,
+            ttsVoice,
+            ttsSpeed,
         };
         const blankDraft = buildInitialCharacterDraft(null, defaultChatModel);
         const hasInput = JSON.stringify(currentDraft) !== JSON.stringify(blankDraft);
@@ -484,7 +498,7 @@ function CharacterSettingsModalContent({
         }
 
         onClose();
-    }, [character, costumes, defaultChatModel, enableMemory, enableThinking, expressions, frequencyPenalty, icon, isNew, maxCharacters, maxHistory, model, name, onClose, presencePenalty, protagonistPrompt, repetitionPenalty, speechStyle, systemPrompt, temperature, topK, topP, userConstraints]);
+    }, [character, costumes, defaultChatModel, enableMemory, enableThinking, expressions, frequencyPenalty, icon, isNew, maxCharacters, maxHistory, model, name, onClose, presencePenalty, protagonistPrompt, repetitionPenalty, speechStyle, systemPrompt, temperature, topK, topP, ttsSpeed, ttsVoice, userConstraints]);
 
     const childModalOpen = imageGenOpen || expressionsOpen || costumesOpen;
     useModalKeyboard({
@@ -559,7 +573,8 @@ function CharacterSettingsModalContent({
     // 高度な設定に何かカスタム値が設定されているか
     const hasCustomParams = (model.model.trim() !== '' && !modelRefsEqual(model, defaultChatModel))
         || maxCharacters || maxHistory || temperature !== null || topP !== null || topK !== null
-        || frequencyPenalty !== null || presencePenalty !== null || repetitionPenalty !== null;
+        || frequencyPenalty !== null || presencePenalty !== null || repetitionPenalty !== null
+        || ttsVoice.trim() !== '' || ttsSpeed != null;
     const promptSectionsStyle: React.CSSProperties = {
         display: 'flex',
         flexDirection: 'column',
@@ -932,6 +947,39 @@ function CharacterSettingsModalContent({
                                         outputModality="text"
                                         placeholder={`例: ${defaultChatModel.model}`}
                                     />
+                                </div>
+
+                                {/* 声 */}
+                                <div>
+                                    <label style={{ ...labelStyle, fontSize: '0.8125rem', marginBottom: '0.375rem' }}>声</label>
+                                    <TtsVoiceField
+                                        connectionId={character?.tts?.connectionId ?? ttsConnectionId}
+                                        value={ttsVoice}
+                                        onChange={setTtsVoice}
+                                    />
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem' }}>
+                                        <label
+                                            htmlFor="character-tts-speed-input"
+                                            style={{ fontSize: '0.75rem', color: 'var(--text-muted)', flexShrink: 0 }}
+                                        >
+                                            速度
+                                        </label>
+                                        <input
+                                            id="character-tts-speed-input"
+                                            type="number"
+                                            className="input"
+                                            style={{ width: '7rem' }}
+                                            value={ttsSpeed ?? ''}
+                                            min={0.5}
+                                            max={2}
+                                            step={0.05}
+                                            placeholder="全体設定"
+                                            onChange={(e) => setTtsSpeed(e.target.value === '' ? undefined : Number(e.target.value))}
+                                        />
+                                    </div>
+                                    <p style={{ margin: '0.375rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                                        空欄で全体設定を使用します。
+                                    </p>
                                 </div>
 
                                 {/* Maximum reply characters */}

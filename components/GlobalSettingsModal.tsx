@@ -10,6 +10,7 @@ import { resizeToMaxEdgeAsJpeg } from '@/lib/imageUtils';
 import StatisticsPanel from '@/components/StatisticsPanel';
 import AiConnectionSettings from '@/components/AiConnectionSettings';
 import ModelSelector from '@/components/ModelSelector';
+import TtsVoiceField from '@/components/TtsVoiceField';
 import KeyboardSettingsPanel from '@/components/KeyboardSettingsPanel';
 import SituationBackgroundModal from '@/components/SituationBackgroundModal';
 import StoredImage from '@/components/StoredImage';
@@ -344,13 +345,16 @@ const DIRECTOR_OUTPUT_MODALITIES: readonly ModelOutputModality[] = ['text', 'dec
 function connectionSupportsCapability(
     kind: AiConnectionKind | null,
     connection: AiConnectionStatus | null,
-    capability: 'embeddings' | 'imageGeneration',
+    capability: 'embeddings' | 'imageGeneration' | 'tts',
 ): boolean {
     return kind === 'openrouter'
+        || (kind === 'voicevox' && capability === 'tts')
         || (kind === 'openai-compatible'
             && (capability === 'embeddings'
                 ? connection?.embeddingsEnabled ?? true
-                : connection?.imageGenerationEnabled === true));
+                : capability === 'imageGeneration'
+                    ? connection?.imageGenerationEnabled === true
+                    : connection?.ttsEnabled === true));
 }
 
 /** A role's model selector row for the models settings tab. */
@@ -410,6 +414,11 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         expressionDetectionModel, setExpressionDetectionModel,
         memoryExtractionModel, setMemoryExtractionModel,
         memoryEmbeddingModel, setMemoryEmbeddingModel,
+        ttsConnectionId, setTtsConnectionId,
+        ttsModel, setTtsModel,
+        ttsVoice, setTtsVoice,
+        ttsSpeed, setTtsSpeed,
+        ttsAutoPlay, setTtsAutoPlay,
         resetModelDefaults,
         conversationCompressionEnabled, setConversationCompressionEnabled,
         generateTitleOnFirstReply, setGenerateTitleOnFirstReply,
@@ -421,6 +430,13 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         setMemoryInspectorEnabled, setSummaryInspectorEnabled,
         clearAllHistory, resetApplication, mergeBackup, restoreBackup,
     } = useStore();
+    const { connections } = useAiConnections();
+    const ttsConnection = connections.find((connection) => connection.id === ttsConnectionId) ?? null;
+    const ttsConnectionKind = ttsConnection?.kind
+        ?? (isAiConnectionKind(ttsConnectionId) ? ttsConnectionId : null);
+    const ttsCapableConnections = connections.filter((connection) => (
+        connectionSupportsCapability(connection.kind, connection, 'tts')
+    ));
     const modelDefaultsAreUnchanged = MODEL_DEFAULT_FIELDS.every((role) => {
         const current = {
             summaryModel,
@@ -1420,6 +1436,127 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     outputModality="embeddings"
                                     capability="embeddings"
                                 />
+                            </div>
+                        </div>
+
+                        {/* TTS Section */}
+                        <div style={{ marginBottom: '1.5rem' }}>
+                            <div className="global-settings-model-heading-row">
+                                <h3 style={{ fontSize: '0.875rem', fontWeight: 700 }}>
+                                    音声合成（TTS）
+                                </h3>
+                            </div>
+                            <div style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '1rem',
+                            }}>
+                                <div className="global-settings-selector-row global-settings-selector-row-divider">
+                                    <label
+                                        htmlFor="tts-connection-input"
+                                        style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
+                                    >
+                                        接続先
+                                    </label>
+                                    <div className="global-settings-selector-control">
+                                        <select
+                                            id="tts-connection-input"
+                                            className="input"
+                                            value={ttsConnectionId}
+                                            onChange={(event) => setTtsConnectionId(event.target.value)}
+                                        >
+                                            {ttsConnectionId === '' && (
+                                                <option value="">接続先を選択</option>
+                                            )}
+                                            {ttsCapableConnections.map((connection) => (
+                                                <option key={connection.id} value={connection.id}>
+                                                    {connection.name}
+                                                </option>
+                                            ))}
+                                            {ttsConnectionId !== ''
+                                                && !ttsCapableConnections.some((connection) => connection.id === ttsConnectionId) && (
+                                                <option value={ttsConnectionId}>
+                                                    {ttsConnection?.name ?? ttsConnectionId}
+                                                </option>
+                                            )}
+                                        </select>
+                                    </div>
+                                </div>
+                                {ttsConnectionKind !== 'voicevox' && (
+                                    <div className="global-settings-selector-row global-settings-selector-row-divider">
+                                        <label
+                                            htmlFor="tts-model-input"
+                                            style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
+                                        >
+                                            モデル
+                                        </label>
+                                        <div className="global-settings-selector-control global-settings-model-selector-control">
+                                            <ModelSelector
+                                                id="tts-model-input"
+                                                value={{ connectionId: ttsConnectionId, model: ttsModel }}
+                                                onChange={(ref) => {
+                                                    setTtsConnectionId(ref.connectionId);
+                                                    setTtsModel(ref.model);
+                                                }}
+                                                outputModality="speech"
+                                                placeholder="例: deepgram/aura-2"
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+                                <div className="global-settings-selector-row global-settings-selector-row-divider">
+                                    <label
+                                        htmlFor="tts-voice-input"
+                                        style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
+                                    >
+                                        声
+                                    </label>
+                                    <div className="global-settings-selector-control">
+                                        <TtsVoiceField
+                                            id="tts-voice-input"
+                                            connectionId={ttsConnectionId}
+                                            value={ttsVoice}
+                                            onChange={setTtsVoice}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="global-settings-selector-row global-settings-selector-row-divider">
+                                    <label
+                                        htmlFor="tts-speed-input"
+                                        style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
+                                    >
+                                        速度
+                                    </label>
+                                    <div
+                                        className="global-settings-selector-control"
+                                        style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}
+                                    >
+                                        <input
+                                            id="tts-speed-input"
+                                            type="range"
+                                            min={0.5}
+                                            max={2}
+                                            step={0.05}
+                                            value={ttsSpeed}
+                                            style={{ flex: 1 }}
+                                            onChange={(event) => setTtsSpeed(Number(event.target.value))}
+                                        />
+                                        <span style={{
+                                            fontSize: '0.75rem',
+                                            color: 'var(--text-muted)',
+                                            minWidth: '3rem',
+                                            textAlign: 'right',
+                                        }}>
+                                            {`${ttsSpeed.toFixed(2)}x`}
+                                        </span>
+                                    </div>
+                                </div>
+                                {renderDebugToggle({
+                                    label: '新しい返答を自動で読み上げる',
+                                    enabled: ttsAutoPlay,
+                                    onToggle: () => setTtsAutoPlay(!ttsAutoPlay),
+                                    ariaLabel: '新しい返答を自動で読み上げる',
+                                })}
                             </div>
                         </div>
 

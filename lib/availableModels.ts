@@ -5,7 +5,7 @@ export interface AvailableModel {
     name: string;
 }
 
-export type ModelOutputModality = 'text' | 'image' | 'embeddings' | 'decisions';
+export type ModelOutputModality = 'text' | 'image' | 'embeddings' | 'decisions' | 'speech';
 
 interface ModelsResponse {
     data: AvailableModel[];

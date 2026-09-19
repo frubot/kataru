@@ -46,6 +46,7 @@ const KIND_DEFAULT_BASE_URL: Record<AiConnectionKind, string> = {
     'openai-compatible': OPENAI_DEFAULT_BASE_URL,
     anthropic: ANTHROPIC_DEFAULT_BASE_URL,
     typesafe: TYPESAFE_DEFAULT_BASE_URL,
+    voicevox: 'http://127.0.0.1:50021',
 };
 
 const CONNECTION_OPTIONS: readonly {

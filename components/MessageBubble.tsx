@@ -1,7 +1,8 @@
 import { memo, useEffect, useRef } from 'react';
-import { ArrowUp, Brain, Pencil, Copy, Check, GitBranch, RefreshCw, X } from 'lucide-react';
+import { ArrowUp, Brain, Pencil, Copy, Check, GitBranch, Loader2, RefreshCw, Square, Volume2, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { formatAssistantMarkdown, splitAssistantMarkdownActions } from '@/lib/markdownUtils';
+import { stopTtsPlayback, useTtsEntry } from '@/lib/ttsPlayer';
 import StoredImage from './StoredImage';
 
 interface MessageBubbleProps {
@@ -41,6 +42,7 @@ interface MessageBubbleProps {
     onBranch: () => void;
     onOpenMemoryList: (characterId?: string) => void;
     onRevealTypewriter?: () => void;
+    onTtsToggle?: () => void;
 }
 
 export default memo(function MessageBubble({
@@ -80,8 +82,10 @@ export default memo(function MessageBubble({
     onBranch,
     onOpenMemoryList,
     onRevealTypewriter,
+    onTtsToggle,
 }: MessageBubbleProps) {
     const editTextareaRef = useRef<HTMLTextAreaElement>(null);
+    const { status: ttsStatus } = useTtsEntry(messageId);
     const isUserMessage = role === 'user';
     const showRegenerateBtn = isLastMessage && role === 'assistant' && !isLoading;
 
@@ -363,6 +367,45 @@ export default memo(function MessageBubble({
                             >
                                 <GitBranch size={14} />
                             </button>
+                            {onTtsToggle && (
+                                <button
+                                    type="button"
+                                    className="btn btn-ghost message-action-button"
+                                    onClick={() => {
+                                        if (ttsStatus === 'playing' || ttsStatus === 'loading') {
+                                            stopTtsPlayback();
+                                        } else {
+                                            onTtsToggle();
+                                        }
+                                    }}
+                                    style={{
+                                        color: ttsStatus === 'error' ? 'var(--error)' : 'var(--text-muted)',
+                                        transition: 'color 0.15s ease',
+                                    }}
+                                    title={
+                                        ttsStatus === 'playing'
+                                            ? '停止'
+                                            : ttsStatus === 'loading'
+                                                ? '生成中…'
+                                                : '読み上げ'
+                                    }
+                                    aria-label={
+                                        ttsStatus === 'playing'
+                                            ? '停止'
+                                            : ttsStatus === 'loading'
+                                                ? '生成中…'
+                                                : '読み上げ'
+                                    }
+                                >
+                                    {ttsStatus === 'loading' ? (
+                                        <Loader2 size={14} className="animate-spin" />
+                                    ) : ttsStatus === 'playing' ? (
+                                        <Square size={14} />
+                                    ) : (
+                                        <Volume2 size={14} />
+                                    )}
+                                </button>
+                            )}
                         </div>
                     )}
                     </div>

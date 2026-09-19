@@ -32,6 +32,7 @@ pub const OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
 pub const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 pub const DEFAULT_ANTHROPIC_BASE_URL: &str = "https://api.anthropic.com/v1";
 pub const DEFAULT_TYPESAFE_BASE_URL: &str = "https://api.typesafe.ai/v1";
+pub const DEFAULT_VOICEVOX_BASE_URL: &str = "http://127.0.0.1:50021";
 const CONFIG_FILE_NAME: &str = "server-config.json";
 const KEYRING_SERVICE: &str = "Kataru";
 
@@ -54,6 +55,8 @@ pub enum ConnectionKind {
     Anthropic,
     #[serde(rename = "typesafe")]
     Typesafe,
+    #[serde(rename = "voicevox")]
+    Voicevox,
 }
 
 impl ConnectionKind {
@@ -63,6 +66,7 @@ impl ConnectionKind {
             Self::OpenAiCompatible => "openai-compatible",
             Self::Anthropic => "anthropic",
             Self::Typesafe => "typesafe",
+            Self::Voicevox => "voicevox",
         }
     }
 
@@ -73,6 +77,7 @@ impl ConnectionKind {
             Self::OpenAiCompatible => "OpenAI 互換",
             Self::Anthropic => "Anthropic 互換",
             Self::Typesafe => "TypeSafe AI",
+            Self::Voicevox => "VOICEVOX",
         }
     }
 
@@ -88,6 +93,7 @@ impl ConnectionKind {
             "openai-compatible" => Some(Self::OpenAiCompatible),
             "anthropic" => Some(Self::Anthropic),
             "typesafe" => Some(Self::Typesafe),
+            "voicevox" => Some(Self::Voicevox),
             _ => None,
         }
     }
@@ -98,6 +104,7 @@ impl ConnectionKind {
             Self::OpenAiCompatible => DEFAULT_OPENAI_BASE_URL,
             Self::Anthropic => DEFAULT_ANTHROPIC_BASE_URL,
             Self::Typesafe => DEFAULT_TYPESAFE_BASE_URL,
+            Self::Voicevox => DEFAULT_VOICEVOX_BASE_URL,
         }
     }
 
@@ -107,6 +114,7 @@ impl ConnectionKind {
             Self::OpenAiCompatible => "OpenAI",
             Self::Anthropic => "Anthropic",
             Self::Typesafe => "TypeSafe",
+            Self::Voicevox => "VOICEVOX",
         }
     }
 
@@ -122,6 +130,7 @@ impl ConnectionKind {
             Self::OpenAiCompatible => "OPENAI_API_KEY",
             Self::Anthropic => "ANTHROPIC_API_KEY",
             Self::Typesafe => "TYPESAFE_API_KEY",
+            Self::Voicevox => "VOICEVOX_API_KEY",
         }
     }
 }
@@ -167,6 +176,7 @@ pub struct ConnectionStatus {
     deletable: bool,
     embeddings_enabled: bool,
     image_generation_enabled: bool,
+    tts_enabled: bool,
     ignored_providers: Vec<String>,
 }
 
@@ -192,6 +202,7 @@ pub struct EffectiveConnection {
     pub base_url_editable: bool,
     pub embeddings_enabled: bool,
     pub image_generation_enabled: bool,
+    pub tts_enabled: bool,
     pub ignored_providers: Vec<String>,
 }
 
@@ -222,6 +233,8 @@ struct PersistedConnection {
     embeddings_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     image_generation_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tts_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     ignored_providers: Option<Vec<String>>,
 }
@@ -279,6 +292,7 @@ impl PersistedConfig {
         ensure_builtin(&mut self.connections, ConnectionKind::OpenAiCompatible);
         ensure_builtin(&mut self.connections, ConnectionKind::Anthropic);
         ensure_builtin(&mut self.connections, ConnectionKind::Typesafe);
+        ensure_builtin(&mut self.connections, ConnectionKind::Voicevox);
         self.version = 2;
 
         let mut seen = HashMap::new();
@@ -393,6 +407,7 @@ impl EnvironmentConfig {
             ConnectionKind::OpenAiCompatible => self.openai_api_key.as_ref(),
             ConnectionKind::Anthropic => self.anthropic_api_key.as_ref(),
             ConnectionKind::Typesafe => self.typesafe_api_key.as_ref(),
+            ConnectionKind::Voicevox => None,
         }
     }
 
@@ -402,6 +417,7 @@ impl EnvironmentConfig {
             ConnectionKind::OpenAiCompatible => self.openai_base_url.as_ref(),
             ConnectionKind::Anthropic => self.anthropic_base_url.as_ref(),
             ConnectionKind::Typesafe => self.typesafe_base_url.as_ref(),
+            ConnectionKind::Voicevox => None,
         }
     }
 }
@@ -479,6 +495,7 @@ struct ResolvedConnection {
     listed: bool,
     embeddings_enabled: bool,
     image_generation_enabled: bool,
+    tts_enabled: bool,
     ignored_providers: Vec<String>,
 }
 
@@ -573,8 +590,9 @@ impl AiConfigManager {
         // records always exist so legacy ids and environment overrides keep
         // resolving, but they are only listed once something (stored fields,
         // a stored API key, or environment variables) actually configures
-        // them.
+        // them. VOICEVOX needs no credential, so it is always listed.
         let listed = !builtin
+            || kind == ConnectionKind::Voicevox
             || env_base_url.is_some()
             || env_api_key.is_some()
             || inner.stored_api_keys.contains_key(&record.id)
@@ -582,6 +600,7 @@ impl AiConfigManager {
             || record.base_url.is_some()
             || record.embeddings_enabled.is_some()
             || record.image_generation_enabled.is_some()
+            || record.tts_enabled.is_some()
             || record.ignored_providers.is_some();
         ResolvedConnection {
             id: record.id.clone(),
@@ -602,6 +621,7 @@ impl AiConfigManager {
             listed,
             embeddings_enabled: record.embeddings_enabled.unwrap_or(true),
             image_generation_enabled: record.image_generation_enabled.unwrap_or(false),
+            tts_enabled: record.tts_enabled.unwrap_or(false),
             ignored_providers: record.ignored_providers.clone().unwrap_or_default(),
         }
     }
@@ -634,6 +654,7 @@ impl AiConfigManager {
                     base_url_editable: resolved.base_url_editable,
                     embeddings_enabled: resolved.embeddings_enabled,
                     image_generation_enabled: resolved.image_generation_enabled,
+                    tts_enabled: resolved.tts_enabled,
                     ignored_providers: resolved.ignored_providers,
                 })
                 .collect(),
@@ -664,6 +685,7 @@ impl AiConfigManager {
                     deletable: resolved.deletable,
                     embeddings_enabled: resolved.embeddings_enabled,
                     image_generation_enabled: resolved.image_generation_enabled,
+                    tts_enabled: resolved.tts_enabled,
                     ignored_providers: resolved.ignored_providers,
                 })
                 .collect(),
@@ -709,7 +731,9 @@ impl AiConfigManager {
             let names = match kind {
                 ConnectionKind::OpenAiCompatible => "OPENAI_BASE_URL / OPENAI_API_KEY",
                 ConnectionKind::Anthropic => "ANTHROPIC_BASE_URL / ANTHROPIC_API_KEY",
-                ConnectionKind::OpenRouter => kind.env_api_key_name(),
+                ConnectionKind::OpenRouter | ConnectionKind::Voicevox => {
+                    kind.env_api_key_name()
+                }
                 ConnectionKind::Typesafe => "TYPESAFE_BASE_URL / TYPESAFE_API_KEY",
             };
             return Err(environment_override(names));
@@ -752,6 +776,7 @@ impl AiConfigManager {
             base_url,
             embeddings_enabled: input.embeddings_enabled,
             image_generation_enabled: input.image_generation_enabled,
+            tts_enabled: input.tts_enabled,
             ignored_providers: (!input.ignored_providers.is_empty())
                 .then(|| normalize_provider_slugs(input.ignored_providers)),
         };
@@ -818,6 +843,9 @@ impl AiConfigManager {
             }
             if let Some(image_generation_enabled) = update.image_generation_enabled {
                 record.image_generation_enabled = Some(image_generation_enabled);
+            }
+            if let Some(tts_enabled) = update.tts_enabled {
+                record.tts_enabled = Some(tts_enabled);
             }
             if let Some(ignored_providers) = &update.ignored_providers {
                 record.ignored_providers =
@@ -1049,6 +1077,7 @@ pub struct NewConnection {
     pub api_key: Option<String>,
     pub embeddings_enabled: Option<bool>,
     pub image_generation_enabled: Option<bool>,
+    pub tts_enabled: Option<bool>,
     pub ignored_providers: Vec<String>,
 }
 
@@ -1062,6 +1091,7 @@ pub struct ConnectionUpdate {
     pub clear_api_key: bool,
     pub embeddings_enabled: Option<bool>,
     pub image_generation_enabled: Option<bool>,
+    pub tts_enabled: Option<bool>,
     pub ignored_providers: Option<Vec<String>>,
 }
 
@@ -1290,6 +1320,7 @@ fn run_connection_cli(manager: &AiConfigManager, args: &[String]) -> AppResult<(
                 api_key: None,
                 embeddings_enabled: None,
                 image_generation_enabled: None,
+                tts_enabled: None,
                 ignored_providers: Vec::new(),
             })?;
             println!("接続 {id} を追加しました。Kataruが起動中の場合は再起動してください。");
@@ -1455,6 +1486,7 @@ pub struct CreateConnectionRequest {
     api_key: Option<String>,
     embeddings_enabled: Option<bool>,
     image_generation_enabled: Option<bool>,
+    tts_enabled: Option<bool>,
     ignored_providers: Option<Vec<String>>,
 }
 
@@ -1467,6 +1499,7 @@ pub struct UpdateConnectionRequest {
     clear_api_key: Option<bool>,
     embeddings_enabled: Option<bool>,
     image_generation_enabled: Option<bool>,
+    tts_enabled: Option<bool>,
     ignored_providers: Option<Vec<String>>,
 }
 
@@ -1495,6 +1528,7 @@ pub async fn create_connection(
         api_key: input.api_key,
         embeddings_enabled: input.embeddings_enabled,
         image_generation_enabled: input.image_generation_enabled,
+        tts_enabled: input.tts_enabled,
         ignored_providers: input.ignored_providers.unwrap_or_default(),
     })?;
     Ok(Json(state.ai_config.status()))
@@ -1517,6 +1551,7 @@ pub async fn update_connection(
             clear_api_key: input.clear_api_key.unwrap_or(false),
             embeddings_enabled: input.embeddings_enabled,
             image_generation_enabled: input.image_generation_enabled,
+            tts_enabled: input.tts_enabled,
             ignored_providers: input.ignored_providers,
         },
     )?;
@@ -1666,10 +1701,12 @@ mod tests {
         let manager = manager(directory.path());
 
         // Nothing has been configured yet: the built-ins resolve internally
-        // but are not listed.
-        assert!(manager.status().connections.is_empty());
+        // but are not listed. VOICEVOX needs no credential, so it is the
+        // only built-in listed by default.
+        assert_eq!(manager.status().connections.len(), 1);
+        assert_eq!(manager.status().connections[0].id, "voicevox");
         let effective = manager.effective();
-        assert_eq!(effective.connections.len(), 4);
+        assert_eq!(effective.connections.len(), 5);
         let openrouter = effective.connection("openrouter").unwrap();
         assert_eq!(openrouter.name, "OpenRouter");
         assert_eq!(openrouter.base_url, OPENROUTER_BASE_URL);
@@ -1689,11 +1726,15 @@ mod tests {
             effective.connection("typesafe").unwrap().base_url,
             DEFAULT_TYPESAFE_BASE_URL
         );
+        assert_eq!(
+            effective.connection("voicevox").unwrap().base_url,
+            DEFAULT_VOICEVOX_BASE_URL
+        );
 
         // Any stored configuration lists the built-in again.
         manager.set_api_key("openrouter", "secret").unwrap();
         let status = manager.status();
-        assert_eq!(status.connections.len(), 1);
+        assert_eq!(status.connections.len(), 2);
         assert_eq!(status.connections[0].id, "openrouter");
     }
 
@@ -1874,7 +1915,7 @@ mod tests {
 
         let manager = AiConfigManager::open(directory.path()).unwrap();
         let effective = manager.effective();
-        assert_eq!(effective.connections.len(), 4);
+        assert_eq!(effective.connections.len(), 5);
         assert_eq!(
             effective.connection("openai-compatible").unwrap().base_url,
             "http://127.0.0.1:1234/v1"
@@ -1898,7 +1939,7 @@ mod tests {
         let saved: serde_json::Value =
             serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
         assert_eq!(saved["version"], 2);
-        assert!(saved["connections"].as_array().unwrap().len() == 4);
+        assert!(saved["connections"].as_array().unwrap().len() == 5);
         assert!(saved.get("openai").is_none());
     }
 
@@ -1915,6 +1956,7 @@ mod tests {
                 api_key: Some("custom-secret".to_owned()),
                 embeddings_enabled: Some(false),
                 image_generation_enabled: Some(true),
+                tts_enabled: Some(true),
                 ignored_providers: Vec::new(),
             })
             .unwrap();
@@ -1932,6 +1974,7 @@ mod tests {
         assert!(custom.deletable);
         assert!(!custom.embeddings_enabled);
         assert!(custom.image_generation_enabled);
+        assert!(custom.tts_enabled);
 
         // Renaming, clearing the name and toggling flags.
         manager
@@ -1987,10 +2030,11 @@ mod tests {
                 },
             )
             .unwrap();
-        assert_eq!(manager.status().connections.len(), 1);
+        assert_eq!(manager.status().connections.len(), 2);
 
         manager.delete_connection("openrouter").unwrap();
-        assert!(manager.status().connections.is_empty());
+        assert_eq!(manager.status().connections.len(), 1);
+        assert_eq!(manager.status().connections[0].id, "voicevox");
         // The reserved id keeps resolving, back to a pristine state.
         let effective = manager.effective();
         let openrouter = effective.connection("openrouter").unwrap();
@@ -2012,9 +2056,9 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(manager.status().connections.len(), 1);
+        assert_eq!(manager.status().connections.len(), 2);
         assert!(manager.delete_connection("openrouter").is_err());
-        assert_eq!(manager.status().connections.len(), 1);
+        assert_eq!(manager.status().connections.len(), 2);
         // Built-ins without an environment override can be deleted.
         manager.delete_connection("openai-compatible").unwrap();
     }
@@ -2033,6 +2077,7 @@ mod tests {
                     api_key: None,
                     embeddings_enabled: None,
                     image_generation_enabled: None,
+                    tts_enabled: None,
                     ignored_providers: Vec::new(),
                 })
                 .is_err()
@@ -2064,6 +2109,7 @@ mod tests {
                 api_key: Some("custom-key".to_owned()),
                 embeddings_enabled: None,
                 image_generation_enabled: None,
+                tts_enabled: None,
                 ignored_providers: vec!["deepinfra".to_owned()],
             })
             .unwrap();
@@ -2088,6 +2134,7 @@ mod tests {
                     api_key: None,
                     embeddings_enabled: None,
                     image_generation_enabled: None,
+                    tts_enabled: None,
                     ignored_providers: Vec::new(),
                 })
                 .unwrap();
@@ -2115,13 +2162,16 @@ mod tests {
                     api_key: Some("secret".to_owned()),
                     embeddings_enabled: None,
                     image_generation_enabled: None,
+                    tts_enabled: None,
                     ignored_providers: Vec::new(),
                 })
                 .is_err()
         );
-        // Only the four (unlisted) built-ins exist and nothing was persisted.
-        assert!(manager.status().connections.is_empty());
-        assert_eq!(manager.effective().connections.len(), 4);
+        // Only the built-ins exist (VOICEVOX is always listed) and nothing
+        // was persisted.
+        assert_eq!(manager.status().connections.len(), 1);
+        assert_eq!(manager.status().connections[0].id, "voicevox");
+        assert_eq!(manager.effective().connections.len(), 5);
         assert!(!directory.path().join(CONFIG_FILE_NAME).exists());
     }
 
@@ -2147,11 +2197,12 @@ mod tests {
                     api_key: Some("secret".to_owned()),
                     embeddings_enabled: None,
                     image_generation_enabled: None,
+                    tts_enabled: None,
                     ignored_providers: Vec::new(),
                 })
                 .is_err()
         );
-        assert!(manager.status().connections.is_empty());
+        assert_eq!(manager.status().connections.len(), 1);
         assert!(
             secrets
                 .values

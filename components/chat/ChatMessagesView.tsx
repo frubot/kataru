@@ -173,6 +173,7 @@ type ChatMessagesViewProps = {
     onBranch: (messageId: string) => void;
     onOpenMemoryList: (characterId?: string) => void;
     onRevealTypewriter: () => void;
+    onTtsPlay?: (messageId: string) => void;
 };
 
 function Avatar({ character, name }: { character?: Character | null; name?: string }) {
@@ -224,6 +225,7 @@ export default function ChatMessagesView({
     onBranch,
     onOpenMemoryList,
     onRevealTypewriter,
+    onTtsPlay,
 }: ChatMessagesViewProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const virtualListRef = useRef<HTMLDivElement>(null);
@@ -436,6 +438,7 @@ export default function ChatMessagesView({
                 onBranch={() => onBranch(message.id)}
                 onOpenMemoryList={onOpenMemoryList}
                 onRevealTypewriter={onRevealTypewriter}
+                onTtsToggle={onTtsPlay ? () => onTtsPlay(message.id) : undefined}
             />
         );
     };

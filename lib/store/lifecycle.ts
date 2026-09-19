@@ -38,10 +38,16 @@ import {
     clearThemeCache,
     DEFAULT_CONVERSATION_COMPRESSION_ENABLED,
     DEFAULT_THEME_SELECTION,
+    DEFAULT_TTS_AUTO_PLAY,
+    DEFAULT_TTS_CONNECTION_ID,
+    DEFAULT_TTS_MODEL,
+    DEFAULT_TTS_SPEED,
+    DEFAULT_TTS_VOICE,
     DEFAULT_VIEW_MODE,
     DEFAULT_VN_TYPING_SPEED,
     isVnTypingSpeed,
     isRoomViewMode,
+    normalizeTtsSpeed,
     persistModelDefaults,
     resolveThemeSelection,
     waitForModelDefaultsWrites,
@@ -110,7 +116,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
         hydrate: async () => {
             if (get().hydrated) return;
             await db.migrateLegacyDatabase();
-            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, storedChatWallpaper, storedDefaultViewMode, currentRoomId, vnTypingSpeed, storedKeyboardShortcuts, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedModelDefaults, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedRoleApiTypes, storedConversationCompressionEnabled, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion] = await Promise.all([
+            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, storedChatWallpaper, storedDefaultViewMode, currentRoomId, vnTypingSpeed, storedKeyboardShortcuts, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedModelDefaults, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedRoleApiTypes, storedConversationCompressionEnabled, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion, storedTtsConnectionId, storedTtsModel, storedTtsVoice, storedTtsSpeed, storedTtsAutoPlay] = await Promise.all([
                 db.getAllCharacters(),
                 db.getAllGroups(),
                 db.getAllRooms(),
@@ -151,6 +157,11 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 db.getMeta<string>('openAiCompatibleApiKey'),
                 db.getMeta<number>('onboardingVersion'),
                 db.getMeta<number>('aiSettingsSchemaVersion'),
+                db.getMeta<string>('ttsConnectionId'),
+                db.getMeta<string>('ttsModel'),
+                db.getMeta<string>('ttsVoice'),
+                db.getMeta<number>('ttsSpeed'),
+                db.getMeta<boolean>('ttsAutoPlay'),
             ]);
             // Drop any previously stored client-side API key from IndexedDB.
             if (legacyOpenAiCompatibleApiKey !== undefined) {
@@ -276,6 +287,17 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 : DEFAULT_CONVERSATION_COMPRESSION_ENABLED;
             const resolvedGenerateTitleOnFirstReply = storedGenerateTitleOnFirstReply === true;
             const resolvedReplySuggestionsEnabled = storedReplySuggestionsEnabled === true;
+            const resolvedTtsConnectionId = typeof storedTtsConnectionId === 'string'
+                ? storedTtsConnectionId.trim()
+                : DEFAULT_TTS_CONNECTION_ID;
+            const resolvedTtsModel = typeof storedTtsModel === 'string'
+                ? storedTtsModel.trim()
+                : DEFAULT_TTS_MODEL;
+            const resolvedTtsVoice = typeof storedTtsVoice === 'string'
+                ? storedTtsVoice.trim()
+                : DEFAULT_TTS_VOICE;
+            const resolvedTtsSpeed = normalizeTtsSpeed(storedTtsSpeed);
+            const resolvedTtsAutoPlay = storedTtsAutoPlay === true;
             // 旧接続設定を組み込み接続へベストエフォートで引き継ぐ（失敗しても続行）。
             const resolvedOpenRouterIgnoredProviders = normalizeOpenRouterIgnoredProviders(storedOpenRouterIgnoredProviders);
             let openRouterUpdateSucceeded = true;
@@ -354,6 +376,11 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
             if (storedConversationCompressionEnabled !== resolvedConversationCompressionEnabled) fire(db.setMeta('conversationCompressionEnabled', resolvedConversationCompressionEnabled));
             if (storedGenerateTitleOnFirstReply !== resolvedGenerateTitleOnFirstReply) fire(db.setMeta('generateTitleOnFirstReply', resolvedGenerateTitleOnFirstReply));
             if (storedReplySuggestionsEnabled !== resolvedReplySuggestionsEnabled) fire(db.setMeta('replySuggestionsEnabled', resolvedReplySuggestionsEnabled));
+            if (storedTtsConnectionId !== resolvedTtsConnectionId) fire(db.setMeta('ttsConnectionId', resolvedTtsConnectionId));
+            if (storedTtsModel !== resolvedTtsModel) fire(db.setMeta('ttsModel', resolvedTtsModel));
+            if (storedTtsVoice !== resolvedTtsVoice) fire(db.setMeta('ttsVoice', resolvedTtsVoice));
+            if (storedTtsSpeed !== resolvedTtsSpeed) fire(db.setMeta('ttsSpeed', resolvedTtsSpeed));
+            if (storedTtsAutoPlay !== resolvedTtsAutoPlay) fire(db.setMeta('ttsAutoPlay', resolvedTtsAutoPlay));
             if (storedOnboardingVersion !== resolvedOnboardingVersion) fire(db.setMeta('onboardingVersion', resolvedOnboardingVersion));
             if (aiSettingsMigration.shouldPersistSchemaVersion) {
                 fire(db.setMeta('aiSettingsSchemaVersion', aiSettingsMigration.schemaVersion));
@@ -375,6 +402,11 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 conversationCompressionEnabled: resolvedConversationCompressionEnabled,
                 generateTitleOnFirstReply: resolvedGenerateTitleOnFirstReply,
                 replySuggestionsEnabled: resolvedReplySuggestionsEnabled,
+                ttsConnectionId: resolvedTtsConnectionId,
+                ttsModel: resolvedTtsModel,
+                ttsVoice: resolvedTtsVoice,
+                ttsSpeed: resolvedTtsSpeed,
+                ttsAutoPlay: resolvedTtsAutoPlay,
                 fullJsonDebugEnabled: fullJsonDebugEnabled === true,
                 detailedErrorLoggingEnabled: detailedErrorLoggingEnabled === true,
                 memoryInspectorEnabled: memoryInspectorEnabled === true,
@@ -407,6 +439,11 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 conversationCompressionEnabled: DEFAULT_CONVERSATION_COMPRESSION_ENABLED,
                 generateTitleOnFirstReply: false,
                 replySuggestionsEnabled: false,
+                ttsConnectionId: DEFAULT_TTS_CONNECTION_ID,
+                ttsModel: DEFAULT_TTS_MODEL,
+                ttsVoice: DEFAULT_TTS_VOICE,
+                ttsSpeed: DEFAULT_TTS_SPEED,
+                ttsAutoPlay: DEFAULT_TTS_AUTO_PLAY,
                 fullJsonDebugEnabled: false,
                 detailedErrorLoggingEnabled: false,
                 memoryInspectorEnabled: false,

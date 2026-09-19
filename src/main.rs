@@ -203,6 +203,8 @@ fn api_router() -> Router<AppState> {
         .route("/summarize", post(ai::summarize))
         .route("/embeddings", post(ai::embeddings))
         .route("/generate-image", post(ai::generate_image))
+        .route("/tts", post(ai::synthesize_speech))
+        .route("/tts/speakers", post(ai::list_tts_speakers))
         .route("/generate-character", post(ai::generate_character))
         .route(
             "/generate-situation-description",

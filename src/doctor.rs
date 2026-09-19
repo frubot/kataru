@@ -527,6 +527,7 @@ fn models_path(kind: ConnectionKind) -> &'static str {
         ConnectionKind::OpenAiCompatible => "models",
         ConnectionKind::Anthropic => "models?limit=1",
         ConnectionKind::Typesafe => "models",
+        ConnectionKind::Voicevox => "speakers",
     }
 }
 
@@ -548,6 +549,7 @@ fn configured_connections(config: &EffectiveAiConfig) -> Vec<ConfiguredConnectio
         .iter()
         .filter(|connection| {
             connection.api_key.is_some()
+                || connection.kind == ConnectionKind::Voicevox
                 || (connection.kind == ConnectionKind::OpenAiCompatible
                     && connection.base_url != DEFAULT_OPENAI_BASE_URL)
         })
@@ -940,6 +942,7 @@ mod tests {
             base_url_editable: true,
             embeddings_enabled: false,
             image_generation_enabled: false,
+            tts_enabled: false,
             ignored_providers: Vec::new(),
         }
     }

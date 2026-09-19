@@ -35,6 +35,7 @@ pub enum ModelOutputModality {
     Image,
     Embeddings,
     Decisions,
+    Speech,
 }
 
 impl ModelOutputModality {
@@ -44,6 +45,7 @@ impl ModelOutputModality {
             Some("image") => Ok(Self::Image),
             Some("embeddings") => Ok(Self::Embeddings),
             Some("decisions") => Ok(Self::Decisions),
+            Some("speech") => Ok(Self::Speech),
             Some(_) => Err(AppError::BadRequest(
                 "outputModality が不正です。".to_owned(),
             )),
@@ -56,6 +58,7 @@ impl ModelOutputModality {
             Self::Image => "image",
             Self::Embeddings => "embeddings",
             Self::Decisions => "decisions",
+            Self::Speech => "speech",
         }
     }
 }
@@ -224,7 +227,12 @@ pub async fn connection_status(
         }
     };
 
-    match api_client.send_get("models", Duration::from_secs(8)).await {
+    let probe_path = if api_client.is_voicevox() {
+        "speakers"
+    } else {
+        "models"
+    };
+    match api_client.send_get(probe_path, Duration::from_secs(8)).await {
         Ok(response) if response.status().is_success() => Json(json!({
             "ready": true,
             "code": "ready",
@@ -302,6 +310,7 @@ fn openrouter_models_path(output_modality: ModelOutputModality) -> &'static str 
         ModelOutputModality::Image => "models?output_modalities=image",
         ModelOutputModality::Embeddings => "models?output_modalities=embeddings",
         ModelOutputModality::Decisions => "models?output_modalities=decisions",
+        ModelOutputModality::Speech => "models?output_modalities=speech",
     }
 }
 
@@ -309,6 +318,10 @@ async fn fetch_models(
     api_client: &AiApiClient,
     output_modality: ModelOutputModality,
 ) -> AppResult<Vec<AvailableModel>> {
+    // VOICEVOX is a TTS engine without a model catalog.
+    if api_client.is_voicevox() {
+        return Ok(Vec::new());
+    }
     // Decision (System One) models exist only on TypeSafe-compatible
     // connections and on OpenRouter; TypeSafe itself serves nothing else.
     if output_modality == ModelOutputModality::Decisions {
@@ -496,6 +509,7 @@ pub async fn run_models_cli_command_if_requested() -> AppResult<bool> {
                 ModelOutputModality::Decisions,
             ],
             ConnectionKind::Typesafe => &[ModelOutputModality::Decisions],
+            ConnectionKind::Voicevox => &[],
             _ => &[ModelOutputModality::Text],
         };
         for &modality in modalities {
@@ -648,6 +662,10 @@ mod tests {
             openrouter_models_path(ModelOutputModality::Decisions),
             "models?output_modalities=decisions"
         );
+        assert_eq!(
+            openrouter_models_path(ModelOutputModality::Speech),
+            "models?output_modalities=speech"
+        );
     }
 
     #[test]
@@ -655,6 +673,14 @@ mod tests {
         assert_eq!(
             ModelOutputModality::from_input(&json!({ "outputModality": "decisions" })).unwrap(),
             ModelOutputModality::Decisions
+        );
+    }
+
+    #[test]
+    fn speech_modality_is_accepted_from_input() {
+        assert_eq!(
+            ModelOutputModality::from_input(&json!({ "outputModality": "speech" })).unwrap(),
+            ModelOutputModality::Speech
         );
     }
 
@@ -676,6 +702,7 @@ mod tests {
                     base_url_editable: !kind.has_fixed_base_url(),
                     embeddings_enabled: true,
                     image_generation_enabled: false,
+                    tts_enabled: false,
                     ignored_providers: Vec::new(),
                 }],
             },
@@ -701,6 +728,19 @@ mod tests {
         for modality in [ModelOutputModality::Text, ModelOutputModality::Image] {
             assert!(
                 fetch_models(&typesafe, modality)
+                    .await
+                    .unwrap()
+                    .is_empty()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn fetch_models_returns_no_models_for_voicevox() {
+        let voicevox = catalog_test_client("voicevox", ConnectionKind::Voicevox);
+        for modality in [ModelOutputModality::Text, ModelOutputModality::Speech] {
+            assert!(
+                fetch_models(&voicevox, modality)
                     .await
                     .unwrap()
                     .is_empty()
@@ -747,6 +787,7 @@ mod tests {
                     base_url_editable: false,
                     embeddings_enabled: true,
                     image_generation_enabled: false,
+                    tts_enabled: false,
                     ignored_providers: Vec::new(),
                 }],
             },

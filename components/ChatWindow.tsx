@@ -69,6 +69,7 @@ import { useReplySuggestions } from './chat/useReplySuggestions';
 import { useRoomTitleGeneration } from './chat/useRoomTitleGeneration';
 import { useVisualNovelPresentation } from './chat/useVisualNovelPresentation';
 import { useSituationVisualNovelPresentation } from './chat/useSituationVisualNovelPresentation';
+import { useTtsPlayback } from './chat/useTtsPlayback';
 import VisualNovelLogView from './chat/VisualNovelLogView';
 import VisualNovelView from './chat/VisualNovelView';
 import type { VisualNovelStageSprite } from './chat/VisualNovelView';
@@ -437,6 +438,13 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     });
     const currentRoomId = room?.id;
     const isLoading = currentRoomId ? activeGenerationRoomIds.has(currentRoomId) : false;
+    const { playMessage: playTtsMessage } = useTtsPlayback({
+        roomId: currentRoomId,
+        messages: room?.messages ?? EMPTY_MESSAGES,
+        isLoading,
+        isRoomHistoryLoading: loadingRoomHistoryId === currentRoomId,
+        notify: showChatNotice,
+    });
     const isVisualNovelLogOpen = isVisualNovelMode && vnLogOpen;
     const situationVnPresentation = useSituationVisualNovelPresentation({
         active: isVisualNovelMode && loadingRoomHistoryId !== room?.id,
@@ -1788,6 +1796,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     onBranch={handleBranch}
                     onOpenMemoryList={handleOpenMessageMemoryList}
                     onRevealTypewriter={() => stopTypewriter(true)}
+                    onTtsPlay={playTtsMessage}
                 />
             )}
 

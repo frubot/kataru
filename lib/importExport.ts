@@ -147,6 +147,7 @@ export async function createFullBackup(): Promise<string> {
                     ...(connection.baseUrl ? { baseUrl: connection.baseUrl } : {}),
                     embeddingsEnabled: connection.embeddingsEnabled,
                     imageGenerationEnabled: connection.imageGenerationEnabled,
+                    ttsEnabled: connection.ttsEnabled,
                     ignoredProviders: connection.ignoredProviders,
                 })),
             } : {}),
@@ -387,6 +388,9 @@ function parseExportedConnection(value: unknown): ExportedConnection | null {
     }
     if (typeof value.imageGenerationEnabled === 'boolean') {
         connection.imageGenerationEnabled = value.imageGenerationEnabled;
+    }
+    if (typeof value.ttsEnabled === 'boolean') {
+        connection.ttsEnabled = value.ttsEnabled;
     }
     if (Array.isArray(value.ignoredProviders)) {
         connection.ignoredProviders = value.ignoredProviders

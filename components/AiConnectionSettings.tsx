@@ -17,6 +17,7 @@ const CONNECTION_KIND_OPTIONS: readonly AiConnectionKind[] = [
     'openai-compatible',
     'anthropic',
     'typesafe',
+    'voicevox',
 ];
 
 const ENV_API_KEY_NAMES: Record<AiConnectionKind, string> = {
@@ -24,6 +25,7 @@ const ENV_API_KEY_NAMES: Record<AiConnectionKind, string> = {
     'openai-compatible': 'OPENAI_API_KEY',
     anthropic: 'ANTHROPIC_API_KEY',
     typesafe: 'TYPESAFE_API_KEY',
+    voicevox: 'VOICEVOX_API_KEY',
 };
 
 const ENV_BASE_URL_NAMES: Partial<Record<AiConnectionKind, string>> = {
@@ -45,6 +47,7 @@ function AiConnectionCard({ connection }: { connection: AiConnectionStatus }) {
     const [apiKey, setApiKey] = useState('');
     const [embeddingsEnabled, setEmbeddingsEnabled] = useState(connection.embeddingsEnabled);
     const [imageGenerationEnabled, setImageGenerationEnabled] = useState(connection.imageGenerationEnabled);
+    const [ttsEnabled, setTtsEnabled] = useState(connection.ttsEnabled);
     const [ignoredProviders, setIgnoredProviders] = useState(connection.ignoredProviders);
     const [editing, setEditing] = useState(false);
     const [saving, setSaving] = useState(false);
@@ -57,6 +60,7 @@ function AiConnectionCard({ connection }: { connection: AiConnectionStatus }) {
         setApiKey('');
         setEmbeddingsEnabled(connection.embeddingsEnabled);
         setImageGenerationEnabled(connection.imageGenerationEnabled);
+        setTtsEnabled(connection.ttsEnabled);
         setIgnoredProviders(connection.ignoredProviders);
     }, [connection]);
 
@@ -66,7 +70,8 @@ function AiConnectionCard({ connection }: { connection: AiConnectionStatus }) {
     const apiKeyChanged = connection.apiKey.editable && apiKey.trim().length > 0;
     const flagsChanged = connection.kind === 'openai-compatible'
         && (embeddingsEnabled !== connection.embeddingsEnabled
-            || imageGenerationEnabled !== connection.imageGenerationEnabled);
+            || imageGenerationEnabled !== connection.imageGenerationEnabled
+            || ttsEnabled !== connection.ttsEnabled);
     const providersChanged = connection.kind === 'openrouter'
         && (ignoredProviders.length !== connection.ignoredProviders.length
             || ignoredProviders.some((slug, index) => slug !== connection.ignoredProviders[index]));
@@ -98,6 +103,7 @@ function AiConnectionCard({ connection }: { connection: AiConnectionStatus }) {
         if (flagsChanged) {
             update.embeddingsEnabled = embeddingsEnabled;
             update.imageGenerationEnabled = imageGenerationEnabled;
+            update.ttsEnabled = ttsEnabled;
         }
         if (providersChanged) update.ignoredProviders = ignoredProviders;
         await updateAiConnection(connection.id, update);
@@ -190,35 +196,41 @@ function AiConnectionCard({ connection }: { connection: AiConnectionStatus }) {
                     {!connection.baseUrlEditable && (
                         <p className="ai-connection-help">{baseUrlLockedHelp}</p>
                     )}
-                    {baseUrlChanged && connection.apiKey.configured && (
+                    {baseUrlChanged && connection.apiKey.configured && connection.kind !== 'voicevox' && (
                         <p className="ai-connection-help warning">
                             接続先を変更すると、現在保存されているAPIキーは解除されます。
                         </p>
                     )}
 
-                    <label className="ai-connection-label" htmlFor={`ai-connection-api-key-${connection.id}`}>
-                        APIキー
-                    </label>
-                    <input
-                        id={`ai-connection-api-key-${connection.id}`}
-                        className="input"
-                        type="password"
-                        value={apiKey}
-                        disabled={!connection.apiKey.editable || saving}
-                        autoComplete="new-password"
-                        spellCheck={false}
-                        placeholder={apiKeyPlaceholder(connection)}
-                        onChange={(event) => setApiKey(event.target.value)}
-                    />
-                    {!connection.apiKey.editable ? (
-                        <p className="ai-connection-help">
-                            環境変数 {ENV_API_KEY_NAMES[connection.kind]} が設定されているため、変更できません。
-                        </p>
-                    ) : connection.apiKey.configured && connection.apiKey.source === 'environment' ? (
-                        <p className="ai-connection-help">環境変数のAPIキーを使用中です。</p>
-                    ) : !connection.apiKey.configured && connection.kind !== 'openai-compatible' ? (
-                        <p className="ai-connection-help">APIキーが未設定です。</p>
-                    ) : null}
+                    {connection.kind === 'voicevox' ? (
+                        <p className="ai-connection-help">VOICEVOXエンジンにはAPIキーは不要です。</p>
+                    ) : (
+                        <>
+                            <label className="ai-connection-label" htmlFor={`ai-connection-api-key-${connection.id}`}>
+                                APIキー
+                            </label>
+                            <input
+                                id={`ai-connection-api-key-${connection.id}`}
+                                className="input"
+                                type="password"
+                                value={apiKey}
+                                disabled={!connection.apiKey.editable || saving}
+                                autoComplete="new-password"
+                                spellCheck={false}
+                                placeholder={apiKeyPlaceholder(connection)}
+                                onChange={(event) => setApiKey(event.target.value)}
+                            />
+                            {!connection.apiKey.editable ? (
+                                <p className="ai-connection-help">
+                                    環境変数 {ENV_API_KEY_NAMES[connection.kind]} が設定されているため、変更できません。
+                                </p>
+                            ) : connection.apiKey.configured && connection.apiKey.source === 'environment' ? (
+                                <p className="ai-connection-help">環境変数のAPIキーを使用中です。</p>
+                            ) : !connection.apiKey.configured && connection.kind !== 'openai-compatible' ? (
+                                <p className="ai-connection-help">APIキーが未設定です。</p>
+                            ) : null}
+                        </>
+                    )}
 
                     {connection.kind === 'openai-compatible' && (
                         <>
@@ -239,6 +251,15 @@ function AiConnectionCard({ connection }: { connection: AiConnectionStatus }) {
                                     onChange={(event) => setImageGenerationEnabled(event.target.checked)}
                                 />
                                 画像生成を利用する
+                            </label>
+                            <label className="ai-connection-option">
+                                <input
+                                    type="checkbox"
+                                    checked={ttsEnabled}
+                                    disabled={!connection.editable || saving}
+                                    onChange={(event) => setTtsEnabled(event.target.checked)}
+                                />
+                                音声合成（TTS）を利用する
                             </label>
                         </>
                     )}
@@ -298,11 +319,12 @@ function AddAiConnectionCard({ onClose }: { onClose: () => void }) {
     const [apiKey, setApiKey] = useState('');
     const [embeddingsEnabled, setEmbeddingsEnabled] = useState(true);
     const [imageGenerationEnabled, setImageGenerationEnabled] = useState(false);
+    const [ttsEnabled, setTtsEnabled] = useState(false);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     const baseUrlFixed = kind === 'openrouter';
-    const baseUrlOptional = kind === 'typesafe';
+    const baseUrlOptional = kind === 'typesafe' || kind === 'voicevox';
     const canCreate = name.trim().length > 0 && (baseUrlFixed || baseUrlOptional || baseUrl.trim().length > 0);
 
     const reset = () => {
@@ -312,6 +334,7 @@ function AddAiConnectionCard({ onClose }: { onClose: () => void }) {
         setApiKey('');
         setEmbeddingsEnabled(true);
         setImageGenerationEnabled(false);
+        setTtsEnabled(false);
         setError(null);
     };
 
@@ -326,7 +349,7 @@ function AddAiConnectionCard({ onClose }: { onClose: () => void }) {
                 ...(baseUrlFixed ? {} : { baseUrl }),
                 ...(apiKey.trim() ? { apiKey } : {}),
                 ...(kind === 'openai-compatible'
-                    ? { embeddingsEnabled, imageGenerationEnabled }
+                    ? { embeddingsEnabled, imageGenerationEnabled, ttsEnabled }
                     : {}),
             });
             reset();
@@ -386,22 +409,30 @@ function AddAiConnectionCard({ onClose }: { onClose: () => void }) {
                     ? 'OpenRouterのエンドポイントは固定です'
                     : kind === 'typesafe'
                         ? '空欄で https://api.typesafe.ai/v1 を使用'
-                        : '例: http://localhost:1234/v1'}
+                        : kind === 'voicevox'
+                            ? '空欄で http://127.0.0.1:50021 を使用'
+                            : '例: http://localhost:1234/v1'}
                 onChange={(event) => setBaseUrl(event.target.value)}
             />
 
-            <label className="ai-connection-label" htmlFor="ai-connection-new-api-key">APIキー</label>
-            <input
-                id="ai-connection-new-api-key"
-                className="input"
-                type="password"
-                value={apiKey}
-                disabled={saving}
-                autoComplete="new-password"
-                spellCheck={false}
-                placeholder={kind === 'openai-compatible' ? 'APIキーを入力（ローカルAPIでは省略可）' : 'APIキーを入力'}
-                onChange={(event) => setApiKey(event.target.value)}
-            />
+            {kind === 'voicevox' ? (
+                <p className="ai-connection-help">VOICEVOXエンジンにはAPIキーは不要です。</p>
+            ) : (
+                <>
+                    <label className="ai-connection-label" htmlFor="ai-connection-new-api-key">APIキー</label>
+                    <input
+                        id="ai-connection-new-api-key"
+                        className="input"
+                        type="password"
+                        value={apiKey}
+                        disabled={saving}
+                        autoComplete="new-password"
+                        spellCheck={false}
+                        placeholder={kind === 'openai-compatible' ? 'APIキーを入力（ローカルAPIでは省略可）' : 'APIキーを入力'}
+                        onChange={(event) => setApiKey(event.target.value)}
+                    />
+                </>
+            )}
 
             {kind === 'openai-compatible' && (
                 <>
@@ -422,6 +453,15 @@ function AddAiConnectionCard({ onClose }: { onClose: () => void }) {
                             onChange={(event) => setImageGenerationEnabled(event.target.checked)}
                         />
                         画像生成を利用する
+                    </label>
+                    <label className="ai-connection-option">
+                        <input
+                            type="checkbox"
+                            checked={ttsEnabled}
+                            disabled={saving}
+                            onChange={(event) => setTtsEnabled(event.target.checked)}
+                        />
+                        音声合成（TTS）を利用する
                     </label>
                 </>
             )}

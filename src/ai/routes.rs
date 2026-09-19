@@ -6,6 +6,7 @@ mod generation;
 mod image;
 mod memory;
 mod structured;
+mod tts;
 
 pub use catalog::{
     ModelCatalogCache, connection_status, models, providers, run_models_cli_command_if_requested,
@@ -18,6 +19,7 @@ pub use generation::{
 };
 pub use image::generate_image;
 pub use memory::extract_memories;
+pub use tts::{list_tts_speakers, synthesize_speech};
 
 pub(crate) use common::{
     RoleSelection, entity_connection_id, model_string, optional_role_selection,

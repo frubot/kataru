@@ -64,6 +64,9 @@ async function remapBackupConnectionIds(data: ParsedBackup, get: StoreGet): Prom
                         ...(exported.imageGenerationEnabled !== undefined
                             ? { imageGenerationEnabled: exported.imageGenerationEnabled }
                             : {}),
+                        ...(exported.ttsEnabled !== undefined
+                            ? { ttsEnabled: exported.ttsEnabled }
+                            : {}),
                         ...(exported.ignoredProviders !== undefined
                             ? { ignoredProviders: exported.ignoredProviders }
                             : {}),

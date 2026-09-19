@@ -30,6 +30,7 @@ export interface AiConnectionStatus {
     deletable: boolean;
     embeddingsEnabled: boolean;
     imageGenerationEnabled: boolean;
+    ttsEnabled: boolean;
     ignoredProviders: string[];
 }
 
@@ -45,6 +46,7 @@ export interface CreateAiConnectionInput {
     apiKey?: string;
     embeddingsEnabled?: boolean;
     imageGenerationEnabled?: boolean;
+    ttsEnabled?: boolean;
     ignoredProviders?: string[];
 }
 
@@ -55,6 +57,7 @@ export interface UpdateAiConnectionInput {
     clearApiKey?: boolean;
     embeddingsEnabled?: boolean;
     imageGenerationEnabled?: boolean;
+    ttsEnabled?: boolean;
     ignoredProviders?: string[];
 }
 
@@ -90,7 +93,8 @@ export function isAiConnectionStatus(value: unknown): value is AiConnectionStatu
         || typeof connection.editable !== 'boolean'
         || typeof connection.deletable !== 'boolean') return false;
     if (typeof connection.embeddingsEnabled !== 'boolean'
-        || typeof connection.imageGenerationEnabled !== 'boolean') return false;
+        || typeof connection.imageGenerationEnabled !== 'boolean'
+        || typeof connection.ttsEnabled !== 'boolean') return false;
     return Array.isArray(connection.ignoredProviders)
         && connection.ignoredProviders.every((provider) => typeof provider === 'string');
 }
@@ -243,6 +247,9 @@ export async function createAiConnection(input: CreateAiConnectionInput): Promis
         ...(typeof input.imageGenerationEnabled === 'boolean'
             ? { imageGenerationEnabled: input.imageGenerationEnabled }
             : {}),
+        ...(typeof input.ttsEnabled === 'boolean'
+            ? { ttsEnabled: input.ttsEnabled }
+            : {}),
         ...(input.ignoredProviders !== undefined
             ? { ignoredProviders: normalizeOpenRouterIgnoredProviders(input.ignoredProviders) }
             : {}),
@@ -274,6 +281,7 @@ export async function updateAiConnection(
     }
     if (input.embeddingsEnabled !== undefined) body.embeddingsEnabled = input.embeddingsEnabled === true;
     if (input.imageGenerationEnabled !== undefined) body.imageGenerationEnabled = input.imageGenerationEnabled === true;
+    if (input.ttsEnabled !== undefined) body.ttsEnabled = input.ttsEnabled === true;
     if (input.ignoredProviders !== undefined) {
         body.ignoredProviders = normalizeOpenRouterIgnoredProviders(input.ignoredProviders);
     }

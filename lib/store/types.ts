@@ -53,6 +53,7 @@ export interface Character {
         model?: string;
         voice?: string;
         speed?: number;
+        volume?: number;
     };
     expressions?: Expression[];
     costumes?: Costume[];
@@ -338,6 +339,7 @@ export interface AppState {
     ttsModel: string;
     ttsVoice: string;
     ttsSpeed: number;
+    ttsVolume: number;
     ttsAutoPlay: boolean;
     fullJsonDebugEnabled: boolean;
     detailedErrorLoggingEnabled: boolean;
@@ -382,6 +384,7 @@ export interface AppState {
     setTtsModel: (model: string) => void;
     setTtsVoice: (voice: string) => void;
     setTtsSpeed: (speed: number) => void;
+    setTtsVolume: (volume: number) => void;
     setTtsAutoPlay: (enabled: boolean) => void;
     getAiApiConfig: () => AiApiConfig;
     setFullJsonDebugEnabled: (enabled: boolean) => void;

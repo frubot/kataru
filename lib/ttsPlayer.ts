@@ -35,6 +35,8 @@ const listeners = new Set<() => void>();
 const queue: TtsRequestParams[] = [];
 let audio: HTMLAudioElement | null = null;
 let audioContext: AudioContext | null = null;
+let gainNode: GainNode | null = null;
+let playbackVolume = 1;
 let analyser: AnalyserNode | null = null;
 let analyserSamples: Uint8Array<ArrayBuffer> | null = null;
 let activeEntry: TtsEntry | null = null;
@@ -193,12 +195,31 @@ function getAudio(): HTMLAudioElement | null {
             audioContext = new ContextClass();
             analyser = audioContext.createAnalyser();
             analyser.fftSize = 512;
-            audioContext.createMediaElementSource(audio).connect(analyser);
+            gainNode = audioContext.createGain();
+            gainNode.gain.value = playbackVolume;
+            audioContext.createMediaElementSource(audio).connect(gainNode);
+            gainNode.connect(analyser);
             analyser.connect(audioContext.destination);
             analyserSamples = new Uint8Array(analyser.fftSize);
         }
     }
     return audio;
+}
+
+function clampPlaybackVolume(volume: number): number {
+    if (!Number.isFinite(volume)) return 1;
+    return Math.min(1, Math.max(0, volume));
+}
+
+/** 再生中の音声へ即時反映される音量（0-1）。AudioContextが無い環境では
+ * 要素のvolumeへフォールバックする。 */
+export function setTtsPlaybackVolume(volume: number): void {
+    playbackVolume = clampPlaybackVolume(volume);
+    if (gainNode) {
+        gainNode.gain.value = playbackVolume;
+    } else if (audio) {
+        audio.volume = playbackVolume;
+    }
 }
 
 /** Instantaneous TTS volume (0-1). Returns 0 without a playable element, while
@@ -219,6 +240,7 @@ export function getTtsAudioLevel(): number {
 async function playNow(params: TtsRequestParams): Promise<void> {
     const element = getAudio();
     if (!element) return;
+    setTtsPlaybackVolume(params.profile.volume);
     const generation = ++playbackGeneration;
     // 常に1本だけ再生する。前のエントリは paused に留める。
     element.pause();

@@ -24,9 +24,11 @@ import StoredImage from './StoredImage';
 import ModelSelector from './ModelSelector';
 import TtsVoiceField from './TtsVoiceField';
 import TtsSpeedSlider, { formatTtsSpeed } from './TtsSpeedSlider';
+import TtsVolumeSlider, { formatTtsVolume } from './TtsVolumeSlider';
 import TtsPreviewButton from './TtsPreviewButton';
 import { useModalKeyboard } from './useModalKeyboard';
 import { resolveTtsProfile } from '@/lib/tts';
+import { setTtsPlaybackVolume } from '@/lib/ttsPlayer';
 import { getVrmExpressionNames } from '@/lib/vrm';
 
 const VrmAvatarView = lazy(() => import('./VrmAvatarView'));
@@ -74,6 +76,7 @@ function buildInitialCharacterDraft(
         costumes: character?.costumes ?? [],
         ttsVoice: character?.tts?.voice ?? '',
         ttsSpeed: character?.tts?.speed,
+        ttsVolume: character?.tts?.volume,
     };
 }
 
@@ -338,7 +341,7 @@ function CharacterSettingsModalContent({
     initialGeneratedDraft,
     onOpenMemoryList,
 }: CharacterSettingsModalProps) {
-    const { createCharacter, updateCharacter, defaultChatModel, ttsConnectionId, ttsSpeed: defaultTtsSpeed } = useStore();
+    const { createCharacter, updateCharacter, defaultChatModel, ttsConnectionId, ttsSpeed: defaultTtsSpeed, ttsVolume: defaultTtsVolume } = useStore();
     const [initialDraft] = useState(() => buildInitialCharacterDraft(
         character,
         defaultChatModel,
@@ -379,6 +382,7 @@ function CharacterSettingsModalContent({
     // TTS overrides (空欄は全体設定に従う)
     const [ttsVoice, setTtsVoice] = useState(initialDraft.ttsVoice);
     const [ttsSpeed, setTtsSpeed] = useState<number | undefined>(initialDraft.ttsSpeed);
+    const [ttsVolume, setTtsVolume] = useState<number | undefined>(initialDraft.ttsVolume);
     const [imageGenOpen, setImageGenOpen] = useState(false);
     const [expressionsOpen, setExpressionsOpen] = useState(false);
     const [costumesOpen, setCostumesOpen] = useState(false);
@@ -419,6 +423,7 @@ function CharacterSettingsModalContent({
             costumes,
             ttsVoice,
             ttsSpeed,
+            ttsVolume,
         };
         if (!isNew && character && JSON.stringify(currentDraft) === JSON.stringify(initialDraft)) {
             onClose();
@@ -454,8 +459,8 @@ function CharacterSettingsModalContent({
             icon: icon ?? undefined,
             expressions: expressions.length > 0 ? expressions : undefined,
             costumes: costumes.length > 0 ? costumes : undefined,
-            tts: (ttsVoice.trim() || ttsSpeed != null)
-                ? { voice: ttsVoice.trim() || undefined, speed: ttsSpeed }
+            tts: (ttsVoice.trim() || ttsSpeed != null || ttsVolume != null)
+                ? { voice: ttsVoice.trim() || undefined, speed: ttsSpeed, volume: ttsVolume }
                 : undefined,
         };
 
@@ -465,7 +470,7 @@ function CharacterSettingsModalContent({
             updateCharacter(character.id, updates);
         }
         onClose();
-    }, [character, costumes, createCharacter, defaultChatModel, enableMemory, enableThinking, expressions, frequencyPenalty, icon, initialDraft, isNew, maxCharacters, maxHistory, model, name, onClose, presencePenalty, protagonistPrompt, repetitionPenalty, speechStyle, systemPrompt, temperature, topK, topP, ttsSpeed, ttsVoice, updateCharacter, userConstraints]);
+    }, [character, costumes, createCharacter, defaultChatModel, enableMemory, enableThinking, expressions, frequencyPenalty, icon, initialDraft, isNew, maxCharacters, maxHistory, model, name, onClose, presencePenalty, protagonistPrompt, repetitionPenalty, speechStyle, systemPrompt, temperature, topK, topP, ttsSpeed, ttsVoice, ttsVolume, updateCharacter, userConstraints]);
 
     const attemptClose = useCallback(() => {
         const currentDraft = {
@@ -490,6 +495,7 @@ function CharacterSettingsModalContent({
             costumes,
             ttsVoice,
             ttsSpeed,
+            ttsVolume,
         };
         const blankDraft = buildInitialCharacterDraft(null, defaultChatModel);
         const hasInput = JSON.stringify(currentDraft) !== JSON.stringify(blankDraft);
@@ -501,7 +507,7 @@ function CharacterSettingsModalContent({
         }
 
         onClose();
-    }, [character, costumes, defaultChatModel, enableMemory, enableThinking, expressions, frequencyPenalty, icon, isNew, maxCharacters, maxHistory, model, name, onClose, presencePenalty, protagonistPrompt, repetitionPenalty, speechStyle, systemPrompt, temperature, topK, topP, ttsSpeed, ttsVoice, userConstraints]);
+    }, [character, costumes, defaultChatModel, enableMemory, enableThinking, expressions, frequencyPenalty, icon, isNew, maxCharacters, maxHistory, model, name, onClose, presencePenalty, protagonistPrompt, repetitionPenalty, speechStyle, systemPrompt, temperature, topK, topP, ttsSpeed, ttsVoice, ttsVolume, userConstraints]);
 
     const childModalOpen = imageGenOpen || expressionsOpen || costumesOpen;
     useModalKeyboard({
@@ -577,7 +583,7 @@ function CharacterSettingsModalContent({
     const hasCustomParams = (model.model.trim() !== '' && !modelRefsEqual(model, defaultChatModel))
         || maxCharacters || maxHistory || temperature !== null || topP !== null || topK !== null
         || frequencyPenalty !== null || presencePenalty !== null || repetitionPenalty !== null
-        || ttsVoice.trim() !== '' || ttsSpeed != null;
+        || ttsVoice.trim() !== '' || ttsSpeed != null || ttsVolume != null;
     const promptSectionsStyle: React.CSSProperties = {
         display: 'flex',
         flexDirection: 'column',
@@ -968,7 +974,7 @@ function CharacterSettingsModalContent({
                                         <TtsPreviewButton
                                             previewId={`tts-preview-character:${character?.id ?? 'new'}`}
                                             profile={resolveTtsProfile(useStore.getState(), {
-                                                tts: { ...character?.tts, voice: ttsVoice, speed: ttsSpeed },
+                                                tts: { ...character?.tts, voice: ttsVoice, speed: ttsSpeed, volume: ttsVolume },
                                             })}
                                         />
                                     </div>
@@ -1031,6 +1037,69 @@ function CharacterSettingsModalContent({
                                         custom={ttsSpeed != null}
                                         ariaLabel="読み上げ速度"
                                         onChange={setTtsSpeed}
+                                    />
+                                </div>
+
+                                {/* 読み上げ音量 */}
+                                <div>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.375rem' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                                            <label style={{
+                                                fontSize: '0.8125rem',
+                                                fontWeight: 500,
+                                                color: 'var(--text-secondary)',
+                                            }}>
+                                                音量
+                                            </label>
+                                            <InfoButton text="読み上げ音量です。未設定では全体設定の値を使用します。" />
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                            <span style={{
+                                                fontSize: '0.8125rem',
+                                                fontWeight: 600,
+                                                color: ttsVolume != null ? 'var(--accent-primary)' : 'var(--text-muted)',
+                                                minWidth: '3.5rem',
+                                                textAlign: 'right',
+                                                fontVariantNumeric: 'tabular-nums',
+                                            }}>
+                                                {ttsVolume != null ? formatTtsVolume(ttsVolume) : '全体設定'}
+                                            </span>
+                                            {ttsVolume != null && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setTtsVolume(undefined);
+                                                        setTtsPlaybackVolume(defaultTtsVolume);
+                                                    }}
+                                                    title="全体設定に戻す"
+                                                    style={{
+                                                        background: 'none',
+                                                        border: 'none',
+                                                        cursor: 'pointer',
+                                                        padding: '2px',
+                                                        color: 'var(--text-muted)',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        borderRadius: '4px',
+                                                        transition: 'color 0.15s ease',
+                                                    }}
+                                                    onMouseEnter={e => (e.currentTarget.style.color = 'var(--text-secondary)')}
+                                                    onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}
+                                                >
+                                                    <RotateCcw size={12} />
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <TtsVolumeSlider
+                                        id="character-tts-volume-input"
+                                        value={ttsVolume ?? defaultTtsVolume}
+                                        custom={ttsVolume != null}
+                                        ariaLabel="読み上げ音量"
+                                        onChange={(volume) => {
+                                            setTtsVolume(volume);
+                                            setTtsPlaybackVolume(volume);
+                                        }}
                                     />
                                 </div>
 

@@ -12,6 +12,7 @@ import AiConnectionSettings from '@/components/AiConnectionSettings';
 import ModelSelector from '@/components/ModelSelector';
 import TtsVoiceField from '@/components/TtsVoiceField';
 import TtsSpeedSlider, { formatTtsSpeed } from '@/components/TtsSpeedSlider';
+import TtsVolumeSlider, { formatTtsVolume } from '@/components/TtsVolumeSlider';
 import TtsPreviewButton from '@/components/TtsPreviewButton';
 import KeyboardSettingsPanel from '@/components/KeyboardSettingsPanel';
 import SituationBackgroundModal from '@/components/SituationBackgroundModal';
@@ -420,6 +421,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         ttsModel, setTtsModel,
         ttsVoice, setTtsVoice,
         ttsSpeed, setTtsSpeed,
+        ttsVolume, setTtsVolume,
         ttsAutoPlay, setTtsAutoPlay,
         resetModelDefaults,
         conversationCompressionEnabled, setConversationCompressionEnabled,
@@ -1526,6 +1528,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                                     model: ttsModel,
                                                     voice: ttsVoice,
                                                     speed: ttsSpeed,
+                                                    volume: ttsVolume,
                                                 }}
                                             />
                                         </div>
@@ -1562,6 +1565,37 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         </span>
                                     </div>
                                 </div>
+                                <div className="global-settings-selector-row global-settings-selector-row-divider">
+                                    <label
+                                        htmlFor="tts-volume-input"
+                                        style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
+                                    >
+                                        音量
+                                    </label>
+                                    <div
+                                        className="global-settings-selector-control"
+                                        style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}
+                                    >
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <TtsVolumeSlider
+                                                id="tts-volume-input"
+                                                value={ttsVolume}
+                                                ariaLabel="読み上げ音量"
+                                                onChange={setTtsVolume}
+                                            />
+                                        </div>
+                                        <span style={{
+                                            fontSize: '0.8125rem',
+                                            fontWeight: 600,
+                                            color: 'var(--accent-primary)',
+                                            minWidth: '3.5rem',
+                                            textAlign: 'right',
+                                            fontVariantNumeric: 'tabular-nums',
+                                        }}>
+                                            {formatTtsVolume(ttsVolume)}
+                                        </span>
+                                    </div>
+                                </div>
                                 {renderDebugToggle({
                                     label: '新しい返答を自動で読み上げる',
                                     enabled: ttsAutoPlay,
@@ -1572,7 +1606,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                             <p style={{ marginTop: '0.75rem', marginBottom: 0, fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
                                 {ttsCapableConnections.length === 0
                                     ? '音声合成にはVOICEVOXの接続先、または「音声合成（TTS）を利用する」を有効にしたOpenAI互換の接続先が必要です。'
-                                    : '声と速度はキャラクター設定の「高度な設定」から個別に上書きできます。'}
+                                    : '声、速度、音量はキャラクター設定の「高度な設定」から個別に上書きできます。'}
                             </p>
                         </div>
 

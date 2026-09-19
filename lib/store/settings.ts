@@ -15,6 +15,7 @@ import {
     normalizeModelDefaults,
     type ModelDefaults,
 } from '../modelDefaults';
+import { setTtsPlaybackVolume } from '../ttsPlayer';
 import { fire } from './persistence';
 import type {
     AppState,
@@ -44,9 +45,12 @@ export const DEFAULT_TTS_CONNECTION_ID = DEFAULT_CONNECTION_ID;
 export const DEFAULT_TTS_MODEL = 'deepgram/aura-2';
 export const DEFAULT_TTS_VOICE = 'aura-2-ama-ja';
 export const DEFAULT_TTS_SPEED = 1.0;
+export const DEFAULT_TTS_VOLUME = 1.0;
 export const DEFAULT_TTS_AUTO_PLAY = false;
 export const TTS_SPEED_MIN = 0.25;
 export const TTS_SPEED_MAX = 4.0;
+export const TTS_VOLUME_MIN = 0;
+export const TTS_VOLUME_MAX = 1.0;
 
 export function getThemeClassName(mode: ThemeMode, palette: ThemePalette): string {
     return `mode-${mode} palette-${palette}`;
@@ -76,6 +80,11 @@ export function isRoomViewMode(value: unknown): value is RoomViewMode {
 export function normalizeTtsSpeed(value: unknown): number {
     if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_TTS_SPEED;
     return Math.min(TTS_SPEED_MAX, Math.max(TTS_SPEED_MIN, value));
+}
+
+export function normalizeTtsVolume(value: unknown): number {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_TTS_VOLUME;
+    return Math.min(TTS_VOLUME_MAX, Math.max(TTS_VOLUME_MIN, value));
 }
 
 export function resolveThemeSelection(params: { mode?: unknown; palette?: unknown }): ThemeSelection {
@@ -180,6 +189,7 @@ type SettingsSlice = Pick<
     | 'ttsModel'
     | 'ttsVoice'
     | 'ttsSpeed'
+    | 'ttsVolume'
     | 'ttsAutoPlay'
     | 'fullJsonDebugEnabled'
     | 'detailedErrorLoggingEnabled'
@@ -214,6 +224,7 @@ type SettingsSlice = Pick<
     | 'setTtsModel'
     | 'setTtsVoice'
     | 'setTtsSpeed'
+    | 'setTtsVolume'
     | 'setTtsAutoPlay'
     | 'getAiApiConfig'
     | 'setFullJsonDebugEnabled'
@@ -240,6 +251,7 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         ttsModel: DEFAULT_TTS_MODEL,
         ttsVoice: DEFAULT_TTS_VOICE,
         ttsSpeed: DEFAULT_TTS_SPEED,
+        ttsVolume: DEFAULT_TTS_VOLUME,
         ttsAutoPlay: DEFAULT_TTS_AUTO_PLAY,
         fullJsonDebugEnabled: false,
         detailedErrorLoggingEnabled: false,
@@ -365,6 +377,12 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
             const ttsSpeed = normalizeTtsSpeed(speed);
             set({ ttsSpeed });
             fire(db.setMeta('ttsSpeed', ttsSpeed));
+        },
+        setTtsVolume: (volume) => {
+            const ttsVolume = normalizeTtsVolume(volume);
+            set({ ttsVolume });
+            setTtsPlaybackVolume(ttsVolume);
+            fire(db.setMeta('ttsVolume', ttsVolume));
         },
         setTtsAutoPlay: (ttsAutoPlay) => {
             set({ ttsAutoPlay });

@@ -1,5 +1,5 @@
 import { splitAssistantMarkdownActions } from './markdownUtils';
-import { TTS_SPEED_MAX, TTS_SPEED_MIN } from './store/settings';
+import { TTS_SPEED_MAX, TTS_SPEED_MIN, TTS_VOLUME_MAX, TTS_VOLUME_MIN } from './store/settings';
 import type { AppState, Character } from './store/types';
 
 export interface TtsProfile {
@@ -7,12 +7,13 @@ export interface TtsProfile {
     model: string;
     voice: string;
     speed: number;
+    volume: number;
 }
 
 /** Per-character overrides win over global settings. Returns the effective
  * profile; `voice` may be empty when nothing is configured. */
 export function resolveTtsProfile(
-    state: Pick<AppState, 'ttsConnectionId' | 'ttsModel' | 'ttsVoice' | 'ttsSpeed'>,
+    state: Pick<AppState, 'ttsConnectionId' | 'ttsModel' | 'ttsVoice' | 'ttsSpeed' | 'ttsVolume'>,
     character?: Pick<Character, 'tts'> | null,
 ): TtsProfile {
     const tts = character?.tts;
@@ -27,6 +28,9 @@ export function resolveTtsProfile(
         speed: typeof tts?.speed === 'number' && Number.isFinite(tts.speed)
             ? Math.min(TTS_SPEED_MAX, Math.max(TTS_SPEED_MIN, tts.speed))
             : state.ttsSpeed,
+        volume: typeof tts?.volume === 'number' && Number.isFinite(tts.volume)
+            ? Math.min(TTS_VOLUME_MAX, Math.max(TTS_VOLUME_MIN, tts.volume))
+            : state.ttsVolume,
     };
 }
 

@@ -6,6 +6,7 @@ import {
     clearAllTts,
     clearTtsRoom,
     enqueueTtsPlayback,
+    prefetchTtsAudio,
     requestTtsPlayback,
     stopTtsPlayback,
 } from '@/lib/ttsPlayer';
@@ -43,6 +44,9 @@ type UseTtsPlaybackParams = {
     visualNovelMode?: boolean;
     /** 現在表示中のページ。nullのとき（ログ表示中など）は何も読まない。 */
     visualNovelItem?: VisualNovelTtsItem | null;
+    /** 次に表示されるページ。finalになり次第、音声だけ事前生成してページ送りの
+     * 待ち時間を消す。 */
+    visualNovelNextItem?: VisualNovelTtsItem | null;
 };
 
 export function useTtsPlayback({
@@ -53,6 +57,7 @@ export function useTtsPlayback({
     notify,
     visualNovelMode = false,
     visualNovelItem = null,
+    visualNovelNextItem = null,
 }: UseTtsPlaybackParams) {
     const ttsAutoPlay = useStore((state) => state.ttsAutoPlay);
     const seenIdsRef = useRef<Set<string>>(new Set());
@@ -157,6 +162,15 @@ export function useTtsPlayback({
         // ページ送りはユーザー操作なので、前のページの音声を切って即時再生する。
         if (result && 'params' in result) void requestTtsPlayback(result.params).catch(() => {});
     }, [roomId, visualNovelMode, visualNovelItem, isLoading, isRoomHistoryLoading, ttsAutoPlay, resolveRequest]);
+
+    useEffect(() => {
+        // 次ページの音声を表示前に生成しておき、ページ送りの待ちをなくす。
+        if (!roomId || !visualNovelMode || !ttsAutoPlay) return;
+        const item = visualNovelNextItem;
+        if (!item || item.role !== 'assistant' || !item.final) return;
+        const result = resolveRequest(item.key, item.content, item.characterId);
+        if (result && 'params' in result) prefetchTtsAudio(result.params);
+    }, [roomId, visualNovelMode, visualNovelNextItem, ttsAutoPlay, resolveRequest]);
 
     useEffect(() => () => stopTtsPlayback(), []);
 

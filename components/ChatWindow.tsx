@@ -1331,6 +1331,17 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             final: situationVnCurrentItem.source !== 'preview' || situationVnCurrentItem.streamingComplete === true,
         };
     }, [isVisualNovelMode, isVisualNovelLogOpen, situationVnCurrentItem]);
+    const situationVnNextItem = situationVnPresentation.pending[0] ?? null;
+    const vnTtsNextItem = useMemo<VisualNovelTtsItem | null>(() => {
+        if (!isVisualNovelMode || isVisualNovelLogOpen || !situationVnNextItem) return null;
+        return {
+            key: getSituationVisualNovelTypingKey(situationVnNextItem),
+            role: situationVnNextItem.role,
+            content: situationVnNextItem.content,
+            characterId: situationVnNextItem.characterId,
+            final: situationVnNextItem.source !== 'preview' || situationVnNextItem.streamingComplete === true,
+        };
+    }, [isVisualNovelMode, isVisualNovelLogOpen, situationVnNextItem]);
     const { playMessage: playTtsMessage, playVisualNovelItem: playTtsVisualNovelItem } = useTtsPlayback({
         roomId: currentRoomId,
         messages: room?.messages ?? EMPTY_MESSAGES,
@@ -1339,6 +1350,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         notify: showChatNotice,
         visualNovelMode: isVisualNovelMode,
         visualNovelItem: vnTtsItem,
+        visualNovelNextItem: vnTtsNextItem,
     });
     const vnTtsStatus = useTtsEntry(vnTtsItem?.key ?? '').status;
     const canPlayVnTts = useMemo(() => (

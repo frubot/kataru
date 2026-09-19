@@ -50,6 +50,9 @@ let analyser: AnalyserNode | null = null;
 let analyserSamples: Uint8Array<ArrayBuffer> | null = null;
 let activeEntry: TtsEntry | null = null;
 let playbackGeneration = 0;
+/** 生成中のfetchをentry単位で共有する。プリフェッチ中にページ送りされても
+ * playNowが同じpromiseをawaitするため、音声生成リクエストが重複しない。 */
+const inflightFetches = new Map<TtsEntry, { cacheKey: string; promise: Promise<Blob> }>();
 
 function emitTts(): void {
     for (const listener of listeners) listener();
@@ -293,7 +296,11 @@ async function playNow(params: TtsRequestParams): Promise<void> {
         // 同一の合成条件でキャッシュ済みの音声のみ再利用する
         // （同id再生成や設定変更へのガード）。
         if (!entry.objectUrl || entry.cacheKey !== cacheKey) {
-            const blob = await fetchTtsAudio(params);
+            // プリフェッチ中の同条件fetchがあれば待ち合わせて再利用する。
+            const inflight = inflightFetches.get(entry);
+            const blob = inflight && inflight.cacheKey === cacheKey
+                ? await inflight.promise
+                : await fetchTtsAudio(params);
             // 追い越された結果は破棄する。新しい再生がentryのURLを使っている
             // 可能性があるため、ここでrevoke/上書きはしない。
             if (generation !== playbackGeneration) {
@@ -351,6 +358,45 @@ export function enqueueTtsPlayback(params: TtsRequestParams): void {
         return;
     }
     void playNow(params).catch(() => advanceQueue());
+}
+
+/** 次に表示されるページの音声を再生せずに先生成してキャッシュする。
+ * ページ送り時に生成待ちで間が空くのを防ぐプリフェッチ。生成済み・同一条件で
+ * 生成中なら何もしない。再生中のentryはplayNowが管理するので触らない。 */
+export function prefetchTtsAudio(params: TtsRequestParams): void {
+    if (typeof window === 'undefined') return;
+    const entry = ensureEntry(params);
+    if (entry === activeEntry) return;
+    const cacheKey = ttsCacheKey(params);
+    if (entry.objectUrl && entry.cacheKey === cacheKey) return;
+    if (inflightFetches.get(entry)?.cacheKey === cacheKey) return;
+    const promise = fetchTtsAudio(params);
+    inflightFetches.set(entry, { cacheKey, promise });
+    setEntryStatus(entry, 'loading', null);
+    promise.then((blob) => {
+        // 新しいプリフェッチに追い越された結果は捨てる。
+        if (inflightFetches.get(entry)?.promise !== promise) return;
+        inflightFetches.delete(entry);
+        // clearTtsRoom等で抹消されたentryや、playNowが管理するentryには書かない。
+        const registered = entriesByRoom.get(entry.roomId)?.get(entry.messageId) === entry;
+        if (!registered || entry === activeEntry) return;
+        dropEntryAudio(entry);
+        entry.objectUrl = URL.createObjectURL(blob);
+        entry.byteSize = blob.size;
+        entry.cacheKey = cacheKey;
+        audioCacheOrder.delete(entry);
+        audioCacheOrder.add(entry);
+        cachedAudioBytes += blob.size;
+        evictAudioCache();
+        if (entry.status === 'loading') setEntryStatus(entry, 'paused', null);
+    }, () => {
+        if (inflightFetches.get(entry)?.promise !== promise) return;
+        inflightFetches.delete(entry);
+        // プリフェッチ失敗は静かに諦める。再生時に通常経路で再試行される。
+        if (entry !== activeEntry && entry.status === 'loading') {
+            setEntryStatus(entry, 'paused', null);
+        }
+    });
 }
 
 export function pauseTtsPlayback(): void {

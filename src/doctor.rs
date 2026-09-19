@@ -540,18 +540,22 @@ struct ConfiguredConnection<'a> {
     credential_configured: bool,
 }
 
-/// A connection counts as configured when it holds a credential, or when it is
-/// an OpenAI-compatible connection pointed at a non-default (typically local)
-/// host, matching the request-time local-key fallback.
+/// A connection counts as configured when it appears in the settings list and
+/// holds a credential, is a VOICEVOX engine, or is an OpenAI-compatible
+/// connection pointed at a non-default (typically local) host, matching the
+/// request-time local-key fallback. Built-in placeholders that were never
+/// configured stay unlisted and are skipped — in particular an untouched
+/// VOICEVOX must not be probed at 127.0.0.1:50021.
 fn configured_connections(config: &EffectiveAiConfig) -> Vec<ConfiguredConnection<'_>> {
     config
         .connections
         .iter()
         .filter(|connection| {
-            connection.api_key.is_some()
-                || connection.kind == ConnectionKind::Voicevox
-                || (connection.kind == ConnectionKind::OpenAiCompatible
-                    && connection.base_url != DEFAULT_OPENAI_BASE_URL)
+            connection.listed
+                && (connection.api_key.is_some()
+                    || connection.kind == ConnectionKind::Voicevox
+                    || (connection.kind == ConnectionKind::OpenAiCompatible
+                        && connection.base_url != DEFAULT_OPENAI_BASE_URL))
         })
         .map(|connection| ConfiguredConnection {
             id: connection.id.as_str(),
@@ -820,7 +824,7 @@ fn print_help() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ai_config::{ConfigSource, EffectiveConnection};
+    use crate::ai_config::{ConfigSource, DEFAULT_VOICEVOX_BASE_URL, EffectiveConnection};
     use tempfile::tempdir;
 
     #[test]
@@ -940,6 +944,7 @@ mod tests {
             editable: true,
             deletable: false,
             base_url_editable: true,
+            listed: true,
             embeddings_enabled: false,
             image_generation_enabled: false,
             tts_enabled: false,
@@ -986,6 +991,31 @@ mod tests {
         assert!(!serialized.contains("private-name"));
         assert!(serialized.contains("custom-loopback-http"));
         assert!(serialized.contains("cx_local"));
+    }
+
+    #[test]
+    fn unconfigured_builtin_voicevox_is_not_probed() {
+        let mut builtin_voicevox = connection(
+            "voicevox",
+            ConnectionKind::Voicevox,
+            DEFAULT_VOICEVOX_BASE_URL,
+            None,
+        );
+        builtin_voicevox.listed = false;
+        let custom_voicevox = connection(
+            "cx_local_voicevox",
+            ConnectionKind::Voicevox,
+            DEFAULT_VOICEVOX_BASE_URL,
+            None,
+        );
+        let config = EffectiveAiConfig {
+            connections: vec![builtin_voicevox, custom_voicevox],
+        };
+
+        let configured = configured_connections(&config);
+
+        assert_eq!(configured.len(), 1);
+        assert_eq!(configured[0].id, "cx_local_voicevox");
     }
 
     #[test]

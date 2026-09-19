@@ -21,15 +21,24 @@ export interface TtsRequestParams {
 interface TtsEntry {
     roomId: string;
     messageId: string;
-    text: string;
+    cacheKey: string;
     objectUrl: string | null;
+    byteSize: number;
     status: TtsPlaybackStatus;
     error: string | null;
 }
 
 const EMPTY_ENTRY_STATE: TtsEntryState = { status: null, error: null };
 
+/** 音声Blobキャッシュの上限。自動読み上げが長時間続いてもObject URLが
+ * 無制限に溜まらないよう、件数と合計サイズでLRU追い出しを行う。 */
+const MAX_CACHED_AUDIO_ENTRIES = 100;
+const MAX_CACHED_AUDIO_BYTES = 64 * 1024 * 1024;
+
 const entriesByRoom = new Map<string, Map<string, TtsEntry>>();
+/** objectUrlを保持するentryを古い順に並べる（Setは挿入順を維持する）。 */
+const audioCacheOrder = new Set<TtsEntry>();
+let cachedAudioBytes = 0;
 const entryStateCache = new Map<string, TtsEntryState>();
 const listeners = new Set<() => void>();
 const queue: TtsRequestParams[] = [];
@@ -98,8 +107,9 @@ function ensureEntry(params: TtsRequestParams): TtsEntry {
         entry = {
             roomId: params.roomId,
             messageId: params.messageId,
-            text: '',
+            cacheKey: '',
             objectUrl: null,
+            byteSize: 0,
             status: 'loading',
             error: null,
         };
@@ -237,6 +247,36 @@ export function getTtsAudioLevel(): number {
     return Math.min(1, Math.max(0, (rms - 0.02) * 6));
 }
 
+/** 合成結果を一意に決める入力のキャッシュキー。声・速度・モデル・接続先が
+ * 変わったら再生成するため、textだけでなくprofileの合成パラメータを含める。
+ * volumeは再生時に反映されるだけなので含めない。 */
+function ttsCacheKey(params: TtsRequestParams): string {
+    const { connectionId, model, voice, speed } = params.profile;
+    return JSON.stringify([params.text, connectionId, model, voice, speed]);
+}
+
+function dropEntryAudio(entry: TtsEntry): void {
+    if (entry.objectUrl) {
+        URL.revokeObjectURL(entry.objectUrl);
+        cachedAudioBytes -= entry.byteSize;
+        entry.objectUrl = null;
+        entry.byteSize = 0;
+    }
+    audioCacheOrder.delete(entry);
+}
+
+/** 上限を超えた分だけ、再生中・生成中以外の古い音声から順に解放する。 */
+function evictAudioCache(): void {
+    for (const entry of audioCacheOrder) {
+        if (audioCacheOrder.size <= MAX_CACHED_AUDIO_ENTRIES
+            && cachedAudioBytes <= MAX_CACHED_AUDIO_BYTES) {
+            return;
+        }
+        if (entry === activeEntry || entry.status === 'loading') continue;
+        dropEntryAudio(entry);
+    }
+}
+
 async function playNow(params: TtsRequestParams): Promise<void> {
     const element = getAudio();
     if (!element) return;
@@ -248,9 +288,11 @@ async function playNow(params: TtsRequestParams): Promise<void> {
     const entry = ensureEntry(params);
     activeEntry = entry;
     setEntryStatus(entry, 'loading', null);
+    const cacheKey = ttsCacheKey(params);
     try {
-        // 同一テキストのキャッシュ済み音声のみ再利用する（同id再生成へのガード）。
-        if (!entry.objectUrl || entry.text !== params.text) {
+        // 同一の合成条件でキャッシュ済みの音声のみ再利用する
+        // （同id再生成や設定変更へのガード）。
+        if (!entry.objectUrl || entry.cacheKey !== cacheKey) {
             const blob = await fetchTtsAudio(params);
             // 追い越された結果は破棄する。新しい再生がentryのURLを使っている
             // 可能性があるため、ここでrevoke/上書きはしない。
@@ -258,9 +300,17 @@ async function playNow(params: TtsRequestParams): Promise<void> {
                 if (entry.status === 'loading') setEntryStatus(entry, 'paused', null);
                 return;
             }
-            if (entry.objectUrl) URL.revokeObjectURL(entry.objectUrl);
+            dropEntryAudio(entry);
             entry.objectUrl = URL.createObjectURL(blob);
-            entry.text = params.text;
+            entry.byteSize = blob.size;
+            entry.cacheKey = cacheKey;
+            audioCacheOrder.add(entry);
+            cachedAudioBytes += blob.size;
+            evictAudioCache();
+        } else {
+            // 再利用もLRUの新しい側へ移す。
+            audioCacheOrder.delete(entry);
+            audioCacheOrder.add(entry);
         }
         element.src = entry.objectUrl;
         // resume() must run inside the playback gesture's transient activation
@@ -285,7 +335,7 @@ async function playNow(params: TtsRequestParams): Promise<void> {
 }
 
 /** Plays immediately; stops whatever is currently playing. Uses the cache
- * when an entry for the same messageId+text is already 'ready'. */
+ * when an entry for the same messageId+synthesis parameters is ready. */
 export function requestTtsPlayback(params: TtsRequestParams): Promise<void> {
     if (typeof window === 'undefined') return Promise.resolve();
     queue.length = 0;
@@ -341,7 +391,7 @@ export function clearTtsRoom(roomId: string): void {
         if (queue[i].roomId === roomId) queue.splice(i, 1);
     }
     for (const [messageId, entry] of roomEntries) {
-        if (entry.objectUrl) URL.revokeObjectURL(entry.objectUrl);
+        dropEntryAudio(entry);
         entryStateCache.delete(messageId);
     }
     entriesByRoom.delete(roomId);
@@ -354,7 +404,7 @@ export function clearAllTts(): void {
     stopTtsPlayback();
     for (const roomEntries of entriesByRoom.values()) {
         for (const entry of roomEntries.values()) {
-            if (entry.objectUrl) URL.revokeObjectURL(entry.objectUrl);
+            dropEntryAudio(entry);
         }
     }
     entriesByRoom.clear();

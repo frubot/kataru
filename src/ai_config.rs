@@ -200,6 +200,9 @@ pub struct EffectiveConnection {
     pub editable: bool,
     pub deletable: bool,
     pub base_url_editable: bool,
+    /// Whether the connection appears in the settings list. Unlisted built-ins
+    /// are pristine placeholders that were never configured.
+    pub listed: bool,
     pub embeddings_enabled: bool,
     pub image_generation_enabled: bool,
     pub tts_enabled: bool,
@@ -650,6 +653,7 @@ impl AiConfigManager {
                     editable: resolved.editable,
                     deletable: resolved.deletable,
                     base_url_editable: resolved.base_url_editable,
+                    listed: resolved.listed,
                     embeddings_enabled: resolved.embeddings_enabled,
                     image_generation_enabled: resolved.image_generation_enabled,
                     tts_enabled: resolved.tts_enabled,

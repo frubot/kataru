@@ -17,8 +17,8 @@ use crate::{
             structured_completion_streaming,
         },
         typesafe::{
-            ChoiceAnswer, DEFAULT_JEV_MODEL, SystemOneResponse, choice_answer, noul_answer,
-            system_one,
+            ChoiceAnswer, DEFAULT_JEV_MODEL, SystemOneResponse, choice_answer, is_jev_model,
+            noul_answer, system_one,
         },
     },
     ai_config::TYPESAFE_CONNECTION_ID,
@@ -130,23 +130,42 @@ fn director_selection(
     Err(AppError::BadRequest("指揮役モデルが設定されていません。".into()))
 }
 
-fn is_typesafe_director(situation: &Value) -> bool {
-    situation
-        .pointer("/director/engine")
+fn is_typesafe_director(situation: &Value, payload: &Value) -> bool {
+    let director = situation.get("director").filter(|value| value.is_object());
+    if director
+        .and_then(|value| value.get("engine"))
         .and_then(Value::as_str)
         .is_some_and(|engine| engine == "typesafe")
+    {
+        return true;
+    }
+    // A Jev model can only be served by the System One / Decisions API, so it
+    // implies the TypeSafe engine even without the flag — e.g. when the global
+    // director default names a Jev model.
+    director
+        .map(|value| model_string(value, "model"))
+        .filter(|model| !model.is_empty())
+        .or_else(|| {
+            role_default_selection(payload, "defaultDirectorModel").map(|selection| selection.model)
+        })
+        .is_some_and(|model| is_jev_model(&model))
 }
 
 /// Jev directors never fall back to an actor's chat model: the engine itself
 /// resolves to the built-in TypeSafe connection unless overridden explicitly.
+/// A Jev-typed `defaultDirectorModel` fills both the model and the connection.
 fn typesafe_director_selection(situation: &Value, payload: &Value) -> RoleSelection {
     let director = situation.get("director").filter(|value| value.is_object());
+    let jev_default = role_default_selection(payload, "defaultDirectorModel")
+        .filter(|selection| is_jev_model(&selection.model));
     let model = director
         .map(|value| model_string(value, "model"))
         .filter(|model| !model.is_empty())
+        .or_else(|| jev_default.as_ref().map(|selection| selection.model.clone()))
         .unwrap_or_else(|| DEFAULT_JEV_MODEL.to_owned());
     let connection_id = director
         .and_then(entity_connection_id)
+        .or_else(|| jev_default.and_then(|selection| selection.connection_id))
         .or_else(|| role_connection(payload, "defaultDirectorModel"))
         .unwrap_or_else(|| TYPESAFE_CONNECTION_ID.to_owned());
     RoleSelection {
@@ -367,7 +386,7 @@ async fn run_turn_inner(
             .pointer("/director/stopPolicy")
             .and_then(Value::as_str)
             == Some("after-one");
-        let director_selection = if is_typesafe_director(situation) {
+        let director_selection = if is_typesafe_director(situation, &payload) {
             typesafe_director_selection(situation, &payload)
         } else {
             director_selection(situation, &payload, &participants)?
@@ -394,7 +413,7 @@ async fn run_turn_inner(
                     reason: "Only participant".into(),
                     candidates: vec![(actor_id(&participants[0]), "Only participant".into())],
                 }
-            } else if is_typesafe_director(situation) {
+            } else if is_typesafe_director(situation, &payload) {
                 request_director_typesafe(
                     &mut clients,
                     situation,
@@ -2479,13 +2498,61 @@ mod tests {
 
     #[test]
     fn typesafe_engine_is_detected_from_director_config() {
-        assert!(is_typesafe_director(&json!({
-            "director": {"engine": "typesafe"}
-        })));
-        assert!(!is_typesafe_director(&json!({
-            "director": {"engine": "llm"}
-        })));
-        assert!(!is_typesafe_director(&json!({})));
+        assert!(is_typesafe_director(
+            &json!({
+                "director": {"engine": "typesafe"}
+            }),
+            &json!({})
+        ));
+        assert!(!is_typesafe_director(
+            &json!({
+                "director": {"engine": "llm"}
+            }),
+            &json!({})
+        ));
+        assert!(!is_typesafe_director(&json!({}), &json!({})));
+    }
+
+    #[test]
+    fn typesafe_engine_is_inferred_from_jev_models() {
+        for model in ["jev-latest", "typesafe/jev-1.13", "~typesafe/jev-latest"] {
+            assert!(is_typesafe_director(
+                &json!({"director": {"model": model}}),
+                &json!({})
+            ));
+        }
+        assert!(!is_typesafe_director(
+            &json!({"director": {"model": "deepseek/deepseek-v4-flash-0731"}}),
+            &json!({})
+        ));
+        // An explicit non-Jev director model wins over a Jev global default.
+        assert!(!is_typesafe_director(
+            &json!({"director": {"model": "deepseek/deepseek-v4-flash-0731"}}),
+            &json!({
+                "aiApiConfig": {
+                    "modelDefaults": {
+                        "defaultDirectorModel": {
+                            "model": "typesafe/jev-1.13",
+                            "connectionId": "openrouter"
+                        }
+                    }
+                }
+            })
+        ));
+        // The global default alone can select the TypeSafe engine.
+        assert!(is_typesafe_director(
+            &json!({}),
+            &json!({
+                "aiApiConfig": {
+                    "modelDefaults": {
+                        "defaultDirectorModel": {
+                            "model": "typesafe/jev-1.13",
+                            "connectionId": "openrouter"
+                        }
+                    }
+                }
+            })
+        ));
     }
 
     #[test]
@@ -2516,6 +2583,41 @@ mod tests {
         });
         let selection = typesafe_director_selection(&json!({}), &payload);
         assert_eq!(selection.connection_id.as_deref(), Some("cx_role"));
+    }
+
+    #[test]
+    fn typesafe_director_selection_uses_jev_global_default() {
+        let payload = json!({
+            "aiApiConfig": {
+                "modelDefaults": {
+                    "defaultDirectorModel": {
+                        "model": "typesafe/jev-1.13",
+                        "connectionId": "openrouter"
+                    }
+                }
+            }
+        });
+        let selection = typesafe_director_selection(&json!({}), &payload);
+        assert_eq!(selection.model, "typesafe/jev-1.13");
+        assert_eq!(selection.connection_id.as_deref(), Some("openrouter"));
+
+        // A non-Jev default does not leak into the TypeSafe selection.
+        let payload = json!({
+            "aiApiConfig": {
+                "modelDefaults": {
+                    "defaultDirectorModel": {
+                        "model": "deepseek/deepseek-v4-flash-0731",
+                        "connectionId": "openrouter"
+                    }
+                }
+            }
+        });
+        let selection = typesafe_director_selection(&json!({}), &payload);
+        assert_eq!(selection.model, "jev-latest");
+        assert_eq!(
+            selection.connection_id.as_deref(),
+            Some(TYPESAFE_CONNECTION_ID)
+        );
     }
 
     fn jev_choice_answer(

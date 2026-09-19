@@ -14,6 +14,19 @@ use crate::{
 pub const DEFAULT_JEV_MODEL: &str = "jev-latest";
 const SYSTEM_ONE_PATH: &str = "systemone";
 
+/// Jev model ids are `jev-*` names on TypeSafe and `typesafe/*` slugs — with a
+/// `~typesafe/` redirecting alias — on OpenRouter. Jev only answers through
+/// the System One / Decisions API, so a stored selection pointing at one
+/// implies the TypeSafe engine even when `engine` is unset (e.g. a global
+/// director default chosen from the model catalog).
+pub fn is_jev_model(model: &str) -> bool {
+    let model = model.trim();
+    model == "jev"
+        || model.starts_with("jev-")
+        || model.starts_with("typesafe/")
+        || model.starts_with("~typesafe/")
+}
+
 /// OpenRouter serves Jev under `typesafe/` slugs (`typesafe/jev-1.13`, with
 /// `~typesafe/jev-latest` as the redirecting alias). Bare TypeSafe model
 /// names resolve to the matching slug so a stored `jev-latest` keeps working
@@ -176,6 +189,18 @@ mod tests {
             "~typesafe/jev-latest"
         );
         assert_eq!(openrouter_model("typesafe/jev-1.13"), "typesafe/jev-1.13");
+    }
+
+    #[test]
+    fn is_jev_model_matches_catalog_ids() {
+        assert!(is_jev_model("jev-latest"));
+        assert!(is_jev_model("jev-1.13"));
+        assert!(is_jev_model("typesafe/jev-1.13"));
+        assert!(is_jev_model("typesafe/jev-1.13-20260917"));
+        assert!(is_jev_model("~typesafe/jev-latest"));
+        assert!(!is_jev_model("deepseek/deepseek-v4-flash-0731"));
+        assert!(!is_jev_model("z-ai/glm-5.2"));
+        assert!(!is_jev_model(""));
     }
 
     #[test]

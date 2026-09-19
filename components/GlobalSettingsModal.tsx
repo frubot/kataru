@@ -334,9 +334,12 @@ interface RoleModelFieldProps {
     inputId: string;
     value: ModelRef;
     onChange: (model: ModelRef) => void;
-    outputModality?: ModelOutputModality;
+    outputModality?: ModelOutputModality | readonly ModelOutputModality[];
     capability?: 'embeddings' | 'imageGeneration';
 }
+
+/** 指揮役は通常のLLMとJev（decisions）の両方を取りうる。 */
+const DIRECTOR_OUTPUT_MODALITIES: readonly ModelOutputModality[] = ['text', 'decisions'];
 
 function connectionSupportsCapability(
     kind: AiConnectionKind | null,
@@ -1355,6 +1358,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     inputId="default-director-model-input"
                                     value={defaultDirectorModel}
                                     onChange={setDefaultDirectorModel}
+                                    outputModality={DIRECTOR_OUTPUT_MODALITIES}
                                 />
                                 <RoleModelField
                                     role="defaultAutoGenerationModel"

@@ -9,6 +9,7 @@ import {
 export { DEFAULT_ANTHROPIC_TEXT_MODEL } from './modelDefaults';
 export {
     DEFAULT_CONNECTION_ID,
+    isJevModelRef,
     isModelRef,
     modelRefConnectionId,
     modelRefModel,

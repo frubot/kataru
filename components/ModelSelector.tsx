@@ -14,7 +14,9 @@ import { modelRefsEqual, type ModelRef } from '@/lib/modelDefaults';
 interface ModelSelectorProps {
     value: ModelRef;
     onChange: (model: ModelRef) => void;
-    outputModality: ModelOutputModality;
+    /** One modality, or several whose catalogs are merged per connection
+     * (e.g. text + decisions for the director role). */
+    outputModality: ModelOutputModality | readonly ModelOutputModality[];
     id?: string;
     disabled?: boolean;
     placeholder?: string;
@@ -61,6 +63,9 @@ export default function ModelSelector({
     const rootRef = useRef<HTMLDivElement>(null);
     const searchRef = useRef<HTMLInputElement>(null);
     const requestIdRef = useRef(0);
+    // Serialized so callers may pass array literals without retriggering the
+    // effect on every render.
+    const modalitiesKey = typeof outputModality === 'string' ? outputModality : outputModality.join(',');
 
     const loadModels = useCallback(async (force = false) => {
         const requestId = requestIdRef.current + 1;
@@ -73,8 +78,9 @@ export default function ModelSelector({
         }
         setLoading(true);
         setError(null);
+        const modalities = modalitiesKey.split(',') as ModelOutputModality[];
         try {
-            const nextResults = await getAvailableModelsForConnections(connections, outputModality, { force });
+            const nextResults = await getAvailableModelsForConnections(connections, modalities, { force });
             if (requestId === requestIdRef.current) setResults(nextResults);
         } catch (caught) {
             if (requestId === requestIdRef.current) {
@@ -84,7 +90,7 @@ export default function ModelSelector({
         } finally {
             if (requestId === requestIdRef.current) setLoading(false);
         }
-    }, [connections, outputModality]);
+    }, [connections, modalitiesKey]);
 
     useEffect(() => {
         requestIdRef.current += 1;

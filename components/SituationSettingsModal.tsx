@@ -19,7 +19,7 @@ import {
     SituationPriorMessage,
     useStore,
 } from '@/lib/store';
-import { DEFAULT_CONNECTION_ID, type ModelRef } from '@/lib/modelDefaults';
+import { DEFAULT_CONNECTION_ID, isJevModelRef, type ModelRef } from '@/lib/modelDefaults';
 import { useAiConnections } from '@/lib/aiConnections';
 import { generateId } from '@/lib/id';
 import {
@@ -1043,6 +1043,7 @@ function TemporaryActorSettingsModal({
 function buildInitialState(
     situation: Situation | null | undefined,
     room: Room | null | undefined,
+    defaultDirectorModel: ModelRef,
 ) {
     const selectedCharacterIds = new Set<string>();
     const characterActorMeta: Record<string, CharacterActorMeta> = {};
@@ -1084,7 +1085,10 @@ function buildInitialState(
         backgroundImage: situation?.backgroundImage ?? '',
         situationPrompt: situation?.situationPrompt ?? '',
         directorModel: situation?.director?.model,
-        directorEngine: situation?.director?.engine === 'typesafe' ? 'typesafe' as const : 'llm' as const,
+        directorEngine: situation?.director?.engine === 'typesafe'
+            || isJevModelRef(situation?.director?.model ?? defaultDirectorModel)
+                ? 'typesafe' as const
+                : 'llm' as const,
         continueThreshold: typeof situation?.director?.continueThreshold === 'number'
             ? situation.director.continueThreshold
             : 0.5,
@@ -1464,7 +1468,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
 
     const isEditing = !!situation;
     const sortedCharacters = useMemo(() => [...characters].sort((a, b) => b.updatedAt - a.updatedAt), [characters]);
-    const initial = buildInitialState(situation, room);
+    const initial = buildInitialState(situation, room, defaultDirectorModel);
     const initialDraftRef = useRef(initial);
     const [name, setName] = useState(initial.name);
     const [backgroundImage, setBackgroundImage] = useState(initial.backgroundImage);
@@ -1505,6 +1509,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
         ? characters.find((character) => character.id === costumeMenu.characterId) ?? null
         : null;
     const defaultJevModel = useMemo<ModelRef>(() => {
+        if (isJevModelRef(defaultDirectorModel)) return defaultDirectorModel;
         const usable = (kind: 'typesafe' | 'openrouter') => connections.find(
             (connection) => connection.kind === kind && connection.apiKey.configured,
         )?.id;
@@ -1512,7 +1517,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
             connectionId: usable('typesafe') ?? usable('openrouter') ?? 'typesafe',
             model: 'jev-latest',
         };
-    }, [connections]);
+    }, [connections, defaultDirectorModel]);
     const parsedMaxTurns = Math.max(1, Math.min(10, Math.round(Number(maxAutoTurns) || 3)));
     const effectiveMaxTurns = actorCount <= 1 ? 1 : parsedMaxTurns;
     const parsedMaxHistory = maxHistory ? Math.max(1, Math.min(100, Math.round(Number(maxHistory)))) : undefined;
@@ -1756,15 +1761,18 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
             }
         }
 
+        const resolvedDirectorModel = directorModel?.model.trim()
+            ? directorModel
+            : directorEngine === 'typesafe' ? defaultJevModel : defaultDirectorModel;
+        // Jevモデルはdecisions APIでしか動かないため、モデル側からエンジンを推論する。
+        const typesafeDirector = directorEngine === 'typesafe' || isJevModelRef(resolvedDirectorModel);
         const director: SituationDirector = {
             enabled: true,
-            model: directorModel?.model.trim()
-                ? directorModel
-                : directorEngine === 'typesafe' ? defaultJevModel : defaultDirectorModel,
+            model: resolvedDirectorModel,
             ...(situation?.director?.systemPrompt?.trim() ? { systemPrompt: situation.director.systemPrompt.trim() } : {}),
             maxAutoTurns: effectiveMaxTurns,
             stopPolicy: situation?.director?.stopPolicy === 'after-one' ? 'after-one' : 'max-turns',
-            ...(directorEngine === 'typesafe' ? { engine: 'typesafe' as const, continueThreshold, protagonistThreshold } : {}),
+            ...(typesafeDirector ? { engine: 'typesafe' as const, continueThreshold, protagonistThreshold } : {}),
         };
         const actors = buildActors();
         const effectiveActors = actors.length > 0 ? actors : situation?.actors ?? [];
@@ -2379,7 +2387,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                                         onChange={setDirectorModel}
                                         outputModality={directorEngine === 'typesafe' ? 'decisions' : 'text'}
                                         placeholder={directorEngine === 'typesafe'
-                                            ? '例: jev-latest'
+                                            ? `例: ${defaultJevModel.model}`
                                             : `例: ${defaultDirectorModel.model}`}
                                     />
                                 </div>

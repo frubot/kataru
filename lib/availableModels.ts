@@ -124,19 +124,77 @@ export function canListModels(connection: AiConnectionStatus): boolean {
         && connection.baseUrlSource !== 'default';
 }
 
+/** Merges per-modality listings into one entry per connection. A connection
+ * reports an error only when every modality failed. */
+function mergeConnectionModelResults(
+    perModality: AiConnectionModelsResult[][],
+): AiConnectionModelsResult[] {
+    const order: string[] = [];
+    const connectionById = new Map<string, AiConnectionStatus>();
+    const modelsById = new Map<string, AvailableModel[]>();
+    const errorById = new Map<string, string>();
+    for (const results of perModality) {
+        for (const result of results) {
+            const id = result.connection.id;
+            if (!connectionById.has(id)) {
+                order.push(id);
+                connectionById.set(id, result.connection);
+            }
+            if ('error' in result) {
+                if (!errorById.has(id)) errorById.set(id, result.error);
+            } else {
+                modelsById.set(id, [...(modelsById.get(id) ?? []), ...result.models]);
+            }
+        }
+    }
+    return order.map((id): AiConnectionModelsResult => {
+        const connection = connectionById.get(id)!;
+        const models = modelsById.get(id);
+        if (!models) {
+            return {
+                connection,
+                error: errorById.get(id) ?? '利用可能なモデルを取得できませんでした。',
+            };
+        }
+        const seen = new Set<string>();
+        const deduped = models.filter((model) => {
+            if (seen.has(model.id)) return false;
+            seen.add(model.id);
+            return true;
+        });
+        deduped.sort((left, right) => {
+            const leftName = left.name.toLowerCase();
+            const rightName = right.name.toLowerCase();
+            if (leftName !== rightName) return leftName < rightName ? -1 : 1;
+            return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+        });
+        return { connection, models: deduped };
+    });
+}
+
 /** Lists models across multiple connections in parallel. A failure on one
- * connection produces an `error` entry for that connection only. */
+ * connection produces an `error` entry for that connection only. When several
+ * output modalities are given, their catalogs are fetched per connection and
+ * merged. */
 export async function getAvailableModelsForConnections(
     connections: AiConnectionStatus[],
-    outputModality: ModelOutputModality,
+    outputModality: ModelOutputModality | readonly ModelOutputModality[],
     options: { force?: boolean } = {},
 ): Promise<AiConnectionModelsResult[]> {
+    const modalities = typeof outputModality === 'string' ? [outputModality] : outputModality;
+    if (modalities.length > 1) {
+        const perModality = await Promise.all(modalities.map((modality) => (
+            getAvailableModelsForConnections(connections, modality, options)
+        )));
+        return mergeConnectionModelResults(perModality);
+    }
+    const modality = modalities[0] ?? 'text';
     return Promise.all(connections.map(async (connection): Promise<AiConnectionModelsResult> => {
         if (!canListModels(connection)) {
             return { connection, error: 'APIキーが設定されていません。' };
         }
         try {
-            const models = await getAvailableModels(connection.id, outputModality, options);
+            const models = await getAvailableModels(connection.id, modality, options);
             return { connection, models };
         } catch (error) {
             return {

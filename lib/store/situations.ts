@@ -1,5 +1,5 @@
 import { generateId } from '../id';
-import { isAiConnectionKind, normalizeModelRef, type ModelRef } from '../aiApi';
+import { isAiConnectionKind, isJevModelRef, normalizeModelRef, type ModelRef } from '../aiApi';
 import { DEFAULT_MODEL_DEFAULTS } from '../modelDefaults';
 import type {
     Character,
@@ -42,6 +42,7 @@ export function createDefaultSituationDirector(model: ModelRef): SituationDirect
         model,
         maxAutoTurns: 3,
         stopPolicy: 'max-turns',
+        ...(isJevModelRef(model) ? { engine: 'typesafe' as const } : {}),
     };
 }
 
@@ -76,7 +77,9 @@ export function normalizeSituationDirector(
         ...(director?.systemPrompt?.trim() ? { systemPrompt: director.systemPrompt.trim() } : {}),
         maxAutoTurns,
         stopPolicy,
-        ...(director?.engine === 'typesafe' ? { engine: 'typesafe' as const } : {}),
+        ...(director?.engine === 'typesafe' || isJevModelRef(model)
+            ? { engine: 'typesafe' as const }
+            : {}),
         ...(continueThreshold !== undefined ? { continueThreshold } : {}),
         ...(protagonistThreshold !== undefined ? { protagonistThreshold } : {}),
     };

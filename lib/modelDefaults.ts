@@ -122,6 +122,17 @@ export function modelRefsEqual(left: ModelRef, right: ModelRef): boolean {
     return left.model === right.model && left.connectionId === right.connectionId;
 }
 
+/** Jev (System One) ids: bare `jev-*` names on TypeSafe connections and
+ * `typesafe/*` slugs — `~typesafe/*` for the redirecting alias — on
+ * OpenRouter. Jev models are only served by the decisions API, so a ref
+ * pointing at one implies the TypeSafe engine. */
+const JEV_MODEL_PATTERN = /^(?:jev(?:-|$)|~?typesafe\/)/;
+
+export function isJevModelRef(ref: ModelRef | null | undefined): boolean {
+    if (!ref) return false;
+    return ref.connectionId === 'typesafe' || JEV_MODEL_PATTERN.test(ref.model.trim());
+}
+
 export function normalizeModelDefaults(
     value: unknown,
     fallback: ModelDefaults = DEFAULT_MODEL_DEFAULTS,

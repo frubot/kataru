@@ -16,7 +16,10 @@ use crate::{
             resolve_role_selection, role_connection, role_default_selection, structured_completion,
             structured_completion_streaming,
         },
-        typesafe::{DEFAULT_JEV_MODEL, SystemOneResponse, choice_answer, noul_answer, system_one},
+        typesafe::{
+            ChoiceAnswer, DEFAULT_JEV_MODEL, SystemOneResponse, choice_answer, noul_answer,
+            system_one,
+        },
     },
     ai_config::TYPESAFE_CONNECTION_ID,
     error::{AppError, AppResult},
@@ -54,6 +57,7 @@ const MEMORY_MAX_CANDIDATES: usize = 5;
 const CONTINATUION_TRIGGER: &str = "[内部指示] これは主人公の発言ではありません。主人公から新しい発言や行動はありません。直前の場面を繰り返さず、あなた自身が自発的に発言または行動して、自然な続きを作成してください。";
 
 const JEV_CONTINUE_THRESHOLD: f64 = 0.5;
+const JEV_PROTAGONIST_THRESHOLD: f64 = 0.5;
 const DIRECTOR_JEV_TIMEOUT_SECS: u64 = 30;
 
 /// Lazily builds and caches one `AiApiClient` per connection id so a single
@@ -1122,16 +1126,23 @@ async fn request_director_typesafe(
         .and_then(Value::as_f64)
         .unwrap_or(JEV_CONTINUE_THRESHOLD)
         .clamp(0.0, 1.0);
+    let protagonist_threshold = situation
+        .pointer("/director/protagonistThreshold")
+        .and_then(Value::as_f64)
+        .unwrap_or(JEV_PROTAGONIST_THRESHOLD)
+        .clamp(0.0, 1.0);
 
     let next_choice = next.choice.as_str();
+    let effective_choice =
+        resolve_jev_effective_choice(&next, &eligible_ids, protagonist_threshold);
     let mut selected_actor: Option<String> = None;
     let mut second_response: Option<SystemOneResponse> = None;
 
-    if eligible_ids.iter().any(|id| id == next_choice) {
-        selected_actor = Some(next_choice.to_owned());
-    } else if next_choice == JEV_PROTAGONIST_OPTION || next_choice == JEV_END_OPTION {
+    if eligible_ids.contains(&effective_choice) {
+        selected_actor = Some(effective_choice.clone());
+    } else if effective_choice == JEV_PROTAGONIST_OPTION || effective_choice == JEV_END_OPTION {
         selected_actor = None;
-    } else if next_choice == JEV_CONVERSATION_COMPLETE_OPTION {
+    } else if effective_choice == JEV_CONVERSATION_COMPLETE_OPTION {
         let noul = match noul_answer(&response, "continue_naturally") {
             Ok(noul) => noul,
             Err(error) => {
@@ -1257,6 +1268,7 @@ async fn request_director_typesafe(
             "prompt": prompt,
             "json": serde_json::to_string_pretty(&response)
                 .expect("Jev response must be serializable"),
+            "effectiveChoice": effective_choice,
             "elapsedMs": now_ms().saturating_sub(started),
         });
         if let Some(second) = &second_response {
@@ -1273,6 +1285,44 @@ async fn request_director_typesafe(
         reason: "Jev".into(),
         candidates,
     })
+}
+
+/// Resolves which Jev option the turn actually follows. A `protagonist` argmax
+/// only returns control to the user when its probability mass (or confidence
+/// when the distribution is absent) clears the threshold; a weak pick falls
+/// through to the runner-up option so another actor can still speak.
+fn resolve_jev_effective_choice(
+    answer: &ChoiceAnswer,
+    eligible_ids: &[String],
+    protagonist_threshold: f64,
+) -> String {
+    let choice = answer.choice.as_str();
+    if choice != JEV_PROTAGONIST_OPTION {
+        return choice.to_owned();
+    }
+    let strength = answer
+        .probabilities
+        .get(JEV_PROTAGONIST_OPTION)
+        .copied()
+        .or(answer.confidence);
+    let Some(strength) = strength else {
+        return choice.to_owned();
+    };
+    if strength >= protagonist_threshold {
+        return choice.to_owned();
+    }
+    answer
+        .probabilities
+        .iter()
+        .filter(|(id, _)| id.as_str() != JEV_PROTAGONIST_OPTION)
+        .filter(|(id, _)| {
+            eligible_ids.contains(*id)
+                || id.as_str() == JEV_CONVERSATION_COMPLETE_OPTION
+                || id.as_str() == JEV_END_OPTION
+        })
+        .max_by(|a, b| a.1.total_cmp(b.1))
+        .map(|(id, _)| id.clone())
+        .unwrap_or_else(|| choice.to_owned())
 }
 
 fn push_jev_usage(
@@ -2466,5 +2516,142 @@ mod tests {
         });
         let selection = typesafe_director_selection(&json!({}), &payload);
         assert_eq!(selection.connection_id.as_deref(), Some("cx_role"));
+    }
+
+    fn jev_choice_answer(
+        choice: &str,
+        probabilities: &[(&str, f64)],
+        confidence: Option<f64>,
+    ) -> ChoiceAnswer {
+        ChoiceAnswer {
+            choice: choice.to_owned(),
+            probabilities: probabilities
+                .iter()
+                .map(|(id, p)| (id.to_string(), *p))
+                .collect(),
+            confidence,
+        }
+    }
+
+    #[test]
+    fn jev_effective_choice_passes_non_protagonist_through() {
+        let eligible = vec!["actor-a".to_owned(), "actor-b".to_owned()];
+        let answer = jev_choice_answer("actor-a", &[("actor-a", 0.9), ("actor-b", 0.1)], None);
+        assert_eq!(
+            resolve_jev_effective_choice(&answer, &eligible, 0.5),
+            "actor-a"
+        );
+    }
+
+    #[test]
+    fn jev_effective_choice_keeps_confident_protagonist() {
+        let eligible = vec!["actor-a".to_owned(), "actor-b".to_owned()];
+        let answer = jev_choice_answer(
+            JEV_PROTAGONIST_OPTION,
+            &[
+                (JEV_PROTAGONIST_OPTION, 0.6),
+                ("actor-b", 0.3),
+                (JEV_END_OPTION, 0.1),
+            ],
+            Some(0.7),
+        );
+        assert_eq!(
+            resolve_jev_effective_choice(&answer, &eligible, 0.5),
+            JEV_PROTAGONIST_OPTION
+        );
+    }
+
+    #[test]
+    fn jev_effective_choice_falls_through_to_runner_up_actor() {
+        let eligible = vec!["actor-a".to_owned(), "actor-b".to_owned()];
+        let answer = jev_choice_answer(
+            JEV_PROTAGONIST_OPTION,
+            &[
+                (JEV_PROTAGONIST_OPTION, 0.35),
+                ("actor-b", 0.3),
+                ("actor-a", 0.2),
+                (JEV_END_OPTION, 0.15),
+            ],
+            Some(0.4),
+        );
+        assert_eq!(
+            resolve_jev_effective_choice(&answer, &eligible, 0.5),
+            "actor-b"
+        );
+    }
+
+    #[test]
+    fn jev_effective_choice_runner_up_can_stop_or_continue() {
+        let eligible = vec!["actor-a".to_owned(), "actor-b".to_owned()];
+
+        let ending = jev_choice_answer(
+            JEV_PROTAGONIST_OPTION,
+            &[
+                (JEV_PROTAGONIST_OPTION, 0.3),
+                (JEV_END_OPTION, 0.29),
+                ("actor-b", 0.25),
+            ],
+            None,
+        );
+        assert_eq!(
+            resolve_jev_effective_choice(&ending, &eligible, 0.5),
+            JEV_END_OPTION
+        );
+
+        let continuing = jev_choice_answer(
+            JEV_PROTAGONIST_OPTION,
+            &[
+                (JEV_PROTAGONIST_OPTION, 0.3),
+                (JEV_CONVERSATION_COMPLETE_OPTION, 0.29),
+                ("actor-b", 0.25),
+            ],
+            None,
+        );
+        assert_eq!(
+            resolve_jev_effective_choice(&continuing, &eligible, 0.5),
+            JEV_CONVERSATION_COMPLETE_OPTION
+        );
+    }
+
+    #[test]
+    fn jev_effective_choice_without_probabilities_keeps_protagonist() {
+        let eligible = vec!["actor-a".to_owned()];
+        let answer = jev_choice_answer(JEV_PROTAGONIST_OPTION, &[], None);
+        assert_eq!(
+            resolve_jev_effective_choice(&answer, &eligible, 0.5),
+            JEV_PROTAGONIST_OPTION
+        );
+    }
+
+    #[test]
+    fn jev_effective_choice_uses_confidence_when_distribution_missing() {
+        let eligible = vec!["actor-a".to_owned(), "actor-b".to_owned()];
+        let answer = jev_choice_answer(
+            JEV_PROTAGONIST_OPTION,
+            &[("actor-b", 0.7)],
+            Some(0.3),
+        );
+        assert_eq!(
+            resolve_jev_effective_choice(&answer, &eligible, 0.5),
+            "actor-b"
+        );
+    }
+
+    #[test]
+    fn jev_effective_choice_ignores_ineligible_runner_up() {
+        let eligible = vec!["actor-a".to_owned()];
+        let answer = jev_choice_answer(
+            JEV_PROTAGONIST_OPTION,
+            &[
+                (JEV_PROTAGONIST_OPTION, 0.3),
+                ("actor-banned", 0.6),
+                ("actor-a", 0.1),
+            ],
+            None,
+        );
+        assert_eq!(
+            resolve_jev_effective_choice(&answer, &eligible, 0.5),
+            "actor-a"
+        );
     }
 }

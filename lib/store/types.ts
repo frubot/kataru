@@ -167,6 +167,7 @@ export interface SituationDirector {
     stopPolicy: 'after-one' | 'max-turns';
     engine?: 'llm' | 'typesafe';
     continueThreshold?: number;
+    protagonistThreshold?: number;
 }
 
 export type SituationPriorMessage =

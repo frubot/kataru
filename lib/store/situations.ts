@@ -66,6 +66,10 @@ export function normalizeSituationDirector(
         && Number.isFinite(director.continueThreshold)
         ? Math.max(0, Math.min(1, director.continueThreshold))
         : undefined;
+    const protagonistThreshold = typeof director?.protagonistThreshold === 'number'
+        && Number.isFinite(director.protagonistThreshold)
+        ? Math.max(0, Math.min(1, director.protagonistThreshold))
+        : undefined;
     return {
         enabled: director?.enabled !== false,
         model,
@@ -74,6 +78,7 @@ export function normalizeSituationDirector(
         stopPolicy,
         ...(director?.engine === 'typesafe' ? { engine: 'typesafe' as const } : {}),
         ...(continueThreshold !== undefined ? { continueThreshold } : {}),
+        ...(protagonistThreshold !== undefined ? { protagonistThreshold } : {}),
     };
 }
 

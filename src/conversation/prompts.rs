@@ -453,14 +453,14 @@ pub fn director_jev_first_questions(actors: &[Value], eligible_ids: &[String]) -
     criteria.insert(
         JEV_PROTAGONIST_OPTION.to_owned(),
         Value::String(
-            "主人公（ユーザー）が次に発言すべき"
+            "主人公（ユーザー）が黙っていると会話が成立しない。次に発言すべき"
                 .to_owned(),
         ),
     );
     criteria.insert(
         JEV_CONVERSATION_COMPLETE_OPTION.to_owned(),
         Value::String(
-            "会話を終えるべき。ただしキャラクター同士が会話を続けても違和感がない"
+            "会話を終了する。ただしキャラクター同士が会話を続けても違和感がない"
                 .to_owned(),
         ),
     );

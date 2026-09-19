@@ -186,6 +186,9 @@ function toConversationSituation(situation: Situation | null | undefined) {
             ...(situation.director.continueThreshold !== undefined
                 ? { continueThreshold: situation.director.continueThreshold }
                 : {}),
+            ...(situation.director.protagonistThreshold !== undefined
+                ? { protagonistThreshold: situation.director.protagonistThreshold }
+                : {}),
         },
         memoryMode: situation.memoryMode,
         maxHistory: situation.maxHistory,

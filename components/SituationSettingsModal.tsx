@@ -255,26 +255,28 @@ function MaxAutoTurnsSlider({ value, onChange }: MaxAutoTurnsSliderProps) {
     );
 }
 
-interface ContinueThresholdSliderProps {
+interface ThresholdSliderProps {
+    label: string;
+    inputId: string;
     value: number;
     onChange: (value: number) => void;
 }
 
-function ContinueThresholdSlider({ value, onChange }: ContinueThresholdSliderProps) {
+function ThresholdSlider({ label, inputId, value, onChange }: ThresholdSliderProps) {
     const percent = value * 100;
 
     return (
         <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.375rem', gap: '0.75rem' }}>
                 <label
-                    htmlFor="situation-continue-threshold"
+                    htmlFor={inputId}
                     style={{
                         fontSize: '0.8125rem',
                         fontWeight: 500,
                         color: 'var(--text-secondary)',
                     }}
                 >
-                    会話継続のしきい値
+                    {label}
                 </label>
                 <span
                     style={{
@@ -312,9 +314,9 @@ function ContinueThresholdSlider({ value, onChange }: ContinueThresholdSliderPro
                     />
                 </div>
                 <input
-                    id="situation-continue-threshold"
+                    id={inputId}
                     type="range"
-                    aria-label="会話継続のしきい値"
+                    aria-label={label}
                     min={0}
                     max={1}
                     step={0.05}
@@ -1086,6 +1088,9 @@ function buildInitialState(
         continueThreshold: typeof situation?.director?.continueThreshold === 'number'
             ? situation.director.continueThreshold
             : 0.5,
+        protagonistThreshold: typeof situation?.director?.protagonistThreshold === 'number'
+            ? situation.director.protagonistThreshold
+            : 0.5,
         maxAutoTurns: String(getInitialMaxTurns(situation, room)),
         maxHistory: situation?.maxHistory != null ? String(situation.maxHistory) : '',
         memoryReadOnly: situation?.memoryMode === 'readOnly',
@@ -1104,6 +1109,7 @@ function serializeSituationDraft(draft: ReturnType<typeof buildInitialState>) {
         directorModel: draft.directorModel,
         directorEngine: draft.directorEngine,
         continueThreshold: draft.continueThreshold,
+        protagonistThreshold: draft.protagonistThreshold,
         maxAutoTurns: draft.maxAutoTurns,
         maxHistory: draft.maxHistory,
         memoryReadOnly: draft.memoryReadOnly,
@@ -1467,6 +1473,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
     const [directorModel, setDirectorModel] = useState<ModelRef | undefined>(initial.directorModel);
     const [directorEngine, setDirectorEngine] = useState<'llm' | 'typesafe'>(initial.directorEngine);
     const [continueThreshold, setContinueThreshold] = useState<number>(initial.continueThreshold);
+    const [protagonistThreshold, setProtagonistThreshold] = useState<number>(initial.protagonistThreshold);
     const [maxAutoTurns, setMaxAutoTurns] = useState(initial.maxAutoTurns);
     const [maxHistory, setMaxHistory] = useState(initial.maxHistory);
     const [memoryReadOnly, setMemoryReadOnly] = useState(initial.memoryReadOnly);
@@ -1734,6 +1741,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                 directorModel,
                 directorEngine,
                 continueThreshold,
+                protagonistThreshold,
                 maxAutoTurns,
                 maxHistory,
                 memoryReadOnly,
@@ -1756,7 +1764,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
             ...(situation?.director?.systemPrompt?.trim() ? { systemPrompt: situation.director.systemPrompt.trim() } : {}),
             maxAutoTurns: effectiveMaxTurns,
             stopPolicy: situation?.director?.stopPolicy === 'after-one' ? 'after-one' : 'max-turns',
-            ...(directorEngine === 'typesafe' ? { engine: 'typesafe' as const, continueThreshold } : {}),
+            ...(directorEngine === 'typesafe' ? { engine: 'typesafe' as const, continueThreshold, protagonistThreshold } : {}),
         };
         const actors = buildActors();
         const effectiveActors = actors.length > 0 ? actors : situation?.actors ?? [];
@@ -1801,7 +1809,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
         }
 
         onClose();
-    }, [actorCount, actorOptions, backgroundImage, buildActors, characterActorMeta, continueThreshold, createSituationRoom, defaultDirectorModel, defaultJevModel, directorEngine, directorModel, effectiveMaxTurns, isEditing, maxAutoTurns, maxHistory, memoryReadOnly, name, onClose, onCreated, parsedMaxHistory, priorMessages, room, selectedCharacterIds, situation, situationPrompt, temporaryActors, updateRoomSettings, updateSituation]);
+    }, [actorCount, actorOptions, backgroundImage, buildActors, characterActorMeta, continueThreshold, createSituationRoom, defaultDirectorModel, defaultJevModel, directorEngine, directorModel, effectiveMaxTurns, isEditing, maxAutoTurns, maxHistory, memoryReadOnly, name, onClose, onCreated, parsedMaxHistory, priorMessages, protagonistThreshold, room, selectedCharacterIds, situation, situationPrompt, temporaryActors, updateRoomSettings, updateSituation]);
 
     const modalRef = useRef<HTMLDivElement>(null);
     useModalKeyboard({
@@ -2396,7 +2404,20 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                                 </div>
                             </div>
                             {directorEngine === 'typesafe' && (
-                                <ContinueThresholdSlider value={continueThreshold} onChange={setContinueThreshold} />
+                                <>
+                                    <ThresholdSlider
+                                        label="会話継続のしきい値"
+                                        inputId="situation-continue-threshold"
+                                        value={continueThreshold}
+                                        onChange={setContinueThreshold}
+                                    />
+                                    <ThresholdSlider
+                                        label="ユーザーに返す最低確率"
+                                        inputId="situation-protagonist-threshold"
+                                        value={protagonistThreshold}
+                                        onChange={setProtagonistThreshold}
+                                    />
+                                </>
                             )}
                         </div>
                     </section>

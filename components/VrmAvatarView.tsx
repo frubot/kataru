@@ -19,6 +19,7 @@ import {
     type VrmViewAdjustment,
 } from '@/lib/vrmInteraction';
 import { applyVrmRelaxedPose, createVrmIdleAnimation } from '@/lib/vrmPose';
+import { getTtsAudioLevel } from '@/lib/ttsPlayer';
 import StoredImage from './StoredImage';
 
 export type VrmPreview = { expressions: string[]; capture: (mode?: 'portrait' | 'avatar') => string };
@@ -29,17 +30,19 @@ type Props = {
     name: string;
     /** Enables dragging and wheel zoom in the game view. The saved framing is never changed. */
     interactive?: boolean;
+    /** Moves the mouth with the shared TTS playback volume. */
+    lipSync?: boolean;
     onReady?: (preview: VrmPreview | null) => void;
 };
 
 type DragState = { pointerId: number; originX: number; originY: number; lastX: number; lastY: number; moved: boolean };
 
-export default function VrmAvatarView({ avatar, expression, fallbackImage, name, interactive = false, onReady }: Props) {
+export default function VrmAvatarView({ avatar, expression, fallbackImage, name, interactive = false, lipSync = false, onReady }: Props) {
     const host = useRef<HTMLDivElement>(null);
-    const live = useRef({ avatar, expression, interactive, onReady, ready: false });
+    const live = useRef({ avatar, expression, interactive, lipSync, onReady, ready: false });
     useEffect(() => {
-        live.current = { ...live.current, avatar, expression, interactive, onReady };
-    }, [avatar, expression, interactive, onReady]);
+        live.current = { ...live.current, avatar, expression, interactive, lipSync, onReady };
+    }, [avatar, expression, interactive, lipSync, onReady]);
     const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
     const [error, setError] = useState('');
     const [attempt, setAttempt] = useState(0);
@@ -227,6 +230,10 @@ export default function VrmAvatarView({ avatar, expression, fallbackImage, name,
                 resize.observe(container);
                 fit();
                 const expressions = Object.keys(vrm.expressionManager?.expressionMap ?? {});
+                // 'aa' is the normalized VRM 1.0 preset; a stray 'a' covers
+                // models whose viseme was not normalized.
+                const mouthKey = expressions.find((key) => /^(aa|a)$/i.test(key)) ?? null;
+                let mouthLevel = 0;
                 const animateIdle = createVrmIdleAnimation(vrm.humanoid);
                 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
                 let previous = performance.now();
@@ -268,10 +275,18 @@ export default function VrmAvatarView({ avatar, expression, fallbackImage, name,
                             : Math.cos(Math.min(blinkAge - 0.07, 0.15) / 0.15 * Math.PI * 0.5)
                         : 0;
                     if (blinkAge > 0.22) blinkAt = elapsed + (Math.random() < 0.18 ? 0.3 + Math.random() * 0.2 : 2 + Math.random() * 4);
+                    // The mouth tracks the shared TTS volume: a fast attack and
+                    // slower release keep it synced without buzzing.
+                    const lipTarget = !neutral && current.lipSync ? getTtsAudioLevel() : 0;
+                    mouthLevel = neutral ? 0 : THREE.MathUtils.lerp(
+                        mouthLevel,
+                        lipTarget,
+                        1 - Math.exp(-delta * (lipTarget > mouthLevel ? 25 : 8)),
+                    );
                     for (const key of expressions) {
-                        const target = key === selected ? 1 : key === 'blink' ? blink : 0;
+                        const target = key === selected ? 1 : key === 'blink' ? blink : key === mouthKey ? mouthLevel : 0;
                         const value = vrm.expressionManager?.getValue(key) ?? 0;
-                        vrm.expressionManager?.setValue(key, neutral || key === 'blink' ? target : THREE.MathUtils.lerp(value, target, 1 - Math.exp(-delta * 12)));
+                        vrm.expressionManager?.setValue(key, neutral || key === 'blink' || key === mouthKey ? target : THREE.MathUtils.lerp(value, target, 1 - Math.exp(-delta * 12)));
                     }
                     vrm.update(delta);
                     renderer.render(scene, camera);

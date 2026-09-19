@@ -692,6 +692,7 @@ function CharacterSettingsModalContent({
                                         name={name || 'キャラクター'}
                                         fallbackImage={previewCostume?.image ?? defaultNeutralImage ?? icon ?? undefined}
                                         interactive
+                                        lipSync
                                     />
                                 </Suspense>
                             ) : portraitImage ? (

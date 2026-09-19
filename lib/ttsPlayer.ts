@@ -34,6 +34,9 @@ const entryStateCache = new Map<string, TtsEntryState>();
 const listeners = new Set<() => void>();
 const queue: TtsRequestParams[] = [];
 let audio: HTMLAudioElement | null = null;
+let audioContext: AudioContext | null = null;
+let analyser: AnalyserNode | null = null;
+let analyserSamples: Uint8Array<ArrayBuffer> | null = null;
 let activeEntry: TtsEntry | null = null;
 let playbackGeneration = 0;
 
@@ -153,6 +156,9 @@ function advanceQueue(): void {
 }
 
 function handlePlayEvent(): void {
+    // The routed element stays silent while the context is suspended; playback
+    // is the signal to recover from an autoplay-blocked start.
+    void audioContext?.resume().catch(() => {});
     if (activeEntry && activeEntry.status !== 'error' && activeEntry.status !== 'playing') {
         setEntryStatus(activeEntry, 'playing', null);
     }
@@ -179,8 +185,35 @@ function getAudio(): HTMLAudioElement | null {
         audio.addEventListener('play', handlePlayEvent);
         audio.addEventListener('ended', handleEndedEvent);
         audio.addEventListener('error', handleAudioErrorEvent);
+        // Route the element through an analyser so the 3D avatar can lip-sync.
+        // One element feeds one MediaElementSource for the app's lifetime.
+        const ContextClass = window.AudioContext
+            ?? (window as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (ContextClass) {
+            audioContext = new ContextClass();
+            analyser = audioContext.createAnalyser();
+            analyser.fftSize = 512;
+            audioContext.createMediaElementSource(audio).connect(analyser);
+            analyser.connect(audioContext.destination);
+            analyserSamples = new Uint8Array(analyser.fftSize);
+        }
     }
     return audio;
+}
+
+/** Instantaneous TTS volume (0-1). Returns 0 without a playable element, while
+ * paused/ended, or when the context has not been resumed yet. */
+export function getTtsAudioLevel(): number {
+    if (!audio || !analyser || !analyserSamples || !audio.src || audio.paused) return 0;
+    analyser.getByteTimeDomainData(analyserSamples);
+    let sum = 0;
+    for (const sample of analyserSamples) {
+        const centered = (sample - 128) / 128;
+        sum += centered * centered;
+    }
+    // Speech RMS typically lands between ~0.02 (quiet) and ~0.2 (loud).
+    const rms = Math.sqrt(sum / analyserSamples.length);
+    return Math.min(1, Math.max(0, (rms - 0.02) * 6));
 }
 
 async function playNow(params: TtsRequestParams): Promise<void> {
@@ -208,6 +241,9 @@ async function playNow(params: TtsRequestParams): Promise<void> {
             entry.text = params.text;
         }
         element.src = entry.objectUrl;
+        // resume() must run inside the playback gesture's transient activation
+        // on iOS; the 'play' event arrives too late.
+        void audioContext?.resume().catch(() => {});
         await element.play();
         if (generation !== playbackGeneration) {
             if (entry.status === 'loading' || entry.status === 'playing') {
@@ -258,6 +294,7 @@ export function resumeTtsPlayback(): void {
     const entry = activeEntry;
     if (!entry || entry.status !== 'paused' || !entry.objectUrl) return;
     if (audio.src !== entry.objectUrl) audio.src = entry.objectUrl;
+    void audioContext?.resume().catch(() => {});
     void audio.play().catch((error: unknown) => {
         if (activeEntry === entry) setEntryStatus(entry, 'error', ttsErrorMessage(error));
     });

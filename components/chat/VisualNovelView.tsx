@@ -211,6 +211,7 @@ export default function VisualNovelView({
                                                 expression={sprite.expression}
                                                 name={sprite.name}
                                                 fallbackImage={sprite.vrmFallbackImage ?? undefined}
+                                                lipSync={sprite.active}
                                             />
                                         </Suspense>
                                     ) : sprite.image ? (
@@ -231,7 +232,7 @@ export default function VisualNovelView({
                 ) : character ? (
                     <div className={`vn-character-wrap ${vrmAvatar ? 'vn-character-3d' : bounceActive ? 'vn-character-bounce' : ''}`}>
                         {vrmAvatar ? <Suspense fallback={expressionImage ? <StoredImage src={expressionImage} alt={character.name} className="vn-character-image" /> : <span>3D表示を準備中…</span>}>
-                            <VrmAvatarView avatar={vrmAvatar} expression={expression} name={character.name} fallbackImage={selectedCostume?.image} interactive />
+                            <VrmAvatarView avatar={vrmAvatar} expression={expression} name={character.name} fallbackImage={selectedCostume?.image} interactive lipSync />
                         </Suspense> : expressionImage ? (
                             <SpriteImage src={expressionImage} alt={character.name} />
                         ) : (

@@ -57,7 +57,7 @@ const MEMORY_MAX_CANDIDATES: usize = 5;
 const CONTINATUION_TRIGGER: &str = "[内部指示] これは主人公の発言ではありません。主人公から新しい発言や行動はありません。直前の場面を繰り返さず、あなた自身が自発的に発言または行動して、自然な続きを作成してください。";
 
 const JEV_CONTINUE_THRESHOLD: f64 = 0.5;
-const JEV_PROTAGONIST_THRESHOLD: f64 = 0.5;
+const JEV_PROTAGONIST_THRESHOLD: f64 = 0.6;
 const DIRECTOR_JEV_TIMEOUT_SECS: u64 = 30;
 
 /// Lazily builds and caches one `AiApiClient` per connection id so a single

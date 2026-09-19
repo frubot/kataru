@@ -2407,7 +2407,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                                         style={fieldStyle}
                                     >
                                         <option value="llm">LLM</option>
-                                        <option value="typesafe">TypeSafe AI (Jev)</option>
+                                        <option value="typesafe">System One (Jev)</option>
                                     </select>
                                 </div>
                             </div>

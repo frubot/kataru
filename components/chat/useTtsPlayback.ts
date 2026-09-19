@@ -19,18 +19,46 @@ type TtsPlaybackMessage = {
     archived?: boolean;
 };
 
+/** ゲームモードで表示中の1ページ分。keyには typing key（utteranceKeyベース）を
+ * 渡すこと。プレビュー→保存済みメッセージの差し替えでも安定し、二重読み上げを
+ * 防げる。finalはページ本文がこれ以上伸びないことを示す。 */
+export type VisualNovelTtsItem = {
+    key: string;
+    role: 'user' | 'assistant';
+    content: string;
+    characterId?: string;
+    final: boolean;
+};
+
+type TtsResolveResult = { params: TtsRequestParams } | { reason: 'unconfigured' | 'empty' };
+
 type UseTtsPlaybackParams = {
     roomId: string | undefined;
     messages: TtsPlaybackMessage[];
     isLoading: boolean;
     isRoomHistoryLoading?: boolean;
     notify?: (message: string) => void;
+    /** ゲームモード中はtrue。メッセージ単位の自動再生を止め、ページ単位の
+     * 読み上げに切り替える。 */
+    visualNovelMode?: boolean;
+    /** 現在表示中のページ。nullのとき（ログ表示中など）は何も読まない。 */
+    visualNovelItem?: VisualNovelTtsItem | null;
 };
 
-export function useTtsPlayback({ roomId, messages, isLoading, isRoomHistoryLoading, notify }: UseTtsPlaybackParams) {
+export function useTtsPlayback({
+    roomId,
+    messages,
+    isLoading,
+    isRoomHistoryLoading,
+    notify,
+    visualNovelMode = false,
+    visualNovelItem = null,
+}: UseTtsPlaybackParams) {
     const ttsAutoPlay = useStore((state) => state.ttsAutoPlay);
     const seenIdsRef = useRef<Set<string>>(new Set());
     const baselineReadyRef = useRef(false);
+    const vnBaselineReadyRef = useRef(false);
+    const vnSpokenKeysRef = useRef<Set<string>>(new Set());
     const prevGeneratingRef = useRef(false);
     const notifyRef = useRef(notify);
     const messagesRef = useRef(messages);
@@ -43,28 +71,36 @@ export function useTtsPlayback({ roomId, messages, isLoading, isRoomHistoryLoadi
         messagesRef.current = messages;
     }, [messages]);
 
-    const buildTtsRequest = useCallback((message: TtsPlaybackMessage): TtsRequestParams | null => {
+    const resolveRequest = useCallback((
+        cacheKey: string,
+        content: string,
+        characterId?: string,
+    ): TtsResolveResult | null => {
         if (!roomId) return null;
         const state = useStore.getState();
         const room = state.rooms.find((candidate) => candidate.id === roomId);
-        const speakerCharacterId = message.characterId ?? (room?.groupId ? undefined : room?.characterId);
+        const speakerCharacterId = characterId ?? (room?.groupId ? undefined : room?.characterId);
         const speaker = state.characters.find((candidate) => candidate.id === speakerCharacterId);
         const profile = resolveTtsProfile(state, speaker);
-        if (!isTtsProfilePlayable(profile)) return null;
-        const text = buildSpeechText(message.content);
-        if (!text) return null;
+        if (!isTtsProfilePlayable(profile)) return { reason: 'unconfigured' };
+        const text = buildSpeechText(content);
+        if (!text) return { reason: 'empty' };
         return {
-            roomId,
-            messageId: message.id,
-            text,
-            profile,
-            aiApiConfig: { ...state.getAiApiConfig(), connectionId: profile.connectionId },
+            params: {
+                roomId,
+                messageId: cacheKey,
+                text,
+                profile,
+                aiApiConfig: { ...state.getAiApiConfig(), connectionId: profile.connectionId },
+            },
         };
     }, [roomId]);
 
     useEffect(() => {
         seenIdsRef.current.clear();
         baselineReadyRef.current = false;
+        vnBaselineReadyRef.current = false;
+        vnSpokenKeysRef.current.clear();
         clearAllTts();
     }, [roomId]);
 
@@ -73,8 +109,12 @@ export function useTtsPlayback({ roomId, messages, isLoading, isRoomHistoryLoadi
         prevGeneratingRef.current = isLoading;
         if (roomId && isLoading && !wasGenerating) {
             clearTtsRoom(roomId);
+            // 再生成でページキーが再利用されても読み上げられるよう、読み上げ済み
+            // マークも消す。差し替え前の表示中ページだけ再シードして誤再生を防ぐ。
+            vnSpokenKeysRef.current.clear();
+            if (visualNovelItem) vnSpokenKeysRef.current.add(visualNovelItem.key);
         }
-    }, [roomId, isLoading]);
+    }, [roomId, isLoading, visualNovelItem]);
 
     useEffect(() => {
         // 履歴の非同期ロードが終わるまでbaselineを確定させない。ロード済み
@@ -91,47 +131,67 @@ export function useTtsPlayback({ roomId, messages, isLoading, isRoomHistoryLoadi
             if (message.role !== 'assistant' || message.archived) continue;
             if (seenIdsRef.current.has(message.id)) continue;
             seenIdsRef.current.add(message.id);
-            if (!ttsAutoPlay) continue;
-            const request = buildTtsRequest(message);
-            if (request) enqueueTtsPlayback(request);
+            // ゲームモードではページ単位の読み上げが担当する。メッセージ単位では
+            // 読まないが、通常モードへ戻った時の遡及再生を防ぐためseenには積む。
+            if (!ttsAutoPlay || visualNovelMode) continue;
+            const result = resolveRequest(message.id, message.content, message.characterId);
+            if (result && 'params' in result) enqueueTtsPlayback(result.params);
         }
-    }, [roomId, messages, isLoading, isRoomHistoryLoading, ttsAutoPlay, buildTtsRequest]);
+    }, [roomId, messages, isLoading, isRoomHistoryLoading, ttsAutoPlay, visualNovelMode, resolveRequest]);
+
+    useEffect(() => {
+        if (!roomId || !visualNovelMode || isRoomHistoryLoading) return;
+        const item = visualNovelItem;
+        if (!vnBaselineReadyRef.current) {
+            vnBaselineReadyRef.current = true;
+            // 既に表示済みのページは読まない。生成中に未確定のページが表示されて
+            // いる場合は新規応答の一部なので、確定後に読み上げ対象へ残す。
+            if (item && (!isLoading || item.final)) {
+                vnSpokenKeysRef.current.add(item.key);
+            }
+        }
+        if (!ttsAutoPlay || !item || item.role !== 'assistant' || !item.final) return;
+        if (vnSpokenKeysRef.current.has(item.key)) return;
+        vnSpokenKeysRef.current.add(item.key);
+        const result = resolveRequest(item.key, item.content, item.characterId);
+        // ページ送りはユーザー操作なので、前のページの音声を切って即時再生する。
+        if (result && 'params' in result) void requestTtsPlayback(result.params).catch(() => {});
+    }, [roomId, visualNovelMode, visualNovelItem, isLoading, isRoomHistoryLoading, ttsAutoPlay, resolveRequest]);
 
     useEffect(() => () => stopTtsPlayback(), []);
 
-    const playMessage = useCallback((messageId: string) => {
-        if (!roomId) return;
-        const message = messagesRef.current.find((candidate) => candidate.id === messageId);
-        if (!message) return;
-        seenIdsRef.current.add(message.id);
-        const state = useStore.getState();
-        const room = state.rooms.find((candidate) => candidate.id === roomId);
-        const speakerCharacterId = message.characterId ?? (room?.groupId ? undefined : room?.characterId);
-        const speaker = state.characters.find((candidate) => candidate.id === speakerCharacterId);
-        const profile = resolveTtsProfile(state, speaker);
-        if (!isTtsProfilePlayable(profile)) {
-            notifyRef.current?.('読み上げの音声設定を確認してください。');
+    const play = useCallback((cacheKey: string, content: string, characterId?: string) => {
+        const result = resolveRequest(cacheKey, content, characterId);
+        if (!result) return;
+        if ('reason' in result) {
+            notifyRef.current?.(
+                result.reason === 'unconfigured'
+                    ? '読み上げの音声設定を確認してください。'
+                    : '読み上げる内容がありません。',
+            );
             return;
         }
-        const text = buildSpeechText(message.content);
-        if (!text) {
-            notifyRef.current?.('読み上げる内容がありません。');
-            return;
-        }
-        requestTtsPlayback({
-            roomId,
-            messageId: message.id,
-            text,
-            profile,
-            aiApiConfig: { ...state.getAiApiConfig(), connectionId: profile.connectionId },
-        }).catch((error: unknown) => {
+        void requestTtsPlayback(result.params).catch((error: unknown) => {
             notifyRef.current?.(
                 error instanceof Error && error.message
                     ? error.message
                     : '読み上げに失敗しました。',
             );
         });
-    }, [roomId]);
+    }, [resolveRequest]);
 
-    return { playMessage };
+    const playMessage = useCallback((messageId: string) => {
+        const message = messagesRef.current.find((candidate) => candidate.id === messageId);
+        if (!message) return;
+        seenIdsRef.current.add(message.id);
+        play(message.id, message.content, message.characterId);
+    }, [play]);
+
+    const playVisualNovelItem = useCallback((item: VisualNovelTtsItem) => {
+        if (item.role !== 'assistant') return;
+        vnSpokenKeysRef.current.add(item.key);
+        play(item.key, item.content, item.characterId);
+    }, [play]);
+
+    return { playMessage, playVisualNovelItem };
 }

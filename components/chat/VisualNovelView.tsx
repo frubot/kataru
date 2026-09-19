@@ -1,9 +1,11 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
-import { Check, Copy, GitBranch, History, RefreshCw, Shirt, Undo2 } from 'lucide-react';
+import { Check, Copy, GitBranch, History, Loader2, RefreshCw, Shirt, Square, Undo2, Volume2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import type { Character } from '@/lib/store';
 import type { VrmAvatar } from '@/lib/store/types';
+import { stopTtsPlayback } from '@/lib/ttsPlayer';
+import type { TtsPlaybackStatus } from '@/lib/ttsPlayer';
 import { DEFAULT_COSTUME_NAME, findVisualNovelCostume } from '@/lib/visualNovelPresentation';
 import type { VisualNovelCostumeOption } from '@/lib/visualNovelPresentation';
 import { preloadVisualNovelImages } from '@/lib/visualNovelImagePreload';
@@ -92,6 +94,9 @@ type VisualNovelViewProps = {
     displayedMessageContent?: string;
     isDisplayedMessageCopied: boolean;
     onCopyDisplayedMessage: () => void;
+    ttsStatus?: TtsPlaybackStatus | null;
+    canTtsPlay?: boolean;
+    onTtsToggle?: () => void;
     canRegenerate: boolean;
     onRegenerate: () => void;
     canBranch: boolean;
@@ -129,6 +134,9 @@ export default function VisualNovelView({
     displayedMessageContent,
     isDisplayedMessageCopied,
     onCopyDisplayedMessage,
+    ttsStatus,
+    canTtsPlay,
+    onTtsToggle,
     canRegenerate,
     onRegenerate,
     canBranch,
@@ -387,6 +395,43 @@ export default function VisualNovelView({
                         >
                             {isDisplayedMessageCopied ? <Check size={15} /> : <Copy size={15} />}
                         </button>
+                        {onTtsToggle && (
+                            <button
+                                type="button"
+                                className="btn btn-ghost"
+                                onClick={() => {
+                                    if (ttsStatus === 'playing' || ttsStatus === 'loading') {
+                                        stopTtsPlayback();
+                                    } else {
+                                        onTtsToggle();
+                                    }
+                                }}
+                                disabled={!canTtsPlay && ttsStatus !== 'playing' && ttsStatus !== 'loading'}
+                                style={{ color: ttsStatus === 'error' ? 'var(--error)' : undefined }}
+                                title={
+                                    ttsStatus === 'playing'
+                                        ? '停止'
+                                        : ttsStatus === 'loading'
+                                            ? '生成中…'
+                                            : 'このページを読み上げ'
+                                }
+                                aria-label={
+                                    ttsStatus === 'playing'
+                                        ? '停止'
+                                        : ttsStatus === 'loading'
+                                            ? '生成中…'
+                                            : 'このページを読み上げ'
+                                }
+                            >
+                                {ttsStatus === 'loading' ? (
+                                    <Loader2 size={15} className="animate-spin" />
+                                ) : ttsStatus === 'playing' ? (
+                                    <Square size={15} />
+                                ) : (
+                                    <Volume2 size={15} />
+                                )}
+                            </button>
+                        )}
                         <button
                             type="button"
                             className="btn btn-ghost"

@@ -41,6 +41,8 @@ import {
 } from '@/lib/chatContinuation';
 import { formatAssistantMarkdown } from '@/lib/markdownUtils';
 import { getSituationVisualNovelTypingKey, resolveSituationVisualNovelInitialCharacterId } from '@/lib/situationVisualNovelPresentation';
+import { buildSpeechText } from '@/lib/tts';
+import { useTtsEntry } from '@/lib/ttsPlayer';
 import {
     DEFAULT_COSTUME_NAME,
     findVisualNovelCostume,
@@ -70,6 +72,7 @@ import { useRoomTitleGeneration } from './chat/useRoomTitleGeneration';
 import { useVisualNovelPresentation } from './chat/useVisualNovelPresentation';
 import { useSituationVisualNovelPresentation } from './chat/useSituationVisualNovelPresentation';
 import { useTtsPlayback } from './chat/useTtsPlayback';
+import type { VisualNovelTtsItem } from './chat/useTtsPlayback';
 import VisualNovelLogView from './chat/VisualNovelLogView';
 import VisualNovelView from './chat/VisualNovelView';
 import type { VisualNovelStageSprite } from './chat/VisualNovelView';
@@ -438,13 +441,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     });
     const currentRoomId = room?.id;
     const isLoading = currentRoomId ? activeGenerationRoomIds.has(currentRoomId) : false;
-    const { playMessage: playTtsMessage } = useTtsPlayback({
-        roomId: currentRoomId,
-        messages: room?.messages ?? EMPTY_MESSAGES,
-        isLoading,
-        isRoomHistoryLoading: loadingRoomHistoryId === currentRoomId,
-        notify: showChatNotice,
-    });
     const isVisualNovelLogOpen = isVisualNovelMode && vnLogOpen;
     const situationVnPresentation = useSituationVisualNovelPresentation({
         active: isVisualNovelMode && loadingRoomHistoryId !== room?.id,
@@ -1323,6 +1319,34 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         : null;
 
     const situationVnCurrentItem = situationVnPresentation.current;
+    // ゲームモードでは表示中のページだけを読み上げる。メッセージ全文を読むと
+    // 未表示のページまで先読みしてしまうため。
+    const vnTtsItem = useMemo<VisualNovelTtsItem | null>(() => {
+        if (!isVisualNovelMode || isVisualNovelLogOpen || !situationVnCurrentItem) return null;
+        return {
+            key: getSituationVisualNovelTypingKey(situationVnCurrentItem),
+            role: situationVnCurrentItem.role,
+            content: situationVnCurrentItem.content,
+            characterId: situationVnCurrentItem.characterId,
+            final: situationVnCurrentItem.source !== 'preview' || situationVnCurrentItem.streamingComplete === true,
+        };
+    }, [isVisualNovelMode, isVisualNovelLogOpen, situationVnCurrentItem]);
+    const { playMessage: playTtsMessage, playVisualNovelItem: playTtsVisualNovelItem } = useTtsPlayback({
+        roomId: currentRoomId,
+        messages: room?.messages ?? EMPTY_MESSAGES,
+        isLoading,
+        isRoomHistoryLoading: loadingRoomHistoryId === currentRoomId,
+        notify: showChatNotice,
+        visualNovelMode: isVisualNovelMode,
+        visualNovelItem: vnTtsItem,
+    });
+    const vnTtsStatus = useTtsEntry(vnTtsItem?.key ?? '').status;
+    const canPlayVnTts = useMemo(() => (
+        !!vnTtsItem
+        && vnTtsItem.role === 'assistant'
+        && vnTtsItem.final
+        && !!buildSpeechText(vnTtsItem.content)
+    ), [vnTtsItem]);
     const situationVnSceneCharacter = situationVnPresentation.sceneCharacterId && characterMap
         ? characterMap.get(situationVnPresentation.sceneCharacterId) ?? null
         : null;
@@ -1727,6 +1751,11 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                         if (vnDisplayedMessageId && vnDisplayedMessageContent != null) {
                             void handleCopyMessage(vnDisplayedMessageId, vnDisplayedMessageContent);
                         }
+                    }}
+                    ttsStatus={vnTtsStatus}
+                    canTtsPlay={canPlayVnTts}
+                    onTtsToggle={() => {
+                        if (vnTtsItem) playTtsVisualNovelItem(vnTtsItem);
                     }}
                     canRegenerate={canRegenerateVN}
                     onRegenerate={handleRegenerate}

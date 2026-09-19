@@ -1494,6 +1494,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
         actor: TemporaryActorDraft;
         isNew: boolean;
     } | null>(null);
+    const [advancedOpen, setAdvancedOpen] = useState(false);
     const closeCostumeMenu = useCallback(() => setCostumeMenu(null), []);
 
     const validTemporaryActors = useMemo(
@@ -2367,68 +2368,93 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                         )}
                     </section>
 
-                    <section
-                        style={{
-                            padding: '1rem',
-                            borderRadius: '0.5rem',
-                            background: 'var(--bg-secondary)',
-                        }}
-                    >
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                            {actorCount > 1 && (
-                                <MaxAutoTurnsSlider value={parsedMaxTurns} onChange={setMaxAutoTurns} />
-                            )}
-                            <MaxHistorySlider value={maxHistory} onChange={setMaxHistory} />
-                            <div>
-                                <label style={sectionLabelStyle}>指揮役モデル</label>
-                                <div style={{ marginTop: '0.375rem' }}>
-                                    <ModelSelector
-                                        value={directorModel ?? { connectionId: DEFAULT_CONNECTION_ID, model: '' }}
-                                        onChange={setDirectorModel}
-                                        outputModality={directorEngine === 'typesafe' ? 'decisions' : 'text'}
-                                        placeholder={directorEngine === 'typesafe'
-                                            ? `例: ${defaultJevModel.model}`
-                                            : `例: ${defaultDirectorModel.model}`}
-                                    />
+                    <div style={{ display: 'flex', alignItems: 'center', minHeight: 38 }}>
+                        <button
+                            type="button"
+                            onClick={() => setAdvancedOpen((open) => !open)}
+                            aria-expanded={advancedOpen}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.375rem',
+                                width: '100%',
+                                padding: 0,
+                                border: 'none',
+                                background: 'transparent',
+                                color: 'var(--text-secondary)',
+                                cursor: 'pointer',
+                                textAlign: 'left',
+                            }}
+                        >
+                            {advancedOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                            <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>高度な設定</span>
+                        </button>
+                    </div>
+
+                    {advancedOpen && (
+                        <section
+                            style={{
+                                padding: '1rem',
+                                borderRadius: '0.5rem',
+                                background: 'var(--bg-secondary)',
+                            }}
+                        >
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                                {actorCount > 1 && (
+                                    <MaxAutoTurnsSlider value={parsedMaxTurns} onChange={setMaxAutoTurns} />
+                                )}
+                                <MaxHistorySlider value={maxHistory} onChange={setMaxHistory} />
+                                <div>
+                                    <label style={sectionLabelStyle}>指揮役モデル</label>
+                                    <div style={{ marginTop: '0.375rem' }}>
+                                        <ModelSelector
+                                            value={directorModel ?? { connectionId: DEFAULT_CONNECTION_ID, model: '' }}
+                                            onChange={setDirectorModel}
+                                            outputModality={directorEngine === 'typesafe' ? 'decisions' : 'text'}
+                                            placeholder={directorEngine === 'typesafe'
+                                                ? `例: ${defaultJevModel.model}`
+                                                : `例: ${defaultDirectorModel.model}`}
+                                        />
+                                    </div>
                                 </div>
-                            </div>
-                            <div>
-                                <label style={sectionLabelStyle}>指揮エンジン</label>
-                                <div style={{ marginTop: '0.375rem' }}>
-                                    <select
-                                        value={directorEngine}
-                                        onChange={(event) => {
-                                            setDirectorEngine(event.target.value as 'llm' | 'typesafe');
-                                            // The two engines draw from disjoint model lists; a
-                                            // leftover ref would be sent to the wrong API.
-                                            setDirectorModel(undefined);
-                                        }}
-                                        aria-label="指揮エンジン"
-                                        style={fieldStyle}
-                                    >
-                                        <option value="llm">LLM</option>
-                                        <option value="typesafe">System One (Jev)</option>
-                                    </select>
+                                <div>
+                                    <label style={sectionLabelStyle}>指揮エンジン</label>
+                                    <div style={{ marginTop: '0.375rem' }}>
+                                        <select
+                                            value={directorEngine}
+                                            onChange={(event) => {
+                                                setDirectorEngine(event.target.value as 'llm' | 'typesafe');
+                                                // The two engines draw from disjoint model lists; a
+                                                // leftover ref would be sent to the wrong API.
+                                                setDirectorModel(undefined);
+                                            }}
+                                            aria-label="指揮エンジン"
+                                            style={fieldStyle}
+                                        >
+                                            <option value="llm">LLM</option>
+                                            <option value="typesafe">System One (Jev)</option>
+                                        </select>
+                                    </div>
                                 </div>
+                                {directorEngine === 'typesafe' && (
+                                    <>
+                                        <ThresholdSlider
+                                            label="会話継続のしきい値"
+                                            inputId="situation-continue-threshold"
+                                            value={continueThreshold}
+                                            onChange={setContinueThreshold}
+                                        />
+                                        <ThresholdSlider
+                                            label="ユーザーに返す最低確率"
+                                            inputId="situation-protagonist-threshold"
+                                            value={protagonistThreshold}
+                                            onChange={setProtagonistThreshold}
+                                        />
+                                    </>
+                                )}
                             </div>
-                            {directorEngine === 'typesafe' && (
-                                <>
-                                    <ThresholdSlider
-                                        label="会話継続のしきい値"
-                                        inputId="situation-continue-threshold"
-                                        value={continueThreshold}
-                                        onChange={setContinueThreshold}
-                                    />
-                                    <ThresholdSlider
-                                        label="ユーザーに返す最低確率"
-                                        inputId="situation-protagonist-threshold"
-                                        value={protagonistThreshold}
-                                        onChange={setProtagonistThreshold}
-                                    />
-                                </>
-                            )}
-                        </div>
-                    </section>
+                        </section>
+                    )}
                 </div>
 
             </div>

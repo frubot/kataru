@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { RefreshCw } from 'lucide-react';
 
 import { isAiConnectionKind } from '@/lib/aiApi';
 import { useAiConnections } from '@/lib/aiConnections';
-import { getTtsSpeakers, type TtsSpeaker, type TtsSpeakerStyle } from '@/lib/tts';
+import { getTtsSpeakers, type TtsSpeaker } from '@/lib/tts';
 
 interface TtsVoiceFieldProps {
     connectionId: string;
@@ -10,6 +11,8 @@ interface TtsVoiceFieldProps {
     onChange: (voice: string) => void;
     disabled?: boolean;
     id?: string;
+    /** 空欄オプションのラベル（既定値は「既定」） */
+    emptyLabel?: string;
 }
 
 const noteStyle = {
@@ -27,6 +30,7 @@ export default function TtsVoiceField({
     onChange,
     disabled = false,
     id,
+    emptyLabel = '既定',
 }: TtsVoiceFieldProps) {
     const { connections } = useAiConnections();
     const connection = connections.find((candidate) => candidate.id === connectionId) ?? null;
@@ -34,6 +38,7 @@ export default function TtsVoiceField({
     const [speakers, setSpeakers] = useState<TtsSpeaker[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [reloadToken, setReloadToken] = useState(0);
 
     useEffect(() => {
         if (kind !== 'voicevox' || !connectionId) {
@@ -60,7 +65,9 @@ export default function TtsVoiceField({
         return () => {
             cancelled = true;
         };
-    }, [connectionId, kind]);
+    }, [connectionId, kind, reloadToken]);
+
+    const retry = useCallback(() => setReloadToken((token) => token + 1), []);
 
     const textInput = (
         <input
@@ -81,16 +88,24 @@ export default function TtsVoiceField({
         return (
             <>
                 {textInput}
-                <p style={noteStyle} role="alert">{error}</p>
+                <p style={{ ...noteStyle, color: 'var(--error)' }} role="alert">
+                    {error}
+                </p>
+                <button
+                    type="button"
+                    className="btn btn-ghost"
+                    disabled={loading}
+                    onClick={retry}
+                    style={{ marginTop: '0.375rem', padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+                >
+                    <RefreshCw size={12} aria-hidden="true" />
+                    話者一覧を再読み込み
+                </button>
             </>
         );
     }
 
-    const options = speakers.flatMap((speaker) => speaker.styles.map((style: TtsSpeakerStyle) => ({
-        value: String(style.id),
-        label: `${speaker.name}（${style.name}）`,
-    })));
-    const hasValue = options.some((option) => option.value === value);
+    const hasValue = speakers.some((speaker) => speaker.styles.some((style) => String(style.id) === value));
 
     return (
         <>
@@ -101,9 +116,15 @@ export default function TtsVoiceField({
                 disabled={disabled || loading}
                 onChange={(event) => onChange(event.target.value)}
             >
-                <option value="">既定</option>
-                {options.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
+                <option value="">{emptyLabel}</option>
+                {speakers.map((speaker) => (
+                    <optgroup key={speaker.name} label={speaker.name}>
+                        {speaker.styles.map((style) => (
+                            <option key={style.id} value={String(style.id)}>
+                                {style.name}
+                            </option>
+                        ))}
+                    </optgroup>
                 ))}
                 {value !== '' && !hasValue && (
                     <option value={value}>{value}</option>

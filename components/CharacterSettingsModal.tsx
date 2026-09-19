@@ -23,7 +23,10 @@ import PromptSectionEditor from './PromptSectionEditor';
 import StoredImage from './StoredImage';
 import ModelSelector from './ModelSelector';
 import TtsVoiceField from './TtsVoiceField';
+import TtsSpeedSlider, { formatTtsSpeed } from './TtsSpeedSlider';
+import TtsPreviewButton from './TtsPreviewButton';
 import { useModalKeyboard } from './useModalKeyboard';
+import { resolveTtsProfile } from '@/lib/tts';
 import { getVrmExpressionNames } from '@/lib/vrm';
 
 const VrmAvatarView = lazy(() => import('./VrmAvatarView'));
@@ -335,7 +338,7 @@ function CharacterSettingsModalContent({
     initialGeneratedDraft,
     onOpenMemoryList,
 }: CharacterSettingsModalProps) {
-    const { createCharacter, updateCharacter, defaultChatModel, ttsConnectionId } = useStore();
+    const { createCharacter, updateCharacter, defaultChatModel, ttsConnectionId, ttsSpeed: defaultTtsSpeed } = useStore();
     const [initialDraft] = useState(() => buildInitialCharacterDraft(
         character,
         defaultChatModel,
@@ -952,34 +955,82 @@ function CharacterSettingsModalContent({
                                 {/* 声 */}
                                 <div>
                                     <label style={{ ...labelStyle, fontSize: '0.8125rem', marginBottom: '0.375rem' }}>声</label>
-                                    <TtsVoiceField
-                                        connectionId={character?.tts?.connectionId ?? ttsConnectionId}
-                                        value={ttsVoice}
-                                        onChange={setTtsVoice}
-                                    />
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem' }}>
-                                        <label
-                                            htmlFor="character-tts-speed-input"
-                                            style={{ fontSize: '0.75rem', color: 'var(--text-muted)', flexShrink: 0 }}
-                                        >
-                                            速度
-                                        </label>
-                                        <input
-                                            id="character-tts-speed-input"
-                                            type="number"
-                                            className="input"
-                                            style={{ width: '7rem' }}
-                                            value={ttsSpeed ?? ''}
-                                            min={0.5}
-                                            max={2}
-                                            step={0.05}
-                                            placeholder="全体設定"
-                                            onChange={(e) => setTtsSpeed(e.target.value === '' ? undefined : Number(e.target.value))}
+                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <TtsVoiceField
+                                                connectionId={character?.tts?.connectionId ?? ttsConnectionId}
+                                                value={ttsVoice}
+                                                onChange={setTtsVoice}
+                                                emptyLabel="全体設定"
+                                            />
+                                        </div>
+                                        <TtsPreviewButton
+                                            previewId={`tts-preview-character:${character?.id ?? 'new'}`}
+                                            profile={resolveTtsProfile(useStore.getState(), {
+                                                tts: { ...character?.tts, voice: ttsVoice, speed: ttsSpeed },
+                                            })}
                                         />
                                     </div>
                                     <p style={{ margin: '0.375rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                                        空欄で全体設定を使用します。
+                                        空欄では全体設定を使用します。
                                     </p>
+                                </div>
+
+                                {/* 読み上げ速度 */}
+                                <div>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.375rem' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                                            <label style={{
+                                                fontSize: '0.8125rem',
+                                                fontWeight: 500,
+                                                color: 'var(--text-secondary)',
+                                            }}>
+                                                速度
+                                            </label>
+                                            <InfoButton text="読み上げ速度です。未設定では全体設定の値を使用します。" />
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                            <span style={{
+                                                fontSize: '0.8125rem',
+                                                fontWeight: 600,
+                                                color: ttsSpeed != null ? 'var(--accent-primary)' : 'var(--text-muted)',
+                                                minWidth: '3.5rem',
+                                                textAlign: 'right',
+                                                fontVariantNumeric: 'tabular-nums',
+                                            }}>
+                                                {ttsSpeed != null ? formatTtsSpeed(ttsSpeed) : '全体設定'}
+                                            </span>
+                                            {ttsSpeed != null && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setTtsSpeed(undefined)}
+                                                    title="全体設定に戻す"
+                                                    style={{
+                                                        background: 'none',
+                                                        border: 'none',
+                                                        cursor: 'pointer',
+                                                        padding: '2px',
+                                                        color: 'var(--text-muted)',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        borderRadius: '4px',
+                                                        transition: 'color 0.15s ease',
+                                                    }}
+                                                    onMouseEnter={e => (e.currentTarget.style.color = 'var(--text-secondary)')}
+                                                    onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}
+                                                >
+                                                    <RotateCcw size={12} />
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <TtsSpeedSlider
+                                        id="character-tts-speed-input"
+                                        value={ttsSpeed ?? defaultTtsSpeed}
+                                        custom={ttsSpeed != null}
+                                        ariaLabel="読み上げ速度"
+                                        onChange={setTtsSpeed}
+                                    />
                                 </div>
 
                                 {/* Maximum reply characters */}

@@ -11,6 +11,8 @@ import StatisticsPanel from '@/components/StatisticsPanel';
 import AiConnectionSettings from '@/components/AiConnectionSettings';
 import ModelSelector from '@/components/ModelSelector';
 import TtsVoiceField from '@/components/TtsVoiceField';
+import TtsSpeedSlider, { formatTtsSpeed } from '@/components/TtsSpeedSlider';
+import TtsPreviewButton from '@/components/TtsPreviewButton';
 import KeyboardSettingsPanel from '@/components/KeyboardSettingsPanel';
 import SituationBackgroundModal from '@/components/SituationBackgroundModal';
 import StoredImage from '@/components/StoredImage';
@@ -1515,12 +1517,26 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         声
                                     </label>
                                     <div className="global-settings-selector-control">
-                                        <TtsVoiceField
-                                            id="tts-voice-input"
-                                            connectionId={ttsConnectionId}
-                                            value={ttsVoice}
-                                            onChange={setTtsVoice}
-                                        />
+                                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                <TtsVoiceField
+                                                    id="tts-voice-input"
+                                                    connectionId={ttsConnectionId}
+                                                    value={ttsVoice}
+                                                    onChange={setTtsVoice}
+                                                    emptyLabel="なし"
+                                                />
+                                            </div>
+                                            <TtsPreviewButton
+                                                previewId="tts-preview-global"
+                                                profile={{
+                                                    connectionId: ttsConnectionId,
+                                                    model: ttsModel,
+                                                    voice: ttsVoice,
+                                                    speed: ttsSpeed,
+                                                }}
+                                            />
+                                        </div>
                                     </div>
                                 </div>
                                 <div className="global-settings-selector-row global-settings-selector-row-divider">
@@ -1532,25 +1548,25 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     </label>
                                     <div
                                         className="global-settings-selector-control"
-                                        style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}
+                                        style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}
                                     >
-                                        <input
-                                            id="tts-speed-input"
-                                            type="range"
-                                            min={0.5}
-                                            max={2}
-                                            step={0.05}
-                                            value={ttsSpeed}
-                                            style={{ flex: 1 }}
-                                            onChange={(event) => setTtsSpeed(Number(event.target.value))}
-                                        />
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <TtsSpeedSlider
+                                                id="tts-speed-input"
+                                                value={ttsSpeed}
+                                                ariaLabel="読み上げ速度"
+                                                onChange={setTtsSpeed}
+                                            />
+                                        </div>
                                         <span style={{
-                                            fontSize: '0.75rem',
-                                            color: 'var(--text-muted)',
-                                            minWidth: '3rem',
+                                            fontSize: '0.8125rem',
+                                            fontWeight: 600,
+                                            color: 'var(--accent-primary)',
+                                            minWidth: '3.5rem',
                                             textAlign: 'right',
+                                            fontVariantNumeric: 'tabular-nums',
                                         }}>
-                                            {`${ttsSpeed.toFixed(2)}x`}
+                                            {formatTtsSpeed(ttsSpeed)}
                                         </span>
                                     </div>
                                 </div>
@@ -1561,6 +1577,11 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     ariaLabel: '新しい返答を自動で読み上げる',
                                 })}
                             </div>
+                            <p style={{ marginTop: '0.75rem', marginBottom: 0, fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                                {ttsCapableConnections.length === 0
+                                    ? '音声合成にはVOICEVOXの接続先、または「音声合成（TTS）を利用する」を有効にしたOpenAI互換の接続先が必要です。'
+                                    : '声と速度はキャラクター設定の「高度な設定」から個別に上書きできます。'}
+                            </p>
                         </div>
 
                             </>

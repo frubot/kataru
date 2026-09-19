@@ -381,9 +381,64 @@ pub fn actor_note(actor: &Value) -> String {
         .unwrap_or_default()
 }
 
+fn director_jev_examples() -> Value {
+    json!([
+        {
+            "actors": [
+                {"id": "aoi", "name": "葵"},
+                {"id": "rin", "name": "凛"},
+            ],
+            "latestUserMessage": "凛、昨日の試合見たよ。すごかったね",
+            "transcript": "主人公: 凛、昨日の試合見たよ。すごかったね\n\n葵: 私も見てた！最後の得点は鳥肌ものだったよ",
+            "lastSpeakerId": "aoi",
+            "answer": {"next_speaker": "rin", "continue_naturally": 0.9},
+        },
+        {
+            "actors": [
+                {"id": "aoi", "name": "葵"},
+                {"id": "rin", "name": "凛"},
+            ],
+            "latestUserMessage": "週末みんなで映画見に行かない？",
+            "transcript": "主人公: 週末みんなで映画見に行かない？\n\n凛: いいね！葵は何が見たい？",
+            "lastSpeakerId": "rin",
+            "answer": {"next_speaker": "aoi", "continue_naturally": 0.9},
+        },
+        {
+            "actors": [
+                {"id": "aoi", "name": "葵"},
+                {"id": "rin", "name": "凛"},
+            ],
+            "latestUserMessage": "今日は疲れたなあ",
+            "transcript": "主人公: 今日は疲れたなあ\n\n葵: おつかれ～。\n\n凛: おつかれ！ねえ、三人で放課後どこか寄ってかない？",
+            "lastSpeakerId": "aoi",
+            "answer": {"next_speaker": "protagonist", "continue_naturally": 0.15},
+        },
+        {
+            "actors": [
+                {"id": "aoi", "name": "葵"},
+                {"id": "rin", "name": "凛"},
+            ],
+            "latestUserMessage": "じゃあまた明日ね",
+            "transcript": "主人公: じゃあまた明日ね\n\n葵: うん、また明日！\n\n凛: おつかれさまー",
+            "lastSpeakerId": "rin",
+            "answer": {"next_speaker": "conversation-complete", "continue_naturally": 0.8},
+        },
+        {
+            "actors": [
+                {"id": "aoi", "name": "葵"},
+            ],
+            "latestUserMessage": "ありがとう、もう行くね",
+            "transcript": "主人公: ありがとう、もう行くね\n\n葵: うん、気をつけてね。また明日！",
+            "lastSpeakerId": "aoi",
+            "answer": {"next_speaker": "end", "continue_naturally": 0.05},
+        },
+    ])
+}
+
 /// Structured state handed to Jev for director decisions. Jev evaluates
 /// questions in parallel against this single state, so it carries the same
-/// context the LLM director prompt would.
+/// context the LLM director prompt would. `examples` holds few-shot
+/// reference decisions; see `director_jev_examples`.
 #[allow(clippy::too_many_arguments)]
 pub fn director_jev_state(
     situation: &Value,
@@ -422,6 +477,7 @@ pub fn director_jev_state(
         },
         "autoTurn": format!("{}/{}", turn_index + 1, max_turns),
         "lastSpeakerId": last_speaker_id,
+        "examples": director_jev_examples(),
     })
 }
 
@@ -453,20 +509,20 @@ pub fn director_jev_first_questions(actors: &[Value], eligible_ids: &[String]) -
     criteria.insert(
         JEV_PROTAGONIST_OPTION.to_owned(),
         Value::String(
-            "主人公（ユーザー）が黙っていると会話が成立しない。次に発言すべき"
+            "主人公（ユーザー）が次に発言すべき。"
                 .to_owned(),
         ),
     );
     criteria.insert(
         JEV_CONVERSATION_COMPLETE_OPTION.to_owned(),
         Value::String(
-            "会話を終了する。ただしキャラクター同士が会話を続けても違和感がない"
+            "会話を終了するが、キャラクター同士が会話を続けても違和感がない"
                 .to_owned(),
         ),
     );
     criteria.insert(
         JEV_END_OPTION.to_owned(),
-        Value::String("会話を明確に終えるべき。シーンとして完結している".to_owned()),
+        Value::String("会話を終える。これ以上会話が続くと違和感がある".to_owned()),
     );
     json!({
         "next_speaker": {
@@ -769,5 +825,35 @@ mod tests {
         assert_eq!(state["lastSpeakerId"], "actor-rin");
         assert_eq!(state["actors"][0]["id"], "actor-aoi");
         assert_eq!(state["actors"][0]["note"], "幼なじみ");
+    }
+
+    #[test]
+    fn jev_state_examples_label_existing_options() {
+        let state = director_jev_state(&json!({}), &[], "", "", 0, 1, None, false);
+        let examples = state["examples"].as_array().expect("examples array");
+
+        assert!(examples.len() >= 3);
+        for example in examples {
+            let actor_ids = example["actors"]
+                .as_array()
+                .expect("example actors")
+                .iter()
+                .map(|actor| actor["id"].as_str().unwrap())
+                .collect::<Vec<_>>();
+            let choice = example["answer"]["next_speaker"]
+                .as_str()
+                .expect("example next_speaker");
+            assert!(
+                actor_ids.contains(&choice)
+                    || [
+                        JEV_PROTAGONIST_OPTION,
+                        JEV_CONVERSATION_COMPLETE_OPTION,
+                        JEV_END_OPTION,
+                    ]
+                    .contains(&choice),
+                "example answer {choice} must be one of its actors or a special option"
+            );
+            assert!(example["answer"]["continue_naturally"].as_f64().is_some());
+        }
     }
 }

@@ -364,16 +364,6 @@ async fn run_turn_inner(
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty());
     let streaming_preview = preview_job_id.map(|job_id| (&state.conversation_jobs, job_id));
-    let latest_user_message = if generation_mode.is_continue() {
-        String::new()
-    } else {
-        active_history
-            .iter()
-            .rev()
-            .find(|message| string(message, "role") == "user")
-            .map(|message| string(message, "content"))
-            .unwrap_or_default()
-    };
 
     let mut generated = Vec::new();
     let mut usages = Vec::new();
@@ -419,7 +409,6 @@ async fn run_turn_inner(
                     situation,
                     &participants,
                     &combined,
-                    &latest_user_message,
                     turn_index,
                     max_turns,
                     banned_actor_id.as_deref(),
@@ -437,7 +426,6 @@ async fn run_turn_inner(
                     situation,
                     &participants,
                     &combined,
-                    &latest_user_message,
                     turn_index,
                     max_turns,
                     banned_actor_id.as_deref(),
@@ -902,7 +890,6 @@ async fn request_director(
     situation: &Value,
     actors: &[Value],
     messages: &[Value],
-    latest_user_message: &str,
     turn_index: usize,
     max_turns: usize,
     banned_actor_id: Option<&str>,
@@ -926,20 +913,20 @@ async fn request_director(
             candidates: Vec::new(),
         });
     }
+    let require_actor = continuation_generation && turn_index == 0;
     let transcript_messages = slice_by_user_history(messages, DIRECTOR_TRANSCRIPT_USER_HISTORY);
     let transcript = director_transcript(&transcript_messages, actors);
     let (system, user) = director_prompts(
         situation,
         actors,
         &transcript,
-        latest_user_message,
         turn_index,
         max_turns,
         banned_actor_id,
         continuation_generation,
     );
     let api_client = clients.for_selection(selection)?;
-    let schema = director_schema(&eligible_ids);
+    let schema = director_schema(&eligible_ids, require_actor);
     let mut request = json!({
         "model": selection.model,
         "messages": [
@@ -1007,6 +994,10 @@ async fn request_director(
                 .unwrap_or_else(|| "直前の発言者の連続発言を防止".into());
         }
     }
+    if require_actor && decision.actor_id.is_none() {
+        decision.actor_id = eligible_ids.first().cloned();
+        decision.reason = "場面の継続要求のため先頭の候補を採用".into();
+    }
     if !secret_mode {
         push_usage_with_id(
             usages,
@@ -1042,7 +1033,6 @@ async fn request_director_typesafe(
     situation: &Value,
     actors: &[Value],
     messages: &[Value],
-    latest_user_message: &str,
     turn_index: usize,
     max_turns: usize,
     banned_actor_id: Option<&str>,
@@ -1073,19 +1063,11 @@ async fn request_director_typesafe(
         ));
     }
 
+    let require_actor = continuation_generation && turn_index == 0;
     let transcript_messages = slice_by_user_history(messages, DIRECTOR_TRANSCRIPT_USER_HISTORY);
     let transcript = director_transcript(&transcript_messages, actors);
-    let state = director_jev_state(
-        situation,
-        actors,
-        &transcript,
-        latest_user_message,
-        turn_index,
-        max_turns,
-        banned_actor_id,
-        continuation_generation,
-    );
-    let first_questions = director_jev_first_questions(actors, &eligible_ids);
+    let state = director_jev_state(situation, actors, &transcript, turn_index, max_turns);
+    let first_questions = director_jev_first_questions(actors, &eligible_ids, !require_actor);
     let prompt = serde_json::to_string_pretty(&json!({
         "state": state,
         "questions": first_questions,
@@ -1152,8 +1134,17 @@ async fn request_director_typesafe(
         .clamp(0.0, 1.0);
 
     let next_choice = next.choice.as_str();
-    let effective_choice =
+    let mut effective_choice =
         resolve_jev_effective_choice(&next, &eligible_ids, protagonist_threshold);
+    if require_actor && !eligible_ids.contains(&effective_choice) {
+        effective_choice = next
+            .probabilities
+            .iter()
+            .filter(|(id, _)| eligible_ids.contains(*id))
+            .max_by(|a, b| a.1.total_cmp(b.1))
+            .map(|(id, _)| id.clone())
+            .unwrap_or_else(|| eligible_ids[0].clone());
+    }
     let mut selected_actor: Option<String> = None;
     let mut second_response: Option<SystemOneResponse> = None;
 

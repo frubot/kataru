@@ -283,7 +283,6 @@ pub fn director_prompts(
     situation: &Value,
     actors: &[Value],
     transcript: &str,
-    latest_user_message: &str,
     turn_index: usize,
     max_turns: usize,
     banned_actor_id: Option<&str>,
@@ -297,10 +296,16 @@ pub fn director_prompts(
         .and_then(Value::as_str)
         .unwrap_or("")
         .trim();
+    let require_actor = continuation_generation && turn_index == 0;
+    let candidate_rule = if require_actor {
+        "場面の継続が要求されているため、candidates は必ず1件以上にしてください。"
+    } else {
+        "主人公が発言すべき場合や自動会話を終える場合は空配列にしてください。"
+    };
     let system = format!(
         r#"あなたはロールプレイで次に発言するキャラクターを選ぶ指揮者です。
 有効なJSONのみを出力し、スキーマに従ってください。
-candidates は自然さ順の候補です。主人公が発言すべき場合や自動会話を終える場合は空配列にしてください。{banned}
+candidates は自然さ順の候補です。{candidate_rule}{banned}
 
 {custom}"#
     );
@@ -316,20 +321,15 @@ candidates は自然さ順の候補です。主人公が発言すべき場合や
         })
         .collect::<Vec<_>>()
         .join("\n");
-    let latest_message = if continuation_generation {
-        "主人公からの新しい発言や行動はありません。場面の継続を要求されています。"
-    } else {
-        latest_user_message
-    };
-    let first_policy = if continuation_generation && turn_index == 0 {
-        "会話履歴の末尾から自然に場面を進めるのに最適な一人を、必ず候補の先頭にしてください。"
+    let first_policy = if require_actor {
+        "主人公からの新しい発言や行動はありません。会話履歴の末尾から自然に場面を進める一人を必ず候補の先頭にしてください。"
     } else if turn_index == 0 {
         "主人公の最新発言に反応するのに最適な一人を必ず候補の先頭にしてください。"
     } else {
         "次の発言が自然なキャラクターを選ぶか、主人公に発言させるなら空配列にしてください。"
     };
     let user = format!(
-        "シチュエーション名: {}\n\n## シチュエーション\n{}\n\n## 役者\n{actor_lines}\n\n## 最新のメッセージ\n{latest_message}\n\n## 選び方\n{first_policy}\n\n## 会話履歴\n{}\n\n自動発言ターン: {} / {max_turns}",
+        "シチュエーション名: {}\n\n## シチュエーション\n{}\n\n## 役者\n{actor_lines}\n\n## 選び方\n{first_policy}\n\n## 会話履歴\n{}\n\n自動発言ターン: {} / {max_turns}",
         string(situation, "name"),
         string(situation, "situationPrompt"),
         if transcript.trim().is_empty() {
@@ -342,7 +342,7 @@ candidates は自然さ順の候補です。主人公が発言すべき場合や
     (system, user)
 }
 
-pub fn director_schema(actor_ids: &[String]) -> Value {
+pub fn director_schema(actor_ids: &[String], require_candidate: bool) -> Value {
     json!({
         "type": "json_schema",
         "json_schema": {
@@ -353,7 +353,7 @@ pub fn director_schema(actor_ids: &[String]) -> Value {
                 "properties": {
                     "candidates": {
             "type": "array",
-            "minItems": 0,
+            "minItems": if require_candidate { 1 } else { 0 },
             "maxItems": actor_ids.len().clamp(1, 3),
             "items": {
                 "type": "object",
@@ -388,9 +388,7 @@ fn director_jev_examples() -> Value {
                 {"id": "aoi", "name": "葵"},
                 {"id": "rin", "name": "凛"},
             ],
-            "latestUserMessage": "凛、昨日の試合見たよ。すごかったね",
             "transcript": "主人公: 凛、昨日の試合見たよ。すごかったね\n\n葵: 私も見てた！最後の得点は鳥肌ものだったよ",
-            "lastSpeakerId": "aoi",
             "answer": {"next_speaker": "rin", "continue_naturally": 0.9},
         },
         {
@@ -398,9 +396,7 @@ fn director_jev_examples() -> Value {
                 {"id": "aoi", "name": "葵"},
                 {"id": "rin", "name": "凛"},
             ],
-            "latestUserMessage": "週末みんなで映画見に行かない？",
             "transcript": "主人公: 週末みんなで映画見に行かない？\n\n凛: いいね！葵は何が見たい？",
-            "lastSpeakerId": "rin",
             "answer": {"next_speaker": "aoi", "continue_naturally": 0.9},
         },
         {
@@ -408,9 +404,7 @@ fn director_jev_examples() -> Value {
                 {"id": "aoi", "name": "葵"},
                 {"id": "rin", "name": "凛"},
             ],
-            "latestUserMessage": "今日は疲れたなあ",
             "transcript": "主人公: 今日は疲れたなあ\n\n葵: おつかれ～。\n\n凛: おつかれ！ねえ、三人で放課後どこか寄ってかない？",
-            "lastSpeakerId": "aoi",
             "answer": {"next_speaker": "protagonist", "continue_naturally": 0.15},
         },
         {
@@ -418,18 +412,14 @@ fn director_jev_examples() -> Value {
                 {"id": "aoi", "name": "葵"},
                 {"id": "rin", "name": "凛"},
             ],
-            "latestUserMessage": "じゃあまた明日ね",
             "transcript": "主人公: じゃあまた明日ね\n\n葵: うん、また明日！\n\n凛: おつかれさまー",
-            "lastSpeakerId": "rin",
             "answer": {"next_speaker": "conversation-complete", "continue_naturally": 0.8},
         },
         {
             "actors": [
                 {"id": "aoi", "name": "葵"},
             ],
-            "latestUserMessage": "ありがとう、もう行くね",
             "transcript": "主人公: ありがとう、もう行くね\n\n葵: うん、気をつけてね。また明日！",
-            "lastSpeakerId": "aoi",
             "answer": {"next_speaker": "end", "continue_naturally": 0.05},
         },
     ])
@@ -439,16 +429,12 @@ fn director_jev_examples() -> Value {
 /// questions in parallel against this single state, so it carries the same
 /// context the LLM director prompt would. `examples` holds few-shot
 /// reference decisions; see `director_jev_examples`.
-#[allow(clippy::too_many_arguments)]
 pub fn director_jev_state(
     situation: &Value,
     actors: &[Value],
     transcript: &str,
-    latest_user_message: &str,
     turn_index: usize,
     max_turns: usize,
-    last_speaker_id: Option<&str>,
-    continuation_generation: bool,
 ) -> Value {
     let actor_entries = actors
         .iter()
@@ -460,23 +446,16 @@ pub fn director_jev_state(
             })
         })
         .collect::<Vec<_>>();
-    let latest_message = if continuation_generation {
-        "主人公からの新しい発言や行動はありません。場面の継続を要求されています。"
-    } else {
-        latest_user_message
-    };
     json!({
         "situationName": string(situation, "name"),
         "situationPrompt": string(situation, "situationPrompt"),
         "actors": actor_entries,
-        "latestUserMessage": latest_message,
         "transcript": if transcript.trim().is_empty() {
             "まだ会話はありません。"
         } else {
             transcript
         },
         "autoTurn": format!("{}/{}", turn_index + 1, max_turns),
-        "lastSpeakerId": last_speaker_id,
         "examples": director_jev_examples(),
     })
 }
@@ -500,12 +479,21 @@ fn actor_criteria(actors: &[Value], eligible_ids: &[String]) -> Map<String, Valu
     criteria
 }
 
-/// First Jev call: pick the next speaker among eligible actors, the
-/// protagonist, a scene that has reached its natural end but could still
-/// continue, or a hard stop. `continue_naturally` runs in parallel so the
-/// continuation probability is already available when needed.
-pub fn director_jev_first_questions(actors: &[Value], eligible_ids: &[String]) -> Value {
+pub fn director_jev_first_questions(
+    actors: &[Value],
+    eligible_ids: &[String],
+    include_stop_options: bool,
+) -> Value {
     let mut criteria = actor_criteria(actors, eligible_ids);
+    if !include_stop_options {
+        return json!({
+            "next_speaker": {
+                "type": "choice",
+                "instructions": "この会話で次に発言するのが最も自然なキャラクターを選んでください。",
+                "criteria": criteria,
+            },
+        });
+    }
     criteria.insert(
         JEV_PROTAGONIST_OPTION.to_owned(),
         Value::String(
@@ -733,27 +721,35 @@ mod tests {
     }
 
     #[test]
-    fn continuation_director_prompt_does_not_treat_the_previous_user_message_as_new() {
+    fn continuation_director_prompt_requires_a_candidate_and_drops_latest_message() {
         let situation = json!({
             "name": "放課後",
             "situationPrompt": "教室で話している"
         });
         let actors = vec![json!({"actorId": "actor-aoi", "name": "葵"})];
 
-        let (_, prompt) = director_prompts(
+        let (system, prompt) = director_prompts(
             &situation,
             &actors,
             "主人公: 今日は寒いね\n葵: 雪になるかも",
-            "今日は寒いね",
             0,
             1,
             None,
             true,
         );
 
+        assert!(system.contains("candidates は必ず1件以上にしてください"));
+        assert!(!system.contains("空配列にしてください"));
         assert!(prompt.contains("主人公からの新しい発言や行動はありません"));
         assert!(prompt.contains("会話履歴の末尾から自然に場面を進める"));
-        assert!(!prompt.contains("## 最新のメッセージ\n今日は寒いね"));
+        assert!(!prompt.contains("## 最新のメッセージ"));
+    }
+
+    #[test]
+    fn director_prompt_allows_empty_candidates_outside_continuation() {
+        let (system, _) = director_prompts(&json!({}), &[], "", 0, 1, None, false);
+
+        assert!(system.contains("空配列にしてください"));
     }
 
     #[test]
@@ -765,7 +761,7 @@ mod tests {
         ];
         let eligible = vec!["actor-aoi".to_owned(), "actor-rin".to_owned()];
 
-        let questions = director_jev_first_questions(&actors, &eligible);
+        let questions = director_jev_first_questions(&actors, &eligible, true);
 
         let criteria = &questions["next_speaker"]["criteria"];
         assert_eq!(criteria.as_object().unwrap().len(), 5);
@@ -779,6 +775,26 @@ mod tests {
 
         assert_eq!(questions["next_speaker"]["type"], "choice");
         assert_eq!(questions["continue_naturally"]["type"], "noul");
+    }
+
+    #[test]
+    fn jev_first_questions_without_stop_options_only_offer_actors() {
+        let actors = vec![
+            json!({"actorId": "actor-aoi", "name": "葵"}),
+            json!({"actorId": "actor-rin", "name": "凛"}),
+        ];
+        let eligible = vec!["actor-aoi".to_owned(), "actor-rin".to_owned()];
+
+        let questions = director_jev_first_questions(&actors, &eligible, false);
+
+        let criteria = &questions["next_speaker"]["criteria"];
+        assert_eq!(criteria.as_object().unwrap().len(), 2);
+        assert!(criteria.get("actor-aoi").is_some());
+        assert!(criteria.get("actor-rin").is_some());
+        assert!(criteria.get(JEV_PROTAGONIST_OPTION).is_none());
+        assert!(criteria.get(JEV_CONVERSATION_COMPLETE_OPTION).is_none());
+        assert!(criteria.get(JEV_END_OPTION).is_none());
+        assert!(questions.get("continue_naturally").is_none());
     }
 
     #[test]
@@ -812,24 +828,21 @@ mod tests {
             &situation,
             &actors,
             "主人公: 今日は寒いね\n葵: 雪になるかも",
-            "今日は寒いね",
             1,
             3,
-            Some("actor-rin"),
-            false,
         );
 
         assert_eq!(state["situationName"], "放課後");
-        assert_eq!(state["latestUserMessage"], "今日は寒いね");
         assert_eq!(state["autoTurn"], "2/3");
-        assert_eq!(state["lastSpeakerId"], "actor-rin");
         assert_eq!(state["actors"][0]["id"], "actor-aoi");
         assert_eq!(state["actors"][0]["note"], "幼なじみ");
+        assert!(state.get("latestUserMessage").is_none());
+        assert!(state.get("lastSpeakerId").is_none());
     }
 
     #[test]
     fn jev_state_examples_label_existing_options() {
-        let state = director_jev_state(&json!({}), &[], "", "", 0, 1, None, false);
+        let state = director_jev_state(&json!({}), &[], "", 0, 1);
         let examples = state["examples"].as_array().expect("examples array");
 
         assert!(examples.len() >= 3);

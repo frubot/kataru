@@ -4919,11 +4919,17 @@ body {
   }
 
   .vn-sprite-slot {
-    flex-basis: min(52vw, 420px);
-    width: min(52vw, 420px);
+    flex-basis: min(112vw, 520px);
+    width: min(112vw, 520px);
     height: clamp(430px, 76vh, 720px);
     height: clamp(430px, 76svh, 720px);
-    margin: 0 -4vw 1.5rem;
+    margin: 0 0 1.5rem;
+    display: none;
+  }
+
+  .vn-sprite-slot.vn-sprite-lit,
+  .vn-sprite-stage:not(:has(.vn-sprite-lit)) .vn-sprite-slot:first-child {
+    display: flex;
   }
 
   .vn-sprite-slot:only-child {
@@ -4931,6 +4937,10 @@ body {
     width: min(112vw, 520px);
     margin-left: 0;
     margin-right: 0;
+  }
+
+  .vn-sprite-stage:not(:has(.vn-sprite-lit)) .vn-sprite-slot:first-child .vn-sprite-figure {
+    filter: none;
   }
 
   .vn-dialogue {

@@ -1476,7 +1476,10 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                             {ttsConnectionId !== ''
                                                 && !ttsCapableConnections.some((connection) => connection.id === ttsConnectionId) && (
                                                 <option value={ttsConnectionId}>
-                                                    {ttsConnection?.name ?? ttsConnectionId}
+                                                    {ttsConnection?.name
+                                                        ?? (isAiConnectionKind(ttsConnectionId)
+                                                            ? AI_CONNECTION_KIND_LABELS[ttsConnectionId]
+                                                            : ttsConnectionId)}
                                                 </option>
                                             )}
                                         </select>

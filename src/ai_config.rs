@@ -589,10 +589,8 @@ impl AiConfigManager {
         // Unconfigured built-ins stay hidden from the connection list: their
         // records always exist so legacy ids and environment overrides keep
         // resolving, but they are only listed once something (stored fields,
-        // a stored API key, or environment variables) actually configures
-        // them. VOICEVOX needs no credential, so it is always listed.
+        // a stored API key, or environment variables) actually configures them.
         let listed = !builtin
-            || kind == ConnectionKind::Voicevox
             || env_base_url.is_some()
             || env_api_key.is_some()
             || inner.stored_api_keys.contains_key(&record.id)
@@ -1473,7 +1471,7 @@ fn print_config_status(status: &ConnectionsStatus) {
 
 fn print_config_help() {
     println!(
-        "Kataru config\n\n  config show\n  config get openai.base-url\n  config get anthropic.base-url\n  config set openrouter.api-key [--stdin]\n  config set openai.api-key [--stdin]\n  config set openai.base-url <URL>\n  config set anthropic.api-key [--stdin]\n  config set anthropic.base-url <URL>\n  config unset <KEY>\n  config connection add <openrouter|openai-compatible|anthropic> --name <NAME> [--base-url <URL>]\n  config connection remove <ID>\n  config connection set-key <ID> [--stdin]\n\n  --data-dir <PATH>  設定対象のデータ保存先\n  --portable         実行ファイル横の kataru-data を使用"
+        "Kataru config\n\n  config show\n  config get openai.base-url\n  config get anthropic.base-url\n  config set openrouter.api-key [--stdin]\n  config set openai.api-key [--stdin]\n  config set openai.base-url <URL>\n  config set anthropic.api-key [--stdin]\n  config set anthropic.base-url <URL>\n  config unset <KEY>\n  config connection add <openrouter|openai-compatible|anthropic|typesafe|voicevox> --name <NAME> [--base-url <URL>]\n  config connection remove <ID>\n  config connection set-key <ID> [--stdin]\n\n  --data-dir <PATH>  設定対象のデータ保存先\n  --portable         実行ファイル横の kataru-data を使用"
     );
 }
 
@@ -1701,10 +1699,8 @@ mod tests {
         let manager = manager(directory.path());
 
         // Nothing has been configured yet: the built-ins resolve internally
-        // but are not listed. VOICEVOX needs no credential, so it is the
-        // only built-in listed by default.
-        assert_eq!(manager.status().connections.len(), 1);
-        assert_eq!(manager.status().connections[0].id, "voicevox");
+        // but none of them are listed.
+        assert!(manager.status().connections.is_empty());
         let effective = manager.effective();
         assert_eq!(effective.connections.len(), 5);
         let openrouter = effective.connection("openrouter").unwrap();
@@ -1734,7 +1730,7 @@ mod tests {
         // Any stored configuration lists the built-in again.
         manager.set_api_key("openrouter", "secret").unwrap();
         let status = manager.status();
-        assert_eq!(status.connections.len(), 2);
+        assert_eq!(status.connections.len(), 1);
         assert_eq!(status.connections[0].id, "openrouter");
     }
 
@@ -2030,16 +2026,46 @@ mod tests {
                 },
             )
             .unwrap();
-        assert_eq!(manager.status().connections.len(), 2);
+        assert_eq!(manager.status().connections.len(), 1);
 
         manager.delete_connection("openrouter").unwrap();
-        assert_eq!(manager.status().connections.len(), 1);
-        assert_eq!(manager.status().connections[0].id, "voicevox");
+        assert!(manager.status().connections.is_empty());
         // The reserved id keeps resolving, back to a pristine state.
         let effective = manager.effective();
         let openrouter = effective.connection("openrouter").unwrap();
         assert!(openrouter.api_key.is_none());
         assert!(openrouter.ignored_providers.is_empty());
+    }
+
+    #[test]
+    fn voicevox_builtin_is_unlisted_until_configured() {
+        let directory = tempfile::tempdir().unwrap();
+        let manager = manager(directory.path());
+        // VOICEVOX needs no credential, so nothing configures the built-in
+        // record by default and it stays out of the connection list.
+        assert!(manager.status().connections.is_empty());
+
+        manager
+            .update_connection(
+                "voicevox",
+                ConnectionUpdate {
+                    base_url: Some("http://127.0.0.1:50022".to_owned()),
+                    ..ConnectionUpdate::default()
+                },
+            )
+            .unwrap();
+        let status = manager.status();
+        assert_eq!(status.connections.len(), 1);
+        assert_eq!(status.connections[0].id, "voicevox");
+        assert!(status.connections[0].deletable);
+
+        manager.delete_connection("voicevox").unwrap();
+        assert!(manager.status().connections.is_empty());
+        // The reserved id keeps resolving with the default endpoint.
+        assert_eq!(
+            manager.effective().connection("voicevox").unwrap().base_url,
+            DEFAULT_VOICEVOX_BASE_URL
+        );
     }
 
     #[test]
@@ -2056,9 +2082,9 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(manager.status().connections.len(), 2);
+        assert_eq!(manager.status().connections.len(), 1);
         assert!(manager.delete_connection("openrouter").is_err());
-        assert_eq!(manager.status().connections.len(), 2);
+        assert_eq!(manager.status().connections.len(), 1);
         // Built-ins without an environment override can be deleted.
         manager.delete_connection("openai-compatible").unwrap();
     }
@@ -2167,10 +2193,8 @@ mod tests {
                 })
                 .is_err()
         );
-        // Only the built-ins exist (VOICEVOX is always listed) and nothing
-        // was persisted.
-        assert_eq!(manager.status().connections.len(), 1);
-        assert_eq!(manager.status().connections[0].id, "voicevox");
+        // Only the unlisted built-ins exist and nothing was persisted.
+        assert!(manager.status().connections.is_empty());
         assert_eq!(manager.effective().connections.len(), 5);
         assert!(!directory.path().join(CONFIG_FILE_NAME).exists());
     }
@@ -2202,7 +2226,7 @@ mod tests {
                 })
                 .is_err()
         );
-        assert_eq!(manager.status().connections.len(), 1);
+        assert!(manager.status().connections.is_empty());
         assert!(
             secrets
                 .values

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Check, ChevronDown, RefreshCw, ExternalLink, Plus, type LucideIcon } from 'lucide-react';
 import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, RoomViewMode, getDefaultModelDefaults } from '@/lib/store';
 import { AI_CONNECTION_KIND_LABELS, isAiConnectionKind, type AiConnectionKind } from '@/lib/aiApi';
@@ -479,7 +479,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
     const paletteMenuRef = useRef<HTMLDivElement>(null);
     const defaultViewModeMenuRef = useRef<HTMLDivElement>(null);
     const modalRef = useRef<HTMLDivElement>(null);
-    const handleKeyboardClose = useCallback(() => {
+    const handleKeyboardClose = () => {
         if (showClearConfirm) {
             setShowClearConfirm(false);
             return;
@@ -499,15 +499,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
             return;
         }
         onClose();
-    }, [
-        isPaletteMenuOpen,
-        isDefaultViewModeMenuOpen,
-        isThemeModeMenuOpen,
-        onClose,
-        showClearConfirm,
-        showResetConfirm,
-        showRestoreConfirm,
-    ]);
+    };
 
     useModalKeyboard({
         isOpen,

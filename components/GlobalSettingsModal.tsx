@@ -7,6 +7,7 @@ import { MODEL_DEFAULT_FIELDS, modelRefsEqual, type ModelRef, type ModelRoleKey 
 import type { ModelOutputModality } from '@/lib/availableModels';
 import { createFullBackup, downloadJson, parseImportFile, reassignIds, type ParsedImport } from '@/lib/importExport';
 import { resizeToMaxEdgeAsJpeg } from '@/lib/imageUtils';
+import { isIrodoriTtsModel } from '@/lib/tts';
 import StatisticsPanel from '@/components/StatisticsPanel';
 import AiConnectionSettings from '@/components/AiConnectionSettings';
 import ModelSelector from '@/components/ModelSelector';
@@ -440,7 +441,9 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
     const { connections } = useAiConnections();
     const ttsConnection = connections.find((connection) => connection.id === ttsConnectionId) ?? null;
     const ttsConnectionKind = ttsConnection?.kind
-        ?? (isAiConnectionKind(ttsConnectionId) ? ttsConnectionId : null);
+        ?? (isAiConnectionKind(ttsConnectionId) ? ttsConnectionId : null)
+        // 接続先が未設定・未解決でも、選んだモデル名からIrodoriを推測する。
+        ?? (isIrodoriTtsModel(ttsModel) ? 'irodori' : null);
     const ttsCapableConnections = connections.filter((connection) => (
         connectionSupportsCapability(connection.kind, connection, 'tts')
     ));
@@ -1290,44 +1293,48 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     onToggle: () => setTtsAutoPlay(!ttsAutoPlay),
                                     ariaLabel: '新しい返答を自動で読み上げる',
                                 })}
-                                {renderDebugToggle({
-                                    label: '動作描写を声の演技指示に使う（Irodori TTS）',
-                                    enabled: ttsActionCaption,
-                                    onToggle: () => setTtsActionCaption(!ttsActionCaption),
-                                    ariaLabel: '動作描写を声の演技指示に使う',
-                                })}
-                                <div className="global-settings-selector-row">
-                                    <label
-                                        htmlFor="tts-caption-cfg-scale-input"
-                                        style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
-                                    >
-                                        演技指示の強さ（Irodori TTS）
-                                    </label>
-                                    <div
-                                        className="global-settings-selector-control"
-                                        style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}
-                                    >
-                                        <div style={{ flex: 1, minWidth: 0 }}>
-                                            <TtsCaptionCfgScaleSlider
-                                                id="tts-caption-cfg-scale-input"
-                                                value={ttsCaptionCfgScale}
-                                                ariaLabel="演技指示の強さ"
-                                                disabled={!ttsActionCaption}
-                                                onChange={setTtsCaptionCfgScale}
-                                            />
+                                {ttsConnectionKind === 'irodori' && (
+                                    <>
+                                        {renderDebugToggle({
+                                            label: '動作描写を声の演技指示に使う',
+                                            enabled: ttsActionCaption,
+                                            onToggle: () => setTtsActionCaption(!ttsActionCaption),
+                                            ariaLabel: '動作描写を声の演技指示に使う',
+                                        })}
+                                        <div className="global-settings-selector-row">
+                                            <label
+                                                htmlFor="tts-caption-cfg-scale-input"
+                                                style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
+                                            >
+                                                演技指示の強さ
+                                            </label>
+                                            <div
+                                                className="global-settings-selector-control"
+                                                style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}
+                                            >
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <TtsCaptionCfgScaleSlider
+                                                        id="tts-caption-cfg-scale-input"
+                                                        value={ttsCaptionCfgScale}
+                                                        ariaLabel="演技指示の強さ"
+                                                        disabled={!ttsActionCaption}
+                                                        onChange={setTtsCaptionCfgScale}
+                                                    />
+                                                </div>
+                                                <span style={{
+                                                    fontSize: '0.8125rem',
+                                                    fontWeight: 600,
+                                                    color: 'var(--accent-primary)',
+                                                    minWidth: '3.5rem',
+                                                    textAlign: 'right',
+                                                    fontVariantNumeric: 'tabular-nums',
+                                                }}>
+                                                    {formatTtsCaptionCfgScale(ttsCaptionCfgScale)}
+                                                </span>
+                                            </div>
                                         </div>
-                                        <span style={{
-                                            fontSize: '0.8125rem',
-                                            fontWeight: 600,
-                                            color: 'var(--accent-primary)',
-                                            minWidth: '3.5rem',
-                                            textAlign: 'right',
-                                            fontVariantNumeric: 'tabular-nums',
-                                        }}>
-                                            {formatTtsCaptionCfgScale(ttsCaptionCfgScale)}
-                                        </span>
-                                    </div>
-                                </div>
+                                    </>
+                                )}
                             </div>
                             {ttsCapableConnections.length === 0 && (
                                 <p style={{ marginTop: '0.75rem', marginBottom: 0, fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>

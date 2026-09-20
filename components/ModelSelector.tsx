@@ -123,8 +123,11 @@ export default function ModelSelector({
 
     const filteredResults = useMemo(() => {
         const normalizedQuery = query.trim().toLocaleLowerCase();
-        if (!normalizedQuery) return results;
-        return results.flatMap((result) => {
+        // モデルを1件も返さない接続（モデル概念のないVOICEVOXなど）は
+        // 見出しだけの空グループになるため候補から外す。
+        const listable = results.filter((result) => 'error' in result || result.models.length > 0);
+        if (!normalizedQuery) return listable;
+        return listable.flatMap((result) => {
             if (connectionMatchesQuery(result, normalizedQuery)) return [result];
             if ('error' in result) return [];
             const models = result.models.filter((model) => (
@@ -259,11 +262,11 @@ export default function ModelSelector({
                             </div>
                         ) : filteredResults.length === 0 ? (
                             <p className="model-selector-status">
-                                {results.length === 0
-                                    ? connections.length === 0
-                                        ? '接続先が設定されていません。'
-                                        : '利用可能なモデルがありません。'
-                                    : '一致するモデルがありません。'}
+                                {connections.length === 0
+                                    ? '接続先が設定されていません。'
+                                    : query.trim()
+                                        ? '一致するモデルがありません。'
+                                        : '利用可能なモデルがありません。'}
                             </p>
                         ) : filteredResults.map((result) => (
                             <div

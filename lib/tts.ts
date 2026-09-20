@@ -39,6 +39,14 @@ export function isTtsProfilePlayable(profile: TtsProfile): boolean {
     return Boolean(profile.voice.trim()) && Boolean(profile.connectionId.trim());
 }
 
+/** IrodoriのモデルIDパターン（既定は `irodori-tts`、IRODORI_MODEL_NAMEで
+ * 変更可）。接続先が未解決でもモデル名からIrodori選択を推測する。 */
+const IRODORI_MODEL_ID_PATTERN = /^irodori(?:$|[-_./])/i;
+
+export function isIrodoriTtsModel(model: string): boolean {
+    return IRODORI_MODEL_ID_PATTERN.test(model.trim());
+}
+
 function stripSpeechMarkdown(text: string): string {
     return text
         .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')

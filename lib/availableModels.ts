@@ -113,11 +113,13 @@ export type AiConnectionModelsResult =
     | { connection: AiConnectionStatus; error: string };
 
 /** Whether listing models for this connection can possibly succeed without
- * asking the server: either a credential is configured, or it is an
- * OpenAI-compatible endpoint pointed at a non-default base URL (keyless local
- * servers). */
+ * asking the server: either a credential is configured, the engine needs no
+ * API key (VOICEVOX; Irodori only uses one when the server enables auth), or
+ * it is an OpenAI-compatible endpoint pointed at a non-default base URL
+ * (keyless local servers). */
 export function canListModels(connection: AiConnectionStatus): boolean {
     if (connection.apiKey.configured) return true;
+    if (connection.kind === 'voicevox' || connection.kind === 'irodori') return true;
     return connection.kind === 'openai-compatible'
         && typeof connection.baseUrl === 'string'
         && connection.baseUrl.trim().length > 0

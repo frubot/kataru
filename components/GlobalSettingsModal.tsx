@@ -196,7 +196,7 @@ function VnSpeedSlider({ value, onChange }: VnSpeedSliderProps) {
     return (
         <div className="settings-select-anchor" ref={speedMenuRef}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
-                <label style={{ fontSize: '0.8125rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
+                <label style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
                     文字送り速度
                 </label>
                 <button
@@ -216,8 +216,7 @@ function VnSpeedSlider({ value, onChange }: VnSpeedSliderProps) {
                         borderRadius: '0.5rem',
                         color: 'var(--text-primary)',
                         cursor: 'pointer',
-                        fontSize: '0.8125rem',
-                        fontWeight: 600,
+                        fontSize: '0.875rem',
                         transition: 'background 0.15s ease, border-color 0.15s ease',
                     }}
                 >

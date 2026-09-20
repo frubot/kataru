@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 
 import { useStore } from '@/lib/store';
-import { buildSpeechText, isTtsProfilePlayable, resolveTtsProfile } from '@/lib/tts';
+import { buildSpeechSegments, isTtsProfilePlayable, resolveTtsProfile } from '@/lib/tts';
 import {
     clearAllTts,
     clearTtsRoom,
@@ -88,13 +88,13 @@ export function useTtsPlayback({
         const speaker = state.characters.find((candidate) => candidate.id === speakerCharacterId);
         const profile = resolveTtsProfile(state, speaker);
         if (!isTtsProfilePlayable(profile)) return { reason: 'unconfigured' };
-        const text = buildSpeechText(content);
-        if (!text) return { reason: 'empty' };
+        const texts = buildSpeechSegments(content);
+        if (texts.length === 0) return { reason: 'empty' };
         return {
             params: {
                 roomId,
                 messageId: cacheKey,
-                text,
+                texts,
                 profile,
                 aiApiConfig: { ...state.getAiApiConfig(), connectionId: profile.connectionId },
             },

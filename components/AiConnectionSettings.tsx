@@ -19,6 +19,7 @@ const CONNECTION_KIND_OPTIONS: readonly AiConnectionKind[] = [
     'anthropic',
     'typesafe',
     'voicevox',
+    'irodori',
 ];
 
 const ENV_API_KEY_NAMES: Record<AiConnectionKind, string> = {
@@ -27,19 +28,21 @@ const ENV_API_KEY_NAMES: Record<AiConnectionKind, string> = {
     anthropic: 'ANTHROPIC_API_KEY',
     typesafe: 'TYPESAFE_API_KEY',
     voicevox: 'VOICEVOX_API_KEY',
+    irodori: 'IRODORI_API_KEY',
 };
 
 const ENV_BASE_URL_NAMES: Partial<Record<AiConnectionKind, string>> = {
     'openai-compatible': 'OPENAI_BASE_URL',
     anthropic: 'ANTHROPIC_BASE_URL',
     typesafe: 'TYPESAFE_BASE_URL',
+    irodori: 'IRODORI_BASE_URL',
 };
 
 function apiKeyPlaceholder(connection: AiConnectionStatus): string {
     if (connection.apiKey.configured) return '変更する場合のみ入力';
-    return connection.kind === 'openai-compatible'
-        ? 'APIキーを入力（ローカルAPIでは省略可）'
-        : 'APIキーを入力';
+    if (connection.kind === 'openai-compatible') return 'APIキーを入力（ローカルAPIでは省略可）';
+    if (connection.kind === 'irodori') return 'APIキーを入力（サーバー側で有効時のみ）';
+    return 'APIキーを入力';
 }
 
 function AiConnectionCard({ connection }: { connection: AiConnectionStatus }) {
@@ -227,6 +230,10 @@ function AiConnectionCard({ connection }: { connection: AiConnectionStatus }) {
                                 </p>
                             ) : connection.apiKey.configured && connection.apiKey.source === 'environment' ? (
                                 <p className="ai-connection-help">環境変数のAPIキーを使用中です。</p>
+                            ) : !connection.apiKey.configured && connection.kind === 'irodori' ? (
+                                <p className="ai-connection-help">
+                                    Irodori TTS Server側でAPIキー認証を有効にしている場合のみ設定します。
+                                </p>
                             ) : !connection.apiKey.configured && connection.kind !== 'openai-compatible' ? (
                                 <p className="ai-connection-help">APIキーが未設定です。</p>
                             ) : null}
@@ -325,7 +332,7 @@ function AddAiConnectionCard({ onClose }: { onClose: () => void }) {
     const [error, setError] = useState<string | null>(null);
 
     const baseUrlFixed = kind === 'openrouter';
-    const baseUrlOptional = kind === 'typesafe' || kind === 'voicevox';
+    const baseUrlOptional = kind === 'typesafe' || kind === 'voicevox' || kind === 'irodori';
     const canCreate = name.trim().length > 0 && (baseUrlFixed || baseUrlOptional || baseUrl.trim().length > 0);
 
     const reset = () => {
@@ -410,7 +417,9 @@ function AddAiConnectionCard({ onClose }: { onClose: () => void }) {
                         ? '空欄で https://api.typesafe.ai/v1 を使用'
                         : kind === 'voicevox'
                             ? '空欄で http://127.0.0.1:50021 を使用'
-                            : '例: http://localhost:1234/v1'}
+                            : kind === 'irodori'
+                                ? '空欄で http://127.0.0.1:8088 を使用'
+                                : '例: http://localhost:1234/v1'}
                 onChange={(event) => setBaseUrl(event.target.value)}
             />
 
@@ -427,9 +436,18 @@ function AddAiConnectionCard({ onClose }: { onClose: () => void }) {
                         disabled={saving}
                         autoComplete="new-password"
                         spellCheck={false}
-                        placeholder={kind === 'openai-compatible' ? 'APIキーを入力（ローカルAPIでは省略可）' : 'APIキーを入力'}
+                        placeholder={kind === 'openai-compatible'
+                            ? 'APIキーを入力（ローカルAPIでは省略可）'
+                            : kind === 'irodori'
+                                ? 'APIキーを入力（省略可）'
+                                : 'APIキーを入力'}
                         onChange={(event) => setApiKey(event.target.value)}
                     />
+                    {kind === 'irodori' && (
+                        <p className="ai-connection-help">
+                            Irodori TTS Server側でAPIキー認証を有効にしている場合のみ設定します。
+                        </p>
+                    )}
                 </>
             )}
 

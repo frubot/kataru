@@ -39,14 +39,7 @@ export function isTtsProfilePlayable(profile: TtsProfile): boolean {
     return Boolean(profile.voice.trim()) && Boolean(profile.connectionId.trim());
 }
 
-/** Speech text = 'text' segments only (drops *...* action segments), markdown
- * stripped to plain text, whitespace collapsed. Returns '' when nothing
- * speakable remains. */
-export function buildSpeechText(content: string): string {
-    const text = splitAssistantMarkdownActions(content)
-        .filter((segment) => segment.type === 'text')
-        .map((segment) => segment.content)
-        .join('\n');
+function stripSpeechMarkdown(text: string): string {
     return text
         .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
         .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
@@ -63,8 +56,27 @@ export function buildSpeechText(content: string): string {
         .trim();
 }
 
+/** Speech segments = 'text' runs separated by *...* action segments (the
+ * actions themselves are dropped), each markdown-stripped to plain text.
+ * Keeping runs separate lets the player pause where an action was narrated
+ * instead of collapsing everything into one request. */
+export function buildSpeechSegments(content: string): string[] {
+    return splitAssistantMarkdownActions(content)
+        .filter((segment) => segment.type === 'text')
+        .map((segment) => stripSpeechMarkdown(segment.content))
+        .filter((text) => text.length > 0);
+}
+
+/** Speech text = 'text' segments only (drops *...* action segments), markdown
+ * stripped to plain text, whitespace collapsed. Returns '' when nothing
+ * speakable remains. */
+export function buildSpeechText(content: string): string {
+    return buildSpeechSegments(content).join('\n');
+}
+
 export interface TtsSpeakerStyle {
-    id: number;
+    /** VOICEVOXのスタイルIDは数値、Irodoriのvoice IDは文字列。 */
+    id: number | string;
     name: string;
 }
 
@@ -76,7 +88,9 @@ export interface TtsSpeaker {
 function isTtsSpeakerStyle(value: unknown): value is TtsSpeakerStyle {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
     const style = value as Record<string, unknown>;
-    return typeof style.id === 'number' && typeof style.name === 'string';
+    return (typeof style.id === 'number'
+            || (typeof style.id === 'string' && style.id.length > 0))
+        && typeof style.name === 'string';
 }
 
 function isTtsSpeakersResponse(value: unknown): value is { speakers: TtsSpeaker[] } {

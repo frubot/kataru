@@ -351,7 +351,7 @@ function connectionSupportsCapability(
     capability: 'embeddings' | 'imageGeneration' | 'tts',
 ): boolean {
     return kind === 'openrouter'
-        || (kind === 'voicevox' && capability === 'tts')
+        || ((kind === 'voicevox' || kind === 'irodori') && capability === 'tts')
         || (kind === 'openai-compatible'
             && (capability === 'embeddings'
                 ? connection?.embeddingsEnabled ?? true
@@ -1290,7 +1290,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                             </div>
                             {ttsCapableConnections.length === 0 && (
                                 <p style={{ marginTop: '0.75rem', marginBottom: 0, fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                                    音声合成にはVOICEVOXの接続先、または「音声合成（TTS）を利用する」を有効にしたOpenAI互換の接続先が必要です。
+                                    音声合成にはVOICEVOXまたはIrodori TTSの接続先、または「音声合成（TTS）を利用する」を有効にしたOpenAI互換の接続先が必要です。
                                 </p>
                             )}
                         </div>

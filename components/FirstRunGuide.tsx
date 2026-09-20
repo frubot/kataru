@@ -49,6 +49,7 @@ const KIND_DEFAULT_BASE_URL: Record<AiConnectionKind, string> = {
     anthropic: ANTHROPIC_DEFAULT_BASE_URL,
     typesafe: TYPESAFE_DEFAULT_BASE_URL,
     voicevox: 'http://127.0.0.1:50021',
+    irodori: 'http://127.0.0.1:8088',
 };
 
 const CONNECTION_OPTIONS: readonly {

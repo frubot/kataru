@@ -33,6 +33,7 @@ pub const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 pub const DEFAULT_ANTHROPIC_BASE_URL: &str = "https://api.anthropic.com/v1";
 pub const DEFAULT_TYPESAFE_BASE_URL: &str = "https://api.typesafe.ai/v1";
 pub const DEFAULT_VOICEVOX_BASE_URL: &str = "http://127.0.0.1:50021";
+pub const DEFAULT_IRODORI_BASE_URL: &str = "http://127.0.0.1:8088";
 const CONFIG_FILE_NAME: &str = "server-config.json";
 const KEYRING_SERVICE: &str = "Kataru";
 
@@ -57,6 +58,8 @@ pub enum ConnectionKind {
     Typesafe,
     #[serde(rename = "voicevox")]
     Voicevox,
+    #[serde(rename = "irodori")]
+    Irodori,
 }
 
 impl ConnectionKind {
@@ -67,6 +70,7 @@ impl ConnectionKind {
             Self::Anthropic => "anthropic",
             Self::Typesafe => "typesafe",
             Self::Voicevox => "voicevox",
+            Self::Irodori => "irodori",
         }
     }
 
@@ -78,6 +82,7 @@ impl ConnectionKind {
             Self::Anthropic => "Anthropic 互換",
             Self::Typesafe => "TypeSafe AI",
             Self::Voicevox => "VOICEVOX",
+            Self::Irodori => "Irodori TTS",
         }
     }
 
@@ -94,6 +99,7 @@ impl ConnectionKind {
             "anthropic" => Some(Self::Anthropic),
             "typesafe" => Some(Self::Typesafe),
             "voicevox" => Some(Self::Voicevox),
+            "irodori" => Some(Self::Irodori),
             _ => None,
         }
     }
@@ -105,6 +111,7 @@ impl ConnectionKind {
             Self::Anthropic => DEFAULT_ANTHROPIC_BASE_URL,
             Self::Typesafe => DEFAULT_TYPESAFE_BASE_URL,
             Self::Voicevox => DEFAULT_VOICEVOX_BASE_URL,
+            Self::Irodori => DEFAULT_IRODORI_BASE_URL,
         }
     }
 
@@ -115,6 +122,7 @@ impl ConnectionKind {
             Self::Anthropic => "Anthropic",
             Self::Typesafe => "TypeSafe",
             Self::Voicevox => "VOICEVOX",
+            Self::Irodori => "Irodori TTS",
         }
     }
 
@@ -131,6 +139,7 @@ impl ConnectionKind {
             Self::Anthropic => "ANTHROPIC_API_KEY",
             Self::Typesafe => "TYPESAFE_API_KEY",
             Self::Voicevox => "VOICEVOX_API_KEY",
+            Self::Irodori => "IRODORI_API_KEY",
         }
     }
 }
@@ -296,6 +305,7 @@ impl PersistedConfig {
         ensure_builtin(&mut self.connections, ConnectionKind::Anthropic);
         ensure_builtin(&mut self.connections, ConnectionKind::Typesafe);
         ensure_builtin(&mut self.connections, ConnectionKind::Voicevox);
+        ensure_builtin(&mut self.connections, ConnectionKind::Irodori);
         self.version = 2;
 
         let mut seen = HashMap::new();
@@ -313,7 +323,7 @@ impl PersistedConfig {
             if kind.has_fixed_base_url() {
                 record.base_url = None;
             } else if let Some(base_url) = &record.base_url {
-                record.base_url = Some(normalize_api_base_url(base_url, kind.api_name())?);
+                record.base_url = Some(normalize_connection_base_url(base_url, kind)?);
             }
             if let Some(name) = &record.name {
                 record.name = normalize_name(name);
@@ -360,6 +370,8 @@ struct EnvironmentConfig {
     anthropic_api_key: Option<String>,
     typesafe_base_url: Option<String>,
     typesafe_api_key: Option<String>,
+    irodori_base_url: Option<String>,
+    irodori_api_key: Option<String>,
 }
 
 impl EnvironmentConfig {
@@ -392,6 +404,10 @@ impl EnvironmentConfig {
                     .is_some()
                     .then(|| DEFAULT_TYPESAFE_BASE_URL.to_owned())
             });
+        let irodori_api_key = nonempty_env("IRODORI_API_KEY");
+        let irodori_base_url = nonempty_env("IRODORI_BASE_URL")
+            .map(|value| normalize_connection_base_url(&value, ConnectionKind::Irodori))
+            .transpose()?;
 
         Ok(Self {
             openrouter_api_key,
@@ -401,6 +417,8 @@ impl EnvironmentConfig {
             anthropic_api_key,
             typesafe_base_url,
             typesafe_api_key,
+            irodori_base_url,
+            irodori_api_key,
         })
     }
 
@@ -411,6 +429,7 @@ impl EnvironmentConfig {
             ConnectionKind::Anthropic => self.anthropic_api_key.as_ref(),
             ConnectionKind::Typesafe => self.typesafe_api_key.as_ref(),
             ConnectionKind::Voicevox => None,
+            ConnectionKind::Irodori => self.irodori_api_key.as_ref(),
         }
     }
 
@@ -421,6 +440,7 @@ impl EnvironmentConfig {
             ConnectionKind::Anthropic => self.anthropic_base_url.as_ref(),
             ConnectionKind::Typesafe => self.typesafe_base_url.as_ref(),
             ConnectionKind::Voicevox => None,
+            ConnectionKind::Irodori => self.irodori_base_url.as_ref(),
         }
     }
 }
@@ -736,6 +756,7 @@ impl AiConfigManager {
                 ConnectionKind::OpenRouter | ConnectionKind::Voicevox => {
                     kind.env_api_key_name()
                 }
+                ConnectionKind::Irodori => "IRODORI_BASE_URL / IRODORI_API_KEY",
                 ConnectionKind::Typesafe => "TYPESAFE_BASE_URL / TYPESAFE_API_KEY",
             };
             return Err(environment_override(names));
@@ -759,7 +780,7 @@ impl AiConfigManager {
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .map(|value| normalize_api_base_url(value, input.kind.api_name()))
+            .map(|value| normalize_connection_base_url(value, input.kind))
             .transpose()?;
         let api_key = input
             .api_key
@@ -860,7 +881,7 @@ impl AiConfigManager {
                 let normalized = if base_url.trim().is_empty() {
                     None
                 } else {
-                    Some(normalize_api_base_url(base_url, kind.api_name())?)
+                    Some(normalize_connection_base_url(base_url, kind)?)
                 };
                 if normalized != record.base_url {
                     record.base_url = normalized;
@@ -1165,6 +1186,21 @@ fn normalize_api_base_url(value: &str, api_name: &str) -> AppResult<String> {
     let normalized_path = url.path().trim_end_matches('/').to_owned();
     url.set_path(&normalized_path);
     Ok(url.as_str().trim_end_matches('/').to_owned())
+}
+
+/// Per-kind base URL normalization. Irodori serves its API under `/v1`, so a
+/// user-supplied `/v1` suffix is folded away and routes re-append it; other
+/// kinds keep the value as entered.
+fn normalize_connection_base_url(value: &str, kind: ConnectionKind) -> AppResult<String> {
+    let normalized = normalize_api_base_url(value, kind.api_name())?;
+    if kind != ConnectionKind::Irodori {
+        return Ok(normalized);
+    }
+    let mut url = normalized.as_str();
+    while let Some(stripped) = url.strip_suffix("/v1") {
+        url = stripped;
+    }
+    Ok(url.to_owned())
 }
 
 fn is_loopback_url(url: &Url) -> bool {
@@ -1475,7 +1511,7 @@ fn print_config_status(status: &ConnectionsStatus) {
 
 fn print_config_help() {
     println!(
-        "Kataru config\n\n  config show\n  config get openai.base-url\n  config get anthropic.base-url\n  config set openrouter.api-key [--stdin]\n  config set openai.api-key [--stdin]\n  config set openai.base-url <URL>\n  config set anthropic.api-key [--stdin]\n  config set anthropic.base-url <URL>\n  config unset <KEY>\n  config connection add <openrouter|openai-compatible|anthropic|typesafe|voicevox> --name <NAME> [--base-url <URL>]\n  config connection remove <ID>\n  config connection set-key <ID> [--stdin]\n\n  --data-dir <PATH>  設定対象のデータ保存先\n  --portable         実行ファイル横の kataru-data を使用"
+        "Kataru config\n\n  config show\n  config get openai.base-url\n  config get anthropic.base-url\n  config set openrouter.api-key [--stdin]\n  config set openai.api-key [--stdin]\n  config set openai.base-url <URL>\n  config set anthropic.api-key [--stdin]\n  config set anthropic.base-url <URL>\n  config unset <KEY>\n  config connection add <openrouter|openai-compatible|anthropic|typesafe|voicevox|irodori> --name <NAME> [--base-url <URL>]\n  config connection remove <ID>\n  config connection set-key <ID> [--stdin]\n\n  --data-dir <PATH>  設定対象のデータ保存先\n  --portable         実行ファイル横の kataru-data を使用"
     );
 }
 
@@ -1706,7 +1742,7 @@ mod tests {
         // but none of them are listed.
         assert!(manager.status().connections.is_empty());
         let effective = manager.effective();
-        assert_eq!(effective.connections.len(), 5);
+        assert_eq!(effective.connections.len(), 6);
         let openrouter = effective.connection("openrouter").unwrap();
         assert_eq!(openrouter.name, "OpenRouter");
         assert_eq!(openrouter.base_url, OPENROUTER_BASE_URL);
@@ -1729,6 +1765,10 @@ mod tests {
         assert_eq!(
             effective.connection("voicevox").unwrap().base_url,
             DEFAULT_VOICEVOX_BASE_URL
+        );
+        assert_eq!(
+            effective.connection("irodori").unwrap().base_url,
+            DEFAULT_IRODORI_BASE_URL
         );
 
         // Any stored configuration lists the built-in again.
@@ -1799,6 +1839,7 @@ mod tests {
                 anthropic_api_key: Some("anthropic-env".to_owned()),
                 typesafe_base_url: Some(DEFAULT_TYPESAFE_BASE_URL.to_owned()),
                 typesafe_api_key: Some("typesafe-env".to_owned()),
+                ..EnvironmentConfig::default()
             },
             Arc::new(MemorySecretStore::default()),
         )
@@ -1915,7 +1956,7 @@ mod tests {
 
         let manager = AiConfigManager::open(directory.path()).unwrap();
         let effective = manager.effective();
-        assert_eq!(effective.connections.len(), 5);
+        assert_eq!(effective.connections.len(), 6);
         assert_eq!(
             effective.connection("openai-compatible").unwrap().base_url,
             "http://127.0.0.1:1234/v1"
@@ -1939,7 +1980,7 @@ mod tests {
         let saved: serde_json::Value =
             serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
         assert_eq!(saved["version"], 2);
-        assert!(saved["connections"].as_array().unwrap().len() == 5);
+        assert!(saved["connections"].as_array().unwrap().len() == 6);
         assert!(saved.get("openai").is_none());
     }
 
@@ -2199,7 +2240,7 @@ mod tests {
         );
         // Only the unlisted built-ins exist and nothing was persisted.
         assert!(manager.status().connections.is_empty());
-        assert_eq!(manager.effective().connections.len(), 5);
+        assert_eq!(manager.effective().connections.len(), 6);
         assert!(!directory.path().join(CONFIG_FILE_NAME).exists());
     }
 

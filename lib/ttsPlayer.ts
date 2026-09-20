@@ -13,7 +13,9 @@ export interface TtsEntryState {
 export interface TtsRequestParams {
     roomId: string;
     messageId: string;
-    text: string;
+    /** 読み上げテキストのセグメント。*...* の動作描写で区切られた箇所ごとに
+     * 分割され、順に合成・再生される（動作の分だけ小さな間が入る）。 */
+    texts: string[];
     profile: TtsProfile;
     aiApiConfig: AiApiConfig;
 }
@@ -22,7 +24,8 @@ interface TtsEntry {
     roomId: string;
     messageId: string;
     cacheKey: string;
-    objectUrl: string | null;
+    objectUrls: string[];
+    segmentIndex: number;
     byteSize: number;
     status: TtsPlaybackStatus;
     error: string | null;
@@ -52,7 +55,17 @@ let activeEntry: TtsEntry | null = null;
 let playbackGeneration = 0;
 /** 生成中のfetchをentry単位で共有する。プリフェッチ中にページ送りされても
  * playNowが同じpromiseをawaitするため、音声生成リクエストが重複しない。 */
-const inflightFetches = new Map<TtsEntry, { cacheKey: string; promise: Promise<Blob> }>();
+const inflightFetches = new Map<TtsEntry, { cacheKey: string; promise: Promise<Blob[]> }>();
+/** *...* で区切られたセグメントの間に挟む小さなポーズ（動作描写の間）。 */
+const SEGMENT_GAP_MS = 350;
+let segmentGapTimer: number | null = null;
+
+function clearSegmentGap(): void {
+    if (segmentGapTimer !== null) {
+        window.clearTimeout(segmentGapTimer);
+        segmentGapTimer = null;
+    }
+}
 
 function emitTts(): void {
     for (const listener of listeners) listener();
@@ -111,7 +124,8 @@ function ensureEntry(params: TtsRequestParams): TtsEntry {
             roomId: params.roomId,
             messageId: params.messageId,
             cacheKey: '',
-            objectUrl: null,
+            objectUrls: [],
+            segmentIndex: 0,
             byteSize: 0,
             status: 'loading',
             error: null,
@@ -127,30 +141,36 @@ function ttsErrorMessage(error: unknown): string {
         : '音声を生成できませんでした。';
 }
 
-async function fetchTtsAudio(params: TtsRequestParams): Promise<Blob> {
-    const response = await fetch('/api/tts', {
-        method: 'POST',
-        cache: 'no-store',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            text: params.text,
-            voice: params.profile.voice,
-            speed: params.profile.speed,
-            connectionId: params.profile.connectionId,
-            model: params.profile.model || undefined,
-            aiApiConfig: params.aiApiConfig,
-        }),
-    });
-    if (!response.ok) {
-        const body: unknown = await response.json().catch(() => null);
-        const message = body && typeof body === 'object' && 'error' in body
-            && typeof body.error === 'string'
-            ? body.error
-            : '音声を生成できませんでした。';
-        throw new Error(message);
+async function fetchTtsAudio(params: TtsRequestParams): Promise<Blob[]> {
+    const blobs: Blob[] = [];
+    // セグメントは順に1リクエストずつ送る。単一キューのエンジン（Irodori等）
+    // に同時リクエストで待たせないため。
+    for (const text of params.texts) {
+        const response = await fetch('/api/tts', {
+            method: 'POST',
+            cache: 'no-store',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                text,
+                voice: params.profile.voice,
+                speed: params.profile.speed,
+                connectionId: params.profile.connectionId,
+                model: params.profile.model || undefined,
+                aiApiConfig: params.aiApiConfig,
+            }),
+        });
+        if (!response.ok) {
+            const body: unknown = await response.json().catch(() => null);
+            const message = body && typeof body === 'object' && 'error' in body
+                && typeof body.error === 'string'
+                ? body.error
+                : '音声を生成できませんでした。';
+            throw new Error(message);
+        }
+        blobs.push(await response.blob());
     }
-    return response.blob();
+    return blobs;
 }
 
 function isPlaybackActive(): boolean {
@@ -180,13 +200,32 @@ function handlePlayEvent(): void {
 }
 
 function handleEndedEvent(): void {
-    if (activeEntry && activeEntry.status !== 'error') {
-        setEntryStatus(activeEntry, 'paused', null);
+    const entry = activeEntry;
+    if (entry && entry.status !== 'error') {
+        const nextIndex = entry.segmentIndex + 1;
+        if (nextIndex < entry.objectUrls.length && audio) {
+            // *...* で区切られた次の文へ。動作描写の分だけ小さな間を置く。
+            entry.segmentIndex = nextIndex;
+            audio.src = entry.objectUrls[nextIndex];
+            const generation = playbackGeneration;
+            segmentGapTimer = window.setTimeout(() => {
+                segmentGapTimer = null;
+                if (generation === playbackGeneration
+                    && activeEntry === entry
+                    && entry.status === 'playing'
+                    && audio) {
+                    void audio.play().catch(() => handleAudioErrorEvent());
+                }
+            }, SEGMENT_GAP_MS);
+            return;
+        }
+        setEntryStatus(entry, 'paused', null);
     }
     advanceQueue();
 }
 
 function handleAudioErrorEvent(): void {
+    clearSegmentGap();
     if (activeEntry && activeEntry.status !== 'error') {
         setEntryStatus(activeEntry, 'error', '音声を再生できませんでした。');
     }
@@ -255,14 +294,16 @@ export function getTtsAudioLevel(): number {
  * volumeは再生時に反映されるだけなので含めない。 */
 function ttsCacheKey(params: TtsRequestParams): string {
     const { connectionId, model, voice, speed } = params.profile;
-    return JSON.stringify([params.text, connectionId, model, voice, speed]);
+    return JSON.stringify([params.texts, connectionId, model, voice, speed]);
 }
 
 function dropEntryAudio(entry: TtsEntry): void {
-    if (entry.objectUrl) {
-        URL.revokeObjectURL(entry.objectUrl);
+    if (entry.objectUrls.length > 0) {
+        for (const url of entry.objectUrls) {
+            URL.revokeObjectURL(url);
+        }
         cachedAudioBytes -= entry.byteSize;
-        entry.objectUrl = null;
+        entry.objectUrls = [];
         entry.byteSize = 0;
     }
     audioCacheOrder.delete(entry);
@@ -282,11 +323,12 @@ function evictAudioCache(): void {
 
 async function playNow(params: TtsRequestParams): Promise<void> {
     const element = getAudio();
-    if (!element) return;
+    if (!element || params.texts.length === 0) return;
     setTtsPlaybackVolume(params.profile.volume);
     const generation = ++playbackGeneration;
     // 常に1本だけ再生する。前のエントリは paused に留める。
     element.pause();
+    clearSegmentGap();
     markActivePaused();
     const entry = ensureEntry(params);
     activeEntry = entry;
@@ -295,10 +337,10 @@ async function playNow(params: TtsRequestParams): Promise<void> {
     try {
         // 同一の合成条件でキャッシュ済みの音声のみ再利用する
         // （同id再生成や設定変更へのガード）。
-        if (!entry.objectUrl || entry.cacheKey !== cacheKey) {
+        if (entry.objectUrls.length === 0 || entry.cacheKey !== cacheKey) {
             // プリフェッチ中の同条件fetchがあれば待ち合わせて再利用する。
             const inflight = inflightFetches.get(entry);
-            const blob = inflight && inflight.cacheKey === cacheKey
+            const blobs = inflight && inflight.cacheKey === cacheKey
                 ? await inflight.promise
                 : await fetchTtsAudio(params);
             // 追い越された結果は破棄する。新しい再生がentryのURLを使っている
@@ -308,18 +350,19 @@ async function playNow(params: TtsRequestParams): Promise<void> {
                 return;
             }
             dropEntryAudio(entry);
-            entry.objectUrl = URL.createObjectURL(blob);
-            entry.byteSize = blob.size;
+            entry.objectUrls = blobs.map((blob) => URL.createObjectURL(blob));
+            entry.byteSize = blobs.reduce((total, blob) => total + blob.size, 0);
             entry.cacheKey = cacheKey;
             audioCacheOrder.add(entry);
-            cachedAudioBytes += blob.size;
+            cachedAudioBytes += entry.byteSize;
             evictAudioCache();
         } else {
             // 再利用もLRUの新しい側へ移す。
             audioCacheOrder.delete(entry);
             audioCacheOrder.add(entry);
         }
-        element.src = entry.objectUrl;
+        entry.segmentIndex = 0;
+        element.src = entry.objectUrls[0];
         // resume() must run inside the playback gesture's transient activation
         // on iOS; the 'play' event arrives too late.
         void audioContext?.resume().catch(() => {});
@@ -364,16 +407,16 @@ export function enqueueTtsPlayback(params: TtsRequestParams): void {
  * ページ送り時に生成待ちで間が空くのを防ぐプリフェッチ。生成済み・同一条件で
  * 生成中なら何もしない。再生中のentryはplayNowが管理するので触らない。 */
 export function prefetchTtsAudio(params: TtsRequestParams): void {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || params.texts.length === 0) return;
     const entry = ensureEntry(params);
     if (entry === activeEntry) return;
     const cacheKey = ttsCacheKey(params);
-    if (entry.objectUrl && entry.cacheKey === cacheKey) return;
+    if (entry.objectUrls.length > 0 && entry.cacheKey === cacheKey) return;
     if (inflightFetches.get(entry)?.cacheKey === cacheKey) return;
     const promise = fetchTtsAudio(params);
     inflightFetches.set(entry, { cacheKey, promise });
     setEntryStatus(entry, 'loading', null);
-    promise.then((blob) => {
+    promise.then((blobs) => {
         // 新しいプリフェッチに追い越された結果は捨てる。
         if (inflightFetches.get(entry)?.promise !== promise) return;
         inflightFetches.delete(entry);
@@ -381,12 +424,12 @@ export function prefetchTtsAudio(params: TtsRequestParams): void {
         const registered = entriesByRoom.get(entry.roomId)?.get(entry.messageId) === entry;
         if (!registered || entry === activeEntry) return;
         dropEntryAudio(entry);
-        entry.objectUrl = URL.createObjectURL(blob);
-        entry.byteSize = blob.size;
+        entry.objectUrls = blobs.map((blob) => URL.createObjectURL(blob));
+        entry.byteSize = blobs.reduce((total, blob) => total + blob.size, 0);
         entry.cacheKey = cacheKey;
         audioCacheOrder.delete(entry);
         audioCacheOrder.add(entry);
-        cachedAudioBytes += blob.size;
+        cachedAudioBytes += entry.byteSize;
         evictAudioCache();
         if (entry.status === 'loading') setEntryStatus(entry, 'paused', null);
     }, () => {
@@ -403,6 +446,7 @@ export function pauseTtsPlayback(): void {
     if (typeof window === 'undefined') return;
     // 取得中のfetchが解決しても再生へ進まず paused に留まるようにする。
     playbackGeneration += 1;
+    clearSegmentGap();
     if (audio) audio.pause();
     markActivePaused();
 }
@@ -410,8 +454,9 @@ export function pauseTtsPlayback(): void {
 export function resumeTtsPlayback(): void {
     if (typeof window === 'undefined' || !audio) return;
     const entry = activeEntry;
-    if (!entry || entry.status !== 'paused' || !entry.objectUrl) return;
-    if (audio.src !== entry.objectUrl) audio.src = entry.objectUrl;
+    if (!entry || entry.status !== 'paused' || entry.objectUrls.length === 0) return;
+    const src = entry.objectUrls[entry.segmentIndex];
+    if (audio.src !== src) audio.src = src;
     void audioContext?.resume().catch(() => {});
     void audio.play().catch((error: unknown) => {
         if (activeEntry === entry) setEntryStatus(entry, 'error', ttsErrorMessage(error));
@@ -422,6 +467,7 @@ export function stopTtsPlayback(): void {
     if (typeof window === 'undefined') return;
     queue.length = 0;
     playbackGeneration += 1;
+    clearSegmentGap();
     if (audio) audio.pause();
     markActivePaused();
 }

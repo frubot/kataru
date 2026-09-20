@@ -39,7 +39,7 @@ export default function TtsPreviewButton({ previewId, profile, disabled = false 
         void requestTtsPlayback({
             roomId: PREVIEW_ROOM_ID,
             messageId: previewId,
-            text: PREVIEW_TEXT,
+            texts: [PREVIEW_TEXT],
             profile,
             aiApiConfig: { ...state.getAiApiConfig(), connectionId: profile.connectionId },
         }).catch(() => {});

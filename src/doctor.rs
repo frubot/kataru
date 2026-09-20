@@ -528,6 +528,7 @@ fn models_path(kind: ConnectionKind) -> &'static str {
         ConnectionKind::Anthropic => "models?limit=1",
         ConnectionKind::Typesafe => "models",
         ConnectionKind::Voicevox => "speakers",
+        ConnectionKind::Irodori => "v1/models",
     }
 }
 
@@ -541,11 +542,11 @@ struct ConfiguredConnection<'a> {
 }
 
 /// A connection counts as configured when it appears in the settings list and
-/// holds a credential, is a VOICEVOX engine, or is an OpenAI-compatible
-/// connection pointed at a non-default (typically local) host, matching the
-/// request-time local-key fallback. Built-in placeholders that were never
-/// configured stay unlisted and are skipped — in particular an untouched
-/// VOICEVOX must not be probed at 127.0.0.1:50021.
+/// holds a credential, is a keyless-capable engine (VOICEVOX, Irodori), or is
+/// an OpenAI-compatible connection pointed at a non-default (typically local)
+/// host, matching the request-time local-key fallback. Built-in placeholders
+/// that were never configured stay unlisted and are skipped — in particular
+/// an untouched VOICEVOX must not be probed at 127.0.0.1:50021.
 fn configured_connections(config: &EffectiveAiConfig) -> Vec<ConfiguredConnection<'_>> {
     config
         .connections
@@ -553,7 +554,10 @@ fn configured_connections(config: &EffectiveAiConfig) -> Vec<ConfiguredConnectio
         .filter(|connection| {
             connection.listed
                 && (connection.api_key.is_some()
-                    || connection.kind == ConnectionKind::Voicevox
+                    || matches!(
+                        connection.kind,
+                        ConnectionKind::Voicevox | ConnectionKind::Irodori
+                    )
                     || (connection.kind == ConnectionKind::OpenAiCompatible
                         && connection.base_url != DEFAULT_OPENAI_BASE_URL))
         })

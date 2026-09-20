@@ -24,7 +24,7 @@ const noteStyle = {
 } as const;
 
 /** Voice input shared by the global TTS settings and per-character overrides.
- * VOICEVOX接続では話者一覧から選び、それ以外ではモデル固有の声名を入力する。 */
+ * VOICEVOX/Irodori接続ではvoice一覧から選び、それ以外ではモデル固有の声名を入力する。 */
 export default function TtsVoiceField({
     connectionId,
     value,
@@ -41,8 +41,10 @@ export default function TtsVoiceField({
     const [error, setError] = useState<string | null>(null);
     const [reloadToken, setReloadToken] = useState(0);
 
+    const listsVoices = kind === 'voicevox' || kind === 'irodori';
+
     useEffect(() => {
-        if (kind !== 'voicevox' || !connectionId) {
+        if (!listsVoices || !connectionId) {
             setSpeakers([]);
             setLoading(false);
             setError(null);
@@ -66,7 +68,7 @@ export default function TtsVoiceField({
         return () => {
             cancelled = true;
         };
-    }, [connectionId, kind, reloadToken]);
+    }, [connectionId, listsVoices, reloadToken]);
 
     const retry = useCallback(() => setReloadToken((token) => token + 1), []);
 
@@ -83,7 +85,7 @@ export default function TtsVoiceField({
         />
     );
 
-    if (kind !== 'voicevox') return textInput;
+    if (!listsVoices) return textInput;
 
     if (error) {
         return (

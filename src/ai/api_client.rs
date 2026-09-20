@@ -121,7 +121,12 @@ impl AiApiClient {
                 && connection.base_url != DEFAULT_OPENAI_BASE_URL)
                 .then(|| LOCAL_API_KEY_FALLBACK.to_owned())
         });
-        if api_key.is_none() && connection.kind != ConnectionKind::Voicevox {
+        if api_key.is_none()
+            && !matches!(
+                connection.kind,
+                ConnectionKind::Voicevox | ConnectionKind::Irodori
+            )
+        {
             return Err(missing_api_key_error(connection));
         }
 
@@ -159,6 +164,10 @@ impl AiApiClient {
         self.kind == ConnectionKind::Voicevox
     }
 
+    pub fn is_irodori(&self) -> bool {
+        self.kind == ConnectionKind::Irodori
+    }
+
     pub fn connection_id(&self) -> &str {
         &self.connection_id
     }
@@ -178,6 +187,7 @@ impl AiApiClient {
     pub fn tts_enabled(&self) -> bool {
         self.is_openrouter()
             || self.is_voicevox()
+            || self.is_irodori()
             || (self.is_openai_compatible() && self.tts_enabled)
     }
 
@@ -373,6 +383,7 @@ fn missing_api_key_error(connection: &EffectiveConnection) -> AppError {
             ConnectionKind::Anthropic => "Anthropic APIキーが設定されていません。設定画面または `kataru config set anthropic.api-key` で設定してください。".to_owned(),
             ConnectionKind::Typesafe => "TypeSafe AI APIキーが設定されていません。設定画面または環境変数 TYPESAFE_API_KEY で設定してください。".to_owned(),
             ConnectionKind::Voicevox => "VOICEVOX接続の設定が不正です。".to_owned(),
+            ConnectionKind::Irodori => "Irodori TTS接続の設定が不正です。".to_owned(),
         }
     } else {
         format!(
@@ -458,6 +469,9 @@ fn safe_upstream_operation(operation: &str) -> &'static str {
         "audio_query" => "audio_query",
         "synthesis" => "synthesis",
         "speakers" => "speakers",
+        "v1/audio/speech" => "v1/audio/speech",
+        "v1/audio/voices" => "v1/audio/voices",
+        "v1/models" => "v1/models",
         _ => "other",
     }
 }

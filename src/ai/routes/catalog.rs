@@ -229,6 +229,8 @@ pub async fn connection_status(
 
     let probe_path = if api_client.is_voicevox() {
         "speakers"
+    } else if api_client.is_irodori() {
+        "v1/models"
     } else {
         "models"
     };
@@ -321,6 +323,20 @@ async fn fetch_models(
     // VOICEVOX is a TTS engine without a model catalog.
     if api_client.is_voicevox() {
         return Ok(Vec::new());
+    }
+    // Irodori is a TTS server: it serves exactly its speech model catalog.
+    if api_client.is_irodori() {
+        if output_modality != ModelOutputModality::Speech {
+            return Ok(Vec::new());
+        }
+        let response = api_client
+            .send_get("v1/models", Duration::from_secs(15))
+            .await?;
+        if !response.status().is_success() {
+            return Err(upstream_error(response).await);
+        }
+        let data = response.json::<Value>().await.map_err(map_request_error)?;
+        return Ok(normalize_models_response(&data));
     }
     // Decision (System One) models exist only on TypeSafe-compatible
     // connections and on OpenRouter; TypeSafe itself serves nothing else.
@@ -510,6 +526,7 @@ pub async fn run_models_cli_command_if_requested() -> AppResult<bool> {
             ],
             ConnectionKind::Typesafe => &[ModelOutputModality::Decisions],
             ConnectionKind::Voicevox => &[],
+            ConnectionKind::Irodori => &[ModelOutputModality::Speech],
             _ => &[ModelOutputModality::Text],
         };
         for &modality in modalities {
@@ -526,10 +543,12 @@ pub async fn run_models_cli_command_if_requested() -> AppResult<bool> {
     Ok(true)
 }
 
-/// A connection is refreshable when it has a credential, or when it is an
-/// OpenAI-compatible connection pointed at a custom (typically local) host.
+/// A connection is refreshable when it has a credential, is a keyless-capable
+/// local engine, or is an OpenAI-compatible connection pointed at a custom
+/// (typically local) host.
 fn connection_configured(connection: &EffectiveConnection) -> bool {
     connection.api_key.is_some()
+        || (connection.kind == ConnectionKind::Irodori && connection.listed)
         || (connection.kind == ConnectionKind::OpenAiCompatible
             && connection.base_url != DEFAULT_OPENAI_BASE_URL)
 }

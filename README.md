@@ -2,18 +2,18 @@
 
 Kataruは、AIキャラクターとの1対1の会話や、複数キャラクターが織りなすシチュエーションを楽しめる、ローカルファーストなロールプレイチャットアプリです。
 
-OpenRouter、OpenAI互換API、Anthropic APIに対応しています。会話の指揮判定にはTypeSafe AI (Jev)、音声読み上げにはVOICEVOXも接続できます。
+OpenRouter、OpenAI互換API、Anthropic APIに対応しています。会話の指揮判定にはTypeSafe AI (Jev)、音声読み上げにはVOICEVOXやIrodori TTS Serverも接続できます。
 
 ## 主な機能
 
 - **柔軟なキャラクター管理**: フォルダ分けによる整理、モデルやプロンプト、生成パラメータ、接続先の個別設定
-- **複数のAI接続先**: OpenRouter / OpenAI互換 / Anthropic互換 / TypeSafe AI / VOICEVOX の接続先を複数登録し、キャラクターや用途別モデルごとに使い分け
+- **複数のAI接続先**: OpenRouter / OpenAI互換 / Anthropic互換 / TypeSafe AI / VOICEVOX / Irodori TTS の接続先を複数登録し、キャラクターや用途別モデルごとに使い分け
 - **表情・衣装の差分管理**: 立ち絵の登録やAIによる画像生成
 - **3Dアバター（VRM）対応**: VRM 0.x / 1.0 の3Dアバターを衣装として登録し、ゲームモードで表示・操作
 - **3種類の表示モード**: ベーシック、メッセージ（チャット風）、ゲーム（ビジュアルノベル風）
 - **シチュエーション会話**: 複数キャラクターが参加するグループ会話
 - **指揮役（オーケストレーター）モデル**: 発言順や会話の展開をAIが自律的に制御。LLMとSystem One (Jev) の2種類のエンジンから選択可能
-- **音声読み上げ（TTS）**: OpenAI互換API、OpenRouter、VOICEVOXの音声合成でAIの返答を再生。
+- **音声読み上げ（TTS）**: OpenAI互換API、OpenRouter、VOICEVOX、Irodori TTS Serverの音声合成でAIの返答を再生。
 - **長期記憶と自動要約**: 長期記憶（メモリ）の参照と会話履歴の自動要約により、長期的な文脈を維持
 - **使用統計**: トークン消費量や利用コストの可視化
 - **シークレットモード**: 会話履歴、要約、メモリ、使用量を一切保存しない一時利用モード
@@ -25,7 +25,7 @@ OpenRouter、OpenAI互換API、Anthropic APIに対応しています。会話の
 - npm
 - Rust stable ツールチェーン（Cargo を含む）
 - OpenRouter / OpenAI / Anthropic いずれかのAPIキー、またはローカル等で稼働中の互換APIサーバー
-- （読み上げ機能を使う場合）ローカルで起動したVOICEVOXエンジン、または音声合成に対応しているAPI
+- （読み上げ機能を使う場合）ローカルで起動したVOICEVOXエンジンまたはIrodori TTS Server、あるいは音声合成に対応しているAPI
 
 ## セットアップ
 
@@ -139,6 +139,21 @@ CLIから設定する場合:
 kataru config connection add voicevox --name "VOICEVOX" --base-url http://127.0.0.1:50021
 ```
 
+#### 6. Irodori TTS を使う場合
+
+音声読み上げ（TTS）専用の接続先です。[Irodori-TTS-Server](https://github.com/Aratako/Irodori-TTS-Server)に接続します。APIキーは省略できます（サーバー側で `IRODORI_API_KEY` を設定している場合のみ必要です）。
+
+「設定」→「モデル」→「接続先」で「接続先を追加」から種類「Irodori TTS」を選び、エンドポイントを設定します（デフォルト: `http://127.0.0.1:8088`）。末尾の `/v1` は付けても自動的に取り除かれます。
+
+CLIから設定する場合:
+
+```bash
+kataru config connection add irodori --name "Irodori TTS" --base-url http://127.0.0.1:8088
+```
+
+環境変数で指定する場合:
+`IRODORI_BASE_URL` と `IRODORI_API_KEY` が利用可能です。
+
 ## 開発
 
 ```bash
@@ -218,7 +233,7 @@ kataru config unset openai.api-key
 #### 接続先の追加・削除（CLI）
 
 ```bash
-kataru config connection add <openrouter|openai-compatible|anthropic|typesafe|voicevox> --name <NAME> [--base-url <URL>]
+kataru config connection add <openrouter|openai-compatible|anthropic|typesafe|voicevox|irodori> --name <NAME> [--base-url <URL>]
 kataru config connection set-key <ID>            # APIキーを対話入力
 kataru config connection set-key <ID> --stdin    # APIキーを標準入力から読み取り
 kataru config connection remove <ID>
@@ -263,12 +278,12 @@ npm run check:release-version -- vX.Y.Z
 
 AIの返答を音声で再生できます。「設定」→「モデル」→「音声合成（TTS）」で接続先・モデル・声・速度・音量を設定します。
 
-- **対応する接続先**: VOICEVOX接続、「音声合成（TTS）を利用する」を有効にしたOpenAI互換接続、OpenRouter接続
-- **声の指定**: VOICEVOX接続では話者一覧からキャラクター・スタイルを選択できます。その他の接続先ではモデル固有の声名（例: `alloy`）を入力します
+- **対応する接続先**: VOICEVOX接続、Irodori TTS接続、「音声合成（TTS）を利用する」を有効にしたOpenAI互換接続、OpenRouter接続
+- **声の指定**: VOICEVOX接続では話者一覧からキャラクター・スタイルを、Irodori TTS接続ではサーバーに登録済みのvoiceを一覧から選択できます。その他の接続先ではモデル固有の声名（例: `alloy`）を入力します
 - **再生方法**: 各メッセージの読み上げボタンで個別に再生するほか、「新しい返答を自動で読み上げる」を有効にすると新着の返答を自動再生します。ゲームモードでは表示中のページ単位で読み上げます
 - **キャラクター個別設定**: キャラクター設定の「高度な設定」から声・速度・音量を個別に上書きできます
 - **VRMリップシンク**: ゲームモードでVRMアバターを表示している場合、読み上げ音声の音量に連動して口が動きます（モデルに `aa` / `a` 表情が必要です）
-- **読み上げ対象**: メッセージ本文のテキスト部分のみが対象です（`*...*` の動作描写やMarkdown記法は除外されます）
+- **読み上げ対象**: メッセージ本文のテキスト部分のみが対象です（`*...*` の動作描写やMarkdown記法は除外されます）。`*...*` で区切られた箇所は別々に合成され、動作描写の分だけわずかな間を置いて連続再生されます
 ## データ管理とバックアップ
 
 ### 3Dアバター（VRM）の利用
@@ -327,7 +342,7 @@ components/          チャット、設定、キャラクター編集などのUI
 lib/                 状態管理、APIクライアント、データ処理
 src/main.rs          Axumサーバー起動、ルーティング、アクセス保護
 src/ai_config.rs     CLIおよびWeb UI向けのAI接続設定管理
-src/ai/              OpenRouter / OpenAI互換 / Anthropic / TypeSafe / VOICEVOX APIクライアント、生成・音声合成API
+src/ai/              OpenRouter / OpenAI互換 / Anthropic / TypeSafe / VOICEVOX / Irodori APIクライアント、生成・音声合成API
 src/conversation/    会話生成、自動要約、指揮役（オーケストレーター）、長期記憶
 src/db/              SQLiteデータベース操作・ストレージコマンド
 migrations/          SQLiteマイグレーションファイル

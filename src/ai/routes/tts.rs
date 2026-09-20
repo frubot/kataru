@@ -23,6 +23,10 @@ use super::{
 };
 
 const TTS_TEXT_LIMIT: usize = 4000;
+const IRODORI_DEFAULT_MODEL: &str = "irodori-tts";
+// Irodori serializes synthesis behind a queue whose wait timeout defaults to
+// 300 s; allow headroom beyond that for the synthesis itself.
+const IRODORI_TIMEOUT_SECS: u64 = 420;
 
 pub async fn synthesize_speech(
     State(state): State<AppState>,
@@ -48,6 +52,9 @@ pub async fn synthesize_speech(
 
     if api_client.is_voicevox() {
         return synthesize_voicevox(&api_client, &text, &voice, speed).await;
+    }
+    if api_client.is_irodori() {
+        return synthesize_irodori(&api_client, &text, &voice, speed, model).await;
     }
     if !api_client.tts_enabled() {
         return Err(AppError::BadRequest(if api_client.is_openai_compatible() {
@@ -116,6 +123,29 @@ async fn synthesize_voicevox(
     audio_response(synthesis, "audio/wav").await
 }
 
+async fn synthesize_irodori(
+    api_client: &AiApiClient,
+    text: &str,
+    voice: &str,
+    speed: f64,
+    model: Option<String>,
+) -> AppResult<Response> {
+    let upstream = api_client
+        .send_json(
+            "v1/audio/speech",
+            &json!({
+                "model": model.unwrap_or_else(|| IRODORI_DEFAULT_MODEL.to_owned()),
+                "input": text,
+                "voice": voice,
+                "response_format": "wav",
+                "speed": speed,
+            }),
+            IRODORI_TIMEOUT_SECS,
+        )
+        .await?;
+    audio_response(upstream, "audio/wav").await
+}
+
 async fn audio_response(
     response: reqwest::Response,
     fallback_content_type: &'static str,
@@ -144,6 +174,9 @@ pub async fn list_tts_speakers(
 ) -> AppResult<Response> {
     let connection_id = optional_trimmed_string(&input, "connectionId");
     let api_client = ai_api_client_for_connection(&state, &input, connection_id.as_deref())?;
+    if api_client.is_irodori() {
+        return list_irodori_voices(&api_client).await;
+    }
     if !api_client.is_voicevox() {
         return Err(AppError::BadRequest(
             "この接続先はVOICEVOXではありません。".to_owned(),
@@ -173,6 +206,30 @@ pub async fn list_tts_speakers(
                     .collect::<Vec<_>>(),
             })
         })
+        .collect::<Vec<_>>();
+    Ok(Json(json!({ "speakers": speakers })).into_response())
+}
+
+/// Irodori exposes a voice registry at `GET /v1/audio/voices`; translate its
+/// `{object: "list", data: [{id, ...}]}` payload into the speaker shape the
+/// UI already understands. Voice ids are strings, kept as-is in `styles[].id`.
+async fn list_irodori_voices(api_client: &AiApiClient) -> AppResult<Response> {
+    let data = read_upstream_json(
+        api_client,
+        api_client
+            .send_get("v1/audio/voices", Duration::from_secs(15))
+            .await?,
+    )
+    .await?;
+    let speakers = data
+        .get("data")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|voice| voice.get("id").and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(|id| json!({ "name": id, "styles": [{ "id": id, "name": id }] }))
         .collect::<Vec<_>>();
     Ok(Json(json!({ "speakers": speakers })).into_response())
 }

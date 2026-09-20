@@ -221,7 +221,7 @@ async fn list_irodori_voices(api_client: &AiApiClient) -> AppResult<Response> {
             .await?,
     )
     .await?;
-    let speakers = data
+    let mut ids = data
         .get("data")
         .and_then(Value::as_array)
         .into_iter()
@@ -229,7 +229,16 @@ async fn list_irodori_voices(api_client: &AiApiClient) -> AppResult<Response> {
         .filter_map(|voice| voice.get("id").and_then(Value::as_str))
         .map(str::trim)
         .filter(|id| !id.is_empty())
-        .map(|id| json!({ "name": id, "styles": [{ "id": id, "name": id }] }))
+        .collect::<Vec<_>>();
+    // "none" (参照音声なしの自動生成) は特殊なので末尾に回し、表示名を
+    // 空の「なし」選択肢と紛らわしくないものに変える。
+    ids.sort_by_key(|id| *id == "none");
+    let speakers = ids
+        .iter()
+        .map(|id| {
+            let label = if *id == "none" { "参照なし（自動生成）" } else { id };
+            json!({ "name": label, "styles": [{ "id": id, "name": label }] })
+        })
         .collect::<Vec<_>>();
     Ok(Json(json!({ "speakers": speakers })).into_response())
 }

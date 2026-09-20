@@ -112,13 +112,19 @@ export default function TtsVoiceField({
 
     const options: OptionSelectorItem[] = [
         { value: '', label: emptyLabel },
-        ...speakers.map((speaker) => ({
-            label: speaker.name,
-            options: speaker.styles.map((style) => ({
-                value: String(style.id),
-                label: style.name,
-            })),
-        })),
+        ...speakers.map((speaker): OptionSelectorItem => (
+            // スタイルが話者と同名1つだけなら、見出しと選択肢が重複するので
+            // 見出しなしの単一選択肢に畳む（Irodoriのvoice一覧など）。
+            speaker.styles.length === 1 && speaker.styles[0].name === speaker.name
+                ? { value: String(speaker.styles[0].id), label: speaker.name }
+                : {
+                    label: speaker.name,
+                    options: speaker.styles.map((style) => ({
+                        value: String(style.id),
+                        label: style.name,
+                    })),
+                }
+        )),
         ...(value !== '' && !hasValue ? [{ value, label: value }] : []),
     ];
 

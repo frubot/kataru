@@ -1797,6 +1797,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+  min-width: 0;
 }
 
 .ai-connection-heading strong {
@@ -1809,6 +1810,10 @@ body {
   color: var(--text-muted);
   font-size: 0.75rem;
   line-height: 1.5;
+}
+
+.ai-connection-heading > div > span {
+  overflow-wrap: anywhere;
 }
 
 .ai-connection-label {
@@ -4977,6 +4982,30 @@ body {
   .settings-modal-close {
     top: 0.5rem;
     right: 0.75rem;
+  }
+
+  /* 接続先カードの見出しは、名前とバッジを横並びにするとカード幅からはみ出すため縦積みにする */
+  .ai-connection-heading {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  .ai-connection-heading-side {
+    flex-wrap: wrap;
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .ai-connection-badges {
+    flex-shrink: 1;
+    min-width: 0;
+    justify-content: flex-start;
+  }
+
+  .ai-connection-icon-button {
+    width: 2.25rem;
+    height: 2.25rem;
   }
 
   .statistics-total-metrics-tokens {

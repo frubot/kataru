@@ -22,6 +22,7 @@ import { getAvailableModels, type AvailableModel } from '@/lib/availableModels';
 import { serializeModelRef } from '@/lib/modelDefaults';
 import { useStore } from '@/lib/store';
 import OptionSelector from '@/components/OptionSelector';
+import TtsVoiceField from '@/components/TtsVoiceField';
 
 interface FirstRunGuideProps {
     onOpenSidebar: () => void;
@@ -29,7 +30,7 @@ interface FirstRunGuideProps {
     onSkip: () => void;
 }
 
-type GuideStep = 'api-type' | 'connection' | 'character';
+type GuideStep = 'api-type' | 'connection' | 'tts' | 'character';
 type ConnectionState = 'idle' | 'checking' | 'error';
 
 interface ConnectionStatusResponse {
@@ -81,6 +82,8 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
         setSummaryModel,
         setExpressionDetectionModel,
         setMemoryExtractionModel,
+        setTtsConnectionId,
+        setTtsVoice,
         createCharacter,
         createRoom,
     } = useStore();
@@ -109,6 +112,11 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
     const [relationship, setRelationship] = useState('');
     const [isGenerating, setGenerating] = useState(false);
     const [generationError, setGenerationError] = useState('');
+    const [ttsBaseUrl, setTtsBaseUrl] = useState('');
+    const [ttsState, setTtsState] = useState<ConnectionState>('idle');
+    const [ttsMessage, setTtsMessage] = useState('');
+    const [ttsChecked, setTtsChecked] = useState(false);
+    const [guideTtsVoice, setGuideTtsVoice] = useState('');
 
     // The picked kind may not have a connection yet; in that case the guide
     // creates it on demand when the user checks the connection.
@@ -145,6 +153,20 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
         );
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [step, connection?.id, connection?.baseUrl]);
+
+    // The built-in VOICEVOX connection resolves server-side even while it is
+    // unlisted, so 'voicevox' works as the fallback id before it is configured.
+    const voicevoxConnection = connections.find((candidate) => candidate.kind === 'voicevox') ?? null;
+    const ttsConnectionId = voicevoxConnection?.id ?? 'voicevox';
+
+    useEffect(() => {
+        if (step !== 'tts') return;
+        setTtsState('idle');
+        setTtsMessage('');
+        setTtsChecked(false);
+        setGuideTtsVoice('');
+        setTtsBaseUrl(voicevoxConnection?.baseUrl ?? KIND_DEFAULT_BASE_URL.voicevox);
+    }, [step, voicevoxConnection?.id, voicevoxConnection?.baseUrl]);
 
     const selectConnection = (connectionId: string) => {
         setSelectedConnectionId(connectionId);
@@ -234,7 +256,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
             }
             if (data.ready === true) {
                 if (kind === 'openrouter') {
-                    setStep('character');
+                    setStep('tts');
                     setConnectionState('idle');
                     return;
                 }
@@ -269,6 +291,57 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
         setSummaryModel(modelRef);
         setExpressionDetectionModel(modelRef);
         setMemoryExtractionModel(modelRef);
+        setStep('tts');
+    };
+
+    const checkVoicevoxConnection = async () => {
+        if (ttsState === 'checking') return;
+
+        const trimmedBaseUrl = ttsBaseUrl.trim().replace(/\/+$/, '');
+        if (!trimmedBaseUrl) {
+            setTtsState('error');
+            setTtsMessage('エンドポイントを入力してください。');
+            return;
+        }
+
+        setTtsState('checking');
+        setTtsMessage('');
+
+        try {
+            // Persisting the endpoint also lists the built-in connection, so it
+            // shows up in the settings connection list once configured here.
+            if (!voicevoxConnection || trimmedBaseUrl !== voicevoxConnection.baseUrl) {
+                await updateAiConnection(ttsConnectionId, { baseUrl: trimmedBaseUrl });
+            }
+
+            const response = await fetch('/api/ai/status', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    aiApiConfig: { ...getAiApiConfig(), connectionId: ttsConnectionId },
+                }),
+            });
+            const data = await response.json().catch(() => ({})) as ConnectionStatusResponse;
+            if (!response.ok) {
+                throw new Error(data.message || `接続の確認に失敗しました (${response.status})`);
+            }
+            if (data.ready === true) {
+                setTtsChecked(true);
+                setTtsState('idle');
+                return;
+            }
+            setTtsState('error');
+            setTtsMessage('VOICEVOXエンジンに接続できませんでした。エンジンが起動しているか確認してください。');
+        } catch (error) {
+            setTtsState('error');
+            setTtsMessage(error instanceof Error ? error.message : '接続の確認に失敗しました。');
+        }
+    };
+
+    const applyTtsAndAdvance = () => {
+        setTtsConnectionId(ttsConnectionId);
+        setTtsVoice(guideTtsVoice);
         setStep('character');
     };
 
@@ -320,7 +393,10 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
         onComplete();
     };
 
-    const stepNumber = step === 'api-type' ? 1 : step === 'connection' ? 2 : 3;
+    const stepNumber = step === 'api-type' ? 1 : step === 'connection' ? 2 : step === 'tts' ? 3 : 4;
+    const ttsBusy = connectionsLoading || ttsState === 'checking';
+    const ttsBaseChanged = voicevoxConnection == null
+        || ttsBaseUrl.trim().replace(/\/+$/, '') !== (voicevoxConnection.baseUrl ?? KIND_DEFAULT_BASE_URL.voicevox);
     const baseChanged = baseUrlEditable
         && baseUrl.trim().replace(/\/+$/, '') !== (connection?.baseUrl ?? '');
     const hasConnectionChanges = connection == null
@@ -352,7 +428,9 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                             <button
                                 type="button"
                                 className="btn btn-ghost onboarding-back"
-                                onClick={() => setStep(step === 'character' ? 'connection' : 'api-type')}
+                                onClick={() => setStep(
+                                    step === 'character' ? 'tts' : step === 'tts' ? 'connection' : 'api-type',
+                                )}
                                 aria-label="前へ戻る"
                                 title="前へ戻る"
                             >
@@ -364,9 +442,9 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                         <div
                             className={`onboarding-progress is-${step}-step`}
                             role="progressbar"
-                            aria-label={`${stepNumber} / 3`}
+                            aria-label={`${stepNumber} / 4`}
                             aria-valuemin={1}
-                            aria-valuemax={3}
+                            aria-valuemax={4}
                             aria-valuenow={stepNumber}
                         >
                             <span className="onboarding-progress-fill" />
@@ -378,7 +456,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                         <>
                             <div className="onboarding-heading">
                                 <div>
-                                    <p className="onboarding-step-label">1 / 3 · APIの種類を選ぶ</p>
+                                    <p className="onboarding-step-label">1 / 4 · APIの種類を選ぶ</p>
                                     <h1>Kataruへようこそ</h1>
                                 </div>
                             </div>
@@ -427,7 +505,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                         <>
                             <div className="onboarding-heading">
                                 <div>
-                                    <p className="onboarding-step-label">2 / 3 · 接続設定</p>
+                                    <p className="onboarding-step-label">2 / 4 · 接続設定</p>
                                     <h1>
                                         {connection ? connection.name : AI_CONNECTION_KIND_LABELS[connectionKind]}
                                     </h1>
@@ -611,11 +689,131 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                 )}
                             </div>
                         </>
+                    ) : step === 'tts' ? (
+                        <>
+                            <div className="onboarding-heading">
+                                <div>
+                                    <p className="onboarding-step-label">3 / 4 · 音声読み上げ（任意）</p>
+                                    <h1>AIの返答を音声で楽しむ</h1>
+                                </div>
+                            </div>
+                            <p className="onboarding-lead">
+                                音声合成エンジン「VOICEVOX」を使えば、AIの返答を音声で楽しむことができます。
+                            </p>
+
+                            {connectionsLoading && !voicevoxConnection ? (
+                                <div className="ai-connection-card ai-connection-loading onboarding-connection-card" aria-live="polite">
+                                    <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+                                    AI接続設定を読み込んでいます…
+                                </div>
+                            ) : connectionsError && !voicevoxConnection ? (
+                                <div className="onboarding-status error" role="alert">
+                                    <span>{connectionsError}</span>
+                                    <button type="button" onClick={() => void reloadConnections()}>
+                                        再読み込み
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="ai-connection-card onboarding-connection-card">
+                                    <p className="ai-connection-help">
+                                        VOICEVOXエンジンを起動してから接続を確認してください。
+                                        まだインストールしていない場合は
+                                        <a href="https://voicevox.hiroshiba.jp/" target="_blank" rel="noreferrer">
+                                            VOICEVOX公式サイト
+                                        </a>
+                                        から入手できます。
+                                    </p>
+
+                                    <label className="ai-connection-label" htmlFor="onboarding-tts-base-url">
+                                        エンドポイント
+                                    </label>
+                                    <input
+                                        id="onboarding-tts-base-url"
+                                        className="input"
+                                        type="url"
+                                        value={ttsBaseUrl}
+                                        disabled={ttsBusy || (voicevoxConnection != null && !voicevoxConnection.baseUrlEditable)}
+                                        spellCheck={false}
+                                        onChange={(event) => {
+                                            setTtsBaseUrl(event.target.value);
+                                            if (ttsChecked) setTtsChecked(false);
+                                        }}
+                                    />
+                                    {voicevoxConnection != null && !voicevoxConnection.baseUrlEditable && (
+                                        <p className="ai-connection-help">
+                                            環境変数が設定されているため、変更できません。
+                                        </p>
+                                    )}
+
+                                    {ttsChecked && (
+                                        <>
+                                            <p className="ai-connection-message success" role="status">
+                                                VOICEVOXエンジンに接続しました。読み上げに使う声を選んでください。
+                                            </p>
+                                            <label className="ai-connection-label" htmlFor="onboarding-tts-voice">
+                                                声
+                                            </label>
+                                            <TtsVoiceField
+                                                id="onboarding-tts-voice"
+                                                connectionId={ttsConnectionId}
+                                                value={guideTtsVoice}
+                                                onChange={setGuideTtsVoice}
+                                                emptyLabel="あとで選ぶ"
+                                            />
+                                            <p className="ai-connection-help">
+                                                「設定」→「モデル」→「音声合成（TTS）」でいつでも変更できます。
+                                            </p>
+                                        </>
+                                    )}
+                                </div>
+                            )}
+
+                            {ttsState === 'error' && (
+                                <div className="onboarding-status error" role="alert">
+                                    <span>{ttsMessage}</span>
+                                    <p>VOICEVOXエンジンの起動状態とエンドポイントを確認して、もう一度お試しください。</p>
+                                </div>
+                            )}
+
+                            <div className="onboarding-actions">
+                                <button
+                                    type="button"
+                                    className="btn btn-ghost"
+                                    onClick={() => setStep('character')}
+                                    disabled={ttsBusy}
+                                >
+                                    いいえ、結構です
+                                </button>
+                                {ttsChecked ? (
+                                    <button
+                                        type="button"
+                                        className="btn btn-primary"
+                                        onClick={applyTtsAndAdvance}
+                                    >
+                                        次へ
+                                    </button>
+                                ) : (
+                                    <button
+                                        type="button"
+                                        className="btn btn-primary"
+                                        onClick={() => void checkVoicevoxConnection()}
+                                        disabled={ttsBusy || (voicevoxConnection == null && connectionsError != null)}
+                                    >
+                                        {ttsState === 'checking' && <Loader2 size={16} className="animate-spin" />}
+                                        {ttsState === 'checking'
+                                            ? '保存・確認中…'
+                                            : ttsBaseChanged
+                                                ? '保存して接続確認'
+                                                : '接続を確認'}
+                                    </button>
+                                )}
+                            </div>
+                        </>
                     ) : (
                         <>
                             <div className="onboarding-heading">
                                 <div>
-                                    <p className="onboarding-step-label">3 / 3 · 話す相手を作る</p>
+                                    <p className="onboarding-step-label">4 / 4 · 話す相手を作る</p>
                                     <h1>キャラクターについて教えてください</h1>
                                 </div>
                             </div>

@@ -1832,6 +1832,10 @@ body {
   margin: -0.25rem 0 0;
 }
 
+.ai-connection-help a {
+  color: var(--accent-primary);
+}
+
 .ai-connection-help.warning {
   color: var(--warning);
 }
@@ -4180,7 +4184,11 @@ body {
 }
 
 .onboarding-progress.is-connection-step .onboarding-progress-fill {
-  width: 50%;
+  width: 33.3333%;
+}
+
+.onboarding-progress.is-tts-step .onboarding-progress-fill {
+  width: 66.6667%;
 }
 
 .onboarding-progress.is-character-step .onboarding-progress-fill {

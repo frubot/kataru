@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 
 import type { AiApiConfig } from './aiApi';
-import type { TtsProfile } from './tts';
+import type { TtsProfile, TtsSpeechSegment } from './tts';
 
 export type TtsPlaybackStatus = 'loading' | 'playing' | 'paused' | 'error';
 
@@ -15,7 +15,7 @@ export interface TtsRequestParams {
     messageId: string;
     /** 読み上げテキストのセグメント。*...* の動作描写で区切られた箇所ごとに
      * 分割され、順に合成・再生される（動作の分だけ小さな間が入る）。 */
-    texts: string[];
+    segments: TtsSpeechSegment[];
     profile: TtsProfile;
     aiApiConfig: AiApiConfig;
 }
@@ -145,14 +145,15 @@ async function fetchTtsAudio(params: TtsRequestParams): Promise<Blob[]> {
     const blobs: Blob[] = [];
     // セグメントは順に1リクエストずつ送る。単一キューのエンジン（Irodori等）
     // に同時リクエストで待たせないため。
-    for (const text of params.texts) {
+    for (const segment of params.segments) {
         const response = await fetch('/api/tts', {
             method: 'POST',
             cache: 'no-store',
             credentials: 'same-origin',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                text,
+                text: segment.text,
+                ...(segment.caption ? { caption: segment.caption } : {}),
                 voice: params.profile.voice,
                 speed: params.profile.speed,
                 connectionId: params.profile.connectionId,
@@ -294,7 +295,7 @@ export function getTtsAudioLevel(): number {
  * volumeは再生時に反映されるだけなので含めない。 */
 function ttsCacheKey(params: TtsRequestParams): string {
     const { connectionId, model, voice, speed } = params.profile;
-    return JSON.stringify([params.texts, connectionId, model, voice, speed]);
+    return JSON.stringify([params.segments, connectionId, model, voice, speed]);
 }
 
 function dropEntryAudio(entry: TtsEntry): void {
@@ -323,7 +324,7 @@ function evictAudioCache(): void {
 
 async function playNow(params: TtsRequestParams): Promise<void> {
     const element = getAudio();
-    if (!element || params.texts.length === 0) return;
+    if (!element || params.segments.length === 0) return;
     setTtsPlaybackVolume(params.profile.volume);
     const generation = ++playbackGeneration;
     // 常に1本だけ再生する。前のエントリは paused に留める。
@@ -407,7 +408,7 @@ export function enqueueTtsPlayback(params: TtsRequestParams): void {
  * ページ送り時に生成待ちで間が空くのを防ぐプリフェッチ。生成済み・同一条件で
  * 生成中なら何もしない。再生中のentryはplayNowが管理するので触らない。 */
 export function prefetchTtsAudio(params: TtsRequestParams): void {
-    if (typeof window === 'undefined' || params.texts.length === 0) return;
+    if (typeof window === 'undefined' || params.segments.length === 0) return;
     const entry = ensureEntry(params);
     if (entry === activeEntry) return;
     const cacheKey = ttsCacheKey(params);

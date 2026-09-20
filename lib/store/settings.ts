@@ -47,6 +47,8 @@ export const DEFAULT_TTS_VOICE = 'aura-2-ama-ja';
 export const DEFAULT_TTS_SPEED = 1.0;
 export const DEFAULT_TTS_VOLUME = 1.0;
 export const DEFAULT_TTS_AUTO_PLAY = false;
+/** 直前の *...* 動作描写をIrodoriのcaption（演技指示）として送るか。 */
+export const DEFAULT_TTS_ACTION_CAPTION = true;
 export const TTS_SPEED_MIN = 0.25;
 export const TTS_SPEED_MAX = 4.0;
 export const TTS_VOLUME_MIN = 0;
@@ -191,6 +193,7 @@ type SettingsSlice = Pick<
     | 'ttsSpeed'
     | 'ttsVolume'
     | 'ttsAutoPlay'
+    | 'ttsActionCaption'
     | 'fullJsonDebugEnabled'
     | 'detailedErrorLoggingEnabled'
     | 'memoryInspectorEnabled'
@@ -226,6 +229,7 @@ type SettingsSlice = Pick<
     | 'setTtsSpeed'
     | 'setTtsVolume'
     | 'setTtsAutoPlay'
+    | 'setTtsActionCaption'
     | 'getAiApiConfig'
     | 'setFullJsonDebugEnabled'
     | 'setDetailedErrorLoggingEnabled'
@@ -253,6 +257,7 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         ttsSpeed: DEFAULT_TTS_SPEED,
         ttsVolume: DEFAULT_TTS_VOLUME,
         ttsAutoPlay: DEFAULT_TTS_AUTO_PLAY,
+        ttsActionCaption: DEFAULT_TTS_ACTION_CAPTION,
         fullJsonDebugEnabled: false,
         detailedErrorLoggingEnabled: false,
         memoryInspectorEnabled: false,
@@ -387,6 +392,10 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         setTtsAutoPlay: (ttsAutoPlay) => {
             set({ ttsAutoPlay });
             fire(db.setMeta('ttsAutoPlay', ttsAutoPlay));
+        },
+        setTtsActionCaption: (ttsActionCaption) => {
+            set({ ttsActionCaption });
+            fire(db.setMeta('ttsActionCaption', ttsActionCaption));
         },
         getAiApiConfig: () => getAiApiConfigFromState(get()),
         setFullJsonDebugEnabled: (fullJsonDebugEnabled) => {

@@ -344,6 +344,7 @@ export interface AppState {
     ttsSpeed: number;
     ttsVolume: number;
     ttsAutoPlay: boolean;
+    ttsActionCaption: boolean;
     fullJsonDebugEnabled: boolean;
     detailedErrorLoggingEnabled: boolean;
     memoryInspectorEnabled: boolean;
@@ -389,6 +390,7 @@ export interface AppState {
     setTtsSpeed: (speed: number) => void;
     setTtsVolume: (volume: number) => void;
     setTtsAutoPlay: (enabled: boolean) => void;
+    setTtsActionCaption: (enabled: boolean) => void;
     getAiApiConfig: () => AiApiConfig;
     setFullJsonDebugEnabled: (enabled: boolean) => void;
     setDetailedErrorLoggingEnabled: (enabled: boolean) => void;

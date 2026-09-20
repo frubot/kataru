@@ -423,6 +423,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         ttsSpeed, setTtsSpeed,
         ttsVolume, setTtsVolume,
         ttsAutoPlay, setTtsAutoPlay,
+        ttsActionCaption, setTtsActionCaption,
         resetModelDefaults,
         conversationCompressionEnabled, setConversationCompressionEnabled,
         generateTitleOnFirstReply, setGenerateTitleOnFirstReply,
@@ -1286,6 +1287,12 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     enabled: ttsAutoPlay,
                                     onToggle: () => setTtsAutoPlay(!ttsAutoPlay),
                                     ariaLabel: '新しい返答を自動で読み上げる',
+                                })}
+                                {renderDebugToggle({
+                                    label: '動作描写を声の演技指示に使う（Irodori TTS）',
+                                    enabled: ttsActionCaption,
+                                    onToggle: () => setTtsActionCaption(!ttsActionCaption),
+                                    ariaLabel: '動作描写を声の演技指示に使う',
                                 })}
                             </div>
                             {ttsCapableConnections.length === 0 && (

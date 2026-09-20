@@ -56,22 +56,42 @@ function stripSpeechMarkdown(text: string): string {
         .trim();
 }
 
+export interface TtsSpeechSegment {
+    text: string;
+    /** 直前の *...* 動作描写。Irodori接続では caption として送られ、
+     * 動作描写を次のセリフの演技指示にできる。 */
+    caption?: string;
+}
+
 /** Speech segments = 'text' runs separated by *...* action segments (the
  * actions themselves are dropped), each markdown-stripped to plain text.
  * Keeping runs separate lets the player pause where an action was narrated
- * instead of collapsing everything into one request. */
-export function buildSpeechSegments(content: string): string[] {
-    return splitAssistantMarkdownActions(content)
-        .filter((segment) => segment.type === 'text')
-        .map((segment) => stripSpeechMarkdown(segment.content))
-        .filter((text) => text.length > 0);
+ * instead of collapsing everything into one request. The action immediately
+ * preceding a run is attached as `caption`. */
+export function buildSpeechSegments(content: string, includeActionCaptions = true): TtsSpeechSegment[] {
+    const segments: TtsSpeechSegment[] = [];
+    let pendingCaption: string | undefined;
+    for (const segment of splitAssistantMarkdownActions(content)) {
+        if (segment.type === 'action') {
+            const action = segment.content.replace(/\s+/g, ' ').trim();
+            pendingCaption = action || undefined;
+            continue;
+        }
+        const text = stripSpeechMarkdown(segment.content);
+        if (!text) continue;
+        segments.push(includeActionCaptions && pendingCaption
+            ? { text, caption: pendingCaption }
+            : { text });
+        pendingCaption = undefined;
+    }
+    return segments;
 }
 
 /** Speech text = 'text' segments only (drops *...* action segments), markdown
  * stripped to plain text, whitespace collapsed. Returns '' when nothing
  * speakable remains. */
 export function buildSpeechText(content: string): string {
-    return buildSpeechSegments(content).join('\n');
+    return buildSpeechSegments(content).map((segment) => segment.text).join('\n');
 }
 
 export interface TtsSpeakerStyle {

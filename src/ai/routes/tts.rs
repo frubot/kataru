@@ -24,6 +24,8 @@ use super::{
 
 const TTS_TEXT_LIMIT: usize = 4000;
 const IRODORI_DEFAULT_MODEL: &str = "irodori-tts";
+// キャプション（演技指示）の上限。長いテキストは切り詰める。
+const IRODORI_CAPTION_LIMIT: usize = 500;
 // Irodori serializes synthesis behind a queue whose wait timeout defaults to
 // 300 s; allow headroom beyond that for the synthesis itself.
 const IRODORI_TIMEOUT_SECS: u64 = 420;
@@ -48,13 +50,14 @@ pub async fn synthesize_speech(
         .map(|(model, connection)| (Some(model), connection))
         .unwrap_or((None, None));
     let connection_id = optional_trimmed_string(&input, "connectionId").or(model_connection);
+    let caption = optional_trimmed_string(&input, "caption");
     let api_client = ai_api_client_for_connection(&state, &input, connection_id.as_deref())?;
 
     if api_client.is_voicevox() {
         return synthesize_voicevox(&api_client, &text, &voice, speed).await;
     }
     if api_client.is_irodori() {
-        return synthesize_irodori(&api_client, &text, &voice, speed, model).await;
+        return synthesize_irodori(&api_client, &text, &voice, speed, model, caption).await;
     }
     if !api_client.tts_enabled() {
         return Err(AppError::BadRequest(if api_client.is_openai_compatible() {
@@ -129,19 +132,22 @@ async fn synthesize_irodori(
     voice: &str,
     speed: f64,
     model: Option<String>,
+    caption: Option<String>,
 ) -> AppResult<Response> {
+    let mut body = json!({
+        "model": model.unwrap_or_else(|| IRODORI_DEFAULT_MODEL.to_owned()),
+        "input": text,
+        "voice": voice,
+        "response_format": "wav",
+        "speed": speed,
+    });
+    // captionはIrodori固有の演技指示。参照音声の声質を保ったまま、
+    // 話し方・感情だけを制御する（Voice Design / スタイル制御）。
+    if let Some(caption) = caption {
+        body["irodori"] = json!({ "caption": take_chars(&caption, IRODORI_CAPTION_LIMIT) });
+    }
     let upstream = api_client
-        .send_json(
-            "v1/audio/speech",
-            &json!({
-                "model": model.unwrap_or_else(|| IRODORI_DEFAULT_MODEL.to_owned()),
-                "input": text,
-                "voice": voice,
-                "response_format": "wav",
-                "speed": speed,
-            }),
-            IRODORI_TIMEOUT_SECS,
-        )
+        .send_json("v1/audio/speech", &body, IRODORI_TIMEOUT_SECS)
         .await?;
     audio_response(upstream, "audio/wav").await
 }

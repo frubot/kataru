@@ -88,13 +88,13 @@ export function useTtsPlayback({
         const speaker = state.characters.find((candidate) => candidate.id === speakerCharacterId);
         const profile = resolveTtsProfile(state, speaker);
         if (!isTtsProfilePlayable(profile)) return { reason: 'unconfigured' };
-        const texts = buildSpeechSegments(content);
-        if (texts.length === 0) return { reason: 'empty' };
+        const segments = buildSpeechSegments(content, state.ttsActionCaption);
+        if (segments.length === 0) return { reason: 'empty' };
         return {
             params: {
                 roomId,
                 messageId: cacheKey,
-                texts,
+                segments,
                 profile,
                 aiApiConfig: { ...state.getAiApiConfig(), connectionId: profile.connectionId },
             },

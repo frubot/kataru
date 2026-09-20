@@ -474,14 +474,7 @@ fn actor_criteria(actors: &[Value], eligible_ids: &[String]) -> Map<String, Valu
         if !eligible_ids.contains(&id) {
             continue;
         }
-        criteria.insert(
-            id,
-            Value::String(format!(
-                "{}: {}",
-                string(actor, "name"),
-                truncate(&actor_note(actor), 320)
-            )),
-        );
+        criteria.insert(id, Value::String(string(actor, "name")));
     }
     criteria
 }
@@ -848,7 +841,9 @@ mod tests {
         assert!(criteria.get(JEV_PROTAGONIST_OPTION).is_some());
         assert!(criteria.get(JEV_CONVERSATION_COMPLETE_OPTION).is_some());
         assert!(criteria.get(JEV_END_OPTION).is_some());
-        assert!(criteria["actor-aoi"].as_str().unwrap().contains("葵"));
+        assert_eq!(criteria["actor-aoi"], "葵");
+        assert_eq!(criteria["actor-rin"], "凛");
+        assert!(!questions.to_string().contains("幼なじみ"));
 
         assert_eq!(questions["next_speaker"]["type"], "choice");
         assert_eq!(questions["continue_naturally"]["type"], "noul");

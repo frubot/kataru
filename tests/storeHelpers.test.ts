@@ -171,6 +171,47 @@ describe('store pure helpers', () => {
         expect(normalized.changedRooms).toHaveLength(1);
     });
 
+    test('keeps character common rules and defaults them to an empty string', () => {
+        const character: Character = {
+            id: 'character-1',
+            name: '葵',
+            systemPrompt: '',
+            model: TEST_MODEL,
+            createdAt: 1,
+            updatedAt: 1,
+        };
+        const director = {
+            enabled: true,
+            model: TEST_MODEL,
+            maxAutoTurns: 1,
+            stopPolicy: 'max-turns' as const,
+        };
+        const withRules: Situation = {
+            id: 'situation-1',
+            name: '放課後',
+            actors: [{ id: 'actor-1', type: 'character', characterId: character.id }],
+            director,
+            memoryMode: 'off',
+            characterCommonRules: '全員、敬語で話す',
+            createdAt: 1,
+            updatedAt: 1,
+        };
+        const withoutRules: Situation = {
+            ...withRules,
+            id: 'situation-2',
+            characterCommonRules: undefined,
+        };
+
+        const normalized = normalizeGroupData({
+            characters: [character],
+            groups: [withRules, withoutRules],
+            rooms: [],
+        });
+
+        expect(normalized.groups[0].characterCommonRules).toBe('全員、敬語で話す');
+        expect(normalized.groups[1].characterCommonRules).toBe('');
+    });
+
     test('repairs blank room names with stable default names', () => {
         const character: Character = {
             id: 'character-1',

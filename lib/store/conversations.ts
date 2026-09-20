@@ -188,6 +188,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
                 name: resolvedGroupName,
                 ...(input.backgroundImage ? { backgroundImage: input.backgroundImage } : {}),
                 situationPrompt: input.situationPrompt?.trim() ?? '',
+                characterCommonRules: input.characterCommonRules?.trim() ?? '',
                 priorMessages: normalizeSituationPriorMessages(input.priorMessages, new Set(actorIds)),
                 actors,
                 director: normalizeSituationDirector({

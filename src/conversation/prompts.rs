@@ -135,6 +135,13 @@ pub fn character_system_prompt(
         if !situation_prompt.is_empty() {
             prompt.push_str(&format!("\n\n## シチュエーション\n{situation_prompt}"));
         }
+        // 参加キャラクター全員に共通で適用するルール。指揮役の判断材料にはしない。
+        let common_rules = string(situation, "characterCommonRules");
+        if !common_rules.is_empty() {
+            prompt.push_str(&format!(
+                "\n\n## キャラクターの共通ルール\n以下は参加キャラクター全員に適用されるルールです。必ず従ってください。\n\n{common_rules}"
+            ));
+        }
         let role_prompt = string(character, "rolePrompt");
         if !role_prompt.is_empty() {
             prompt.push_str(&format!("\n\n# あなたについて\n{role_prompt}"));
@@ -677,6 +684,50 @@ mod tests {
     }
 
     #[test]
+    fn character_prompt_includes_common_rules_after_the_situation() {
+        let character = json!({"name": "葵", "rolePrompt": "幼なじみ"});
+        let situation = json!({
+            "situationPrompt": "放課後の教室",
+            "characterCommonRules": "全員、敬語で話す"
+        });
+
+        let prompt = character_system_prompt(
+            &character,
+            false,
+            &[],
+            None,
+            &[],
+            Some(&situation),
+            &[json!({"name": "葵"})],
+        );
+
+        let situation_index = prompt
+            .find("## シチュエーション\n放課後の教室")
+            .expect("situation section");
+        let rules_index = prompt
+            .find("## キャラクターの共通ルール")
+            .expect("common rules section");
+        assert!(rules_index > situation_index);
+        assert!(prompt.contains("全員、敬語で話す"));
+        assert!(rules_index < prompt.find("# あなたについて").expect("role section"));
+    }
+
+    #[test]
+    fn character_prompt_omits_common_rules_when_unset() {
+        let prompt = character_system_prompt(
+            &json!({"name": "葵"}),
+            false,
+            &[],
+            None,
+            &[],
+            Some(&json!({"situationPrompt": "放課後の教室"})),
+            &[json!({"name": "葵"})],
+        );
+
+        assert!(!prompt.contains("キャラクターの共通ルール"));
+    }
+
+    #[test]
     fn assistant_schema_puts_thought_first_when_enabled() {
         let schema = assistant_schema(&["neutral".into()], false, true, 512);
         let properties = schema["json_schema"]["schema"]["properties"]
@@ -750,6 +801,32 @@ mod tests {
         let (system, _) = director_prompts(&json!({}), &[], "", 0, 1, None, false);
 
         assert!(system.contains("空配列にしてください"));
+    }
+
+    #[test]
+    fn director_prompts_never_receive_character_common_rules() {
+        let situation = json!({
+            "name": "放課後",
+            "situationPrompt": "教室で話している",
+            "characterCommonRules": "全員、敬語で話す"
+        });
+        let actors = vec![json!({"actorId": "actor-aoi", "name": "葵"})];
+
+        let (system, prompt) = director_prompts(
+            &situation,
+            &actors,
+            "主人公: 今日は寒いね",
+            0,
+            1,
+            None,
+            false,
+        );
+        let state = director_jev_state(&situation, &actors, "主人公: 今日は寒いね", 0, 1);
+
+        for text in [system, prompt, state.to_string()] {
+            assert!(!text.contains("全員、敬語で話す"));
+            assert!(!text.contains("キャラクターの共通ルール"));
+        }
     }
 
     #[test]

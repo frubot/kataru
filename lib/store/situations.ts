@@ -245,6 +245,7 @@ export function normalizeSituation(
             ? { backgroundImage: situation.backgroundImage }
             : {}),
         situationPrompt: situation.situationPrompt ?? '',
+        characterCommonRules: situation.characterCommonRules ?? '',
         priorMessages: normalizeSituationPriorMessages(situation.priorMessages, new Set(actorIds)),
         actors,
         director: normalizeSituationDirector(situation.director, directorFallbackModel),

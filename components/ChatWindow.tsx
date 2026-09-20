@@ -180,6 +180,7 @@ function toConversationSituation(situation: Situation | null | undefined) {
         id: situation.id,
         name: situation.name,
         situationPrompt: situation.situationPrompt,
+        characterCommonRules: situation.characterCommonRules,
         priorMessages: situation.priorMessages,
         director: {
             model: serializeModelRef(situation.director.model),

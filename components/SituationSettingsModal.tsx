@@ -1100,6 +1100,7 @@ function buildInitialState(
         name: situation?.name ?? '',
         backgroundImage: situation?.backgroundImage ?? '',
         situationPrompt: situation?.situationPrompt ?? '',
+        characterCommonRules: situation?.characterCommonRules ?? '',
         directorModel: situation?.director?.model,
         directorEngine: situation?.director?.engine === 'typesafe'
             || isJevModelRef(situation?.director?.model ?? defaultDirectorModel)
@@ -1126,6 +1127,7 @@ function serializeSituationDraft(draft: ReturnType<typeof buildInitialState>) {
         name: draft.name,
         backgroundImage: draft.backgroundImage,
         situationPrompt: draft.situationPrompt,
+        characterCommonRules: draft.characterCommonRules,
         directorModel: draft.directorModel,
         directorEngine: draft.directorEngine,
         continueThreshold: draft.continueThreshold,
@@ -1489,6 +1491,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
     const [name, setName] = useState(initial.name);
     const [backgroundImage, setBackgroundImage] = useState(initial.backgroundImage);
     const [situationPrompt, setSituationPrompt] = useState(initial.situationPrompt);
+    const [characterCommonRules, setCharacterCommonRules] = useState(initial.characterCommonRules);
     const { connections } = useAiConnections();
     const [directorModel, setDirectorModel] = useState<ModelRef | undefined>(initial.directorModel);
     const [directorEngine, setDirectorEngine] = useState<'llm' | 'typesafe'>(initial.directorEngine);
@@ -1760,6 +1763,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                 name,
                 backgroundImage,
                 situationPrompt,
+                characterCommonRules,
                 directorModel,
                 directorEngine,
                 continueThreshold,
@@ -1810,6 +1814,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                 name: name.trim() || 'シチュエーション',
                 backgroundImage: backgroundImage || undefined,
                 situationPrompt: situationPrompt.trim(),
+                characterCommonRules: characterCommonRules.trim(),
                 priorMessages: priorMessagesForSave,
                 actors,
                 director,
@@ -1824,6 +1829,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                 name: name.trim() || undefined,
                 backgroundImage: backgroundImage || undefined,
                 situationPrompt: situationPrompt.trim(),
+                characterCommonRules: characterCommonRules.trim(),
                 priorMessages: priorMessagesForSave,
                 actors,
                 director,
@@ -1834,7 +1840,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
         }
 
         onClose();
-    }, [actorCount, actorOptions, backgroundImage, buildActors, characterActorMeta, continueThreshold, createSituationRoom, defaultDirectorModel, defaultJevModel, directorEngine, directorModel, effectiveMaxTurns, isEditing, maxAutoTurns, maxHistory, memoryReadOnly, name, onClose, onCreated, parsedMaxHistory, priorMessages, protagonistThreshold, room, selectedCharacterIds, situation, situationPrompt, temporaryActors, updateRoomSettings, updateSituation]);
+    }, [actorCount, actorOptions, backgroundImage, buildActors, characterActorMeta, characterCommonRules, continueThreshold, createSituationRoom, defaultDirectorModel, defaultJevModel, directorEngine, directorModel, effectiveMaxTurns, isEditing, maxAutoTurns, maxHistory, memoryReadOnly, name, onClose, onCreated, parsedMaxHistory, priorMessages, protagonistThreshold, room, selectedCharacterIds, situation, situationPrompt, temporaryActors, updateRoomSettings, updateSituation]);
 
     const modalRef = useRef<HTMLDivElement>(null);
     useModalKeyboard({
@@ -1925,6 +1931,20 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                             rows={5}
                             placeholder="舞台、関係性、開始時点の状況"
                             style={{ ...fieldStyle, resize: 'vertical', minHeight: 120 }}
+                        />
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
+                        <label htmlFor="situation-character-common-rules-input" style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
+                            キャラクターの共通ルール
+                        </label>
+                        <textarea
+                            id="situation-character-common-rules-input"
+                            value={characterCommonRules}
+                            onChange={(e) => setCharacterCommonRules(e.target.value)}
+                            rows={4}
+                            placeholder="参加キャラクター全員に適用するルール（指揮役には渡されません）"
+                            style={{ ...fieldStyle, resize: 'vertical', minHeight: 96 }}
                         />
                     </div>
 

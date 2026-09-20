@@ -4,6 +4,7 @@ import { RefreshCw } from 'lucide-react';
 import { isAiConnectionKind } from '@/lib/aiApi';
 import { useAiConnections } from '@/lib/aiConnections';
 import { getTtsSpeakers, type TtsSpeaker } from '@/lib/tts';
+import OptionSelector, { type OptionSelectorItem } from '@/components/OptionSelector';
 
 interface TtsVoiceFieldProps {
     connectionId: string;
@@ -107,29 +108,34 @@ export default function TtsVoiceField({
 
     const hasValue = speakers.some((speaker) => speaker.styles.some((style) => String(style.id) === value));
 
+    const options: OptionSelectorItem[] = [
+        { value: '', label: emptyLabel },
+        ...speakers.map((speaker) => ({
+            label: speaker.name,
+            options: speaker.styles.map((style) => ({
+                value: String(style.id),
+                label: style.name,
+            })),
+        })),
+        ...(value !== '' && !hasValue ? [{ value, label: value }] : []),
+    ];
+
     return (
         <>
-            <select
+            <OptionSelector
                 id={id}
-                className="input"
                 value={value}
+                onChange={onChange}
+                options={options}
                 disabled={disabled || loading}
-                onChange={(event) => onChange(event.target.value)}
-            >
-                <option value="">{emptyLabel}</option>
-                {speakers.map((speaker) => (
-                    <optgroup key={speaker.name} label={speaker.name}>
-                        {speaker.styles.map((style) => (
-                            <option key={style.id} value={String(style.id)}>
-                                {style.name}
-                            </option>
-                        ))}
-                    </optgroup>
-                ))}
-                {value !== '' && !hasValue && (
-                    <option value={value}>{value}</option>
-                )}
-            </select>
+                ariaLabel="話者"
+                searchable
+                searchPlaceholder="話者・スタイルで検索"
+                searchAriaLabel="話者を検索"
+                loading={loading}
+                loadingLabel="話者一覧を読み込んでいます…"
+                emptyLabel="利用可能な話者がありません。"
+            />
             {loading && <p style={noteStyle} role="status">話者一覧を読み込んでいます…</p>}
         </>
     );

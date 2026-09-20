@@ -11,6 +11,7 @@ import {
     type UpdateAiConnectionInput,
 } from '@/lib/aiConnections';
 import ProviderSelector from './ProviderSelector';
+import OptionSelector from './OptionSelector';
 
 const CONNECTION_KIND_OPTIONS: readonly AiConnectionKind[] = [
     'openrouter',
@@ -383,19 +384,17 @@ function AddAiConnectionCard({ onClose }: { onClose: () => void }) {
             />
 
             <label className="ai-connection-label" htmlFor="ai-connection-new-kind">APIの種類</label>
-            <select
+            <OptionSelector
                 id="ai-connection-new-kind"
-                className="input"
                 value={kind}
                 disabled={saving}
-                onChange={(event) => setKind(event.target.value as AiConnectionKind)}
-            >
-                {CONNECTION_KIND_OPTIONS.map((option) => (
-                    <option key={option} value={option}>
-                        {AI_CONNECTION_KIND_LABELS[option]}
-                    </option>
-                ))}
-            </select>
+                ariaLabel="APIの種類"
+                onChange={(next) => setKind(next as AiConnectionKind)}
+                options={CONNECTION_KIND_OPTIONS.map((option) => ({
+                    value: option,
+                    label: AI_CONNECTION_KIND_LABELS[option],
+                }))}
+            />
 
             <label className="ai-connection-label" htmlFor="ai-connection-new-base-url">エンドポイント</label>
             <input

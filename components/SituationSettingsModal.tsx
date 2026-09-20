@@ -34,6 +34,7 @@ import SituationBackgroundModal from './SituationBackgroundModal';
 import SituationDescriptionGeneratorModal from './SituationDescriptionGeneratorModal';
 import StoredImage from './StoredImage';
 import ModelSelector from './ModelSelector';
+import OptionSelector from './OptionSelector';
 import { useModalKeyboard } from './useModalKeyboard';
 
 type TemporaryActorDraft = {
@@ -96,6 +97,21 @@ const sectionLabelStyle: CSSProperties = {
     color: 'var(--text-secondary)',
     fontSize: '0.875rem',
     fontWeight: 500,
+};
+
+/** Borderless compact trigger for the prior-message actor/expression pickers. */
+const priorMessageSelectTriggerStyle: CSSProperties = {
+    minHeight: 0,
+    padding: '0.25rem 0.375rem',
+    border: 'none',
+    borderRadius: '0.375rem',
+    outline: 'none',
+    background: 'transparent',
+    boxShadow: 'none',
+    color: 'var(--text-muted)',
+    fontSize: '0.75rem',
+    fontWeight: 500,
+    gap: '0.25rem',
 };
 
 const NEUTRAL_EXPRESSION_NAME = 'neutral';
@@ -2008,51 +2024,37 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                                             </div>
                                             <div style={{ display: 'flex', flexDirection: 'column', width: '80%', maxWidth: '80%', minWidth: 0, gap: '0.25rem' }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
-                                                    <select
+                                                    <OptionSelector
                                                         value={selectedActor?.id ?? ''}
-                                                        onChange={(event) => updatePriorMessageActor(message.id, event.target.value)}
-                                                        aria-label={`${index + 1}件目の発言キャラクター`}
-                                                        style={{
-                                                            flex: '1 1 0',
-                                                            minWidth: 0,
-                                                            padding: '0.25rem 0.375rem',
-                                                            border: 'none',
-                                                            borderRadius: '0.375rem',
-                                                            outline: 'none',
-                                                            background: 'transparent',
-                                                            color: 'var(--text-muted)',
-                                                            fontSize: '0.75rem',
-                                                            fontWeight: 500,
-                                                        }}
-                                                    >
-                                                        {actorOptions.map((actor) => (
-                                                            <option key={actor.id} value={actor.id}>{actor.name}</option>
-                                                        ))}
-                                                    </select>
-                                                    <select
+                                                        onChange={(actorId) => updatePriorMessageActor(message.id, actorId)}
+                                                        ariaLabel={`${index + 1}件目の発言キャラクター`}
+                                                        style={{ flex: '1 1 0', minWidth: 0 }}
+                                                        triggerStyle={priorMessageSelectTriggerStyle}
+                                                        menuStyle={{ minWidth: '10rem' }}
+                                                        chevronSize={12}
+                                                        options={actorOptions.map((actor) => ({
+                                                            value: actor.id,
+                                                            label: actor.name,
+                                                        }))}
+                                                    />
+                                                    <OptionSelector
                                                         value={selectedExpression}
-                                                        onChange={(event) => updatePriorMessageExpression(message.id, event.target.value)}
+                                                        onChange={(expression) => updatePriorMessageExpression(message.id, expression)}
                                                         disabled={!selectedActor || selectedActor.expressionNames.length === 0}
-                                                        aria-label={`${index + 1}件目の表情`}
+                                                        ariaLabel={`${index + 1}件目の表情`}
                                                         title={selectedActor?.expressionNames.length ? '表情' : '登録済みの表情がありません'}
-                                                        style={{
-                                                            flex: '1 1 0',
-                                                            minWidth: 0,
-                                                            padding: '0.25rem 0.375rem',
-                                                            border: 'none',
-                                                            borderRadius: '0.375rem',
-                                                            outline: 'none',
-                                                            background: 'transparent',
-                                                            color: 'var(--text-muted)',
-                                                            fontSize: '0.75rem',
-                                                            fontWeight: 500,
-                                                        }}
-                                                    >
-                                                        <option value="">表情指定なし</option>
-                                                        {selectedActor?.expressionNames.map((expressionName) => (
-                                                            <option key={expressionName} value={expressionName}>{expressionName}</option>
-                                                        ))}
-                                                    </select>
+                                                        style={{ flex: '1 1 0', minWidth: 0 }}
+                                                        triggerStyle={priorMessageSelectTriggerStyle}
+                                                        menuStyle={{ minWidth: '10rem' }}
+                                                        chevronSize={12}
+                                                        options={[
+                                                            { value: '', label: '表情指定なし' },
+                                                            ...(selectedActor?.expressionNames.map((expressionName) => ({
+                                                                value: expressionName,
+                                                                label: expressionName,
+                                                            })) ?? []),
+                                                        ]}
+                                                    />
                                                     <div style={{ marginLeft: 'auto' }}>
                                                         {renderPriorMessageActions(message.id, index)}
                                                     </div>
@@ -2420,20 +2422,21 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                                 <div>
                                     <label style={sectionLabelStyle}>指揮エンジン</label>
                                     <div style={{ marginTop: '0.375rem' }}>
-                                        <select
+                                        <OptionSelector
                                             value={directorEngine}
-                                            onChange={(event) => {
-                                                setDirectorEngine(event.target.value as 'llm' | 'typesafe');
+                                            onChange={(engine) => {
+                                                setDirectorEngine(engine as 'llm' | 'typesafe');
                                                 // The two engines draw from disjoint model lists; a
                                                 // leftover ref would be sent to the wrong API.
                                                 setDirectorModel(undefined);
                                             }}
-                                            aria-label="指揮エンジン"
-                                            style={fieldStyle}
-                                        >
-                                            <option value="llm">LLM</option>
-                                            <option value="typesafe">System One (Jev)</option>
-                                        </select>
+                                            ariaLabel="指揮エンジン"
+                                            triggerStyle={fieldStyle}
+                                            options={[
+                                                { value: 'llm', label: 'LLM' },
+                                                { value: 'typesafe', label: 'System One (Jev)' },
+                                            ]}
+                                        />
                                     </div>
                                 </div>
                                 {directorEngine === 'typesafe' && (

@@ -661,25 +661,6 @@ body {
   line-height: 1.5;
 }
 
-.statistics-filter-select-wrapper {
-  position: relative;
-}
-
-.statistics-filter-select {
-  appearance: none;
-  -webkit-appearance: none;
-  padding-right: 2.5rem;
-}
-
-.statistics-filter-select-arrow {
-  position: absolute;
-  top: 50%;
-  right: 0.9rem;
-  color: var(--text-secondary);
-  pointer-events: none;
-  transform: translateY(-50%);
-}
-
 .textarea {
   resize: vertical;
   min-height: 100px;
@@ -1682,19 +1663,6 @@ body {
 }
 
 .settings-select-trigger:hover:not(:disabled) {
-  background: var(--bg-hover);
-}
-
-.settings-select-option {
-  background: transparent;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.settings-select-option[aria-checked='true'] {
-  background: var(--bg-tertiary);
-}
-
-.settings-select-option:hover:not(:disabled) {
   background: var(--bg-hover);
 }
 
@@ -3724,7 +3692,7 @@ body {
 .vrm-control input { flex: 1; min-width: 0; }
 .vrm-expression-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .vrm-expression-row > span { flex: 1; overflow-wrap: anywhere; min-width: 0; }
-.vrm-expression-row select { flex: 1; min-width: 0; }
+.vrm-expression-row .model-selector { flex: 1; min-width: 0; }
 .vrm-expression-row button { flex-shrink: 0; }
 .vrm-editor-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .vn-character-wrap.vn-character-3d {

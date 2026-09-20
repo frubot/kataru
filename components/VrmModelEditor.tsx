@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import type { VrmAvatar } from '@/lib/store/types';
 import { createVrmExpressionMap, DEFAULT_VRM_FRAMING, readVrmFile } from '@/lib/vrm';
 import type { VrmPreview } from './VrmAvatarView';
+import OptionSelector from './OptionSelector';
 
 const VrmAvatarView = lazy(() => import('./VrmAvatarView'));
 
@@ -81,13 +82,13 @@ export default function VrmModelEditor({ avatar, name, fallbackImage, expression
                 <button type="button" className="btn btn-ghost" onClick={() => setExpression('neutral')}>通常顔を表示</button>
                 {names.map((entry) => <div className="vrm-expression-row" key={entry}>
                     <span>{entry}</span>
-                    <select className="input" aria-label={`${entry}に対応するVRM表情`} value={avatar.expressionMap[entry] ?? ''} onChange={(event) => {
-                        onChange({ ...avatar, expressionMap: { ...avatar.expressionMap, [entry]: event.target.value } });
+                    <OptionSelector ariaLabel={`${entry}に対応するVRM表情`} value={avatar.expressionMap[entry] ?? ''} onChange={(target) => {
+                        onChange({ ...avatar, expressionMap: { ...avatar.expressionMap, [entry]: target } });
                         setExpression(entry);
-                    }}>
-                        <option value="">通常顔</option>
-                        {available.map((target) => <option key={target} value={target}>{target}</option>)}
-                    </select>
+                    }} options={[
+                        { value: '', label: '通常顔' },
+                        ...available.map((target) => ({ value: target, label: target })),
+                    ]} />
                     <button type="button" className="btn btn-ghost" aria-label={`${entry}の表情を確認`} onClick={() => setExpression(entry)}>確認</button>
                 </div>)}
                 <div className="vrm-expression-row">

@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
-import { BarChart3, Calendar, ChevronDown, Users } from 'lucide-react';
+import { BarChart3, Calendar, Users } from 'lucide-react';
 import { useStore, type UsageRecord } from '@/lib/store';
+import OptionSelector from '@/components/OptionSelector';
 
 type ViewMode = 'tokens' | 'cost';
 type PeriodFilter = 'all' | 'thisMonth' | 'lastMonth' | 'last3Months' | 'lastYear';
@@ -234,57 +235,51 @@ export default function StatisticsPanel() {
                                     <Calendar size={12} />
                                     期間
                                 </label>
-                                <div className="statistics-filter-select-wrapper">
-                                    <select
-                                        className="input statistics-filter-select"
-                                        value={period}
-                                        onChange={(e) => setPeriod(e.target.value as PeriodFilter)}
-                                        style={{ width: '100%' }}
-                                    >
-                                        {periodOptions.map((opt) => (
-                                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                        ))}
-                                    </select>
-                                    <ChevronDown className="statistics-filter-select-arrow" size={16} aria-hidden="true" />
-                                </div>
+                                <OptionSelector
+                                    value={period}
+                                    onChange={(next) => setPeriod(next as PeriodFilter)}
+                                    ariaLabel="期間"
+                                    menuStyle={{ minWidth: 'min(12rem, calc(100vw - 3rem))' }}
+                                    options={periodOptions.map((opt) => ({
+                                        value: opt.value,
+                                        label: opt.label,
+                                    }))}
+                                />
                             </div>
                             <div style={{ flex: 1, minWidth: '140px' }}>
                                 <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.25rem', marginBottom: '0.25rem' }}>
                                     <Users size={12} />
                                     キャラクター
                                 </label>
-                                <div className="statistics-filter-select-wrapper">
-                                    <select
-                                        className="input statistics-filter-select"
-                                        value={selectedCharacter}
-                                        onChange={(e) => setSelectedCharacter(e.target.value)}
-                                        style={{ width: '100%' }}
-                                    >
-                                        <option value="all">全体</option>
-                                        {characters.map((c) => (
-                                            <option key={c.id} value={c.id}>{c.name}</option>
-                                        ))}
-                                    </select>
-                                    <ChevronDown className="statistics-filter-select-arrow" size={16} aria-hidden="true" />
-                                </div>
+                                <OptionSelector
+                                    value={selectedCharacter}
+                                    onChange={setSelectedCharacter}
+                                    ariaLabel="キャラクター"
+                                    searchable
+                                    searchPlaceholder="キャラクター名で検索"
+                                    searchAriaLabel="キャラクターを検索"
+                                    menuStyle={{ minWidth: 'min(14rem, calc(100vw - 3rem))' }}
+                                    options={[
+                                        { value: 'all', label: '全体' },
+                                        ...characters.map((c) => ({ value: c.id, label: c.name })),
+                                    ]}
+                                />
                             </div>
                             <div style={{ flex: 1, minWidth: '140px' }}>
                                 <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.25rem', marginBottom: '0.25rem' }}>
                                     <BarChart3 size={12} />
                                     項目
                                 </label>
-                                <div className="statistics-filter-select-wrapper">
-                                    <select
-                                        className="input statistics-filter-select"
-                                        value={viewMode}
-                                        onChange={(e) => setViewMode(e.target.value as ViewMode)}
-                                        style={{ width: '100%' }}
-                                    >
-                                        <option value="tokens">トークン</option>
-                                        <option value="cost">料金</option>
-                                    </select>
-                                    <ChevronDown className="statistics-filter-select-arrow" size={16} aria-hidden="true" />
-                                </div>
+                                <OptionSelector
+                                    value={viewMode}
+                                    onChange={(next) => setViewMode(next as ViewMode)}
+                                    ariaLabel="項目"
+                                    menuStyle={{ minWidth: 'min(12rem, calc(100vw - 3rem))' }}
+                                    options={[
+                                        { value: 'tokens', label: 'トークン' },
+                                        { value: 'cost', label: '料金' },
+                                    ]}
+                                />
                             </div>
                         </div>
 

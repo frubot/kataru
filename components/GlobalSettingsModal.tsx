@@ -10,6 +10,7 @@ import { resizeToMaxEdgeAsJpeg } from '@/lib/imageUtils';
 import StatisticsPanel from '@/components/StatisticsPanel';
 import AiConnectionSettings from '@/components/AiConnectionSettings';
 import ModelSelector from '@/components/ModelSelector';
+import OptionSelector from '@/components/OptionSelector';
 import TtsVoiceField from '@/components/TtsVoiceField';
 import TtsSpeedSlider, { formatTtsSpeed } from '@/components/TtsSpeedSlider';
 import TtsVolumeSlider, { formatTtsVolume } from '@/components/TtsVolumeSlider';
@@ -471,15 +472,9 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
     const [updateError, setUpdateError] = useState<string | null>(null);
     const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
     const [activeTab, setActiveTab] = useState<SettingsTab>('general');
-    const [isThemeModeMenuOpen, setThemeModeMenuOpen] = useState(false);
-    const [isPaletteMenuOpen, setPaletteMenuOpen] = useState(false);
-    const [isDefaultViewModeMenuOpen, setDefaultViewModeMenuOpen] = useState(false);
     const [isAiConnectionAddOpen, setAiConnectionAddOpen] = useState(false);
     const [isWallpaperEditorOpen, setWallpaperEditorOpen] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const themeModeMenuRef = useRef<HTMLDivElement>(null);
-    const paletteMenuRef = useRef<HTMLDivElement>(null);
-    const defaultViewModeMenuRef = useRef<HTMLDivElement>(null);
     const modalRef = useRef<HTMLDivElement>(null);
     const handleKeyboardClose = () => {
         if (showClearConfirm) {
@@ -494,12 +489,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
             setShowRestoreConfirm(false);
             return;
         }
-        if (isThemeModeMenuOpen || isPaletteMenuOpen || isDefaultViewModeMenuOpen) {
-            setThemeModeMenuOpen(false);
-            setPaletteMenuOpen(false);
-            setDefaultViewModeMenuOpen(false);
-            return;
-        }
         onClose();
     };
 
@@ -512,14 +501,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
             && !isResetting
             && !isWallpaperEditorOpen,
     });
-
-    useEffect(() => {
-        if (!isOpen) {
-            setThemeModeMenuOpen(false);
-            setPaletteMenuOpen(false);
-            setDefaultViewModeMenuOpen(false);
-        }
-    }, [isOpen]);
 
     useEffect(() => {
         if (!isOpen) return;
@@ -549,48 +530,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         void loadApplicationVersion();
         return () => controller.abort();
     }, [isOpen]);
-
-    useEffect(() => {
-        if (!isThemeModeMenuOpen) return;
-
-        const handlePointerDown = (event: PointerEvent) => {
-            const target = event.target;
-            if (target instanceof Node && !themeModeMenuRef.current?.contains(target)) {
-                setThemeModeMenuOpen(false);
-            }
-        };
-
-        document.addEventListener('pointerdown', handlePointerDown);
-        return () => document.removeEventListener('pointerdown', handlePointerDown);
-    }, [isThemeModeMenuOpen]);
-
-    useEffect(() => {
-        if (!isPaletteMenuOpen) return;
-
-        const handlePointerDown = (event: PointerEvent) => {
-            const target = event.target;
-            if (target instanceof Node && !paletteMenuRef.current?.contains(target)) {
-                setPaletteMenuOpen(false);
-            }
-        };
-
-        document.addEventListener('pointerdown', handlePointerDown);
-        return () => document.removeEventListener('pointerdown', handlePointerDown);
-    }, [isPaletteMenuOpen]);
-
-    useEffect(() => {
-        if (!isDefaultViewModeMenuOpen) return;
-
-        const handlePointerDown = (event: PointerEvent) => {
-            const target = event.target;
-            if (target instanceof Node && !defaultViewModeMenuRef.current?.contains(target)) {
-                setDefaultViewModeMenuOpen(false);
-            }
-        };
-
-        document.addEventListener('pointerdown', handlePointerDown);
-        return () => document.removeEventListener('pointerdown', handlePointerDown);
-    }, [isDefaultViewModeMenuOpen]);
 
     if (!isOpen) return null;
 
@@ -732,7 +671,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
     };
 
     const debugLogCount = fullJsonDebugLogs.length;
-    const selectedPalette = PALETTE_OPTIONS.find(({ id }) => id === themePalette) ?? PALETTE_OPTIONS[0];
     const renderPaletteDots = (colors: { bg: string; surface: string; accent: string }) => (
         <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', flexShrink: 0 }}>
             {[colors.bg, colors.surface, colors.accent].map((color, index) => (
@@ -954,312 +892,57 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                 flexDirection: 'column',
                                 gap: '0.75rem',
                             }}>
-                                <div className="settings-select-anchor" ref={themeModeMenuRef}>
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
-                                        <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
-                                            外観
-                                        </span>
-                                        <button
-                                            type="button"
-                                            className="settings-select-trigger"
-                                            aria-haspopup="menu"
-                                            aria-expanded={isThemeModeMenuOpen}
-                                            onClick={() => {
-                                                setThemeModeMenuOpen((open) => !open);
-                                                setPaletteMenuOpen(false);
-                                                setDefaultViewModeMenuOpen(false);
-                                            }}
-                                            style={{
-                                                display: 'inline-flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                gap: '0.5rem',
-                                                width: 'fit-content',
-                                                minHeight: '2.25rem',
-                                                padding: '0.5rem 0.625rem',
-                                                borderRadius: '0.5rem',
-                                                color: 'var(--text-primary)',
-                                                cursor: 'pointer',
-                                                fontSize: '0.8125rem',
-                                                fontWeight: 600,
-                                                transition: 'background 0.15s ease, border-color 0.15s ease',
-                                            }}
-                                        >
-                                            <span style={{ whiteSpace: 'nowrap' }}>
-                                                {themeMode === 'dark' ? 'ダーク' : 'ライト'}
-                                            </span>
-                                            <ChevronDown
-                                                size={15}
-                                                aria-hidden="true"
-                                                style={{
-                                                    flexShrink: 0,
-                                                    color: 'var(--text-muted)',
-                                                    transform: isThemeModeMenuOpen ? 'rotate(180deg)' : undefined,
-                                                    transition: 'transform 0.15s ease',
-                                                }}
-                                            />
-                                        </button>
+                                <div className="global-settings-selector-row">
+                                    <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
+                                        外観
+                                    </span>
+                                    <div className="global-settings-selector-control global-settings-model-selector-control">
+                                        <OptionSelector
+                                            ariaLabel="外観"
+                                            value={themeMode}
+                                            onChange={(id) => setThemeMode(id as ThemeMode)}
+                                            options={THEME_MODE_OPTIONS.map(({ id, label, Icon }) => ({
+                                                value: id,
+                                                label,
+                                                icon: <Icon size={15} aria-hidden="true" style={{ flexShrink: 0 }} />,
+                                            }))}
+                                        />
                                     </div>
-                                    {isThemeModeMenuOpen && (
-                                        <div
-                                            role="menu"
-                                            aria-label="外観"
-                                            style={{
-                                                position: 'absolute',
-                                                right: 0,
-                                                top: 'calc(100% + 0.5rem)',
-                                                width: 'min(100%, 16rem)',
-                                                minWidth: '12rem',
-                                                padding: '0.375rem',
-                                                border: '1px solid var(--border-color)',
-                                                borderRadius: '0.5rem',
-                                                background: 'var(--bg-primary)',
-                                                boxShadow: '0 12px 28px rgba(0, 0, 0, 0.24)',
-                                                zIndex: 20,
-                                            }}
-                                        >
-                                            {THEME_MODE_OPTIONS.map(({ id, label, Icon }) => {
-                                                const selected = themeMode === id;
-                                                return (
-                                                    <button
-                                                        key={id}
-                                                        type="button"
-                                                        className="settings-select-option"
-                                                        role="menuitemradio"
-                                                        aria-checked={selected}
-                                                        onClick={() => {
-                                                            setThemeMode(id);
-                                                            setThemeModeMenuOpen(false);
-                                                        }}
-                                                        style={{
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            gap: '0.625rem',
-                                                            width: '100%',
-                                                            minHeight: '2.5rem',
-                                                            padding: '0.5rem 0.625rem',
-                                                            border: 'none',
-                                                            borderRadius: '0.375rem',
-                                                            color: selected ? 'var(--accent-primary)' : 'var(--text-primary)',
-                                                            cursor: 'pointer',
-                                                            textAlign: 'left',
-                                                        }}
-                                                    >
-                                                        <Icon size={15} aria-hidden="true" style={{ flexShrink: 0 }} />
-                                                        <span style={{ flex: 1, minWidth: 0, fontSize: '0.875rem', fontWeight: selected ? 600 : 500, textAlign: 'left' }}>
-                                                            {label}
-                                                        </span>
-                                                        {selected && <Check size={15} aria-hidden="true" style={{ flexShrink: 0 }} />}
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
-                                    )}
                                 </div>
 
-                                <div className="settings-select-anchor" ref={paletteMenuRef}>
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
-                                        <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
-                                            色
-                                        </span>
-                                        <button
-                                            type="button"
-                                            className="settings-select-trigger"
-                                            aria-haspopup="menu"
-                                            aria-expanded={isPaletteMenuOpen}
-                                            onClick={() => {
-                                                setPaletteMenuOpen((open) => !open);
-                                                setThemeModeMenuOpen(false);
-                                                setDefaultViewModeMenuOpen(false);
-                                            }}
-                                            style={{
-                                                display: 'inline-flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                gap: '0.5rem',
-                                                width: 'fit-content',
-                                                minHeight: '2.25rem',
-                                                padding: '0.5rem 0.625rem',
-                                                borderRadius: '0.5rem',
-                                                color: 'var(--text-primary)',
-                                                cursor: 'pointer',
-                                                fontSize: '0.8125rem',
-                                                fontWeight: 600,
-                                                transition: 'background 0.15s ease, border-color 0.15s ease',
-                                            }}
-                                        >
-                                            <span style={{ whiteSpace: 'nowrap' }}>
-                                                {selectedPalette.label}
-                                            </span>
-                                            <ChevronDown
-                                                size={15}
-                                                aria-hidden="true"
-                                                style={{
-                                                    flexShrink: 0,
-                                                    color: 'var(--text-muted)',
-                                                    transform: isPaletteMenuOpen ? 'rotate(180deg)' : undefined,
-                                                    transition: 'transform 0.15s ease',
-                                                }}
-                                            />
-                                        </button>
+                                <div className="global-settings-selector-row">
+                                    <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
+                                        色
+                                    </span>
+                                    <div className="global-settings-selector-control global-settings-model-selector-control">
+                                        <OptionSelector
+                                            ariaLabel="色"
+                                            value={themePalette}
+                                            onChange={(id) => setThemePalette(id as ThemePalette)}
+                                            options={PALETTE_OPTIONS.map(({ id, label, preview }) => ({
+                                                value: id,
+                                                label,
+                                                icon: renderPaletteDots(preview[themeMode]),
+                                            }))}
+                                        />
                                     </div>
-                                    {isPaletteMenuOpen && (
-                                        <div
-                                            role="menu"
-                                            aria-label="色"
-                                            style={{
-                                                position: 'absolute',
-                                                right: 0,
-                                                top: 'calc(100% + 0.5rem)',
-                                                width: 'min(100%, 16rem)',
-                                                minWidth: '12rem',
-                                                padding: '0.375rem',
-                                                border: '1px solid var(--border-color)',
-                                                borderRadius: '0.5rem',
-                                                background: 'var(--bg-primary)',
-                                                boxShadow: '0 12px 28px rgba(0, 0, 0, 0.24)',
-                                                zIndex: 20,
-                                            }}
-                                        >
-                                            {PALETTE_OPTIONS.map(({ id, label, preview }) => {
-                                                const selected = themePalette === id;
-                                                const colors = preview[themeMode];
-                                                return (
-                                                    <button
-                                                        key={id}
-                                                        type="button"
-                                                        className="settings-select-option"
-                                                        role="menuitemradio"
-                                                        aria-checked={selected}
-                                                        onClick={() => {
-                                                            setThemePalette(id);
-                                                            setPaletteMenuOpen(false);
-                                                        }}
-                                                        style={{
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            gap: '0.625rem',
-                                                            width: '100%',
-                                                            minHeight: '2.5rem',
-                                                            padding: '0.5rem 0.625rem',
-                                                            border: 'none',
-                                                            borderRadius: '0.375rem',
-                                                            color: selected ? 'var(--accent-primary)' : 'var(--text-primary)',
-                                                            cursor: 'pointer',
-                                                            textAlign: 'left',
-                                                        }}
-                                                    >
-                                                        {renderPaletteDots(colors)}
-                                                        <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.875rem', fontWeight: selected ? 600 : 500, textAlign: 'left' }}>
-                                                            {label}
-                                                        </span>
-                                                        {selected && <Check size={15} aria-hidden="true" style={{ flexShrink: 0 }} />}
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
-                                    )}
                                 </div>
 
-                                <div className="settings-select-anchor" ref={defaultViewModeMenuRef}>
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
-                                        <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
-                                            既定の表示モード
-                                        </span>
-                                        <button
-                                            type="button"
-                                            className="settings-select-trigger"
-                                            aria-haspopup="menu"
-                                            aria-expanded={isDefaultViewModeMenuOpen}
-                                            onClick={() => {
-                                                setDefaultViewModeMenuOpen((open) => !open);
-                                                setThemeModeMenuOpen(false);
-                                                setPaletteMenuOpen(false);
-                                            }}
-                                            style={{
-                                                display: 'inline-flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                gap: '0.5rem',
-                                                width: 'fit-content',
-                                                minHeight: '2.25rem',
-                                                padding: '0.5rem 0.625rem',
-                                                borderRadius: '0.5rem',
-                                                color: 'var(--text-primary)',
-                                                cursor: 'pointer',
-                                                fontSize: '0.8125rem',
-                                                fontWeight: 600,
-                                                transition: 'background 0.15s ease, border-color 0.15s ease',
-                                            }}
-                                        >
-                                            <span style={{ whiteSpace: 'nowrap' }}>
-                                                {VIEW_MODE_OPTIONS.find(({ id }) => id === defaultViewMode)?.label ?? VIEW_MODE_OPTIONS[0].label}
-                                            </span>
-                                            <ChevronDown
-                                                size={15}
-                                                aria-hidden="true"
-                                                style={{
-                                                    flexShrink: 0,
-                                                    color: 'var(--text-muted)',
-                                                    transform: isDefaultViewModeMenuOpen ? 'rotate(180deg)' : undefined,
-                                                    transition: 'transform 0.15s ease',
-                                                }}
-                                            />
-                                        </button>
+                                <div className="global-settings-selector-row">
+                                    <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
+                                        既定の表示モード
+                                    </span>
+                                    <div className="global-settings-selector-control global-settings-model-selector-control">
+                                        <OptionSelector
+                                            ariaLabel="既定の表示モード"
+                                            value={defaultViewMode}
+                                            onChange={(id) => setDefaultViewMode(id as RoomViewMode)}
+                                            options={VIEW_MODE_OPTIONS.map((option) => ({
+                                                value: option.id,
+                                                label: option.label,
+                                            }))}
+                                        />
                                     </div>
-                                    {isDefaultViewModeMenuOpen && (
-                                        <div
-                                            role="menu"
-                                            aria-label="既定の表示モード"
-                                            style={{
-                                                position: 'absolute',
-                                                right: 0,
-                                                top: 'calc(100% + 0.5rem)',
-                                                width: 'min(100%, 16rem)',
-                                                minWidth: '12rem',
-                                                padding: '0.375rem',
-                                                border: '1px solid var(--border-color)',
-                                                borderRadius: '0.5rem',
-                                                background: 'var(--bg-primary)',
-                                                boxShadow: '0 12px 28px rgba(0, 0, 0, 0.24)',
-                                                zIndex: 20,
-                                            }}
-                                        >
-                                            {VIEW_MODE_OPTIONS.map((option) => {
-                                                const selected = defaultViewMode === option.id;
-                                                return (
-                                                    <button
-                                                        key={option.id}
-                                                        type="button"
-                                                        className="settings-select-option"
-                                                        role="menuitemradio"
-                                                        aria-checked={selected}
-                                                        onClick={() => {
-                                                            setDefaultViewMode(option.id);
-                                                            setDefaultViewModeMenuOpen(false);
-                                                        }}
-                                                        style={{
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            width: '100%',
-                                                            minHeight: '2.5rem',
-                                                            padding: '0.5rem 0.625rem',
-                                                            border: 'none',
-                                                            borderRadius: '0.375rem',
-                                                            color: selected ? 'var(--accent-primary)' : 'var(--text-primary)',
-                                                            cursor: 'pointer',
-                                                            textAlign: 'left',
-                                                        }}
-                                                    >
-                                                        <span style={{ flex: 1, minWidth: 0, fontSize: '0.875rem', fontWeight: selected ? 600 : 500, textAlign: 'left' }}>
-                                                            {option.label}
-                                                        </span>
-                                                        {selected && <Check size={15} aria-hidden="true" style={{ flexShrink: 0 }} />}
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
-                                    )}
                                 </div>
 
                                 <VnSpeedSlider value={vnTypingSpeed} onChange={setVnTypingSpeed} />
@@ -1454,31 +1137,34 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     >
                                         接続先
                                     </label>
-                                    <div className="global-settings-selector-control">
-                                        <select
+                                    <div className="global-settings-selector-control global-settings-model-selector-control">
+                                        <OptionSelector
                                             id="tts-connection-input"
-                                            className="input"
+                                            ariaLabel="接続先"
                                             value={ttsConnectionId}
-                                            onChange={(event) => setTtsConnectionId(event.target.value)}
-                                        >
-                                            {ttsConnectionId === '' && (
-                                                <option value="">接続先を選択</option>
-                                            )}
-                                            {ttsCapableConnections.map((connection) => (
-                                                <option key={connection.id} value={connection.id}>
-                                                    {connection.name}
-                                                </option>
-                                            ))}
-                                            {ttsConnectionId !== ''
-                                                && !ttsCapableConnections.some((connection) => connection.id === ttsConnectionId) && (
-                                                <option value={ttsConnectionId}>
-                                                    {ttsConnection?.name
-                                                        ?? (isAiConnectionKind(ttsConnectionId)
-                                                            ? AI_CONNECTION_KIND_LABELS[ttsConnectionId]
-                                                            : ttsConnectionId)}
-                                                </option>
-                                            )}
-                                        </select>
+                                            onChange={setTtsConnectionId}
+                                            placeholder="接続先を選択"
+                                            emptyLabel="音声合成に対応する接続先がありません。"
+                                            options={[
+                                                ...(ttsConnectionId === ''
+                                                    ? [{ value: '', label: '接続先を選択' }]
+                                                    : []),
+                                                ...ttsCapableConnections.map((connection) => ({
+                                                    value: connection.id,
+                                                    label: connection.name,
+                                                })),
+                                                ...(ttsConnectionId !== ''
+                                                    && !ttsCapableConnections.some((connection) => connection.id === ttsConnectionId)
+                                                    ? [{
+                                                        value: ttsConnectionId,
+                                                        label: ttsConnection?.name
+                                                            ?? (isAiConnectionKind(ttsConnectionId)
+                                                                ? AI_CONNECTION_KIND_LABELS[ttsConnectionId]
+                                                                : ttsConnectionId),
+                                                    }]
+                                                    : []),
+                                            ]}
+                                        />
                                     </div>
                                 </div>
                                 {ttsConnectionKind !== 'voicevox' && (

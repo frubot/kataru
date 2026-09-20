@@ -19,6 +19,7 @@ import {
 import { CropArea, createInitialCrop, type CropBox } from './ImageCropArea';
 import StoredImage from './StoredImage';
 import ModelSelector from './ModelSelector';
+import OptionSelector from './OptionSelector';
 import { useModalKeyboard } from './useModalKeyboard';
 
 const NEUTRAL_NAME = 'neutral';
@@ -448,25 +449,25 @@ export default function ExpressionDiffModal({
                     {showCostumeSettings && (
                         <div>
                             <label style={labelStyle}>コスチューム</label>
-                            <select
-                                className="input"
+                            <OptionSelector
                                 value={selectedCostumeName}
-                                onChange={(e) => {
-                                    setSelectedCostumeName(e.target.value);
+                                onChange={(name) => {
+                                    setSelectedCostumeName(name);
                                     clearUploadQueue();
                                     setEditingName(null);
                                     setEditingNameValue('');
                                     setError(null);
                                 }}
                                 disabled={!!busy}
-                            >
-                                <option value={DEFAULT_COSTUME_NAME}>default</option>
-                                {additionalCostumes.map((costume) => (
-                                    <option key={costume.name} value={costume.name}>
-                                        {costume.name}
-                                    </option>
-                                ))}
-                            </select>
+                                ariaLabel="コスチューム"
+                                options={[
+                                    { value: DEFAULT_COSTUME_NAME, label: 'default' },
+                                    ...additionalCostumes.map((costume) => ({
+                                        value: costume.name,
+                                        label: costume.name,
+                                    })),
+                                ]}
+                            />
                             <p style={hintStyle}>
                                 {selectedCostume
                                     ? `「${selectedCostume.name}」の衣装画像をベースに、この衣装専用の表情差分を作成します`

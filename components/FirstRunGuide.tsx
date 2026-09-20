@@ -21,6 +21,7 @@ import {
 import { getAvailableModels, type AvailableModel } from '@/lib/availableModels';
 import { serializeModelRef } from '@/lib/modelDefaults';
 import { useStore } from '@/lib/store';
+import OptionSelector from '@/components/OptionSelector';
 
 interface FirstRunGuideProps {
     onOpenSidebar: () => void;
@@ -545,18 +546,20 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                                                     </p>
                                                 </>
                                             ) : (
-                                                <select
+                                                <OptionSelector
                                                     id="onboarding-guide-model"
-                                                    className="input"
                                                     value={selectedGuideModel}
-                                                    onChange={(event) => setSelectedGuideModel(event.target.value)}
-                                                >
-                                                    {availableTextModels.map((model) => (
-                                                        <option key={model.id} value={model.id}>
-                                                            {model.name === model.id ? model.name : `${model.name} (${model.id})`}
-                                                        </option>
-                                                    ))}
-                                                </select>
+                                                    onChange={setSelectedGuideModel}
+                                                    ariaLabel="使用するモデル"
+                                                    searchable
+                                                    searchPlaceholder="モデル名・IDで検索"
+                                                    searchAriaLabel="モデルを検索"
+                                                    options={availableTextModels.map((model) => ({
+                                                        value: model.id,
+                                                        label: model.name,
+                                                        detail: model.name !== model.id ? model.id : undefined,
+                                                    }))}
+                                                />
                                             )}
                                             <p className="ai-connection-help">
                                                 既定モデルに設定されます。あとから変更できます。

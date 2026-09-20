@@ -49,10 +49,14 @@ export const DEFAULT_TTS_VOLUME = 1.0;
 export const DEFAULT_TTS_AUTO_PLAY = false;
 /** 直前の *...* 動作描写をIrodoriのcaption（演技指示）として送るか。 */
 export const DEFAULT_TTS_ACTION_CAPTION = true;
+/** Irodoriのcaptionガイダンス強度。SamplingRequestのデフォルトと同じ3.0。 */
+export const DEFAULT_TTS_CAPTION_CFG_SCALE = 3.0;
 export const TTS_SPEED_MIN = 0.25;
 export const TTS_SPEED_MAX = 4.0;
 export const TTS_VOLUME_MIN = 0;
 export const TTS_VOLUME_MAX = 1.0;
+export const TTS_CAPTION_CFG_SCALE_MIN = 0;
+export const TTS_CAPTION_CFG_SCALE_MAX = 10;
 
 export function getThemeClassName(mode: ThemeMode, palette: ThemePalette): string {
     return `mode-${mode} palette-${palette}`;
@@ -87,6 +91,11 @@ export function normalizeTtsSpeed(value: unknown): number {
 export function normalizeTtsVolume(value: unknown): number {
     if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_TTS_VOLUME;
     return Math.min(TTS_VOLUME_MAX, Math.max(TTS_VOLUME_MIN, value));
+}
+
+export function normalizeTtsCaptionCfgScale(value: unknown): number {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_TTS_CAPTION_CFG_SCALE;
+    return Math.min(TTS_CAPTION_CFG_SCALE_MAX, Math.max(TTS_CAPTION_CFG_SCALE_MIN, value));
 }
 
 export function resolveThemeSelection(params: { mode?: unknown; palette?: unknown }): ThemeSelection {
@@ -194,6 +203,7 @@ type SettingsSlice = Pick<
     | 'ttsVolume'
     | 'ttsAutoPlay'
     | 'ttsActionCaption'
+    | 'ttsCaptionCfgScale'
     | 'fullJsonDebugEnabled'
     | 'detailedErrorLoggingEnabled'
     | 'memoryInspectorEnabled'
@@ -230,6 +240,7 @@ type SettingsSlice = Pick<
     | 'setTtsVolume'
     | 'setTtsAutoPlay'
     | 'setTtsActionCaption'
+    | 'setTtsCaptionCfgScale'
     | 'getAiApiConfig'
     | 'setFullJsonDebugEnabled'
     | 'setDetailedErrorLoggingEnabled'
@@ -258,6 +269,7 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         ttsVolume: DEFAULT_TTS_VOLUME,
         ttsAutoPlay: DEFAULT_TTS_AUTO_PLAY,
         ttsActionCaption: DEFAULT_TTS_ACTION_CAPTION,
+        ttsCaptionCfgScale: DEFAULT_TTS_CAPTION_CFG_SCALE,
         fullJsonDebugEnabled: false,
         detailedErrorLoggingEnabled: false,
         memoryInspectorEnabled: false,
@@ -396,6 +408,11 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         setTtsActionCaption: (ttsActionCaption) => {
             set({ ttsActionCaption });
             fire(db.setMeta('ttsActionCaption', ttsActionCaption));
+        },
+        setTtsCaptionCfgScale: (scale) => {
+            const ttsCaptionCfgScale = normalizeTtsCaptionCfgScale(scale);
+            set({ ttsCaptionCfgScale });
+            fire(db.setMeta('ttsCaptionCfgScale', ttsCaptionCfgScale));
         },
         getAiApiConfig: () => getAiApiConfigFromState(get()),
         setFullJsonDebugEnabled: (fullJsonDebugEnabled) => {

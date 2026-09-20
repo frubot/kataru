@@ -96,6 +96,7 @@ export function useTtsPlayback({
                 messageId: cacheKey,
                 segments,
                 profile,
+                captionCfgScale: state.ttsCaptionCfgScale,
                 aiApiConfig: { ...state.getAiApiConfig(), connectionId: profile.connectionId },
             },
         };

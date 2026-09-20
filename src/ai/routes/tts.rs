@@ -51,13 +51,26 @@ pub async fn synthesize_speech(
         .unwrap_or((None, None));
     let connection_id = optional_trimmed_string(&input, "connectionId").or(model_connection);
     let caption = optional_trimmed_string(&input, "caption");
+    let caption_cfg_scale = input
+        .get("captionCfgScale")
+        .and_then(Value::as_f64)
+        .map(|scale| scale.clamp(0.0, 10.0));
     let api_client = ai_api_client_for_connection(&state, &input, connection_id.as_deref())?;
 
     if api_client.is_voicevox() {
         return synthesize_voicevox(&api_client, &text, &voice, speed).await;
     }
     if api_client.is_irodori() {
-        return synthesize_irodori(&api_client, &text, &voice, speed, model, caption).await;
+        return synthesize_irodori(
+            &api_client,
+            &text,
+            &voice,
+            speed,
+            model,
+            caption,
+            caption_cfg_scale,
+        )
+        .await;
     }
     if !api_client.tts_enabled() {
         return Err(AppError::BadRequest(if api_client.is_openai_compatible() {
@@ -133,6 +146,7 @@ async fn synthesize_irodori(
     speed: f64,
     model: Option<String>,
     caption: Option<String>,
+    caption_cfg_scale: Option<f64>,
 ) -> AppResult<Response> {
     let mut body = json!({
         "model": model.unwrap_or_else(|| IRODORI_DEFAULT_MODEL.to_owned()),
@@ -143,8 +157,16 @@ async fn synthesize_irodori(
     });
     // captionはIrodori固有の演技指示。参照音声の声質を保ったまま、
     // 話し方・感情だけを制御する（Voice Design / スタイル制御）。
-    if let Some(caption) = caption {
-        body["irodori"] = json!({ "caption": take_chars(&caption, IRODORI_CAPTION_LIMIT) });
+    // cfg_scale_captionはその効き具合（デフォルト3.0、0で事実上無効化）。
+    if caption.is_some() || caption_cfg_scale.is_some() {
+        let mut irodori = json!({});
+        if let Some(caption) = caption {
+            irodori["caption"] = json!(take_chars(&caption, IRODORI_CAPTION_LIMIT));
+        }
+        if let Some(scale) = caption_cfg_scale {
+            irodori["cfg_scale_caption"] = json!(scale);
+        }
+        body["irodori"] = irodori;
     }
     let upstream = api_client
         .send_json("v1/audio/speech", &body, IRODORI_TIMEOUT_SECS)

@@ -41,6 +41,7 @@ export default function TtsPreviewButton({ previewId, profile, disabled = false 
             messageId: previewId,
             segments: [{ text: PREVIEW_TEXT }],
             profile,
+            captionCfgScale: state.ttsCaptionCfgScale,
             aiApiConfig: { ...state.getAiApiConfig(), connectionId: profile.connectionId },
         }).catch(() => {});
     };

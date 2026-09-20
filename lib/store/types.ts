@@ -345,6 +345,8 @@ export interface AppState {
     ttsVolume: number;
     ttsAutoPlay: boolean;
     ttsActionCaption: boolean;
+    /** Irodoriの caption（演技指示）の効き具合。0-10、サーバーデフォルトは3.0。 */
+    ttsCaptionCfgScale: number;
     fullJsonDebugEnabled: boolean;
     detailedErrorLoggingEnabled: boolean;
     memoryInspectorEnabled: boolean;
@@ -391,6 +393,7 @@ export interface AppState {
     setTtsVolume: (volume: number) => void;
     setTtsAutoPlay: (enabled: boolean) => void;
     setTtsActionCaption: (enabled: boolean) => void;
+    setTtsCaptionCfgScale: (scale: number) => void;
     getAiApiConfig: () => AiApiConfig;
     setFullJsonDebugEnabled: (enabled: boolean) => void;
     setDetailedErrorLoggingEnabled: (enabled: boolean) => void;

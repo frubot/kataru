@@ -17,6 +17,9 @@ export interface TtsRequestParams {
      * 分割され、順に合成・再生される（動作の分だけ小さな間が入る）。 */
     segments: TtsSpeechSegment[];
     profile: TtsProfile;
+    /** Irodoriの caption ガイダンス強度（irodori.cfg_scale_caption）。他の
+     * 接続先ではバックエンドが無視する。 */
+    captionCfgScale: number;
     aiApiConfig: AiApiConfig;
 }
 
@@ -154,6 +157,7 @@ async function fetchTtsAudio(params: TtsRequestParams): Promise<Blob[]> {
             body: JSON.stringify({
                 text: segment.text,
                 ...(segment.caption ? { caption: segment.caption } : {}),
+                captionCfgScale: params.captionCfgScale,
                 voice: params.profile.voice,
                 speed: params.profile.speed,
                 connectionId: params.profile.connectionId,
@@ -295,7 +299,7 @@ export function getTtsAudioLevel(): number {
  * volumeは再生時に反映されるだけなので含めない。 */
 function ttsCacheKey(params: TtsRequestParams): string {
     const { connectionId, model, voice, speed } = params.profile;
-    return JSON.stringify([params.segments, connectionId, model, voice, speed]);
+    return JSON.stringify([params.segments, connectionId, model, voice, speed, params.captionCfgScale]);
 }
 
 function dropEntryAudio(entry: TtsEntry): void {

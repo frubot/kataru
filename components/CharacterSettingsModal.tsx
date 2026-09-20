@@ -949,14 +949,16 @@ function CharacterSettingsModalContent({
                                 gap: '1.25rem',
                             }}>
                                 {/* モデル */}
-                                <div>
-                                    <label style={{ ...labelStyle, fontSize: '0.8125rem', marginBottom: '0.375rem' }}>モデル</label>
-                                    <ModelSelector
-                                        value={model}
-                                        onChange={setModel}
-                                        outputModality="text"
-                                        placeholder={`例: ${defaultChatModel.model}`}
-                                    />
+                                <div className="global-settings-selector-row">
+                                    <label style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>モデル</label>
+                                    <div className="global-settings-selector-control global-settings-model-selector-control">
+                                        <ModelSelector
+                                            value={model}
+                                            onChange={setModel}
+                                            outputModality="text"
+                                            placeholder={`例: ${defaultChatModel.model}`}
+                                        />
+                                    </div>
                                 </div>
 
                                 {/* 声 */}

@@ -2406,9 +2406,9 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                                     <MaxAutoTurnsSlider value={parsedMaxTurns} onChange={setMaxAutoTurns} />
                                 )}
                                 <MaxHistorySlider value={maxHistory} onChange={setMaxHistory} />
-                                <div>
-                                    <label style={sectionLabelStyle}>指揮役モデル</label>
-                                    <div style={{ marginTop: '0.375rem' }}>
+                                <div className="global-settings-selector-row">
+                                    <label style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>指揮役モデル</label>
+                                    <div className="global-settings-selector-control global-settings-model-selector-control">
                                         <ModelSelector
                                             value={directorModel ?? { connectionId: DEFAULT_CONNECTION_ID, model: '' }}
                                             onChange={setDirectorModel}
@@ -2419,9 +2419,9 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                                         />
                                     </div>
                                 </div>
-                                <div>
-                                    <label style={sectionLabelStyle}>指揮エンジン</label>
-                                    <div style={{ marginTop: '0.375rem' }}>
+                                <div className="global-settings-selector-row">
+                                    <label style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>指揮エンジン</label>
+                                    <div className="global-settings-selector-control global-settings-model-selector-control">
                                         <OptionSelector
                                             value={directorEngine}
                                             onChange={(engine) => {
@@ -2431,7 +2431,6 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                                                 setDirectorModel(undefined);
                                             }}
                                             ariaLabel="指揮エンジン"
-                                            triggerStyle={fieldStyle}
                                             options={[
                                                 { value: 'llm', label: 'LLM' },
                                                 { value: 'typesafe', label: 'System One (Jev)' },

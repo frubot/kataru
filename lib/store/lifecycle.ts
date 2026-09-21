@@ -53,6 +53,7 @@ import {
     isVnTypingSpeed,
     isRoomViewMode,
     normalizeTtsCaptionCfgScale,
+    normalizeTtsModel,
     normalizeTtsSpeed,
     normalizeTtsVolume,
     persistModelDefaults,
@@ -302,9 +303,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
             const resolvedTtsConnectionId = typeof storedTtsConnectionId === 'string'
                 ? storedTtsConnectionId.trim()
                 : DEFAULT_TTS_CONNECTION_ID;
-            const resolvedTtsModel = typeof storedTtsModel === 'string'
-                ? storedTtsModel.trim()
-                : DEFAULT_TTS_MODEL;
+            const resolvedTtsModel = normalizeTtsModel(resolvedTtsConnectionId, storedTtsModel);
             const resolvedTtsVoice = typeof storedTtsVoice === 'string'
                 ? storedTtsVoice.trim()
                 : DEFAULT_TTS_VOICE;

@@ -123,8 +123,7 @@ export default function ModelSelector({
 
     const filteredResults = useMemo(() => {
         const normalizedQuery = query.trim().toLocaleLowerCase();
-        // モデルを1件も返さない接続（モデル概念のないVOICEVOXなど）は
-        // 見出しだけの空グループになるため候補から外す。
+        // モデルを1件も返さない接続は見出しだけの空グループになるため候補から外す。
         const listable = results.filter((result) => 'error' in result || result.models.length > 0);
         if (!normalizedQuery) return listable;
         return listable.flatMap((result) => {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Check, ChevronDown, RefreshCw, ExternalLink, Plus, type LucideIcon } from 'lucide-react';
-import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, RoomViewMode, getDefaultModelDefaults } from '@/lib/store';
+import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, RoomViewMode, VOICEVOX_TTS_MODEL, getDefaultModelDefaults } from '@/lib/store';
 import { AI_CONNECTION_KIND_LABELS, isAiConnectionKind, type AiConnectionKind } from '@/lib/aiApi';
 import { useAiConnections, type AiConnectionStatus } from '@/lib/aiConnections';
 import { MODEL_DEFAULT_FIELDS, modelRefsEqual, type ModelRef, type ModelRoleKey } from '@/lib/modelDefaults';
@@ -446,6 +446,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         ?? (isAiConnectionKind(ttsConnectionId) ? ttsConnectionId : null)
         // 接続先が未設定・未解決でも、選んだモデル名からIrodoriを推測する。
         ?? (isIrodoriTtsModel(ttsModel) ? 'irodori' : null);
+    const effectiveTtsModel = ttsConnectionKind === 'voicevox' ? VOICEVOX_TTS_MODEL : ttsModel;
     const ttsCapableConnections = connections.filter((connection) => (
         connectionSupportsCapability(connection.kind, connection, 'tts')
     ));
@@ -1139,63 +1140,24 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                             }}>
                                 <div className="global-settings-selector-row">
                                     <label
-                                        htmlFor="tts-connection-input"
+                                        htmlFor="tts-model-input"
                                         style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
                                     >
-                                        接続先
+                                        モデル
                                     </label>
                                     <div className="global-settings-selector-control global-settings-model-selector-control">
-                                        <OptionSelector
-                                            id="tts-connection-input"
-                                            ariaLabel="接続先"
-                                            value={ttsConnectionId}
-                                            onChange={setTtsConnectionId}
-                                            placeholder="接続先を選択"
-                                            emptyLabel="音声合成に対応する接続先がありません。"
-                                            options={[
-                                                ...(ttsConnectionId === ''
-                                                    ? [{ value: '', label: '接続先を選択' }]
-                                                    : []),
-                                                ...ttsCapableConnections.map((connection) => ({
-                                                    value: connection.id,
-                                                    label: connection.name,
-                                                })),
-                                                ...(ttsConnectionId !== ''
-                                                    && !ttsCapableConnections.some((connection) => connection.id === ttsConnectionId)
-                                                    ? [{
-                                                        value: ttsConnectionId,
-                                                        label: ttsConnection?.name
-                                                            ?? (isAiConnectionKind(ttsConnectionId)
-                                                                ? AI_CONNECTION_KIND_LABELS[ttsConnectionId]
-                                                                : ttsConnectionId),
-                                                    }]
-                                                    : []),
-                                            ]}
+                                        <ModelSelector
+                                            id="tts-model-input"
+                                            value={{ connectionId: ttsConnectionId, model: effectiveTtsModel }}
+                                            onChange={(ref) => {
+                                                setTtsConnectionId(ref.connectionId);
+                                                setTtsModel(ref.model);
+                                            }}
+                                            outputModality="speech"
+                                            placeholder="例: VOICEVOX / deepgram/aura-2"
                                         />
                                     </div>
                                 </div>
-                                {ttsConnectionKind !== 'voicevox' && (
-                                    <div className="global-settings-selector-row">
-                                        <label
-                                            htmlFor="tts-model-input"
-                                            style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
-                                        >
-                                            モデル
-                                        </label>
-                                        <div className="global-settings-selector-control global-settings-model-selector-control">
-                                            <ModelSelector
-                                                id="tts-model-input"
-                                                value={{ connectionId: ttsConnectionId, model: ttsModel }}
-                                                onChange={(ref) => {
-                                                    setTtsConnectionId(ref.connectionId);
-                                                    setTtsModel(ref.model);
-                                                }}
-                                                outputModality="speech"
-                                                placeholder="例: deepgram/aura-2"
-                                            />
-                                        </div>
-                                    </div>
-                                )}
                                 <div className="global-settings-selector-row">
                                     <label
                                         htmlFor="tts-voice-input"
@@ -1218,7 +1180,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                                 previewId="tts-preview-global"
                                                 profile={{
                                                     connectionId: ttsConnectionId,
-                                                    model: ttsModel,
+                                                    model: effectiveTtsModel,
                                                     voice: ttsVoice,
                                                     speed: ttsSpeed,
                                                     volume: ttsVolume,
@@ -1324,7 +1286,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                                     previewId="tts-preview-narrator"
                                                     profile={{
                                                         connectionId: ttsConnectionId,
-                                                        model: ttsModel,
+                                                        model: effectiveTtsModel,
                                                         voice: ttsNarratorVoice || ttsVoice,
                                                         speed: ttsSpeed,
                                                         volume: ttsVolume,

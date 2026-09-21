@@ -10,7 +10,7 @@ import {
     normalizeMemoryContent,
 } from '../lib/store/memories';
 import { toPreview } from '../lib/store/persistence';
-import { resolveThemeSelection } from '../lib/store/settings';
+import { normalizeTtsModel, resolveThemeSelection } from '../lib/store/settings';
 import {
     getSituationCostumeSelections,
     normalizeGroupData,
@@ -92,6 +92,11 @@ describe('store pure helpers', () => {
             .toEqual({ mode: 'light', palette: 'sakura' });
         expect(resolveThemeSelection({ mode: 'invalid', palette: null }))
             .toEqual({ mode: 'dark', palette: 'mono' });
+    });
+
+    test('normalizes the built-in VOICEVOX connection to its virtual model', () => {
+        expect(normalizeTtsModel('voicevox', 'deepgram/aura-2')).toBe('voicevox');
+        expect(normalizeTtsModel('openrouter', ' deepgram/aura-2 ')).toBe('deepgram/aura-2');
     });
 
     test('normalizes, classifies, and compares memory text', () => {

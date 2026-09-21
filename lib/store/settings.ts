@@ -43,6 +43,7 @@ export const DEFAULT_CHARACTER_REPETITION_PENALTY = 1;
 export const DEFAULT_CONVERSATION_COMPRESSION_ENABLED = true;
 export const DEFAULT_TTS_CONNECTION_ID = DEFAULT_CONNECTION_ID;
 export const DEFAULT_TTS_MODEL = 'deepgram/aura-2';
+export const VOICEVOX_TTS_MODEL = 'voicevox';
 export const DEFAULT_TTS_VOICE = 'aura-2-ama-ja';
 export const DEFAULT_TTS_SPEED = 1.0;
 export const DEFAULT_TTS_VOLUME = 1.0;
@@ -94,6 +95,11 @@ export function normalizeTtsSpeed(value: unknown): number {
 export function normalizeTtsVolume(value: unknown): number {
     if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_TTS_VOLUME;
     return Math.min(TTS_VOLUME_MAX, Math.max(TTS_VOLUME_MIN, value));
+}
+
+export function normalizeTtsModel(connectionId: string, value: unknown): string {
+    if (connectionId === 'voicevox') return VOICEVOX_TTS_MODEL;
+    return typeof value === 'string' ? value.trim() : DEFAULT_TTS_MODEL;
 }
 
 export function normalizeTtsCaptionCfgScale(value: unknown): number {
@@ -386,8 +392,13 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         },
         setTtsConnectionId: (id) => {
             const ttsConnectionId = id.trim();
-            set({ ttsConnectionId });
+            set(ttsConnectionId === 'voicevox'
+                ? { ttsConnectionId, ttsModel: VOICEVOX_TTS_MODEL }
+                : { ttsConnectionId });
             fire(db.setMeta('ttsConnectionId', ttsConnectionId));
+            if (ttsConnectionId === 'voicevox') {
+                fire(db.setMeta('ttsModel', VOICEVOX_TTS_MODEL));
+            }
         },
         setTtsModel: (model) => {
             const ttsModel = model.trim();

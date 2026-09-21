@@ -26,7 +26,8 @@ use super::{
 };
 
 const MODEL_CACHE_FILE_NAME: &str = "model-cache.json";
-const MODEL_CACHE_VERSION: u32 = 1;
+const MODEL_CACHE_VERSION: u32 = 2;
+const VOICEVOX_MODEL_ID: &str = "voicevox";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -320,9 +321,16 @@ async fn fetch_models(
     api_client: &AiApiClient,
     output_modality: ModelOutputModality,
 ) -> AppResult<Vec<AvailableModel>> {
-    // VOICEVOX is a TTS engine without a model catalog.
+    // VOICEVOX has no upstream catalog; expose the engine itself as its single speech model.
     if api_client.is_voicevox() {
-        return Ok(Vec::new());
+        return Ok(if output_modality == ModelOutputModality::Speech {
+            vec![AvailableModel {
+                id: VOICEVOX_MODEL_ID.to_owned(),
+                name: "VOICEVOX".to_owned(),
+            }]
+        } else {
+            Vec::new()
+        });
     }
     // Irodori is a TTS server: it serves exactly its speech model catalog.
     if api_client.is_irodori() {
@@ -525,8 +533,7 @@ pub async fn run_models_cli_command_if_requested() -> AppResult<bool> {
                 ModelOutputModality::Decisions,
             ],
             ConnectionKind::Typesafe => &[ModelOutputModality::Decisions],
-            ConnectionKind::Voicevox => &[],
-            ConnectionKind::Irodori => &[ModelOutputModality::Speech],
+            ConnectionKind::Voicevox | ConnectionKind::Irodori => &[ModelOutputModality::Speech],
             _ => &[ModelOutputModality::Text],
         };
         for &modality in modalities {
@@ -548,7 +555,10 @@ pub async fn run_models_cli_command_if_requested() -> AppResult<bool> {
 /// (typically local) host.
 fn connection_configured(connection: &EffectiveConnection) -> bool {
     connection.api_key.is_some()
-        || (connection.kind == ConnectionKind::Irodori && connection.listed)
+        || (matches!(
+            connection.kind,
+            ConnectionKind::Voicevox | ConnectionKind::Irodori
+        ) && connection.listed)
         || (connection.kind == ConnectionKind::OpenAiCompatible
             && connection.base_url != DEFAULT_OPENAI_BASE_URL)
 }
@@ -756,16 +766,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fetch_models_returns_no_models_for_voicevox() {
+    async fn fetch_models_exposes_voicevox_as_a_speech_model() {
         let voicevox = catalog_test_client("voicevox", ConnectionKind::Voicevox);
-        for modality in [ModelOutputModality::Text, ModelOutputModality::Speech] {
-            assert!(
-                fetch_models(&voicevox, modality)
-                    .await
-                    .unwrap()
-                    .is_empty()
-            );
-        }
+        assert!(
+            fetch_models(&voicevox, ModelOutputModality::Text)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            fetch_models(&voicevox, ModelOutputModality::Speech)
+                .await
+                .unwrap(),
+            vec![AvailableModel {
+                id: VOICEVOX_MODEL_ID.to_owned(),
+                name: "VOICEVOX".to_owned(),
+            }]
+        );
     }
 
     #[test]

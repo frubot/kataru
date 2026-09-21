@@ -336,7 +336,10 @@ impl PersistedConfig {
     }
 }
 
-fn ensure_builtin(connections: &mut Vec<PersistedConnection>, kind: ConnectionKind) -> &mut PersistedConnection {
+fn ensure_builtin(
+    connections: &mut Vec<PersistedConnection>,
+    kind: ConnectionKind,
+) -> &mut PersistedConnection {
     let id = kind.builtin_id();
     if !connections.iter().any(|record| record.id == id) {
         connections.push(PersistedConnection {
@@ -581,9 +584,7 @@ impl AiConfigManager {
     fn resolve(&self, inner: &ManagerInner, record: &PersistedConnection) -> ResolvedConnection {
         let kind = record.kind.expect("normalized connections have a kind");
         let builtin = is_builtin_id(&record.id);
-        let env_base_url = builtin
-            .then(|| self.environment.base_url(kind))
-            .flatten();
+        let env_base_url = builtin.then(|| self.environment.base_url(kind)).flatten();
         let env_api_key = builtin.then(|| self.environment.api_key(kind)).flatten();
         let (base_url, base_url_source) = if let Some(value) = env_base_url {
             (value.clone(), ConfigSource::Environment)
@@ -753,9 +754,7 @@ impl AiConfigManager {
             let names = match kind {
                 ConnectionKind::OpenAiCompatible => "OPENAI_BASE_URL / OPENAI_API_KEY",
                 ConnectionKind::Anthropic => "ANTHROPIC_BASE_URL / ANTHROPIC_API_KEY",
-                ConnectionKind::OpenRouter | ConnectionKind::Voicevox => {
-                    kind.env_api_key_name()
-                }
+                ConnectionKind::OpenRouter | ConnectionKind::Voicevox => kind.env_api_key_name(),
                 ConnectionKind::Irodori => "IRODORI_BASE_URL / IRODORI_API_KEY",
                 ConnectionKind::Typesafe => "TYPESAFE_BASE_URL / TYPESAFE_API_KEY",
             };
@@ -806,9 +805,9 @@ impl AiConfigManager {
         // Write the credential before persisting so a secret-store failure
         // leaves no half-created connection behind. Secret-store IO is slow,
         // so it always happens outside the `inner` lock.
-        let secret_key = api_key.as_ref().map(|_| {
-            secret_key_name(&id, &effective_base_url(&record, &self.environment))
-        });
+        let secret_key = api_key
+            .as_ref()
+            .map(|_| secret_key_name(&id, &effective_base_url(&record, &self.environment)));
         if let (Some(secret_key), Some(api_key)) = (&secret_key, &api_key) {
             self.secret_store
                 .set(secret_key, api_key)
@@ -960,7 +959,9 @@ impl AiConfigManager {
             .set(&secret_key, value)
             .map_err(secret_store_error)?;
         let mut inner = self.inner.lock().expect("AI config lock poisoned");
-        inner.stored_api_keys.insert(id.to_owned(), value.to_owned());
+        inner
+            .stored_api_keys
+            .insert(id.to_owned(), value.to_owned());
         inner.secret_store_available = true;
         Ok(())
     }
@@ -1313,9 +1314,8 @@ fn read_secret_value(prompt: &str, stdin: bool) -> AppResult<String> {
 fn run_connection_cli(manager: &AiConfigManager, args: &[String]) -> AppResult<()> {
     match args {
         [command, kind, options @ ..] if command == "add" => {
-            let kind = ConnectionKind::parse(kind).ok_or_else(|| {
-                AppError::BadRequest(format!("未対応の接続種別です: {kind}"))
-            })?;
+            let kind = ConnectionKind::parse(kind)
+                .ok_or_else(|| AppError::BadRequest(format!("未対応の接続種別です: {kind}")))?;
             let mut name = None;
             let mut base_url = None;
             let mut index = 0;
@@ -1475,11 +1475,7 @@ fn print_config_status(status: &ConnectionsStatus) {
             "{} [{}]{}",
             connection.id,
             connection.kind.as_str(),
-            if connection.builtin {
-                " builtin"
-            } else {
-                ""
-            }
+            if connection.builtin { " builtin" } else { "" }
         );
         println!("  name: {}", connection.name);
         println!(
@@ -1556,9 +1552,8 @@ pub async fn create_connection(
     Json(input): Json<CreateConnectionRequest>,
 ) -> AppResult<Json<ConnectionsStatus>> {
     require_config_write(peer, &headers, &state)?;
-    let kind = ConnectionKind::parse(&input.kind).ok_or_else(|| {
-        AppError::BadRequest(format!("未対応の接続種別です: {}", input.kind))
-    })?;
+    let kind = ConnectionKind::parse(&input.kind)
+        .ok_or_else(|| AppError::BadRequest(format!("未対応の接続種別です: {}", input.kind)))?;
     state.ai_config.create_connection(NewConnection {
         name: input.name,
         kind,
@@ -1727,9 +1722,7 @@ mod tests {
     fn rejects_unsafe_base_urls() {
         assert!(normalize_api_base_url("ftp://localhost/v1", "OpenAI").is_err());
         assert!(normalize_api_base_url("http://example.com/v1", "OpenAI").is_err());
-        assert!(
-            normalize_api_base_url("https://user:secret@example.com/v1", "OpenAI").is_err()
-        );
+        assert!(normalize_api_base_url("https://user:secret@example.com/v1", "OpenAI").is_err());
         assert!(normalize_api_base_url("https://example.com/v1?key=value", "OpenAI").is_err());
     }
 
@@ -1885,7 +1878,11 @@ mod tests {
                 .is_err()
         );
         assert_eq!(
-            manager.effective().connection("openai-compatible").unwrap().base_url,
+            manager
+                .effective()
+                .connection("openai-compatible")
+                .unwrap()
+                .base_url,
             DEFAULT_OPENAI_BASE_URL
         );
     }
@@ -1912,7 +1909,9 @@ mod tests {
     fn status_serialization_never_contains_api_keys() {
         let directory = tempfile::tempdir().unwrap();
         let manager = manager(directory.path());
-        manager.set_api_key("openrouter", "openrouter-do-not-return").unwrap();
+        manager
+            .set_api_key("openrouter", "openrouter-do-not-return")
+            .unwrap();
         manager
             .set_api_key("openai-compatible", "openai-do-not-return")
             .unwrap();
@@ -1931,12 +1930,20 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let manager = manager(directory.path());
         manager.set_api_key("anthropic", "secret").unwrap();
-        assert!(connection(&manager.status(), "anthropic").api_key.configured);
+        assert!(
+            connection(&manager.status(), "anthropic")
+                .api_key
+                .configured
+        );
 
         manager
             .set_base_url("anthropic", "http://127.0.0.1:8080/v1")
             .unwrap();
-        assert!(!connection(&manager.status(), "anthropic").api_key.configured);
+        assert!(
+            !connection(&manager.status(), "anthropic")
+                .api_key
+                .configured
+        );
     }
 
     #[test]
@@ -1977,8 +1984,7 @@ mod tests {
                 },
             )
             .unwrap();
-        let saved: serde_json::Value =
-            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        let saved: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
         assert_eq!(saved["version"], 2);
         assert!(saved["connections"].as_array().unwrap().len() == 6);
         assert!(saved.get("openai").is_none());
@@ -2138,7 +2144,11 @@ mod tests {
     fn openrouter_base_url_is_fixed() {
         let directory = tempfile::tempdir().unwrap();
         let manager = manager(directory.path());
-        assert!(manager.set_base_url("openrouter", "https://example.com").is_err());
+        assert!(
+            manager
+                .set_base_url("openrouter", "https://example.com")
+                .is_err()
+        );
         assert!(
             manager
                 .create_connection(NewConnection {

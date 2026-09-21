@@ -496,17 +496,11 @@ pub fn director_jev_first_questions(
     }
     criteria.insert(
         JEV_PROTAGONIST_OPTION.to_owned(),
-        Value::String(
-            "主人公（ユーザー）が次に発言すべき。"
-                .to_owned(),
-        ),
+        Value::String("主人公（ユーザー）が次に発言すべき。".to_owned()),
     );
     criteria.insert(
         JEV_CONVERSATION_COMPLETE_OPTION.to_owned(),
-        Value::String(
-            "会話を終了するが、キャラクター同士が会話を続けても違和感がない"
-                .to_owned(),
-        ),
+        Value::String("会話を終了するが、キャラクター同士が会話を続けても違和感がない".to_owned()),
     );
     criteria.insert(
         JEV_END_OPTION.to_owned(),

@@ -1033,14 +1033,8 @@ mod tests {
         };
         assert_eq!(probe_http_status(&target, 200).status, CheckStatus::Ok);
         assert_eq!(probe_http_status(&target, 401).status, CheckStatus::Error);
-        assert_eq!(
-            probe_http_status(&target, 429).status,
-            CheckStatus::Warning
-        );
-        assert_eq!(
-            probe_http_status(&target, 503).status,
-            CheckStatus::Warning
-        );
+        assert_eq!(probe_http_status(&target, 429).status, CheckStatus::Warning);
+        assert_eq!(probe_http_status(&target, 503).status, CheckStatus::Warning);
     }
 
     #[test]

@@ -119,11 +119,7 @@ pub(crate) fn role_connection(body: &Value, role: &str) -> Option<String> {
 
 /// Resolves only the connection side of a role selection, without requiring a
 /// model to be present.
-pub(crate) fn role_selection_connection(
-    body: &Value,
-    field: &str,
-    role: &str,
-) -> Option<String> {
+pub(crate) fn role_selection_connection(body: &Value, field: &str, role: &str) -> Option<String> {
     body.get(field)
         .and_then(model_selection_parts)
         .and_then(|(_, connection_id)| connection_id)
@@ -348,10 +344,8 @@ mod tests {
             Some("anthropic")
         );
         assert_eq!(
-            entity_connection_id(
-                &json!({"model": {"model": "m", "connectionId": "cx_2"}})
-            )
-            .as_deref(),
+            entity_connection_id(&json!({"model": {"model": "m", "connectionId": "cx_2"}}))
+                .as_deref(),
             Some("cx_2")
         );
         assert_eq!(entity_connection_id(&json!({"model": "m"})), None);

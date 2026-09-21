@@ -235,7 +235,10 @@ pub async fn connection_status(
     } else {
         "models"
     };
-    match api_client.send_get(probe_path, Duration::from_secs(8)).await {
+    match api_client
+        .send_get(probe_path, Duration::from_secs(8))
+        .await
+    {
         Ok(response) if response.status().is_success() => Json(json!({
             "ready": true,
             "code": "ready",
@@ -506,9 +509,11 @@ pub async fn run_models_cli_command_if_requested() -> AppResult<bool> {
         }
         Some(id) => {
             let id = normalize_cli_connection(id);
-            vec![effective.connection(id).ok_or_else(|| {
-                AppError::BadRequest(format!("不明な接続先です: {id}"))
-            })?]
+            vec![
+                effective
+                    .connection(id)
+                    .ok_or_else(|| AppError::BadRequest(format!("不明な接続先です: {id}")))?,
+            ]
         }
     };
 
@@ -756,12 +761,7 @@ mod tests {
         }
         let typesafe = catalog_test_client("typesafe", ConnectionKind::Typesafe);
         for modality in [ModelOutputModality::Text, ModelOutputModality::Image] {
-            assert!(
-                fetch_models(&typesafe, modality)
-                    .await
-                    .unwrap()
-                    .is_empty()
-            );
+            assert!(fetch_models(&typesafe, modality).await.unwrap().is_empty());
         }
     }
 

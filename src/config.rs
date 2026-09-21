@@ -164,5 +164,4 @@ mod tests {
         assert_eq!(config("localhost").authority(), "localhost:37371");
         assert_eq!(config("::1").authority(), "[::1]:37371");
     }
-
 }

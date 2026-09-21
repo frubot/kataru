@@ -4,11 +4,7 @@ use serde_json::Value;
 
 use crate::error::AppResult;
 
-use super::{
-    bulk, characters,
-    json::now_millis,
-    memories, messages, meta, rooms, usage,
-};
+use super::{bulk, characters, json::now_millis, memories, messages, meta, rooms, usage};
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]

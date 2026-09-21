@@ -83,9 +83,7 @@ pub async fn synthesize_speech(
             "この接続先では音声合成を利用できません。".to_owned()
         }));
     }
-    let model = model.ok_or_else(|| {
-        AppError::BadRequest("model は必須です。".to_owned())
-    })?;
+    let model = model.ok_or_else(|| AppError::BadRequest("model は必須です。".to_owned()))?;
     let upstream = api_client
         .send_json(
             "audio/speech",
@@ -254,7 +252,9 @@ pub async fn list_tts_speakers(
     }
     let data = read_upstream_json(
         &api_client,
-        api_client.send_get("speakers", Duration::from_secs(15)).await?,
+        api_client
+            .send_get("speakers", Duration::from_secs(15))
+            .await?,
     )
     .await?;
     let speakers = data
@@ -306,7 +306,11 @@ async fn list_irodori_voices(api_client: &AiApiClient) -> AppResult<Response> {
     let speakers = ids
         .iter()
         .map(|id| {
-            let label = if *id == "none" { "参照なし（自動生成）" } else { id };
+            let label = if *id == "none" {
+                "参照なし（自動生成）"
+            } else {
+                id
+            };
             json!({ "name": label, "styles": [{ "id": id, "name": label }] })
         })
         .collect::<Vec<_>>();

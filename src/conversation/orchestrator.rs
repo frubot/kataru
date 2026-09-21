@@ -31,10 +31,10 @@ use super::{
     memory::request_embedding,
     prompts::{
         DIRECTOR_TRANSCRIPT_USER_HISTORY, JEV_CONVERSATION_COMPLETE_OPTION, JEV_END_OPTION,
-        JEV_PROTAGONIST_OPTION, SUMMARY_RECENT_USER_TURNS_TO_KEEP, actor_id,
-        assistant_schema, boolean, character_setting, character_system_prompt,
-        director_jev_first_questions, director_jev_safe_question, director_jev_state,
-        director_prompts, director_schema, string, summary_prompts, summary_schema,
+        JEV_PROTAGONIST_OPTION, SUMMARY_RECENT_USER_TURNS_TO_KEEP, actor_id, assistant_schema,
+        boolean, character_setting, character_system_prompt, director_jev_first_questions,
+        director_jev_safe_question, director_jev_state, director_prompts, director_schema, string,
+        summary_prompts, summary_schema,
     },
     response::{
         AssistantEnvelope, DirectorDecision, assistant_expression_preview,
@@ -127,7 +127,9 @@ fn director_selection(
             });
         }
     }
-    Err(AppError::BadRequest("指揮役モデルが設定されていません。".into()))
+    Err(AppError::BadRequest(
+        "指揮役モデルが設定されていません。".into(),
+    ))
 }
 
 fn is_typesafe_director(situation: &Value, payload: &Value) -> bool {
@@ -161,7 +163,11 @@ fn typesafe_director_selection(situation: &Value, payload: &Value) -> RoleSelect
     let model = director
         .map(|value| model_string(value, "model"))
         .filter(|model| !model.is_empty())
-        .or_else(|| jev_default.as_ref().map(|selection| selection.model.clone()))
+        .or_else(|| {
+            jev_default
+                .as_ref()
+                .map(|selection| selection.model.clone())
+        })
         .unwrap_or_else(|| DEFAULT_JEV_MODEL.to_owned());
     let connection_id = director
         .and_then(entity_connection_id)
@@ -462,8 +468,11 @@ async fn run_turn_inner(
                 }
             };
             let relevant = if memory_allowed {
-                let embedding_selection =
-                    resolve_role_selection(&payload, "memoryEmbeddingModel", "memoryEmbeddingModel")?;
+                let embedding_selection = resolve_role_selection(
+                    &payload,
+                    "memoryEmbeddingModel",
+                    "memoryEmbeddingModel",
+                )?;
                 search_memories(
                     &state,
                     &mut clients,
@@ -1283,8 +1292,7 @@ async fn request_director_typesafe(
         });
         if let Some(second) = &second_response {
             log["secondJson"] = Value::String(
-                serde_json::to_string_pretty(second)
-                    .expect("Jev response must be serializable"),
+                serde_json::to_string_pretty(second).expect("Jev response must be serializable"),
             );
         }
         full_json_logs.push(log);
@@ -2719,11 +2727,7 @@ mod tests {
     #[test]
     fn jev_effective_choice_uses_confidence_when_distribution_missing() {
         let eligible = vec!["actor-a".to_owned(), "actor-b".to_owned()];
-        let answer = jev_choice_answer(
-            JEV_PROTAGONIST_OPTION,
-            &[("actor-b", 0.7)],
-            Some(0.3),
-        );
+        let answer = jev_choice_answer(JEV_PROTAGONIST_OPTION, &[("actor-b", 0.7)], Some(0.3));
         assert_eq!(
             resolve_jev_effective_choice(&answer, &eligible, 0.5),
             "actor-b"

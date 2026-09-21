@@ -197,8 +197,7 @@ fn api_router() -> Router<AppState> {
         )
         .route(
             "/ai/connections/{id}",
-            axum::routing::put(ai_config::update_connection)
-                .delete(ai_config::delete_connection),
+            axum::routing::put(ai_config::update_connection).delete(ai_config::delete_connection),
         )
         .route("/summarize", post(ai::summarize))
         .route("/embeddings", post(ai::embeddings))

@@ -109,9 +109,9 @@ impl AiApiClient {
                     .filter(|value| !value.is_empty())
             });
         let id = requested.unwrap_or(DEFAULT_CONNECTION_ID);
-        let connection = server_config.connection(id).ok_or_else(|| {
-            AppError::BadRequest(format!("不明な接続先です: {id}"))
-        })?;
+        let connection = server_config
+            .connection(id)
+            .ok_or_else(|| AppError::BadRequest(format!("不明な接続先です: {id}")))?;
 
         // The upstream host and API key are server-owned. In particular, never
         // use a base URL supplied in a request, because doing so could send the
@@ -211,9 +211,7 @@ impl AiApiClient {
         if self.is_openrouter() {
             format!(
                 "{}/alpha/decisions",
-                self.base_url
-                    .trim_end_matches('/')
-                    .trim_end_matches("/v1")
+                self.base_url.trim_end_matches('/').trim_end_matches("/v1")
             )
         } else {
             self.endpoint("systemone")
@@ -480,9 +478,9 @@ fn safe_upstream_operation(operation: &str) -> &'static str {
 mod tests {
     use super::*;
     use crate::ai_config::{
-        ANTHROPIC_CONNECTION_ID, ConfigSource, DEFAULT_ANTHROPIC_BASE_URL,
-        DEFAULT_OPENAI_BASE_URL, DEFAULT_VOICEVOX_BASE_URL, EffectiveConnection,
-        OPENAI_COMPATIBLE_CONNECTION_ID, OPENROUTER_CONNECTION_ID,
+        ANTHROPIC_CONNECTION_ID, ConfigSource, DEFAULT_ANTHROPIC_BASE_URL, DEFAULT_OPENAI_BASE_URL,
+        DEFAULT_VOICEVOX_BASE_URL, EffectiveConnection, OPENAI_COMPATIBLE_CONNECTION_ID,
+        OPENROUTER_CONNECTION_ID,
     };
     use serde_json::json;
 

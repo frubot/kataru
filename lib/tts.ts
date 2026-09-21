@@ -66,40 +66,53 @@ function stripSpeechMarkdown(text: string): string {
 
 export interface TtsSpeechSegment {
     text: string;
+    /** 'narration' は *...* の地の文・動作描写。ナレーターvoiceで読み上げる。 */
+    kind: 'dialogue' | 'narration';
     /** 直前の *...* 動作描写。Irodori接続では caption として送られ、
      * 動作描写を次のセリフの演技指示にできる。 */
     caption?: string;
 }
 
-/** Speech segments = 'text' runs separated by *...* action segments (the
- * actions themselves are dropped), each markdown-stripped to plain text.
- * Keeping runs separate lets the player pause where an action was narrated
- * instead of collapsing everything into one request. The action immediately
- * preceding a run is attached as `caption`. */
-export function buildSpeechSegments(content: string, includeActionCaptions = true): TtsSpeechSegment[] {
+/** Speech segments = 'text' runs separated by *...* action segments, each
+ * markdown-stripped to plain text. When `includeNarration` is off the actions
+ * are dropped; when on they become spoken 'narration' segments. Keeping runs
+ * separate lets the player pause where an action was narrated instead of
+ * collapsing everything into one request. The action immediately preceding a
+ * run is attached as `caption` when `includeActionCaptions` is on (narration
+ * が読み上げられる場合もcaptionとして併用される). */
+export function buildSpeechSegments(
+    content: string,
+    includeActionCaptions = true,
+    includeNarration = false,
+): TtsSpeechSegment[] {
     const segments: TtsSpeechSegment[] = [];
     let pendingCaption: string | undefined;
     for (const segment of splitAssistantMarkdownActions(content)) {
         if (segment.type === 'action') {
             const action = segment.content.replace(/\s+/g, ' ').trim();
+            if (includeNarration) {
+                const narration = stripSpeechMarkdown(segment.content);
+                if (narration) segments.push({ text: narration, kind: 'narration' });
+            }
             pendingCaption = action || undefined;
             continue;
         }
         const text = stripSpeechMarkdown(segment.content);
         if (!text) continue;
         segments.push(includeActionCaptions && pendingCaption
-            ? { text, caption: pendingCaption }
-            : { text });
+            ? { text, kind: 'dialogue', caption: pendingCaption }
+            : { text, kind: 'dialogue' });
         pendingCaption = undefined;
     }
     return segments;
 }
 
-/** Speech text = 'text' segments only (drops *...* action segments), markdown
- * stripped to plain text, whitespace collapsed. Returns '' when nothing
- * speakable remains. */
-export function buildSpeechText(content: string): string {
-    return buildSpeechSegments(content).map((segment) => segment.text).join('\n');
+/** Speech text = speakable segments joined by newlines, markdown stripped to
+ * plain text. Returns '' when nothing speakable remains. */
+export function buildSpeechText(content: string, includeNarration = false): string {
+    return buildSpeechSegments(content, true, includeNarration)
+        .map((segment) => segment.text)
+        .join('\n');
 }
 
 export interface TtsSpeakerStyle {

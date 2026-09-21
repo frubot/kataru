@@ -87,15 +87,29 @@ export function useTtsPlayback({
         const speakerCharacterId = characterId ?? (room?.groupId ? undefined : room?.characterId);
         const speaker = state.characters.find((candidate) => candidate.id === speakerCharacterId);
         const profile = resolveTtsProfile(state, speaker);
-        if (!isTtsProfilePlayable(profile)) return { reason: 'unconfigured' };
-        const segments = buildSpeechSegments(content, state.ttsActionCaption);
+        const narrationEnabled = state.ttsNarrationEnabled;
+        // ナレーターvoiceは専用設定優先、未設定ならグローバルの声にフォールバック。
+        const narratorVoice = narrationEnabled
+            ? state.ttsNarratorVoice.trim() || state.ttsVoice
+            : '';
+        const segments = buildSpeechSegments(content, state.ttsActionCaption, narrationEnabled)
+            // ナレーターvoiceが解決できないナレーションは読めないので落とす。
+            .filter((segment) => segment.kind !== 'narration' || narratorVoice !== '');
         if (segments.length === 0) return { reason: 'empty' };
+        // セリフを含むなら話者profileが必須。ナレーションだけのページは
+        // ナレーターvoiceと接続先があれば再生できる。
+        const narrationOnly = !segments.some((segment) => segment.kind !== 'narration');
+        const playable = narrationOnly
+            ? Boolean(profile.connectionId.trim())
+            : isTtsProfilePlayable(profile);
+        if (!playable) return { reason: 'unconfigured' };
         return {
             params: {
                 roomId,
                 messageId: cacheKey,
                 segments,
                 profile,
+                narratorVoice: narratorVoice || undefined,
                 captionCfgScale: state.ttsCaptionCfgScale,
                 aiApiConfig: { ...state.getAiApiConfig(), connectionId: profile.connectionId },
             },

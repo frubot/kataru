@@ -17,6 +17,8 @@ export interface TtsRequestParams {
      * 分割され、順に合成・再生される（動作の分だけ小さな間が入る）。 */
     segments: TtsSpeechSegment[];
     profile: TtsProfile;
+    /** 'narration' セグメント用のvoice。未指定・空ならprofile.voiceで読む。 */
+    narratorVoice?: string;
     /** Irodoriの caption ガイダンス強度（irodori.cfg_scale_caption）。他の
      * 接続先ではバックエンドが無視する。 */
     captionCfgScale: number;
@@ -149,6 +151,9 @@ async function fetchTtsAudio(params: TtsRequestParams): Promise<Blob[]> {
     // セグメントは順に1リクエストずつ送る。単一キューのエンジン（Irodori等）
     // に同時リクエストで待たせないため。
     for (const segment of params.segments) {
+        const voice = segment.kind === 'narration' && params.narratorVoice
+            ? params.narratorVoice
+            : params.profile.voice;
         const response = await fetch('/api/tts', {
             method: 'POST',
             cache: 'no-store',
@@ -158,7 +163,7 @@ async function fetchTtsAudio(params: TtsRequestParams): Promise<Blob[]> {
                 text: segment.text,
                 ...(segment.caption ? { caption: segment.caption } : {}),
                 captionCfgScale: params.captionCfgScale,
-                voice: params.profile.voice,
+                voice,
                 speed: params.profile.speed,
                 connectionId: params.profile.connectionId,
                 model: params.profile.model || undefined,
@@ -299,7 +304,7 @@ export function getTtsAudioLevel(): number {
  * volumeは再生時に反映されるだけなので含めない。 */
 function ttsCacheKey(params: TtsRequestParams): string {
     const { connectionId, model, voice, speed } = params.profile;
-    return JSON.stringify([params.segments, connectionId, model, voice, speed, params.captionCfgScale]);
+    return JSON.stringify([params.segments, connectionId, model, voice, speed, params.captionCfgScale, params.narratorVoice]);
 }
 
 function dropEntryAudio(entry: TtsEntry): void {

@@ -427,6 +427,8 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         ttsAutoPlay, setTtsAutoPlay,
         ttsActionCaption, setTtsActionCaption,
         ttsCaptionCfgScale, setTtsCaptionCfgScale,
+        ttsNarrationEnabled, setTtsNarrationEnabled,
+        ttsNarratorVoice, setTtsNarratorVoice,
         resetModelDefaults,
         conversationCompressionEnabled, setConversationCompressionEnabled,
         generateTitleOnFirstReply, setGenerateTitleOnFirstReply,
@@ -1293,6 +1295,45 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     onToggle: () => setTtsAutoPlay(!ttsAutoPlay),
                                     ariaLabel: '新しい返答を自動で読み上げる',
                                 })}
+                                {renderDebugToggle({
+                                    label: '地の文・動作描写もナレーションとして読み上げる',
+                                    enabled: ttsNarrationEnabled,
+                                    onToggle: () => setTtsNarrationEnabled(!ttsNarrationEnabled),
+                                    ariaLabel: '地の文・動作描写もナレーションとして読み上げる',
+                                })}
+                                {ttsNarrationEnabled && (
+                                    <div className="global-settings-selector-row">
+                                        <label
+                                            htmlFor="tts-narrator-voice-input"
+                                            style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
+                                        >
+                                            ナレーションの声
+                                        </label>
+                                        <div className="global-settings-selector-control">
+                                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <TtsVoiceField
+                                                        id="tts-narrator-voice-input"
+                                                        connectionId={ttsConnectionId}
+                                                        value={ttsNarratorVoice}
+                                                        onChange={setTtsNarratorVoice}
+                                                        emptyLabel="既定の声"
+                                                    />
+                                                </div>
+                                                <TtsPreviewButton
+                                                    previewId="tts-preview-narrator"
+                                                    profile={{
+                                                        connectionId: ttsConnectionId,
+                                                        model: ttsModel,
+                                                        voice: ttsNarratorVoice || ttsVoice,
+                                                        speed: ttsSpeed,
+                                                        volume: ttsVolume,
+                                                    }}
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                                 {ttsConnectionKind === 'irodori' && (
                                     <>
                                         {renderDebugToggle({

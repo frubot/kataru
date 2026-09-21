@@ -347,6 +347,10 @@ export interface AppState {
     ttsActionCaption: boolean;
     /** Irodoriの caption（演技指示）の効き具合。0-10、サーバーデフォルトは3.0。 */
     ttsCaptionCfgScale: number;
+    /** *...* の地の文・動作描写もナレーションとして読み上げるか。 */
+    ttsNarrationEnabled: boolean;
+    /** ナレーション専用のvoice。空ならttsVoiceにフォールバックする。 */
+    ttsNarratorVoice: string;
     fullJsonDebugEnabled: boolean;
     detailedErrorLoggingEnabled: boolean;
     memoryInspectorEnabled: boolean;
@@ -394,6 +398,8 @@ export interface AppState {
     setTtsAutoPlay: (enabled: boolean) => void;
     setTtsActionCaption: (enabled: boolean) => void;
     setTtsCaptionCfgScale: (scale: number) => void;
+    setTtsNarrationEnabled: (enabled: boolean) => void;
+    setTtsNarratorVoice: (voice: string) => void;
     getAiApiConfig: () => AiApiConfig;
     setFullJsonDebugEnabled: (enabled: boolean) => void;
     setDetailedErrorLoggingEnabled: (enabled: boolean) => void;

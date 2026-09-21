@@ -51,6 +51,9 @@ export const DEFAULT_TTS_AUTO_PLAY = false;
 export const DEFAULT_TTS_ACTION_CAPTION = true;
 /** Irodoriのcaptionガイダンス強度。SamplingRequestのデフォルトと同じ3.0。 */
 export const DEFAULT_TTS_CAPTION_CFG_SCALE = 3.0;
+/** *...* の地の文・動作描写をナレーションとして読み上げるか。 */
+export const DEFAULT_TTS_NARRATION_ENABLED = false;
+export const DEFAULT_TTS_NARRATOR_VOICE = '';
 export const TTS_SPEED_MIN = 0.25;
 export const TTS_SPEED_MAX = 4.0;
 export const TTS_VOLUME_MIN = 0;
@@ -204,6 +207,8 @@ type SettingsSlice = Pick<
     | 'ttsAutoPlay'
     | 'ttsActionCaption'
     | 'ttsCaptionCfgScale'
+    | 'ttsNarrationEnabled'
+    | 'ttsNarratorVoice'
     | 'fullJsonDebugEnabled'
     | 'detailedErrorLoggingEnabled'
     | 'memoryInspectorEnabled'
@@ -241,6 +246,8 @@ type SettingsSlice = Pick<
     | 'setTtsAutoPlay'
     | 'setTtsActionCaption'
     | 'setTtsCaptionCfgScale'
+    | 'setTtsNarrationEnabled'
+    | 'setTtsNarratorVoice'
     | 'getAiApiConfig'
     | 'setFullJsonDebugEnabled'
     | 'setDetailedErrorLoggingEnabled'
@@ -270,6 +277,8 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         ttsAutoPlay: DEFAULT_TTS_AUTO_PLAY,
         ttsActionCaption: DEFAULT_TTS_ACTION_CAPTION,
         ttsCaptionCfgScale: DEFAULT_TTS_CAPTION_CFG_SCALE,
+        ttsNarrationEnabled: DEFAULT_TTS_NARRATION_ENABLED,
+        ttsNarratorVoice: DEFAULT_TTS_NARRATOR_VOICE,
         fullJsonDebugEnabled: false,
         detailedErrorLoggingEnabled: false,
         memoryInspectorEnabled: false,
@@ -413,6 +422,15 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
             const ttsCaptionCfgScale = normalizeTtsCaptionCfgScale(scale);
             set({ ttsCaptionCfgScale });
             fire(db.setMeta('ttsCaptionCfgScale', ttsCaptionCfgScale));
+        },
+        setTtsNarrationEnabled: (ttsNarrationEnabled) => {
+            set({ ttsNarrationEnabled });
+            fire(db.setMeta('ttsNarrationEnabled', ttsNarrationEnabled));
+        },
+        setTtsNarratorVoice: (voice) => {
+            const ttsNarratorVoice = voice.trim();
+            set({ ttsNarratorVoice });
+            fire(db.setMeta('ttsNarratorVoice', ttsNarratorVoice));
         },
         getAiApiConfig: () => getAiApiConfigFromState(get()),
         setFullJsonDebugEnabled: (fullJsonDebugEnabled) => {

@@ -345,6 +345,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         clearFullJsonDebugLogs,
         getAiApiConfig,
         chatWallpaper,
+        ttsNarrationEnabled,
     } = useStore();
     const isGroupRoom = situation != null || (groupCharacters != null && groupCharacters.length > 1);
     const rawRoomViewMode = resolveRoomViewMode(room);
@@ -1358,8 +1359,8 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         !!vnTtsItem
         && vnTtsItem.role === 'assistant'
         && vnTtsItem.final
-        && !!buildSpeechText(vnTtsItem.content)
-    ), [vnTtsItem]);
+        && !!buildSpeechText(vnTtsItem.content, ttsNarrationEnabled)
+    ), [vnTtsItem, ttsNarrationEnabled]);
     const situationVnSceneCharacter = situationVnPresentation.sceneCharacterId && characterMap
         ? characterMap.get(situationVnPresentation.sceneCharacterId) ?? null
         : null;

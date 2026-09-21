@@ -43,6 +43,8 @@ import {
     DEFAULT_TTS_CAPTION_CFG_SCALE,
     DEFAULT_TTS_CONNECTION_ID,
     DEFAULT_TTS_MODEL,
+    DEFAULT_TTS_NARRATION_ENABLED,
+    DEFAULT_TTS_NARRATOR_VOICE,
     DEFAULT_TTS_SPEED,
     DEFAULT_TTS_VOICE,
     DEFAULT_TTS_VOLUME,
@@ -121,7 +123,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
         hydrate: async () => {
             if (get().hydrated) return;
             await db.migrateLegacyDatabase();
-            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, storedChatWallpaper, storedDefaultViewMode, currentRoomId, vnTypingSpeed, storedKeyboardShortcuts, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedModelDefaults, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedRoleApiTypes, storedConversationCompressionEnabled, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion, storedTtsConnectionId, storedTtsModel, storedTtsVoice, storedTtsSpeed, storedTtsVolume, storedTtsAutoPlay, storedTtsActionCaption, storedTtsCaptionCfgScale] = await Promise.all([
+            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, storedChatWallpaper, storedDefaultViewMode, currentRoomId, vnTypingSpeed, storedKeyboardShortcuts, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedModelDefaults, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedRoleApiTypes, storedConversationCompressionEnabled, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion, storedTtsConnectionId, storedTtsModel, storedTtsVoice, storedTtsSpeed, storedTtsVolume, storedTtsAutoPlay, storedTtsActionCaption, storedTtsCaptionCfgScale, storedTtsNarrationEnabled, storedTtsNarratorVoice] = await Promise.all([
                 db.getAllCharacters(),
                 db.getAllGroups(),
                 db.getAllRooms(),
@@ -170,6 +172,8 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 db.getMeta<boolean>('ttsAutoPlay'),
                 db.getMeta<boolean>('ttsActionCaption'),
                 db.getMeta<number>('ttsCaptionCfgScale'),
+                db.getMeta<boolean>('ttsNarrationEnabled'),
+                db.getMeta<string>('ttsNarratorVoice'),
             ]);
             // Drop any previously stored client-side API key from IndexedDB.
             if (legacyOpenAiCompatibleApiKey !== undefined) {
@@ -309,6 +313,10 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
             const resolvedTtsAutoPlay = storedTtsAutoPlay === true;
             const resolvedTtsActionCaption = storedTtsActionCaption !== false;
             const resolvedTtsCaptionCfgScale = normalizeTtsCaptionCfgScale(storedTtsCaptionCfgScale);
+            const resolvedTtsNarrationEnabled = storedTtsNarrationEnabled === true;
+            const resolvedTtsNarratorVoice = typeof storedTtsNarratorVoice === 'string'
+                ? storedTtsNarratorVoice.trim()
+                : DEFAULT_TTS_NARRATOR_VOICE;
             // 旧接続設定を組み込み接続へベストエフォートで引き継ぐ（失敗しても続行）。
             const resolvedOpenRouterIgnoredProviders = normalizeOpenRouterIgnoredProviders(storedOpenRouterIgnoredProviders);
             let openRouterUpdateSucceeded = true;
@@ -395,6 +403,8 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
             if (storedTtsAutoPlay !== resolvedTtsAutoPlay) fire(db.setMeta('ttsAutoPlay', resolvedTtsAutoPlay));
             if (storedTtsActionCaption !== resolvedTtsActionCaption) fire(db.setMeta('ttsActionCaption', resolvedTtsActionCaption));
             if (storedTtsCaptionCfgScale !== resolvedTtsCaptionCfgScale) fire(db.setMeta('ttsCaptionCfgScale', resolvedTtsCaptionCfgScale));
+            if (storedTtsNarrationEnabled !== resolvedTtsNarrationEnabled) fire(db.setMeta('ttsNarrationEnabled', resolvedTtsNarrationEnabled));
+            if (storedTtsNarratorVoice !== resolvedTtsNarratorVoice) fire(db.setMeta('ttsNarratorVoice', resolvedTtsNarratorVoice));
             if (storedOnboardingVersion !== resolvedOnboardingVersion) fire(db.setMeta('onboardingVersion', resolvedOnboardingVersion));
             if (aiSettingsMigration.shouldPersistSchemaVersion) {
                 fire(db.setMeta('aiSettingsSchemaVersion', aiSettingsMigration.schemaVersion));
@@ -424,6 +434,8 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 ttsAutoPlay: resolvedTtsAutoPlay,
                 ttsActionCaption: resolvedTtsActionCaption,
                 ttsCaptionCfgScale: resolvedTtsCaptionCfgScale,
+                ttsNarrationEnabled: resolvedTtsNarrationEnabled,
+                ttsNarratorVoice: resolvedTtsNarratorVoice,
                 fullJsonDebugEnabled: fullJsonDebugEnabled === true,
                 detailedErrorLoggingEnabled: detailedErrorLoggingEnabled === true,
                 memoryInspectorEnabled: memoryInspectorEnabled === true,
@@ -464,6 +476,8 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 ttsAutoPlay: DEFAULT_TTS_AUTO_PLAY,
                 ttsActionCaption: DEFAULT_TTS_ACTION_CAPTION,
                 ttsCaptionCfgScale: DEFAULT_TTS_CAPTION_CFG_SCALE,
+                ttsNarrationEnabled: DEFAULT_TTS_NARRATION_ENABLED,
+                ttsNarratorVoice: DEFAULT_TTS_NARRATOR_VOICE,
                 fullJsonDebugEnabled: false,
                 detailedErrorLoggingEnabled: false,
                 memoryInspectorEnabled: false,

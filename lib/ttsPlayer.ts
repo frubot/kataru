@@ -30,10 +30,36 @@ interface TtsEntry {
     messageId: string;
     cacheKey: string;
     objectUrls: string[];
+    /** objectUrlsと同じ並び。セグメント境界のpieceの前にだけ短い間を挟む。
+     * SSEのチャンク連続再生ではfalseでシームレスに繋ぐ。 */
+    gapBefore: boolean[];
+    /** 現在audioに読み込んでいるpieceのindex。-1は未再生。 */
     segmentIndex: number;
     byteSize: number;
+    /** 全piece到着済みでobjectUrlsが確定したか。部分的な生成途中や
+     * 途中で追い出されたエントリはfalseで、キャッシュ再生しない。 */
+    complete: boolean;
+    /** このエントリの再生を管理するplayNowのgeneration。追い越された
+     * playNowが新しい再生の状態を上書きしないための所有権。 */
+    playGeneration: number;
     status: TtsPlaybackStatus;
     error: string | null;
+}
+
+/** 1回分の連続再生単位。非SSEではセグメントごとのblob、Irodori SSEでは
+ * audio_chunkイベントのblobがpieceになる。 */
+interface TtsAudioPiece {
+    blob: Blob;
+    gapBefore: boolean;
+}
+
+/** 生成中のfetchを共有するハンドル。pieceは逐次pushされ、subscribeは
+ * 受信済みのbacklogも順にreplayする（プリフェッチ途中からの再生追従用）。 */
+interface TtsFetchHandle {
+    cacheKey: string;
+    pieces: TtsAudioPiece[];
+    done: Promise<TtsAudioPiece[]>;
+    subscribe: (listener: (piece: TtsAudioPiece, index: number) => void) => void;
 }
 
 const EMPTY_ENTRY_STATE: TtsEntryState = { status: null, error: null };
@@ -59,8 +85,8 @@ let analyserSamples: Uint8Array<ArrayBuffer> | null = null;
 let activeEntry: TtsEntry | null = null;
 let playbackGeneration = 0;
 /** 生成中のfetchをentry単位で共有する。プリフェッチ中にページ送りされても
- * playNowが同じpromiseをawaitするため、音声生成リクエストが重複しない。 */
-const inflightFetches = new Map<TtsEntry, { cacheKey: string; promise: Promise<Blob[]> }>();
+ * playNowが同じストリームに追従するため、音声生成リクエストが重複しない。 */
+const inflightFetches = new Map<TtsEntry, TtsFetchHandle>();
 /** *...* で区切られたセグメントの間に挟む小さなポーズ（動作描写の間）。 */
 const SEGMENT_GAP_MS = 350;
 let segmentGapTimer: number | null = null;
@@ -130,8 +156,11 @@ function ensureEntry(params: TtsRequestParams): TtsEntry {
             messageId: params.messageId,
             cacheKey: '',
             objectUrls: [],
-            segmentIndex: 0,
+            gapBefore: [],
+            segmentIndex: -1,
             byteSize: 0,
+            complete: false,
+            playGeneration: 0,
             status: 'loading',
             error: null,
         };
@@ -146,11 +175,102 @@ function ttsErrorMessage(error: unknown): string {
         : '音声を生成できませんでした。';
 }
 
-async function fetchTtsAudio(params: TtsRequestParams): Promise<Blob[]> {
-    const blobs: Blob[] = [];
+function isEventStreamResponse(response: Response): boolean {
+    return response.headers.get('content-type')
+        ?.toLowerCase().startsWith('text/event-stream') ?? false;
+}
+
+function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+}
+
+/** SSEブロック（event行+data行）1件を解釈する。audio_chunkでemit、
+ * errorで例外、doneでtrueを返す。 */
+function dispatchTtsSseBlock(
+    block: string,
+    emit: (blob: Blob) => void,
+): 'done' | null {
+    let event = 'message';
+    const dataLines: string[] = [];
+    for (const line of block.split('\n')) {
+        const trimmed = line.replace(/\r$/, '');
+        if (trimmed.startsWith(':')) continue;
+        if (trimmed.startsWith('event:')) {
+            event = trimmed.slice(6).trim();
+        } else if (trimmed.startsWith('data:')) {
+            dataLines.push(trimmed.slice(5).replace(/^ /, ''));
+        }
+    }
+    const data = dataLines.join('\n');
+    if (event === 'audio_chunk') {
+        const chunk = JSON.parse(data) as {
+            audio_base64?: string;
+            media_type?: string;
+        };
+        if (chunk.audio_base64) {
+            emit(new Blob([base64ToBytes(chunk.audio_base64)], {
+                type: chunk.media_type || 'audio/wav',
+            }));
+        }
+    } else if (event === 'error') {
+        const parsed = JSON.parse(data) as { error?: { message?: string } };
+        throw new Error(parsed.error?.message || '音声を生成できませんでした。');
+    } else if (event === 'done') {
+        return 'done';
+    }
+    return null;
+}
+
+/** Irodoriの text/event-stream 応答を読み、audio_chunkごとにemitする。
+ * doneイベントを受けずに切断された場合は欠落ありとしてエラーにする。 */
+async function consumeTtsEventStream(
+    response: Response,
+    emit: (blob: Blob) => void,
+): Promise<void> {
+    const body = response.body;
+    if (!body) throw new Error('音声ストリームを受信できませんでした。');
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let sawDone = false;
+    try {
+        while (!sawDone) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+            let sep = buffer.indexOf('\n\n');
+            while (sep >= 0) {
+                if (dispatchTtsSseBlock(buffer.slice(0, sep), emit) === 'done') {
+                    sawDone = true;
+                }
+                buffer = buffer.slice(sep + 2);
+                sep = buffer.indexOf('\n\n');
+            }
+        }
+        buffer += decoder.decode();
+        if (!sawDone && buffer.trim()) {
+            sawDone = dispatchTtsSseBlock(buffer, emit) === 'done';
+        }
+    } finally {
+        void reader.cancel().catch(() => {});
+    }
+    if (!sawDone) {
+        throw new Error('音声ストリームが中断されました。');
+    }
+}
+
+async function fetchTtsAudio(
+    params: TtsRequestParams,
+    emit: (piece: TtsAudioPiece) => void,
+): Promise<void> {
     // セグメントは順に1リクエストずつ送る。単一キューのエンジン（Irodori等）
-    // に同時リクエストで待たせないため。
-    for (const segment of params.segments) {
+    // に同時リクエストで待たせないため。pieceは届き次第emitして先行再生する。
+    for (const [segmentIndex, segment] of params.segments.entries()) {
         const voice = segment.kind === 'narration' && params.narratorVoice
             ? params.narratorVoice
             : params.profile.voice;
@@ -167,6 +287,9 @@ async function fetchTtsAudio(params: TtsRequestParams): Promise<Blob[]> {
                 speed: params.profile.speed,
                 connectionId: params.profile.connectionId,
                 model: params.profile.model || undefined,
+                // Irodori接続ではSSEで文単位の音声を逐次受け取る。他の接続先は
+                // 無視されて通常の音声応答になる（content-typeで判別する）。
+                stream: true,
                 aiApiConfig: params.aiApiConfig,
             }),
         });
@@ -178,9 +301,109 @@ async function fetchTtsAudio(params: TtsRequestParams): Promise<Blob[]> {
                 : '音声を生成できませんでした。';
             throw new Error(message);
         }
-        blobs.push(await response.blob());
+        // セグメント先頭のpieceだけ間を挟む。チャンク連続再生はシームレス。
+        let firstPiece = true;
+        const emitBlob = (blob: Blob) => {
+            emit({ blob, gapBefore: segmentIndex > 0 && firstPiece });
+            firstPiece = false;
+        };
+        if (isEventStreamResponse(response)) {
+            await consumeTtsEventStream(response, emitBlob);
+        } else {
+            emitBlob(await response.blob());
+        }
     }
-    return blobs;
+}
+
+/** entryへpieceを1件追加する。index位置が既に埋まっていれば何もしない
+ * （fill用と再生用の両方のsubscriberから呼ばれても二重追加にならない）。 */
+function appendEntryPiece(entry: TtsEntry, piece: TtsAudioPiece, index: number): void {
+    if (entry.objectUrls.length !== index) return;
+    entry.objectUrls.push(URL.createObjectURL(piece.blob));
+    entry.gapBefore.push(piece.gapBefore);
+    entry.byteSize += piece.blob.size;
+    cachedAudioBytes += piece.blob.size;
+    audioCacheOrder.delete(entry);
+    audioCacheOrder.add(entry);
+    evictAudioCache();
+}
+
+/** entry用の生成fetchを立ち上げ、piece到着ごとにentryへ追記して再生を
+ * 進めるsubscriberを繋ぐ。再生が追い越されてもキャッシュの充填は続く。 */
+function startTtsFetch(
+    entry: TtsEntry,
+    params: TtsRequestParams,
+    cacheKey: string,
+): TtsFetchHandle {
+    const pieces: TtsAudioPiece[] = [];
+    const listeners = new Set<(piece: TtsAudioPiece, index: number) => void>();
+    const handle: TtsFetchHandle = {
+        cacheKey,
+        pieces,
+        done: fetchTtsAudio(params, (piece) => {
+            const index = pieces.length;
+            pieces.push(piece);
+            for (const listener of listeners) listener(piece, index);
+        }).then(() => pieces),
+        subscribe(listener) {
+            for (const [index, piece] of pieces.entries()) listener(piece, index);
+            listeners.add(listener);
+        },
+    };
+    // キャッシュ充填+再生駆動。handleがinflightの現役である間だけ追記する
+    // （別条件のfetchに置き換わった旧handleのpieceを混ぜないため）。
+    handle.subscribe((piece, index) => {
+        if (inflightFetches.get(entry) !== handle) return;
+        if (entriesByRoom.get(entry.roomId)?.get(entry.messageId) !== entry) return;
+        appendEntryPiece(entry, piece, index);
+        pumpEntryPlayback(entry);
+    });
+    handle.done.then(() => {
+        if (inflightFetches.get(entry) !== handle) return;
+        inflightFetches.delete(entry);
+        if (entriesByRoom.get(entry.roomId)?.get(entry.messageId) !== entry) return;
+        entry.complete = pieces.length > 0 && entry.objectUrls.length === pieces.length;
+        if (entry.complete) entry.cacheKey = cacheKey;
+        if (entry === activeEntry) {
+            pumpEntryPlayback(entry);
+            // 最終pieceの再生が終わって次piece待ちだった場合をここで締める。
+            if (audio?.ended
+                && entry.segmentIndex + 1 >= entry.objectUrls.length
+                && entry.status === 'playing') {
+                setEntryStatus(entry, 'paused', null);
+                advanceQueue();
+            }
+            return;
+        }
+        if (entry.status === 'loading') setEntryStatus(entry, 'paused', null);
+    }, () => {
+        if (inflightFetches.get(entry) === handle) inflightFetches.delete(entry);
+        // プリフェッチ失敗は静かに諦める。再生時に通常経路で再試行される。
+        if (entry !== activeEntry && entry.status === 'loading') {
+            setEntryStatus(entry, 'paused', null);
+        }
+    });
+    return handle;
+}
+
+/** 同条件の生成中fetchがあればそれを返す。pieceはentry.objectUrlsへ常に
+ * 先頭から順に追記されるので、両者の長さが一致している時だけ再利用できる
+ * （追い出し等で欠けたpieceは二度と届かないため、欠けがあれば新規にする）。 */
+function ensureTtsFetch(
+    entry: TtsEntry,
+    params: TtsRequestParams,
+    cacheKey: string,
+): TtsFetchHandle {
+    const existing = inflightFetches.get(entry);
+    if (existing
+        && existing.cacheKey === cacheKey
+        && existing.pieces.length === entry.objectUrls.length) {
+        return existing;
+    }
+    dropEntryAudio(entry);
+    const handle = startTtsFetch(entry, params, cacheKey);
+    inflightFetches.set(entry, handle);
+    return handle;
 }
 
 function isPlaybackActive(): boolean {
@@ -209,26 +432,51 @@ function handlePlayEvent(): void {
     }
 }
 
+/** 次のpieceへ進む。セグメント境界のpieceだけ小さな間を挟む（*...* の動作
+ * 描写の間）。チャンク間は即時再生して繋げる。 */
+function scheduleNextPiece(entry: TtsEntry, nextIndex: number): void {
+    if (!audio) return;
+    entry.segmentIndex = nextIndex;
+    audio.src = entry.objectUrls[nextIndex];
+    const gap = entry.gapBefore[nextIndex] ? SEGMENT_GAP_MS : 0;
+    if (gap <= 0) {
+        void audio.play().catch(() => handleAudioErrorEvent());
+        return;
+    }
+    const generation = playbackGeneration;
+    segmentGapTimer = window.setTimeout(() => {
+        segmentGapTimer = null;
+        if (generation === playbackGeneration
+            && activeEntry === entry
+            && (entry.status === 'playing' || entry.status === 'loading')
+            && audio) {
+            void audio.play().catch(() => handleAudioErrorEvent());
+        }
+    }, gap);
+}
+
+/** audioが止まっていて再生可能な次pieceがあれば再生を進める。piece未到着
+ * なら何もせず、到着時の呼び出し（またはdone時の締め）に委ねる。 */
+function pumpEntryPlayback(entry: TtsEntry): void {
+    if (!audio || activeEntry !== entry) return;
+    if (entry.status !== 'playing' && entry.status !== 'loading') return;
+    if (!audio.paused && !audio.ended) return;
+    if (segmentGapTimer !== null) return;
+    const nextIndex = entry.segmentIndex + 1;
+    if (nextIndex >= entry.objectUrls.length) return;
+    scheduleNextPiece(entry, nextIndex);
+}
+
 function handleEndedEvent(): void {
     const entry = activeEntry;
     if (entry && entry.status !== 'error') {
         const nextIndex = entry.segmentIndex + 1;
-        if (nextIndex < entry.objectUrls.length && audio) {
-            // *...* で区切られた次の文へ。動作描写の分だけ小さな間を置く。
-            entry.segmentIndex = nextIndex;
-            audio.src = entry.objectUrls[nextIndex];
-            const generation = playbackGeneration;
-            segmentGapTimer = window.setTimeout(() => {
-                segmentGapTimer = null;
-                if (generation === playbackGeneration
-                    && activeEntry === entry
-                    && entry.status === 'playing'
-                    && audio) {
-                    void audio.play().catch(() => handleAudioErrorEvent());
-                }
-            }, SEGMENT_GAP_MS);
+        if (nextIndex < entry.objectUrls.length) {
+            scheduleNextPiece(entry, nextIndex);
             return;
         }
+        // SSE等でまだpieceが届く途中なら、次piece到着時のpumpに委ねて待つ。
+        if (!entry.complete && inflightFetches.has(entry)) return;
         setEntryStatus(entry, 'paused', null);
     }
     advanceQueue();
@@ -316,6 +564,9 @@ function dropEntryAudio(entry: TtsEntry): void {
         entry.objectUrls = [];
         entry.byteSize = 0;
     }
+    entry.gapBefore = [];
+    // 部分的なpieceが残っていても完成品ではないので再生キャッシュにしない。
+    entry.complete = false;
     audioCacheOrder.delete(entry);
 }
 
@@ -342,55 +593,57 @@ async function playNow(params: TtsRequestParams): Promise<void> {
     markActivePaused();
     const entry = ensureEntry(params);
     activeEntry = entry;
+    entry.playGeneration = generation;
     setEntryStatus(entry, 'loading', null);
+    // SSEでは最初のpiece到着後にplayするため、ジェスチャが効いているうちに
+    // AudioContextを起こしておく（iOSの自動再生制限対策）。
+    void audioContext?.resume().catch(() => {});
     const cacheKey = ttsCacheKey(params);
     try {
-        // 同一の合成条件でキャッシュ済みの音声のみ再利用する
-        // （同id再生成や設定変更へのガード）。
-        if (entry.objectUrls.length === 0 || entry.cacheKey !== cacheKey) {
-            // プリフェッチ中の同条件fetchがあれば待ち合わせて再利用する。
-            const inflight = inflightFetches.get(entry);
-            const blobs = inflight && inflight.cacheKey === cacheKey
-                ? await inflight.promise
-                : await fetchTtsAudio(params);
-            // 追い越された結果は破棄する。新しい再生がentryのURLを使っている
-            // 可能性があるため、ここでrevoke/上書きはしない。
-            if (generation !== playbackGeneration) {
-                if (entry.status === 'loading') setEntryStatus(entry, 'paused', null);
-                return;
-            }
-            dropEntryAudio(entry);
-            entry.objectUrls = blobs.map((blob) => URL.createObjectURL(blob));
-            entry.byteSize = blobs.reduce((total, blob) => total + blob.size, 0);
-            entry.cacheKey = cacheKey;
-            audioCacheOrder.add(entry);
-            cachedAudioBytes += entry.byteSize;
-            evictAudioCache();
-        } else {
+        // 同一の合成条件で全piece揃いのキャッシュのみ再利用する
+        // （同id再生成や設定変更へのガード）。生成途中のpartialは継続利用。
+        if (entry.complete && entry.cacheKey === cacheKey && entry.objectUrls.length > 0) {
             // 再利用もLRUの新しい側へ移す。
             audioCacheOrder.delete(entry);
             audioCacheOrder.add(entry);
-        }
-        entry.segmentIndex = 0;
-        element.src = entry.objectUrls[0];
-        // resume() must run inside the playback gesture's transient activation
-        // on iOS; the 'play' event arrives too late.
-        void audioContext?.resume().catch(() => {});
-        await element.play();
-        if (generation !== playbackGeneration) {
-            if (entry.status === 'loading' || entry.status === 'playing') {
-                setEntryStatus(entry, 'paused', null);
+            entry.segmentIndex = 0;
+            element.src = entry.objectUrls[0];
+            // resume() must run inside the playback gesture's transient activation
+            // on iOS; the 'play' event arrives too late.
+            void audioContext?.resume().catch(() => {});
+            await element.play();
+            if (generation !== playbackGeneration || entry.playGeneration !== generation) {
+                if (entry.playGeneration === generation
+                    && (entry.status === 'loading' || entry.status === 'playing')) {
+                    setEntryStatus(entry, 'paused', null);
+                }
+                return;
             }
+            if (entry.status === 'loading') setEntryStatus(entry, 'playing', null);
             return;
         }
-        if (entry.status === 'loading') setEntryStatus(entry, 'playing', null);
+        entry.segmentIndex = -1;
+        const handle = ensureTtsFetch(entry, params, cacheKey);
+        // プリフェッチ等で既に届いているpieceがあれば即座に再生を始める。
+        pumpEntryPlayback(entry);
+        await handle.done;
     } catch (error) {
-        if (generation === playbackGeneration) {
+        if (entry.playGeneration !== generation) {
+            // 同一entryを別のplayNowが管理中。状態は新しい側が書く。
+        } else if (generation === playbackGeneration) {
             setEntryStatus(entry, 'error', ttsErrorMessage(error));
         } else if (entry.status === 'loading') {
             setEntryStatus(entry, 'paused', null);
         }
         throw error;
+    }
+    if (entry.playGeneration !== generation) return;
+    if (generation !== playbackGeneration) {
+        if (entry.status === 'loading') setEntryStatus(entry, 'paused', null);
+        return;
+    }
+    if (entry.objectUrls.length === 0) {
+        setEntryStatus(entry, 'error', '音声を生成できませんでした。');
     }
 }
 
@@ -414,42 +667,22 @@ export function enqueueTtsPlayback(params: TtsRequestParams): void {
 }
 
 /** 次に表示されるページの音声を再生せずに先生成してキャッシュする。
- * ページ送り時に生成待ちで間が空くのを防ぐプリフェッチ。生成済み・同一条件で
- * 生成中なら何もしない。再生中のentryはplayNowが管理するので触らない。 */
+ * ページ送り時に生成待ちで間が空くのを防ぐプリフェッチ。pieceは到着次第
+ * entryへ充填され、playNowは生成途中からでも再生を始められる。 */
 export function prefetchTtsAudio(params: TtsRequestParams): void {
     if (typeof window === 'undefined' || params.segments.length === 0) return;
     const entry = ensureEntry(params);
     if (entry === activeEntry) return;
     const cacheKey = ttsCacheKey(params);
-    if (entry.objectUrls.length > 0 && entry.cacheKey === cacheKey) return;
-    if (inflightFetches.get(entry)?.cacheKey === cacheKey) return;
-    const promise = fetchTtsAudio(params);
-    inflightFetches.set(entry, { cacheKey, promise });
+    if (entry.complete && entry.cacheKey === cacheKey) return;
+    const inflight = inflightFetches.get(entry);
+    if (inflight
+        && inflight.cacheKey === cacheKey
+        && inflight.pieces.length === entry.objectUrls.length) {
+        return;
+    }
     setEntryStatus(entry, 'loading', null);
-    promise.then((blobs) => {
-        // 新しいプリフェッチに追い越された結果は捨てる。
-        if (inflightFetches.get(entry)?.promise !== promise) return;
-        inflightFetches.delete(entry);
-        // clearTtsRoom等で抹消されたentryや、playNowが管理するentryには書かない。
-        const registered = entriesByRoom.get(entry.roomId)?.get(entry.messageId) === entry;
-        if (!registered || entry === activeEntry) return;
-        dropEntryAudio(entry);
-        entry.objectUrls = blobs.map((blob) => URL.createObjectURL(blob));
-        entry.byteSize = blobs.reduce((total, blob) => total + blob.size, 0);
-        entry.cacheKey = cacheKey;
-        audioCacheOrder.delete(entry);
-        audioCacheOrder.add(entry);
-        cachedAudioBytes += entry.byteSize;
-        evictAudioCache();
-        if (entry.status === 'loading') setEntryStatus(entry, 'paused', null);
-    }, () => {
-        if (inflightFetches.get(entry)?.promise !== promise) return;
-        inflightFetches.delete(entry);
-        // プリフェッチ失敗は静かに諦める。再生時に通常経路で再試行される。
-        if (entry !== activeEntry && entry.status === 'loading') {
-            setEntryStatus(entry, 'paused', null);
-        }
-    });
+    ensureTtsFetch(entry, params, cacheKey);
 }
 
 export function pauseTtsPlayback(): void {
@@ -465,6 +698,18 @@ export function resumeTtsPlayback(): void {
     if (typeof window === 'undefined' || !audio) return;
     const entry = activeEntry;
     if (!entry || entry.status !== 'paused' || entry.objectUrls.length === 0) return;
+    // 生成途中にpauseされた場合まだpieceを読み込んでいないことがある。
+    if (entry.segmentIndex < 0) entry.segmentIndex = 0;
+    if (audio.ended && !entry.complete && inflightFetches.has(entry)) {
+        // 次piece待ちで終端に達していた場合は、到着済みの次pieceへ進むだけにする。
+        const nextIndex = entry.segmentIndex + 1;
+        if (nextIndex < entry.objectUrls.length) {
+            scheduleNextPiece(entry, nextIndex);
+        } else {
+            setEntryStatus(entry, 'playing', null);
+        }
+        return;
+    }
     const src = entry.objectUrls[entry.segmentIndex];
     if (audio.src !== src) audio.src = src;
     void audioContext?.resume().catch(() => {});

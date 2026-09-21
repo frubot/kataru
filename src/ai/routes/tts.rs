@@ -55,6 +55,7 @@ pub async fn synthesize_speech(
         .get("captionCfgScale")
         .and_then(Value::as_f64)
         .map(|scale| scale.clamp(0.0, 10.0));
+    let stream = input.get("stream").and_then(Value::as_bool) == Some(true);
     let api_client = ai_api_client_for_connection(&state, &input, connection_id.as_deref())?;
 
     if api_client.is_voicevox() {
@@ -66,9 +67,12 @@ pub async fn synthesize_speech(
             &text,
             &voice,
             speed,
-            model,
-            caption,
-            caption_cfg_scale,
+            IrodoriOptions {
+                model,
+                caption,
+                caption_cfg_scale,
+                stream,
+            },
         )
         .await;
     }
@@ -139,17 +143,22 @@ async fn synthesize_voicevox(
     audio_response(synthesis, "audio/wav").await
 }
 
+struct IrodoriOptions {
+    model: Option<String>,
+    caption: Option<String>,
+    caption_cfg_scale: Option<f64>,
+    stream: bool,
+}
+
 async fn synthesize_irodori(
     api_client: &AiApiClient,
     text: &str,
     voice: &str,
     speed: f64,
-    model: Option<String>,
-    caption: Option<String>,
-    caption_cfg_scale: Option<f64>,
+    options: IrodoriOptions,
 ) -> AppResult<Response> {
     let mut body = json!({
-        "model": model.unwrap_or_else(|| IRODORI_DEFAULT_MODEL.to_owned()),
+        "model": options.model.unwrap_or_else(|| IRODORI_DEFAULT_MODEL.to_owned()),
         "input": text,
         "voice": voice,
         "response_format": "wav",
@@ -158,20 +167,53 @@ async fn synthesize_irodori(
     // captionはIrodori固有の演技指示。参照音声の声質を保ったまま、
     // 話し方・感情だけを制御する（Voice Design / スタイル制御）。
     // cfg_scale_captionはその効き具合（デフォルト3.0、0で事実上無効化）。
-    if caption.is_some() || caption_cfg_scale.is_some() {
+    if options.caption.is_some() || options.caption_cfg_scale.is_some() {
         let mut irodori = json!({});
-        if let Some(caption) = caption {
+        if let Some(caption) = options.caption {
             irodori["caption"] = json!(take_chars(&caption, IRODORI_CAPTION_LIMIT));
         }
-        if let Some(scale) = caption_cfg_scale {
+        if let Some(scale) = options.caption_cfg_scale {
             irodori["cfg_scale_caption"] = json!(scale);
         }
         body["irodori"] = irodori;
     }
+    if options.stream {
+        // stream_format=sse で文単位の audio_chunk イベントを逐次受け取る。
+        // 最初の文だけ分割しきい値を下げ、最初のchunkの到着を早める。
+        body["stream_format"] = json!("sse");
+        if body.get("irodori").is_none() {
+            body["irodori"] = json!({});
+        }
+        body["irodori"]["first_sentence_chunk_min_chars"] = json!(1);
+    }
     let upstream = api_client
         .send_json("v1/audio/speech", &body, IRODORI_TIMEOUT_SECS)
         .await?;
+    if options.stream && is_event_stream(&upstream) {
+        return Ok(event_stream_response(upstream));
+    }
+    // stream非対応のIrodoriやエラー応答は従来の音声/エラー処理にフォールバック。
     audio_response(upstream, "audio/wav").await
+}
+
+fn is_event_stream(response: &reqwest::Response) -> bool {
+    response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.trim_start().starts_with("text/event-stream"))
+}
+
+fn event_stream_response(upstream: reqwest::Response) -> Response {
+    let mut response = Response::new(Body::from_stream(upstream.bytes_stream()));
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/event-stream"),
+    );
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    headers.insert(header::CONNECTION, HeaderValue::from_static("keep-alive"));
+    response
 }
 
 async fn audio_response(

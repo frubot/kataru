@@ -26,6 +26,15 @@ const TTS_TEXT_LIMIT: usize = 4000;
 const IRODORI_DEFAULT_MODEL: &str = "irodori-tts";
 // キャプション（演技指示）の上限。長いテキストは切り詰める。
 const IRODORI_CAPTION_LIMIT: usize = 500;
+// ストリーミング時の分割しきい値の既定。Irodori既定（80）だと残り本文が
+// 大きな1chunkになりがちで、先頭chunkの再生後に合成待ちの無音が入る。
+// 音声サイズのchunkで逐次再生できるよう小さめにする。
+const IRODORI_STREAM_CHUNK_MIN_CHARS: u64 = 30;
+// first_sentence_chunk_min_charsは先頭の区切り文字にだけ適用される閾値。
+// 小さいほど最初の音声が早く鳴るが、数文字の断片だけ先に鳴って直後に
+// 間が空くので、ある程度まとまった長さを既定にする。
+const IRODORI_STREAM_FIRST_CHUNK_MIN_CHARS: u64 = 8;
+const IRODORI_CHUNK_MIN_CHARS_LIMIT: u64 = 200;
 // Irodori serializes synthesis behind a queue whose wait timeout defaults to
 // 300 s; allow headroom beyond that for the synthesis itself.
 const IRODORI_TIMEOUT_SECS: u64 = 420;
@@ -55,6 +64,14 @@ pub async fn synthesize_speech(
         .get("captionCfgScale")
         .and_then(Value::as_f64)
         .map(|scale| scale.clamp(0.0, 10.0));
+    let chunk_min_chars = input
+        .get("chunkMinChars")
+        .and_then(Value::as_u64)
+        .map(|value| value.clamp(1, IRODORI_CHUNK_MIN_CHARS_LIMIT));
+    let first_sentence_chunk_min_chars = input
+        .get("firstSentenceChunkMinChars")
+        .and_then(Value::as_u64)
+        .map(|value| value.clamp(1, IRODORI_CHUNK_MIN_CHARS_LIMIT));
     let stream = input.get("stream").and_then(Value::as_bool) == Some(true);
     let api_client = ai_api_client_for_connection(&state, &input, connection_id.as_deref())?;
 
@@ -71,6 +88,8 @@ pub async fn synthesize_speech(
                 model,
                 caption,
                 caption_cfg_scale,
+                chunk_min_chars,
+                first_sentence_chunk_min_chars,
                 stream,
             },
         )
@@ -145,6 +164,8 @@ struct IrodoriOptions {
     model: Option<String>,
     caption: Option<String>,
     caption_cfg_scale: Option<f64>,
+    chunk_min_chars: Option<u64>,
+    first_sentence_chunk_min_chars: Option<u64>,
     stream: bool,
 }
 
@@ -177,12 +198,18 @@ async fn synthesize_irodori(
     }
     if options.stream {
         // stream_format=sse で文単位の audio_chunk イベントを逐次受け取る。
-        // 最初の文だけ分割しきい値を下げ、最初のchunkの到着を早める。
+        // 分割しきい値は再生中の合成待ちを分散させるため小さめにし、先頭の
+        // 区切りには first_sentence_chunk_min_chars を別途適用する。
         body["stream_format"] = json!("sse");
         if body.get("irodori").is_none() {
             body["irodori"] = json!({});
         }
-        body["irodori"]["first_sentence_chunk_min_chars"] = json!(1);
+        body["irodori"]["chunk_min_chars"] = json!(options
+            .chunk_min_chars
+            .unwrap_or(IRODORI_STREAM_CHUNK_MIN_CHARS));
+        body["irodori"]["first_sentence_chunk_min_chars"] = json!(options
+            .first_sentence_chunk_min_chars
+            .unwrap_or(IRODORI_STREAM_FIRST_CHUNK_MIN_CHARS));
     }
     let upstream = api_client
         .send_json("v1/audio/speech", &body, IRODORI_TIMEOUT_SECS)

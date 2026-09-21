@@ -52,6 +52,14 @@ export const DEFAULT_TTS_AUTO_PLAY = false;
 export const DEFAULT_TTS_ACTION_CAPTION = true;
 /** Irodoriのcaptionガイダンス強度。SamplingRequestのデフォルトと同じ3.0。 */
 export const DEFAULT_TTS_CAPTION_CFG_SCALE = 3.0;
+/** Irodoriストリーミング時の分割しきい値（chunk_min_chars）。サーバー既定の
+ * 80だと残り本文が大きな1chunkになり、先頭chunkの再生後に合成待ちで間が
+ * 空きやすい。音声サイズのchunkで逐次再生できるよう小さめにする。 */
+export const DEFAULT_TTS_CHUNK_MIN_CHARS = 30;
+/** 先頭の区切り文字にだけ適用される分割しきい値
+ * （first_sentence_chunk_min_chars）。1だと「うん、」のような数文字の
+ * 断片が即再生される代わりに直後の合成待ちが目立つ。 */
+export const DEFAULT_TTS_FIRST_CHUNK_MIN_CHARS = 8;
 /** *...* の地の文・動作描写をナレーションとして読み上げるか。 */
 export const DEFAULT_TTS_NARRATION_ENABLED = false;
 export const DEFAULT_TTS_NARRATOR_VOICE = '';
@@ -61,6 +69,10 @@ export const TTS_VOLUME_MIN = 0;
 export const TTS_VOLUME_MAX = 1.0;
 export const TTS_CAPTION_CFG_SCALE_MIN = 0;
 export const TTS_CAPTION_CFG_SCALE_MAX = 10;
+export const TTS_CHUNK_MIN_CHARS_MIN = 10;
+export const TTS_CHUNK_MIN_CHARS_MAX = 80;
+export const TTS_FIRST_CHUNK_MIN_CHARS_MIN = 1;
+export const TTS_FIRST_CHUNK_MIN_CHARS_MAX = 40;
 
 export function getThemeClassName(mode: ThemeMode, palette: ThemePalette): string {
     return `mode-${mode} palette-${palette}`;
@@ -105,6 +117,16 @@ export function normalizeTtsModel(connectionId: string, value: unknown): string 
 export function normalizeTtsCaptionCfgScale(value: unknown): number {
     if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_TTS_CAPTION_CFG_SCALE;
     return Math.min(TTS_CAPTION_CFG_SCALE_MAX, Math.max(TTS_CAPTION_CFG_SCALE_MIN, value));
+}
+
+export function normalizeTtsChunkMinChars(value: unknown): number {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_TTS_CHUNK_MIN_CHARS;
+    return Math.min(TTS_CHUNK_MIN_CHARS_MAX, Math.max(TTS_CHUNK_MIN_CHARS_MIN, Math.round(value)));
+}
+
+export function normalizeTtsFirstChunkMinChars(value: unknown): number {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_TTS_FIRST_CHUNK_MIN_CHARS;
+    return Math.min(TTS_FIRST_CHUNK_MIN_CHARS_MAX, Math.max(TTS_FIRST_CHUNK_MIN_CHARS_MIN, Math.round(value)));
 }
 
 export function resolveThemeSelection(params: { mode?: unknown; palette?: unknown }): ThemeSelection {
@@ -213,6 +235,8 @@ type SettingsSlice = Pick<
     | 'ttsAutoPlay'
     | 'ttsActionCaption'
     | 'ttsCaptionCfgScale'
+    | 'ttsChunkMinChars'
+    | 'ttsFirstChunkMinChars'
     | 'ttsNarrationEnabled'
     | 'ttsNarratorVoice'
     | 'fullJsonDebugEnabled'
@@ -252,6 +276,8 @@ type SettingsSlice = Pick<
     | 'setTtsAutoPlay'
     | 'setTtsActionCaption'
     | 'setTtsCaptionCfgScale'
+    | 'setTtsChunkMinChars'
+    | 'setTtsFirstChunkMinChars'
     | 'setTtsNarrationEnabled'
     | 'setTtsNarratorVoice'
     | 'getAiApiConfig'
@@ -283,6 +309,8 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         ttsAutoPlay: DEFAULT_TTS_AUTO_PLAY,
         ttsActionCaption: DEFAULT_TTS_ACTION_CAPTION,
         ttsCaptionCfgScale: DEFAULT_TTS_CAPTION_CFG_SCALE,
+        ttsChunkMinChars: DEFAULT_TTS_CHUNK_MIN_CHARS,
+        ttsFirstChunkMinChars: DEFAULT_TTS_FIRST_CHUNK_MIN_CHARS,
         ttsNarrationEnabled: DEFAULT_TTS_NARRATION_ENABLED,
         ttsNarratorVoice: DEFAULT_TTS_NARRATOR_VOICE,
         fullJsonDebugEnabled: false,
@@ -433,6 +461,16 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
             const ttsCaptionCfgScale = normalizeTtsCaptionCfgScale(scale);
             set({ ttsCaptionCfgScale });
             fire(db.setMeta('ttsCaptionCfgScale', ttsCaptionCfgScale));
+        },
+        setTtsChunkMinChars: (chars) => {
+            const ttsChunkMinChars = normalizeTtsChunkMinChars(chars);
+            set({ ttsChunkMinChars });
+            fire(db.setMeta('ttsChunkMinChars', ttsChunkMinChars));
+        },
+        setTtsFirstChunkMinChars: (chars) => {
+            const ttsFirstChunkMinChars = normalizeTtsFirstChunkMinChars(chars);
+            set({ ttsFirstChunkMinChars });
+            fire(db.setMeta('ttsFirstChunkMinChars', ttsFirstChunkMinChars));
         },
         setTtsNarrationEnabled: (ttsNarrationEnabled) => {
             set({ ttsNarrationEnabled });

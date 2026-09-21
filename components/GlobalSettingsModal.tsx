@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Check, ChevronDown, RefreshCw, ExternalLink, Plus, type LucideIcon } from 'lucide-react';
-import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, RoomViewMode, VOICEVOX_TTS_MODEL, getDefaultModelDefaults } from '@/lib/store';
+import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, RoomViewMode, VOICEVOX_TTS_MODEL, getDefaultModelDefaults, TTS_CHUNK_MIN_CHARS_MAX, TTS_CHUNK_MIN_CHARS_MIN, TTS_FIRST_CHUNK_MIN_CHARS_MAX, TTS_FIRST_CHUNK_MIN_CHARS_MIN } from '@/lib/store';
 import { AI_CONNECTION_KIND_LABELS, isAiConnectionKind, type AiConnectionKind } from '@/lib/aiApi';
 import { useAiConnections, type AiConnectionStatus } from '@/lib/aiConnections';
 import { MODEL_DEFAULT_FIELDS, modelRefsEqual, type ModelRef, type ModelRoleKey } from '@/lib/modelDefaults';
@@ -16,6 +16,7 @@ import TtsVoiceField from '@/components/TtsVoiceField';
 import TtsSpeedSlider, { formatTtsSpeed } from '@/components/TtsSpeedSlider';
 import TtsVolumeSlider, { formatTtsVolume } from '@/components/TtsVolumeSlider';
 import TtsCaptionCfgScaleSlider, { formatTtsCaptionCfgScale } from '@/components/TtsCaptionCfgScaleSlider';
+import TtsChunkMinCharsSlider from '@/components/TtsChunkMinCharsSlider';
 import TtsPreviewButton from '@/components/TtsPreviewButton';
 import KeyboardSettingsPanel from '@/components/KeyboardSettingsPanel';
 import SituationBackgroundModal from '@/components/SituationBackgroundModal';
@@ -427,6 +428,8 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         ttsAutoPlay, setTtsAutoPlay,
         ttsActionCaption, setTtsActionCaption,
         ttsCaptionCfgScale, setTtsCaptionCfgScale,
+        ttsChunkMinChars, setTtsChunkMinChars,
+        ttsFirstChunkMinChars, setTtsFirstChunkMinChars,
         ttsNarrationEnabled, setTtsNarrationEnabled,
         ttsNarratorVoice, setTtsNarratorVoice,
         resetModelDefaults,
@@ -1333,6 +1336,72 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                                     fontVariantNumeric: 'tabular-nums',
                                                 }}>
                                                     {formatTtsCaptionCfgScale(ttsCaptionCfgScale)}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div className="global-settings-selector-row">
+                                            <label
+                                                htmlFor="tts-chunk-min-chars-input"
+                                                style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
+                                            >
+                                                読み上げ分割の最小文字数
+                                            </label>
+                                            <div
+                                                className="global-settings-selector-control"
+                                                style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}
+                                            >
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <TtsChunkMinCharsSlider
+                                                        id="tts-chunk-min-chars-input"
+                                                        min={TTS_CHUNK_MIN_CHARS_MIN}
+                                                        max={TTS_CHUNK_MIN_CHARS_MAX}
+                                                        value={ttsChunkMinChars}
+                                                        ariaLabel="読み上げ分割の最小文字数"
+                                                        onChange={setTtsChunkMinChars}
+                                                    />
+                                                </div>
+                                                <span style={{
+                                                    fontSize: '0.8125rem',
+                                                    fontWeight: 600,
+                                                    color: 'var(--accent-primary)',
+                                                    minWidth: '3.5rem',
+                                                    textAlign: 'right',
+                                                    fontVariantNumeric: 'tabular-nums',
+                                                }}>
+                                                    {ttsChunkMinChars}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div className="global-settings-selector-row">
+                                            <label
+                                                htmlFor="tts-first-chunk-min-chars-input"
+                                                style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
+                                            >
+                                                最初の分割の最小文字数
+                                            </label>
+                                            <div
+                                                className="global-settings-selector-control"
+                                                style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}
+                                            >
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <TtsChunkMinCharsSlider
+                                                        id="tts-first-chunk-min-chars-input"
+                                                        min={TTS_FIRST_CHUNK_MIN_CHARS_MIN}
+                                                        max={TTS_FIRST_CHUNK_MIN_CHARS_MAX}
+                                                        value={ttsFirstChunkMinChars}
+                                                        ariaLabel="最初の分割の最小文字数"
+                                                        onChange={setTtsFirstChunkMinChars}
+                                                    />
+                                                </div>
+                                                <span style={{
+                                                    fontSize: '0.8125rem',
+                                                    fontWeight: 600,
+                                                    color: 'var(--accent-primary)',
+                                                    minWidth: '3.5rem',
+                                                    textAlign: 'right',
+                                                    fontVariantNumeric: 'tabular-nums',
+                                                }}>
+                                                    {ttsFirstChunkMinChars}
                                                 </span>
                                             </div>
                                         </div>

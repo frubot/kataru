@@ -10,7 +10,14 @@ import {
     normalizeMemoryContent,
 } from '../lib/store/memories';
 import { toPreview } from '../lib/store/persistence';
-import { normalizeTtsModel, resolveThemeSelection } from '../lib/store/settings';
+import {
+    DEFAULT_TTS_CHUNK_MIN_CHARS,
+    DEFAULT_TTS_FIRST_CHUNK_MIN_CHARS,
+    normalizeTtsChunkMinChars,
+    normalizeTtsFirstChunkMinChars,
+    normalizeTtsModel,
+    resolveThemeSelection,
+} from '../lib/store/settings';
 import {
     getSituationCostumeSelections,
     normalizeGroupData,
@@ -97,6 +104,20 @@ describe('store pure helpers', () => {
     test('normalizes the built-in VOICEVOX connection to its virtual model', () => {
         expect(normalizeTtsModel('voicevox', 'deepgram/aura-2')).toBe('voicevox');
         expect(normalizeTtsModel('openrouter', ' deepgram/aura-2 ')).toBe('deepgram/aura-2');
+    });
+
+    test('clamps the Irodori chunk thresholds to their slider ranges', () => {
+        expect(normalizeTtsChunkMinChars(30)).toBe(30);
+        expect(normalizeTtsChunkMinChars(1)).toBe(10);
+        expect(normalizeTtsChunkMinChars(500)).toBe(80);
+        expect(normalizeTtsChunkMinChars(24.6)).toBe(25);
+        expect(normalizeTtsChunkMinChars('30')).toBe(DEFAULT_TTS_CHUNK_MIN_CHARS);
+        expect(normalizeTtsChunkMinChars(undefined)).toBe(DEFAULT_TTS_CHUNK_MIN_CHARS);
+
+        expect(normalizeTtsFirstChunkMinChars(8)).toBe(8);
+        expect(normalizeTtsFirstChunkMinChars(0)).toBe(1);
+        expect(normalizeTtsFirstChunkMinChars(500)).toBe(40);
+        expect(normalizeTtsFirstChunkMinChars(NaN)).toBe(DEFAULT_TTS_FIRST_CHUNK_MIN_CHARS);
     });
 
     test('normalizes, classifies, and compares memory text', () => {

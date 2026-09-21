@@ -347,6 +347,13 @@ export interface AppState {
     ttsActionCaption: boolean;
     /** Irodoriの caption（演技指示）の効き具合。0-10、サーバーデフォルトは3.0。 */
     ttsCaptionCfgScale: number;
+    /** Irodoriストリーミング時の分割しきい値（irodori.chunk_min_chars）。
+     * 小さいほど細かいchunkで逐次再生され、再生中の合成待ちが分散される。 */
+    ttsChunkMinChars: number;
+    /** 先頭の区切り文字にだけ適用される分割しきい値
+     * （irodori.first_sentence_chunk_min_chars）。小さいほど最初の音声が
+     * 早く鳴るが、数文字の断片だけ先に鳴ると直後の合成待ちが目立つ。 */
+    ttsFirstChunkMinChars: number;
     /** *...* の地の文・動作描写もナレーションとして読み上げるか。 */
     ttsNarrationEnabled: boolean;
     /** ナレーション専用のvoice。空ならttsVoiceにフォールバックする。 */
@@ -398,6 +405,8 @@ export interface AppState {
     setTtsAutoPlay: (enabled: boolean) => void;
     setTtsActionCaption: (enabled: boolean) => void;
     setTtsCaptionCfgScale: (scale: number) => void;
+    setTtsChunkMinChars: (chars: number) => void;
+    setTtsFirstChunkMinChars: (chars: number) => void;
     setTtsNarrationEnabled: (enabled: boolean) => void;
     setTtsNarratorVoice: (voice: string) => void;
     getAiApiConfig: () => AiApiConfig;

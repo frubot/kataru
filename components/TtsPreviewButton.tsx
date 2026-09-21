@@ -42,6 +42,8 @@ export default function TtsPreviewButton({ previewId, profile, disabled = false 
             segments: [{ text: PREVIEW_TEXT, kind: 'dialogue' }],
             profile,
             captionCfgScale: state.ttsCaptionCfgScale,
+            chunkMinChars: state.ttsChunkMinChars,
+            firstChunkMinChars: state.ttsFirstChunkMinChars,
             aiApiConfig: { ...state.getAiApiConfig(), connectionId: profile.connectionId },
         }).catch(() => {});
     };

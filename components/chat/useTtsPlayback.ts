@@ -112,6 +112,8 @@ export function useTtsPlayback({
                 profile,
                 narratorVoice: narratorVoice || undefined,
                 captionCfgScale: state.ttsCaptionCfgScale,
+                chunkMinChars: state.ttsChunkMinChars,
+                firstChunkMinChars: state.ttsFirstChunkMinChars,
                 aiApiConfig: { ...state.getAiApiConfig(), connectionId: profile.connectionId },
             },
         };

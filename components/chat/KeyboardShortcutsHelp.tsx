@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import {
     DEFAULT_KEYBOARD_SHORTCUTS,
@@ -57,44 +58,43 @@ export default function KeyboardShortcutsHelp() {
         return () => document.removeEventListener('keydown', handleKeyDown);
     }, [open, openShortcutHelp]);
 
-    return (
-        <>
-            {open && (
-                <div
-                    className="modal-overlay"
-                    onPointerDown={(event) => {
-                        if (event.target === event.currentTarget) setOpen(false);
-                    }}
-                >
-                    <div
-                        ref={dialogRef}
-                        className="modal-content keyboard-shortcuts-modal"
-                        onClick={(event) => event.stopPropagation()}
-                        role="dialog"
-                        aria-modal="true"
-                        aria-labelledby="keyboard-shortcuts-title"
+    if (!open) return null;
+
+    return createPortal(
+        <div
+            className="modal-overlay"
+            onPointerDown={(event) => {
+                if (event.target === event.currentTarget) setOpen(false);
+            }}
+        >
+            <div
+                ref={dialogRef}
+                className="modal-content keyboard-shortcuts-modal"
+                onClick={(event) => event.stopPropagation()}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="keyboard-shortcuts-title"
+            >
+                <div className="modal-header">
+                    <h2 id="keyboard-shortcuts-title" style={{ fontSize: '1.125rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        キーボードショートカット
+                    </h2>
+                    <button
+                        type="button"
+                        className="btn btn-ghost"
+                        onClick={() => setOpen(false)}
+                        style={{ padding: '0.5rem' }}
+                        title="閉じる"
+                        aria-label="閉じる"
                     >
-                        <div className="modal-header">
-                            <h2 id="keyboard-shortcuts-title" style={{ fontSize: '1.125rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-                                キーボードショートカット
-                            </h2>
-                            <button
-                                type="button"
-                                className="btn btn-ghost"
-                                onClick={() => setOpen(false)}
-                                style={{ padding: '0.5rem' }}
-                                title="閉じる"
-                                aria-label="閉じる"
-                            >
-                                <X size={20} />
-                            </button>
-                        </div>
-                        <div className="modal-body">
-                            <KeyboardSettingsPanel />
-                        </div>
-                    </div>
+                        <X size={20} />
+                    </button>
                 </div>
-            )}
-        </>
+                <div className="modal-body">
+                    <KeyboardSettingsPanel />
+                </div>
+            </div>
+        </div>,
+        document.body,
     );
 }

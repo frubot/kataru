@@ -71,6 +71,7 @@ import { useReplySuggestions } from './chat/useReplySuggestions';
 import { useRoomTitleGeneration } from './chat/useRoomTitleGeneration';
 import { useVisualNovelPresentation } from './chat/useVisualNovelPresentation';
 import { useSituationVisualNovelPresentation } from './chat/useSituationVisualNovelPresentation';
+import { useVisualNovelAutoPlay } from './chat/useVisualNovelAutoPlay';
 import { useTtsPlayback } from './chat/useTtsPlayback';
 import type { VisualNovelTtsItem } from './chat/useTtsPlayback';
 import VisualNovelLogView from './chat/VisualNovelLogView';
@@ -368,6 +369,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const [debugLogOpen, setDebugLogOpen] = useState(false);
     const [developerInspectorOpen, setDeveloperInspectorOpen] = useState(false);
     const [vnLogOpen, setVnLogOpen] = useState(false);
+    const [vnAutoPlay, setVnAutoPlay] = useState(false);
     const [streamingPreview, setStreamingPreview] = useState<ChatStreamingPreview | null>(null);
     const [streamedFinalMessageIds, setStreamedFinalMessageIds] = useState<Set<string>>(() => new Set());
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -1361,6 +1363,14 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         && vnTtsItem.final
         && !!buildSpeechText(vnTtsItem.content, ttsNarrationEnabled)
     ), [vnTtsItem, ttsNarrationEnabled]);
+    useVisualNovelAutoPlay({
+        enabled: vnAutoPlay && isVisualNovelMode && !isVisualNovelLogOpen,
+        canAdvance: situationVnPresentation.canAdvance,
+        isTypewriterActive,
+        ttsItemKey: vnTtsItem?.key,
+        contentLength: situationVnCurrentItem?.content.length ?? 0,
+        onAdvance: situationVnPresentation.advanceDialogue,
+    });
     const situationVnSceneCharacter = situationVnPresentation.sceneCharacterId && characterMap
         ? characterMap.get(situationVnPresentation.sceneCharacterId) ?? null
         : null;
@@ -1766,6 +1776,8 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                             void handleCopyMessage(vnDisplayedMessageId, vnDisplayedMessageContent);
                         }
                     }}
+                    autoPlay={vnAutoPlay}
+                    onToggleAutoPlay={() => setVnAutoPlay((on) => !on)}
                     ttsStatus={vnTtsStatus}
                     canTtsPlay={canPlayVnTts}
                     onTtsToggle={() => {

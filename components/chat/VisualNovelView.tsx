@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
-import { Check, Copy, GitBranch, History, Loader2, RefreshCw, Shirt, Square, Undo2, Volume2 } from 'lucide-react';
+import { Check, Copy, GitBranch, History, Loader2, Play, RefreshCw, Shirt, Square, Undo2, Volume2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import type { Character } from '@/lib/store';
 import type { VrmAvatar } from '@/lib/store/types';
@@ -94,6 +94,8 @@ type VisualNovelViewProps = {
     displayedMessageContent?: string;
     isDisplayedMessageCopied: boolean;
     onCopyDisplayedMessage: () => void;
+    autoPlay: boolean;
+    onToggleAutoPlay: () => void;
     ttsStatus?: TtsPlaybackStatus | null;
     canTtsPlay?: boolean;
     onTtsToggle?: () => void;
@@ -134,6 +136,8 @@ export default function VisualNovelView({
     displayedMessageContent,
     isDisplayedMessageCopied,
     onCopyDisplayedMessage,
+    autoPlay,
+    onToggleAutoPlay,
     ttsStatus,
     canTtsPlay,
     onTtsToggle,
@@ -395,6 +399,17 @@ export default function VisualNovelView({
                             title="コピー"
                         >
                             {isDisplayedMessageCopied ? <Check size={15} /> : <Copy size={15} />}
+                        </button>
+                        <button
+                            type="button"
+                            className="btn btn-ghost"
+                            onClick={onToggleAutoPlay}
+                            aria-pressed={autoPlay}
+                            style={{ color: autoPlay ? 'var(--accent-primary)' : undefined }}
+                            title={autoPlay ? '自動再生を停止' : '自動再生'}
+                            aria-label={autoPlay ? '自動再生を停止' : '自動再生'}
+                        >
+                            <Play size={15} />
                         </button>
                         {onTtsToggle && (
                             <button

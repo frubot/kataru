@@ -88,9 +88,10 @@ export function useTtsPlayback({
         const speaker = state.characters.find((candidate) => candidate.id === speakerCharacterId);
         const profile = resolveTtsProfile(state, speaker);
         const narrationEnabled = state.ttsNarrationEnabled;
-        // ナレーターvoiceは専用設定優先、未設定ならグローバルの声にフォールバック。
+        // ナレーターvoiceは専用設定優先、未設定なら有効profileの声にフォールバック
+        // （プレイヤー側のprofile.voiceフォールバックと同じ解決に揃える）。
         const narratorVoice = narrationEnabled
-            ? state.ttsNarratorVoice.trim() || state.ttsVoice
+            ? state.ttsNarratorVoice.trim() || profile.voice.trim()
             : '';
         const segments = buildSpeechSegments(content, state.ttsActionCaption, narrationEnabled)
             // ナレーターvoiceが解決できないナレーションは読めないので落とす。

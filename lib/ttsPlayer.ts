@@ -242,7 +242,9 @@ async function consumeTtsEventStream(
         while (!sawDone) {
             const { done, value } = await reader.read();
             if (done) break;
-            buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+            // チャンク境界が \r と \n の間に入ると個別の正規化では検出できない
+            // ため、連結してから \r\n を \n に揃える。
+            buffer = (buffer + decoder.decode(value, { stream: true })).replace(/\r\n/g, '\n');
             let sep = buffer.indexOf('\n\n');
             while (sep >= 0) {
                 if (dispatchTtsSseBlock(buffer.slice(0, sep), emit) === 'done') {
@@ -438,19 +440,28 @@ function scheduleNextPiece(entry: TtsEntry, nextIndex: number): void {
     if (!audio) return;
     entry.segmentIndex = nextIndex;
     audio.src = entry.objectUrls[nextIndex];
+    const generation = playbackGeneration;
+    const startPlayback = () => {
+        // play()は別再生への切り替えやpauseでAbortErrorになりうる。古い再生の
+        // 失敗が現在のentryをエラーにしないよう、所有権を確認してから処理する。
+        void audio?.play().catch(() => {
+            if (activeEntry === entry && generation === playbackGeneration) {
+                handleAudioErrorEvent();
+            }
+        });
+    };
     const gap = entry.gapBefore[nextIndex] ? SEGMENT_GAP_MS : 0;
     if (gap <= 0) {
-        void audio.play().catch(() => handleAudioErrorEvent());
+        startPlayback();
         return;
     }
-    const generation = playbackGeneration;
     segmentGapTimer = window.setTimeout(() => {
         segmentGapTimer = null;
         if (generation === playbackGeneration
             && activeEntry === entry
             && (entry.status === 'playing' || entry.status === 'loading')
             && audio) {
-            void audio.play().catch(() => handleAudioErrorEvent());
+            startPlayback();
         }
     }, gap);
 }
@@ -713,8 +724,11 @@ export function resumeTtsPlayback(): void {
     const src = entry.objectUrls[entry.segmentIndex];
     if (audio.src !== src) audio.src = src;
     void audioContext?.resume().catch(() => {});
+    const generation = playbackGeneration;
     void audio.play().catch((error: unknown) => {
-        if (activeEntry === entry) setEntryStatus(entry, 'error', ttsErrorMessage(error));
+        if (activeEntry === entry && generation === playbackGeneration) {
+            setEntryStatus(entry, 'error', ttsErrorMessage(error));
+        }
     });
 }
 

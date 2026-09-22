@@ -15,7 +15,7 @@ import {
     normalizeModelDefaults,
     type ModelDefaults,
 } from '../modelDefaults';
-import { setTtsPlaybackVolume } from '../ttsPlayer';
+import { clearAllTts, setTtsPlaybackVolume } from '../ttsPlayer';
 import { fire } from './persistence';
 import type {
     AppState,
@@ -41,6 +41,7 @@ export const DEFAULT_CHARACTER_FREQUENCY_PENALTY = 0;
 export const DEFAULT_CHARACTER_PRESENCE_PENALTY = 0;
 export const DEFAULT_CHARACTER_REPETITION_PENALTY = 1;
 export const DEFAULT_CONVERSATION_COMPRESSION_ENABLED = true;
+export const DEFAULT_TTS_ENABLED = true;
 export const DEFAULT_TTS_CONNECTION_ID = DEFAULT_CONNECTION_ID;
 export const DEFAULT_TTS_MODEL = 'deepgram/aura-2';
 export const VOICEVOX_TTS_MODEL = 'voicevox';
@@ -227,6 +228,7 @@ type SettingsSlice = Pick<
     | 'conversationCompressionEnabled'
     | 'generateTitleOnFirstReply'
     | 'replySuggestionsEnabled'
+    | 'ttsEnabled'
     | 'ttsConnectionId'
     | 'ttsModel'
     | 'ttsVoice'
@@ -268,6 +270,7 @@ type SettingsSlice = Pick<
     | 'setConversationCompressionEnabled'
     | 'setGenerateTitleOnFirstReply'
     | 'setReplySuggestionsEnabled'
+    | 'setTtsEnabled'
     | 'setTtsConnectionId'
     | 'setTtsModel'
     | 'setTtsVoice'
@@ -301,6 +304,7 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         conversationCompressionEnabled: DEFAULT_CONVERSATION_COMPRESSION_ENABLED,
         generateTitleOnFirstReply: false,
         replySuggestionsEnabled: false,
+        ttsEnabled: DEFAULT_TTS_ENABLED,
         ttsConnectionId: DEFAULT_TTS_CONNECTION_ID,
         ttsModel: DEFAULT_TTS_MODEL,
         ttsVoice: DEFAULT_TTS_VOICE,
@@ -417,6 +421,12 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         setReplySuggestionsEnabled: (replySuggestionsEnabled) => {
             set({ replySuggestionsEnabled });
             fire(db.setMeta('replySuggestionsEnabled', replySuggestionsEnabled));
+        },
+        setTtsEnabled: (ttsEnabled) => {
+            set({ ttsEnabled });
+            // 無効化した時点で再生中・キュー・キャッシュを全て止める。
+            if (!ttsEnabled) clearAllTts();
+            fire(db.setMeta('ttsEnabled', ttsEnabled));
         },
         setTtsConnectionId: (id) => {
             const ttsConnectionId = id.trim();

@@ -420,6 +420,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         expressionDetectionModel, setExpressionDetectionModel,
         memoryExtractionModel, setMemoryExtractionModel,
         memoryEmbeddingModel, setMemoryEmbeddingModel,
+        ttsEnabled, setTtsEnabled,
         ttsConnectionId, setTtsConnectionId,
         ttsModel, setTtsModel,
         ttsVoice, setTtsVoice,
@@ -704,6 +705,46 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
     const handleClearDebugLogs = () => {
         clearFullJsonDebugLogs();
     };
+    const renderToggleButton = ({
+        enabled,
+        onToggle,
+        ariaLabel,
+    }: {
+        enabled: boolean;
+        onToggle: () => void;
+        ariaLabel: string;
+    }) => (
+        <button
+            type="button"
+            onClick={onToggle}
+            style={{
+                position: 'relative',
+                width: '44px',
+                height: '24px',
+                borderRadius: '12px',
+                border: 'none',
+                cursor: 'pointer',
+                background: enabled ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
+                transition: 'background 0.2s ease',
+                padding: 0,
+                flexShrink: 0,
+            }}
+            aria-label={ariaLabel}
+            aria-pressed={enabled}
+        >
+            <span style={{
+                position: 'absolute',
+                top: '2px',
+                left: enabled ? '22px' : '2px',
+                width: '20px',
+                height: '20px',
+                borderRadius: '50%',
+                background: '#fff',
+                transition: 'left 0.2s ease',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+            }} />
+        </button>
+    );
     const renderDebugToggle = ({
         label,
         enabled,
@@ -727,36 +768,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
                 {beforeToggle}
-                <button
-                    type="button"
-                    onClick={onToggle}
-                    style={{
-                        position: 'relative',
-                        width: '44px',
-                        height: '24px',
-                        borderRadius: '12px',
-                        border: 'none',
-                        cursor: 'pointer',
-                        background: enabled ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
-                        transition: 'background 0.2s ease',
-                        padding: 0,
-                        flexShrink: 0,
-                    }}
-                    aria-label={ariaLabel}
-                    aria-pressed={enabled}
-                >
-                    <span style={{
-                        position: 'absolute',
-                        top: '2px',
-                        left: enabled ? '22px' : '2px',
-                        width: '20px',
-                        height: '20px',
-                        borderRadius: '50%',
-                        background: '#fff',
-                        transition: 'left 0.2s ease',
-                        boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-                    }} />
-                </button>
+                {renderToggleButton({ enabled, onToggle, ariaLabel })}
             </div>
         </div>
     );
@@ -1135,7 +1147,23 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                 <h3 style={{ fontSize: '0.875rem', fontWeight: 700 }}>
                                     音声合成（TTS）
                                 </h3>
+                                {renderToggleButton({
+                                    enabled: ttsEnabled,
+                                    onToggle: () => setTtsEnabled(!ttsEnabled),
+                                    ariaLabel: '音声合成（TTS）を有効化',
+                                })}
                             </div>
+                            <fieldset
+                                disabled={!ttsEnabled}
+                                style={{
+                                    border: 'none',
+                                    padding: 0,
+                                    margin: 0,
+                                    minWidth: 0,
+                                    opacity: ttsEnabled ? 1 : 0.55,
+                                    transition: 'opacity 0.15s ease',
+                                }}
+                            >
                             <div style={{
                                 display: 'flex',
                                 flexDirection: 'column',
@@ -1413,6 +1441,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     音声合成にはVOICEVOXまたはIrodori TTSの接続先、または「音声合成（TTS）を利用する」を有効にしたOpenAI互換の接続先が必要です。
                                 </p>
                             )}
+                            </fieldset>
                         </div>
 
                             </>

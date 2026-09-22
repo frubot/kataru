@@ -83,6 +83,7 @@ export function useTtsPlayback({
     ): TtsResolveResult | null => {
         if (!roomId) return null;
         const state = useStore.getState();
+        if (!state.ttsEnabled) return null;
         const room = state.rooms.find((candidate) => candidate.id === roomId);
         const speakerCharacterId = characterId ?? (room?.groupId ? undefined : room?.characterId);
         const speaker = state.characters.find((candidate) => candidate.id === speakerCharacterId);

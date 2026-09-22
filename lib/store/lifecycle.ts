@@ -43,6 +43,7 @@ import {
     DEFAULT_TTS_CAPTION_CFG_SCALE,
     DEFAULT_TTS_CHUNK_MIN_CHARS,
     DEFAULT_TTS_CONNECTION_ID,
+    DEFAULT_TTS_ENABLED,
     DEFAULT_TTS_FIRST_CHUNK_MIN_CHARS,
     DEFAULT_TTS_MODEL,
     DEFAULT_TTS_NARRATION_ENABLED,
@@ -128,7 +129,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
         hydrate: async () => {
             if (get().hydrated) return;
             await db.migrateLegacyDatabase();
-            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, storedChatWallpaper, storedDefaultViewMode, currentRoomId, vnTypingSpeed, storedKeyboardShortcuts, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedModelDefaults, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedRoleApiTypes, storedConversationCompressionEnabled, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion, storedTtsConnectionId, storedTtsModel, storedTtsVoice, storedTtsSpeed, storedTtsVolume, storedTtsAutoPlay, storedTtsActionCaption, storedTtsCaptionCfgScale, storedTtsChunkMinChars, storedTtsFirstChunkMinChars, storedTtsNarrationEnabled, storedTtsNarratorVoice] = await Promise.all([
+            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, storedChatWallpaper, storedDefaultViewMode, currentRoomId, vnTypingSpeed, storedKeyboardShortcuts, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedModelDefaults, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedRoleApiTypes, storedConversationCompressionEnabled, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion, storedTtsEnabled, storedTtsConnectionId, storedTtsModel, storedTtsVoice, storedTtsSpeed, storedTtsVolume, storedTtsAutoPlay, storedTtsActionCaption, storedTtsCaptionCfgScale, storedTtsChunkMinChars, storedTtsFirstChunkMinChars, storedTtsNarrationEnabled, storedTtsNarratorVoice] = await Promise.all([
                 db.getAllCharacters(),
                 db.getAllGroups(),
                 db.getAllRooms(),
@@ -169,6 +170,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 db.getMeta<string>('openAiCompatibleApiKey'),
                 db.getMeta<number>('onboardingVersion'),
                 db.getMeta<number>('aiSettingsSchemaVersion'),
+                db.getMeta<boolean>('ttsEnabled'),
                 db.getMeta<string>('ttsConnectionId'),
                 db.getMeta<string>('ttsModel'),
                 db.getMeta<string>('ttsVoice'),
@@ -306,6 +308,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 : DEFAULT_CONVERSATION_COMPRESSION_ENABLED;
             const resolvedGenerateTitleOnFirstReply = storedGenerateTitleOnFirstReply === true;
             const resolvedReplySuggestionsEnabled = storedReplySuggestionsEnabled === true;
+            const resolvedTtsEnabled = storedTtsEnabled !== false;
             const resolvedTtsConnectionId = typeof storedTtsConnectionId === 'string'
                 ? storedTtsConnectionId.trim()
                 : DEFAULT_TTS_CONNECTION_ID;
@@ -402,6 +405,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
             if (storedConversationCompressionEnabled !== resolvedConversationCompressionEnabled) fire(db.setMeta('conversationCompressionEnabled', resolvedConversationCompressionEnabled));
             if (storedGenerateTitleOnFirstReply !== resolvedGenerateTitleOnFirstReply) fire(db.setMeta('generateTitleOnFirstReply', resolvedGenerateTitleOnFirstReply));
             if (storedReplySuggestionsEnabled !== resolvedReplySuggestionsEnabled) fire(db.setMeta('replySuggestionsEnabled', resolvedReplySuggestionsEnabled));
+            if (storedTtsEnabled !== resolvedTtsEnabled) fire(db.setMeta('ttsEnabled', resolvedTtsEnabled));
             if (storedTtsConnectionId !== resolvedTtsConnectionId) fire(db.setMeta('ttsConnectionId', resolvedTtsConnectionId));
             if (storedTtsModel !== resolvedTtsModel) fire(db.setMeta('ttsModel', resolvedTtsModel));
             if (storedTtsVoice !== resolvedTtsVoice) fire(db.setMeta('ttsVoice', resolvedTtsVoice));
@@ -435,6 +439,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 conversationCompressionEnabled: resolvedConversationCompressionEnabled,
                 generateTitleOnFirstReply: resolvedGenerateTitleOnFirstReply,
                 replySuggestionsEnabled: resolvedReplySuggestionsEnabled,
+                ttsEnabled: resolvedTtsEnabled,
                 ttsConnectionId: resolvedTtsConnectionId,
                 ttsModel: resolvedTtsModel,
                 ttsVoice: resolvedTtsVoice,
@@ -479,6 +484,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 conversationCompressionEnabled: DEFAULT_CONVERSATION_COMPRESSION_ENABLED,
                 generateTitleOnFirstReply: false,
                 replySuggestionsEnabled: false,
+                ttsEnabled: DEFAULT_TTS_ENABLED,
                 ttsConnectionId: DEFAULT_TTS_CONNECTION_ID,
                 ttsModel: DEFAULT_TTS_MODEL,
                 ttsVoice: DEFAULT_TTS_VOICE,

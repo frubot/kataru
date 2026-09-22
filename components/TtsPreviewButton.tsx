@@ -9,16 +9,15 @@ const PREVIEW_ROOM_ID = '__tts_preview__';
 const PREVIEW_TEXT = 'こんにちは。これは音声合成の試聴です。';
 
 interface TtsPreviewButtonProps {
-    /** 再生状態を識別するID。配置場所ごとに一意にする。 */
     previewId: string;
     profile: TtsProfile;
     disabled?: boolean;
 }
 
-/** 設定中の声と速度でサンプル文を再生する試聴ボタン。 */
 export default function TtsPreviewButton({ previewId, profile, disabled = false }: TtsPreviewButtonProps) {
     const { status, error } = useTtsEntry(previewId);
-    const playable = isTtsProfilePlayable(profile);
+    const ttsEnabled = useStore((state) => state.ttsEnabled);
+    const playable = ttsEnabled && isTtsProfilePlayable(profile);
     const active = status === 'playing' || status === 'loading';
 
     // モーダルを閉じても試聴が残らないようにする
@@ -56,7 +55,11 @@ export default function TtsPreviewButton({ previewId, profile, disabled = false 
             className="btn btn-secondary"
             disabled={disabled || (!playable && !active)}
             onClick={handleClick}
-            title={error ?? (playable ? 'サンプル文を読み上げます' : '接続先と声を設定すると試聴できます')}
+            title={error ?? (!ttsEnabled
+                ? '音声合成（TTS）が無効になっています'
+                : playable
+                    ? 'サンプル文を読み上げます'
+                    : '接続先と声を設定すると試聴できます')}
             aria-label={label}
             style={{ flexShrink: 0, padding: '0 0.875rem', fontSize: '0.8125rem', minHeight: '2.75rem' }}
         >

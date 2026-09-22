@@ -346,6 +346,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         clearFullJsonDebugLogs,
         getAiApiConfig,
         chatWallpaper,
+        ttsEnabled,
         ttsNarrationEnabled,
     } = useStore();
     const isGroupRoom = situation != null || (groupCharacters != null && groupCharacters.length > 1);
@@ -1358,11 +1359,12 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     });
     const vnTtsStatus = useTtsEntry(vnTtsItem?.key ?? '').status;
     const canPlayVnTts = useMemo(() => (
-        !!vnTtsItem
+        ttsEnabled
+        && !!vnTtsItem
         && vnTtsItem.role === 'assistant'
         && vnTtsItem.final
         && !!buildSpeechText(vnTtsItem.content, ttsNarrationEnabled)
-    ), [vnTtsItem, ttsNarrationEnabled]);
+    ), [vnTtsItem, ttsEnabled, ttsNarrationEnabled]);
     useVisualNovelAutoPlay({
         enabled: vnAutoPlay && isVisualNovelMode && !isVisualNovelLogOpen,
         canAdvance: situationVnPresentation.canAdvance,
@@ -1780,9 +1782,9 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     onToggleAutoPlay={() => setVnAutoPlay((on) => !on)}
                     ttsStatus={vnTtsStatus}
                     canTtsPlay={canPlayVnTts}
-                    onTtsToggle={() => {
+                    onTtsToggle={ttsEnabled ? () => {
                         if (vnTtsItem) playTtsVisualNovelItem(vnTtsItem);
-                    }}
+                    } : undefined}
                     canRegenerate={canRegenerateVN}
                     onRegenerate={handleRegenerate}
                     canBranch={
@@ -1851,7 +1853,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     onBranch={handleBranch}
                     onOpenMemoryList={handleOpenMessageMemoryList}
                     onRevealTypewriter={() => stopTypewriter(true)}
-                    onTtsPlay={playTtsMessage}
+                    onTtsPlay={ttsEnabled ? playTtsMessage : undefined}
                 />
             )}
 

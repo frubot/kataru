@@ -338,6 +338,8 @@ export interface AppState {
     conversationCompressionEnabled: boolean;
     generateTitleOnFirstReply: boolean;
     replySuggestionsEnabled: boolean;
+    /** 音声合成機能全体のオン・オフ。OFFでは読み上げ・試聴・自動再生を全て止める。 */
+    ttsEnabled: boolean;
     ttsConnectionId: string;
     ttsModel: string;
     ttsVoice: string;
@@ -397,6 +399,7 @@ export interface AppState {
     setConversationCompressionEnabled: (enabled: boolean) => void;
     setGenerateTitleOnFirstReply: (enabled: boolean) => void;
     setReplySuggestionsEnabled: (enabled: boolean) => void;
+    setTtsEnabled: (enabled: boolean) => void;
     setTtsConnectionId: (id: string) => void;
     setTtsModel: (model: string) => void;
     setTtsVoice: (voice: string) => void;

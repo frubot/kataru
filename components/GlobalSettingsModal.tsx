@@ -173,9 +173,6 @@ interface VnSpeedSliderProps {
 function VnSpeedSlider({ value, onChange }: VnSpeedSliderProps) {
     const index = VN_SPEED_INDEX[value];
     const percent = (index / (VN_SPEED_OPTIONS.length - 1)) * 100;
-    const optionStep = 100 / VN_SPEED_OPTIONS.length;
-    const optionInset = optionStep / 2;
-    const optionPosition = (index + 0.5) * optionStep;
     const currentOption = VN_SPEED_OPTIONS[index];
     const [isMenuOpen, setMenuOpen] = useState(false);
     const speedMenuRef = useRef<HTMLDivElement>(null);
@@ -245,8 +242,8 @@ function VnSpeedSlider({ value, onChange }: VnSpeedSliderProps) {
                         position: 'absolute',
                         right: 0,
                         top: 'calc(100% + 0.5rem)',
-                        width: 'min(100%, 20rem)',
-                        minWidth: '16rem',
+                        width: 'min(100%, 15rem)',
+                        minWidth: '12rem',
                         padding: '0.75rem 1rem',
                         border: '1px solid var(--border-color)',
                         borderRadius: '0.5rem',
@@ -258,8 +255,8 @@ function VnSpeedSlider({ value, onChange }: VnSpeedSliderProps) {
                     <div style={{ position: 'relative', height: '24px', display: 'flex', alignItems: 'center' }}>
                         <div style={{
                             position: 'absolute',
-                            left: `${optionInset}%`,
-                            width: `${100 - optionStep}%`,
+                            left: 0,
+                            width: '100%',
                             height: '4px',
                             borderRadius: '2px',
                             background: 'var(--bg-tertiary)',
@@ -286,8 +283,8 @@ function VnSpeedSlider({ value, onChange }: VnSpeedSliderProps) {
                             }}
                             style={{
                                 position: 'absolute',
-                                left: `${optionInset}%`,
-                                width: `${100 - optionStep}%`,
+                                left: 0,
+                                width: '100%',
                                 height: '24px',
                                 opacity: 0,
                                 cursor: 'pointer',
@@ -298,7 +295,7 @@ function VnSpeedSlider({ value, onChange }: VnSpeedSliderProps) {
                         />
                         <div style={{
                             position: 'absolute',
-                            left: `calc(${optionPosition}% - 8px)`,
+                            left: `calc(${percent}% - 8px)`,
                             width: '16px',
                             height: '16px',
                             borderRadius: '50%',
@@ -310,7 +307,7 @@ function VnSpeedSlider({ value, onChange }: VnSpeedSliderProps) {
                         }} />
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${VN_SPEED_OPTIONS.length}, minmax(0, 1fr))`, marginTop: '0.25rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.25rem' }}>
                         {VN_SPEED_OPTIONS.map((option) => (
                             <span
                                 key={option.id}
@@ -318,7 +315,6 @@ function VnSpeedSlider({ value, onChange }: VnSpeedSliderProps) {
                                     fontSize: '0.7rem',
                                     lineHeight: '1rem',
                                     whiteSpace: 'nowrap',
-                                    textAlign: 'center',
                                     color: value === option.id ? 'var(--accent-primary)' : 'var(--text-muted)',
                                     fontWeight: value === option.id ? 600 : 400,
                                 }}

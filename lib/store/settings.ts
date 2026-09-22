@@ -93,7 +93,7 @@ function isThemePalette(value: unknown): value is ThemePalette {
 }
 
 export function isVnTypingSpeed(value: unknown): value is VnTypingSpeed {
-    return value === 'slow' || value === 'default' || value === 'fast' || value === 'streaming';
+    return value === 'slow' || value === 'default' || value === 'fast';
 }
 
 export function isRoomViewMode(value: unknown): value is RoomViewMode {

@@ -91,9 +91,7 @@ interface ChatWindowProps {
     onOpenSettings?: () => void;
 }
 
-const MESSAGE_MODE_BUBBLE_DELAY_MS = 420;
-const CONVERSATION_JOB_POLL_INTERVAL_MS = 750;
-const CONVERSATION_STREAMING_POLL_INTERVAL_MS = 120;
+const CONVERSATION_JOB_POLL_INTERVAL_MS = 120;
 const EMPTY_MESSAGES: Message[] = [];
 const EMPTY_SITUATION_PRIOR_MESSAGES: SituationPriorMessage[] = [];
 
@@ -263,10 +261,6 @@ function VisualNovelBackground({ src }: { src: string }) {
     );
 }
 
-function waitForMessageModeBubbleDelay(): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, MESSAGE_MODE_BUBBLE_DELAY_MS));
-}
-
 type ChatRetryRequest =
     | {
         kind: 'submit';
@@ -385,7 +379,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         typingMessageId,
         typedContent,
         isTypewriterActive,
-        typingSpeedRef: vnTypingSpeedRef,
         triggerBounce: triggerVnBounce,
         stopBounce: stopVnBounce,
         stopTypewriter,
@@ -562,14 +555,10 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         controller: AbortController,
     ): Promise<ChatConversationJobStatus> => {
         while (isGenerationSessionActive(session) && !controller.signal.aborted) {
-            const pollInterval = vnTypingSpeedRef.current === 'streaming'
-                ? CONVERSATION_STREAMING_POLL_INTERVAL_MS
-                : CONVERSATION_JOB_POLL_INTERVAL_MS;
-            await waitForConversationJobPoll(controller.signal, pollInterval);
+            await waitForConversationJobPoll(controller.signal, CONVERSATION_JOB_POLL_INTERVAL_MS);
             const job = await getConversationJob<RustTurnResponse>(session.jobId, controller.signal);
             if (
-                vnTypingSpeedRef.current === 'streaming'
-                && job.preview && (job.preview.content.trim() || job.preview.expression)
+                job.preview && (job.preview.content.trim() || job.preview.expression)
                 && getCurrentRoom()?.id === job.roomId
             ) {
                 setStreamingPreview({
@@ -587,7 +576,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             if (job.status !== 'running') return job;
         }
         throw new DOMException('Generation stopped', 'AbortError');
-    }, [getCurrentRoom, isGenerationSessionActive, vnTypingSpeedRef]);
+    }, [getCurrentRoom, isGenerationSessionActive]);
 
     const resumeConversationJob = useCallback(async (job: ChatConversationJobStatus) => {
         if (resumedJobsRef.current.has(job.jobId) || hasGenerationSession(job.roomId)) {
@@ -623,17 +612,14 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             const completed = await pollConversationJob(session, controller);
             if (completed.status === 'completed') {
                 recordJobDebugLogs(completed.result, sourceRoom);
-                if (vnTypingSpeedRef.current === 'streaming') {
-                    rememberStreamedFinalMessageIds(
-                        completed.result?.messages
-                            ?.map((message) => message.id)
-                            .filter(Boolean)
-                        ?? [],
-                    );
-                }
+                rememberStreamedFinalMessageIds(
+                    completed.result?.messages
+                        ?.map((message) => message.id)
+                        .filter(Boolean)
+                    ?? [],
+                );
                 await refreshConversationRoom(job.roomId);
-                keepStreamingPreview = vnTypingSpeedRef.current === 'streaming'
-                    && isVisualNovelMode
+                keepStreamingPreview = isVisualNovelMode
                     && (completed.result?.messages?.length ?? 0) > 0;
             } else if (completed.status === 'failed') {
                 recordJobDebugLogs(completed.partialResult, sourceRoom);
@@ -671,7 +657,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         rememberStreamedFinalMessageIds,
         showChatErrorNotice,
         startGenerationSession,
-        vnTypingSpeedRef,
     ]);
 
     useEffect(() => {
@@ -860,13 +845,8 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     ): Promise<ChatGenerationResult> => {
         if (!isGenerationSessionActive(session)) return { status: 'aborted' };
         session.generationBaselineMessageIds = sourceRoom.messages.map((message) => message.id);
-        const shouldStreamPreview = vnTypingSpeedRef.current === 'streaming';
-        const retainVisualNovelStreamingPreview = shouldStreamPreview
-            && isVisualNovelMode;
         let keepStreamingPreview = false;
-        if (shouldStreamPreview) {
-            setStreamingPreview((current) => current?.roomId === sourceRoom.id ? null : current);
-        }
+        setStreamingPreview((current) => current?.roomId === sourceRoom.id ? null : current);
 
         const controller = new AbortController();
         if (!attachGenerationController(session, controller)) {
@@ -887,7 +867,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     memoryExtractionModel: serializeModelRef(memoryExtractionModel),
                     memoryEmbeddingModel: serializeModelRef(memoryEmbeddingModel),
                     aiApiConfig: getAiApiConfig(),
-                    streamingPreview: shouldStreamPreview,
+                    streamingPreview: true,
                     generationMode,
                 }, controller.signal);
             if (!isGenerationSessionActive(session) || controller.signal.aborted) {
@@ -914,10 +894,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     sourceRoom,
                     jobId: session.jobId,
                     isSecretMode,
-                    isMessageMode,
-                    shouldStreamPreview,
-                    deferTypewriter: isVisualNovelMode,
-                    typingSpeed: vnTypingSpeed,
                     debugEnabled: fullJsonDebugEnabled,
                 },
                 {
@@ -925,19 +901,17 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     compressRoomHistory,
                     isGenerationActive: () =>
                         isGenerationSessionActive(session) && !controller.signal.aborted,
-                    waitForMessageModeBubbleDelay,
                     addMessage,
                     rememberStreamedFinalMessageIds,
                     refreshConversationRoom,
-                    clearStreamingPreview: retainVisualNovelStreamingPreview
+                    clearStreamingPreview: isVisualNovelMode
                         ? () => undefined
                         : clearStreamingPreview,
                     addFullJsonDebugLog,
                     getCurrentRoom,
-                    playTypewriter,
                 },
             );
-            keepStreamingPreview = retainVisualNovelStreamingPreview
+            keepStreamingPreview = isVisualNovelMode
                 && appliedResult.assistantMessageIds.length > 0;
             resumedJobsRef.current.add(session.jobId);
             return {

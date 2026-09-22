@@ -8,21 +8,19 @@ function createOperations(sourceRoom: Room) {
         updateRoomSummary: vi.fn(),
         compressRoomHistory: vi.fn(),
         isGenerationActive: vi.fn(() => true),
-        waitForMessageModeBubbleDelay: vi.fn(async () => undefined),
         addMessage: vi.fn(() => 'local-message'),
         rememberStreamedFinalMessageIds: vi.fn(),
         refreshConversationRoom: vi.fn(async () => undefined),
         clearStreamingPreview: vi.fn(),
         addFullJsonDebugLog: vi.fn(),
         getCurrentRoom: vi.fn(() => sourceRoom),
-        playTypewriter: vi.fn(async () => undefined),
     };
 }
 
 const sourceRoom = { id: 'room-1', name: 'Room 1' } as Room;
 
 describe('conversation result application', () => {
-    test('refreshes persisted rooms and starts the typewriter from server message ids', async () => {
+    test('refreshes persisted rooms and remembers streamed server message ids', async () => {
         const operations = createOperations(sourceRoom);
         const result = await applyConversationResult(
             {
@@ -39,9 +37,6 @@ describe('conversation result application', () => {
                 sourceRoom,
                 jobId: 'job-1',
                 isSecretMode: false,
-                isMessageMode: false,
-                shouldStreamPreview: false,
-                typingSpeed: 'default',
                 debugEnabled: false,
             },
             operations,
@@ -51,7 +46,7 @@ describe('conversation result application', () => {
         expect(result.assistantMessageIds).toEqual(['server-message']);
         expect(operations.refreshConversationRoom).toHaveBeenCalledWith('room-1');
         expect(operations.addMessage).not.toHaveBeenCalled();
-        expect(operations.playTypewriter).toHaveBeenCalledWith('server-message', 'こんにちは');
+        expect(operations.rememberStreamedFinalMessageIds).toHaveBeenCalledWith(['server-message']);
     });
 
     test('keeps secret results in memory and applies their summary', async () => {
@@ -72,9 +67,6 @@ describe('conversation result application', () => {
                 sourceRoom,
                 jobId: 'job-1',
                 isSecretMode: true,
-                isMessageMode: true,
-                shouldStreamPreview: false,
-                typingSpeed: 'default',
                 debugEnabled: false,
             },
             operations,
@@ -83,37 +75,10 @@ describe('conversation result application', () => {
         expect(result.assistantMessageIds).toEqual(['local-1', 'local-2']);
         expect(operations.updateRoomSummary).toHaveBeenCalledWith('room-1', '秘密の要約', 'user-1');
         expect(operations.compressRoomHistory).toHaveBeenCalledWith('room-1', 8);
-        expect(operations.waitForMessageModeBubbleDelay).toHaveBeenCalledOnce();
         expect(operations.addMessage).toHaveBeenCalledTimes(2);
+        expect(operations.rememberStreamedFinalMessageIds).toHaveBeenCalledWith(['local-1']);
+        expect(operations.rememberStreamedFinalMessageIds).toHaveBeenCalledWith(['local-2']);
         expect(operations.refreshConversationRoom).not.toHaveBeenCalled();
-    });
-
-    test('defers typewriter playback to the situation visual novel queue', async () => {
-        const operations = createOperations(sourceRoom);
-        await applyConversationResult(
-            {
-                data: {
-                    messages: [{
-                        id: 'server-message',
-                        role: 'assistant',
-                        content: '順番に表示する返答',
-                        characterId: 'actor-1',
-                        timestamp: 1,
-                    }],
-                },
-                sourceRoom,
-                jobId: 'job-1',
-                isSecretMode: false,
-                isMessageMode: false,
-                shouldStreamPreview: false,
-                deferTypewriter: true,
-                typingSpeed: 'default',
-                debugEnabled: false,
-            },
-            operations,
-        );
-
-        expect(operations.playTypewriter).not.toHaveBeenCalled();
     });
 
     test('records debug logs before refreshing the persisted room', async () => {
@@ -144,9 +109,6 @@ describe('conversation result application', () => {
                 sourceRoom,
                 jobId: 'job-1',
                 isSecretMode: false,
-                isMessageMode: false,
-                shouldStreamPreview: false,
-                typingSpeed: 'default',
                 debugEnabled: true,
             },
             operations,
@@ -189,9 +151,6 @@ describe('conversation result application', () => {
                 sourceRoom,
                 jobId: 'job-1',
                 isSecretMode: false,
-                isMessageMode: false,
-                shouldStreamPreview: false,
-                typingSpeed: 'default',
                 debugEnabled: true,
             },
             operations,

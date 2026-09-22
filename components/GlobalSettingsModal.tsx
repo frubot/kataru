@@ -151,7 +151,6 @@ const VN_SPEED_OPTIONS = [
     { id: 'slow', label: '遅い' },
     { id: 'default', label: 'デフォルト' },
     { id: 'fast', label: '速い' },
-    { id: 'streaming', label: 'ストリーミング' },
 ] as const satisfies readonly { id: VnTypingSpeed; label: string }[];
 
 const VIEW_MODE_OPTIONS = [
@@ -164,7 +163,6 @@ const VN_SPEED_INDEX: Record<VnTypingSpeed, number> = {
     slow: 0,
     default: 1,
     fast: 2,
-    streaming: 3,
 };
 
 interface VnSpeedSliderProps {

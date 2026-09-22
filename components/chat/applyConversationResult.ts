@@ -3,7 +3,6 @@ import type {
     FullJsonDebugLog,
     Message,
     Room,
-    VnTypingSpeed,
 } from '../../lib/store';
 
 type ApplyConversationResultOptions = {
@@ -11,10 +10,6 @@ type ApplyConversationResultOptions = {
     sourceRoom: Room;
     jobId: string;
     isSecretMode: boolean;
-    isMessageMode: boolean;
-    shouldStreamPreview: boolean;
-    deferTypewriter?: boolean;
-    typingSpeed: VnTypingSpeed;
     debugEnabled: boolean;
 };
 
@@ -22,7 +17,6 @@ type ApplyConversationResultOperations = {
     updateRoomSummary: (roomId: string, summary: string, checkpointId?: string) => void;
     compressRoomHistory: (roomId: string, keepCount: number) => void;
     isGenerationActive: () => boolean;
-    waitForMessageModeBubbleDelay: () => Promise<void>;
     addMessage: (
         roomId: string,
         role: 'user' | 'assistant',
@@ -35,7 +29,6 @@ type ApplyConversationResultOperations = {
     clearStreamingPreview: (jobId: string) => void;
     addFullJsonDebugLog: (log: Omit<FullJsonDebugLog, 'id' | 'createdAt'>) => void;
     getCurrentRoom: () => Room | null | undefined;
-    playTypewriter: (messageId: string, content: string) => Promise<void>;
 };
 
 type RecordConversationDebugLogsOptions = Pick<
@@ -93,10 +86,6 @@ export async function applyConversationResult(
         sourceRoom,
         jobId,
         isSecretMode,
-        isMessageMode,
-        shouldStreamPreview,
-        deferTypewriter = false,
-        typingSpeed,
     } = options;
     const assistantMessages = Array.isArray(data.messages) ? data.messages : [];
     recordConversationDebugLogs(options, operations);
@@ -117,12 +106,8 @@ export async function applyConversationResult(
         .map((message) => message.id);
     if (isSecretMode) {
         assistantMessageIds = [];
-        for (let index = 0; index < assistantMessages.length; index++) {
-            const message = assistantMessages[index];
+        for (const message of assistantMessages) {
             if (!message?.content?.trim()) continue;
-            if (isMessageMode && index > 0 && !shouldStreamPreview) {
-                await operations.waitForMessageModeBubbleDelay();
-            }
             if (!operations.isGenerationActive()) {
                 throw new DOMException('Generation stopped', 'AbortError');
             }
@@ -137,24 +122,13 @@ export async function applyConversationResult(
                 },
             );
             assistantMessageIds.push(messageId);
-            if (shouldStreamPreview) operations.rememberStreamedFinalMessageIds([messageId]);
+            operations.rememberStreamedFinalMessageIds([messageId]);
         }
     } else {
-        if (shouldStreamPreview) operations.rememberStreamedFinalMessageIds(assistantMessageIds);
+        operations.rememberStreamedFinalMessageIds(assistantMessageIds);
         await operations.refreshConversationRoom(sourceRoom.id);
     }
     operations.clearStreamingPreview(jobId);
-
-    if (
-        !isMessageMode
-        && !deferTypewriter
-        && typingSpeed !== 'streaming'
-        && operations.getCurrentRoom()?.id === sourceRoom.id
-        && assistantMessageIds[0]
-        && assistantMessages[0]?.content
-    ) {
-        await operations.playTypewriter(assistantMessageIds[0], assistantMessages[0].content);
-    }
 
     return {
         message: assistantMessages.map((message) => message.content).join('\n\n'),

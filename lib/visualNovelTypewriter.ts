@@ -74,7 +74,7 @@ export class VisualNovelTypewriter {
             return this.run.finished;
         }
         this.cancel();
-        if (!fullContent || content === fullContent || (!incremental && this.speed === 'streaming')) {
+        if (!fullContent || content === fullContent) {
             this.publish(messageId, fullContent, false);
             return Promise.resolve();
         }

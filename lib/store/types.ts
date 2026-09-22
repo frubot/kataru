@@ -306,7 +306,7 @@ export interface FullJsonDebugLog {
 
 export type ThemeMode = 'light' | 'dark';
 export type ThemePalette = 'indigo' | 'sakura' | 'sage' | 'sky' | 'amber' | 'mono';
-export type VnTypingSpeed = 'slow' | 'default' | 'fast' | 'streaming';
+export type VnTypingSpeed = 'slow' | 'default' | 'fast';
 export type RoomViewMode = 'chat' | 'message' | 'vn';
 
 export type ThemeSelection = {

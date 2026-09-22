@@ -13,11 +13,9 @@ export function useVisualNovelPresentation({ typingSpeed }: UseVisualNovelPresen
     const bounceStartRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const bounceStopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const typewriterActiveRef = useRef(false);
-    const typingSpeedRef = useRef(typingSpeed);
     const [typewriter] = useState(() => new VisualNovelTypewriter(setTyping, typingSpeed));
 
     useEffect(() => {
-        typingSpeedRef.current = typingSpeed;
         typewriter.setSpeed(typingSpeed);
     }, [typingSpeed, typewriter]);
 
@@ -73,7 +71,6 @@ export function useVisualNovelPresentation({ typingSpeed }: UseVisualNovelPresen
         typingMessageId: typing.messageId,
         typedContent: typing.content,
         isTypewriterActive: typing.active,
-        typingSpeedRef,
         triggerBounce,
         stopBounce,
         stopTypewriter,

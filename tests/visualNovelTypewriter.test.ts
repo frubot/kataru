@@ -6,7 +6,7 @@ afterEach(() => vi.useRealTimers());
 
 function createTypewriter() {
     const frames: VisualNovelTypingSnapshot[] = [];
-    const writer = new VisualNovelTypewriter((frame) => frames.push(frame), 'streaming');
+    const writer = new VisualNovelTypewriter((frame) => frames.push(frame), 'default');
     return { writer, frames };
 }
 

@@ -13,7 +13,6 @@ const VN_TYPING_SPEED_MULTIPLIER: Record<VnTypingSpeed, number> = {
     slow: 1.55,
     default: 1,
     fast: 0.55,
-    streaming: 1,
 };
 
 export type VisualNovelCostumeOption = {

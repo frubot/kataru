@@ -9,7 +9,7 @@ import {
     VRMLookAtQuaternionProxy,
     type VRMAnimation,
 } from '@pixiv/three-vrm-animation';
-import { RotateCcw } from 'lucide-react';
+import { Eye, RotateCcw } from 'lucide-react';
 import type { VrmAnimation, VrmAvatar } from '@/lib/store/types';
 import { resolveStoredImageUrl } from '@/lib/imageSource';
 import { isVrmSource, isVrmaSource, resolveVrmExpression, validateVrmBuffer, validateVrmaBuffer } from '@/lib/vrm';
@@ -60,10 +60,11 @@ type LoadedVrmMotion = {
 
 export default function VrmAvatarView({ avatar, expression, motion, fallbackImage, name, interactive = false, lipSync = false, onReady }: Props) {
     const host = useRef<HTMLDivElement>(null);
-    const live = useRef({ avatar, expression, motion, interactive, lipSync, onReady, ready: false });
+    const [lookAtCamera, setLookAtCamera] = useState(false);
+    const live = useRef({ avatar, expression, motion, interactive, lipSync, lookAtCamera, onReady, ready: false });
     useEffect(() => {
-        live.current = { ...live.current, avatar, expression, motion, interactive, lipSync, onReady };
-    }, [avatar, expression, motion, interactive, lipSync, onReady]);
+        live.current = { ...live.current, avatar, expression, motion, interactive, lipSync, lookAtCamera, onReady };
+    }, [avatar, expression, motion, interactive, lipSync, lookAtCamera, onReady]);
     // Clip flags (loop, useExpressions, idleAnimation) are read live each frame;
     // only a renamed or replaced animation should rebuild the scene.
     const animationKey = useMemo(
@@ -71,6 +72,7 @@ export default function VrmAvatarView({ avatar, expression, motion, fallbackImag
         [avatar.animations],
     );
     const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+    const [canGaze, setCanGaze] = useState(false);
     const [error, setError] = useState('');
     const [attempt, setAttempt] = useState(0);
     const [dragging, setDragging] = useState(false);
@@ -166,6 +168,7 @@ export default function VrmAvatarView({ avatar, expression, motion, fallbackImag
         const scene = new THREE.Scene();
         live.current.ready = false;
         setStatus('loading');
+        setCanGaze(false);
         // A reloaded model can have new bounds, so start from the saved framing again.
         view.current.adjustment = { ...DEFAULT_VRM_VIEW_ADJUSTMENT };
         lastTap.current = null;
@@ -487,12 +490,22 @@ export default function VrmAvatarView({ avatar, expression, motion, fallbackImag
                         const value = vrm.expressionManager?.getValue(key) ?? 0;
                         vrm.expressionManager?.setValue(key, neutral || key === 'blink' || key === mouthKey ? target : THREE.MathUtils.lerp(value, target, 1 - Math.exp(-delta * 12)));
                     }
+                    // While the toggle is on, autoUpdate re-aims the eyes at the
+                    // camera every frame, overriding clip-driven lookAt output.
+                    if (vrm.lookAt) {
+                        const gazeTarget = current.lookAtCamera ? camera : null;
+                        if (vrm.lookAt.target !== gazeTarget) {
+                            vrm.lookAt.target = gazeTarget;
+                            if (!gazeTarget) vrm.lookAt.reset();
+                        }
+                    }
                     vrm.update(delta);
                     renderer.render(scene, camera);
                 };
                 render(0);
                 live.current.ready = true;
                 setStatus('ready');
+                setCanGaze(vrm.lookAt != null);
                 live.current.onReady?.({ expressions, motions: motionList, capture: (mode: 'portrait' | 'avatar' = 'portrait') => {
                     if (disposed || !renderer) throw new Error('プレビューを読み直してください。');
                     render(0, true);
@@ -563,6 +576,7 @@ export default function VrmAvatarView({ avatar, expression, motion, fallbackImag
     }, [interactive]);
 
     const showReset = interactive && status === 'ready' && adjusted;
+    const showGaze = interactive && status === 'ready' && canGaze;
     return <div
         className={`vrm-avatar${interactive ? ' vrm-avatar-interactive' : ''}${dragging ? ' vrm-avatar-dragging' : ''}`}
         onPointerDown={interactive ? handlePointerDown : undefined}
@@ -577,16 +591,29 @@ export default function VrmAvatarView({ avatar, expression, motion, fallbackImag
             aria-label={interactive ? `${name}の3Dアバター。ドラッグで移動、ホイールで拡大縮小できます。` : `${name}の3Dアバター`}
             style={{ visibility: status === 'ready' ? 'visible' : 'hidden' }}
         />
-        {showReset && <button
-            type="button"
-            className="vrm-view-reset"
-            title="表示位置と拡大率を戻す"
-            aria-label="表示位置と拡大率を戻す"
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={resetView}
-        >
-            <RotateCcw size={14} />
-        </button>}
+        {(showReset || showGaze) && <div className="vrm-view-tools">
+            {showReset && <button
+                type="button"
+                className="vrm-view-reset"
+                title="表示位置と拡大率を戻す"
+                aria-label="表示位置と拡大率を戻す"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={resetView}
+            >
+                <RotateCcw size={14} />
+            </button>}
+            {showGaze && <button
+                type="button"
+                className={`vrm-view-gaze${lookAtCamera ? ' is-active' : ''}`}
+                title={lookAtCamera ? 'カメラ目線を解除' : 'カメラ目線にする'}
+                aria-label={lookAtCamera ? 'カメラ目線を解除' : 'カメラ目線にする'}
+                aria-pressed={lookAtCamera}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={() => setLookAtCamera((on) => !on)}
+            >
+                <Eye size={14} />
+            </button>}
+        </div>}
         {status !== 'ready' && <div className="vrm-fallback">
             {fallbackImage && <StoredImage src={fallbackImage} alt="" />}
             <div className="vrm-status" role="status">

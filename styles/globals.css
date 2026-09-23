@@ -3602,7 +3602,7 @@ body {
   backdrop-filter: blur(6px);
 }
 
-.chat-container.vn-mode .vrm-view-reset {
+.chat-container.vn-mode .vrm-view-tools {
   top: calc(90px + 8px);
 }
 
@@ -3674,10 +3674,15 @@ body {
 .vrm-avatar-interactive { touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; }
 .vrm-avatar-dragging { cursor: grabbing; }
 .vrm-avatar-interactive .vrm-canvas { cursor: inherit; }
-.vrm-view-reset {
+.vrm-view-tools {
   position: absolute;
   top: 8px;
   right: 8px;
+  display: flex;
+  gap: 6px;
+}
+.vrm-view-reset,
+.vrm-view-gaze {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3691,13 +3696,19 @@ body {
   cursor: pointer;
   backdrop-filter: blur(8px);
 }
-.vrm-view-reset:hover {
+.vrm-view-reset:hover,
+.vrm-view-gaze:hover {
   border-color: color-mix(in srgb, var(--accent-primary) 60%, var(--border-color));
   color: var(--text-primary);
 }
-.vrm-view-reset:focus-visible {
+.vrm-view-reset:focus-visible,
+.vrm-view-gaze:focus-visible {
   outline: 2px solid var(--accent-primary);
   outline-offset: 2px;
+}
+.vrm-view-gaze.is-active {
+  border-color: color-mix(in srgb, var(--accent-primary) 60%, var(--border-color));
+  color: var(--accent-primary);
 }
 .vrm-fallback > img { width: 100%; height: 100%; object-fit: contain; }
 .vrm-status { position: absolute; inset: auto 8px 12px; padding: 8px; border-radius: 8px; background: var(--bg-secondary); color: var(--text-primary); font-size: 0.8rem; text-align: center; }

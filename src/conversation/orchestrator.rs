@@ -1920,7 +1920,7 @@ fn memory_extraction_request(
         .collect();
     input["usedMemories"] = memory_prompt_entries(used);
     input["existingMemories"] = memory_prompt_entries(existing);
-    (memory_extraction_guided_prompt(), input)
+    (memory_extraction_guided_prompt().to_owned(), input)
 }
 
 #[allow(clippy::too_many_arguments)]

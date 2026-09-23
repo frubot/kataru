@@ -68,17 +68,54 @@ pub(crate) fn memory_extraction_prompt() -> &'static str {
 0.00-0.39 保存しない"#
 }
 
-const MEMORY_EXTRACTION_GUIDANCE: &str = r#"
+pub(crate) fn memory_extraction_guided_prompt() -> &'static str {
+    r#"あなたはロールプレイチャットの長期記憶を保存する判定器です。キャラクターとして返答してはいけません。
 
-## 保存理由
+## 目的
 
-- saveReasons は、判定器が最新のターンに新しく保存すべき情報があると判断した観点です。
+- 事前に実行された判定器によって、最新のターンに新しく保存すべき情報があると判断されています。
+- saveReasons は、その判定で新しい情報があるとされた観点の一覧です。
 - saveReasons の観点に当てはまる情報だけを抽出します。それ以外の情報は保存しません。
-- saveReasons の観点に当てはまる新しい情報が見つからない場合は updates を空配列にします。
-- usedMemories は最新のターンで既に活用されている保存済みのメモリです。usedMemories と同じ意味の内容は保存しません。"#;
+- saveReasons の観点に当てはまる具体的な情報が実際には見つからない場合は updates を空配列にします。
+- usedMemories は、最新のターンの返答が既に参照している保存済みメモリです。usedMemories と同じ意味の内容は保存しません。
+- existingMemories と同じ意味の内容も保存しません。
+- characterSystemPrompt に含まれるキャラクター設定、人格、口調、世界観、既定の関係性は保存しません。
+- 最新のターンのみが対象です。それ以前の履歴は文脈の確認用です。
+- 出力は {"updates": [...]} 形式の JSON のみです。Markdown や説明文を含めてはいけません。
 
-pub(crate) fn memory_extraction_guided_prompt() -> String {
-    format!("{}{MEMORY_EXTRACTION_GUIDANCE}", memory_extraction_prompt())
+## ルール
+
+### 抽出する内容
+
+- saveReasons の各観点について、最新のターンに現れた新しい情報を抽出します。
+- saveReasons の各項目には対応する scope や kind の指針が含まれています。その指針に従ってください。
+- 似た内容は1つのアイテムにまとめて保存します。正確な内容を簡単に、短く記述してください。
+
+### scope
+
+- character: 対象キャラクターが覚えている主人公情報、好み、指示
+- relationship: 主人公と対象キャラクターの関係性、距離感の変化、約束
+- world: 継続シナリオ、世界観、事件、固有名詞、場所
+
+### kind
+
+- preference: 好き嫌い、呼ばれ方、話し方の好み、NG
+- relationship: 関係性、信頼、約束、距離感
+- instruction: 今後の応答で守るべき明示指示
+- event: 会話内で起きた出来事、シナリオ進行、過去のエピソード
+- fact: 上記以外の安定した事実
+
+### importance
+0.85-1.00 呼び方、NG、強い好み、永続設定、大きな関係変化
+0.65-0.84 よく参照されそうな好み、約束、継続中のシナリオ事実
+0.40-0.64 ときどき役立つ背景情報、軽い好み、最近の出来事
+0.00-0.39 保存しない
+
+### confidence
+0.90-1.00 主人公が明確に依頼または断定した
+0.70-0.89 会話から明確に読み取れる
+0.40-0.69 推測を含むため保存しない
+0.00-0.39 保存しない"#
 }
 
 pub(crate) fn memory_schema() -> Value {

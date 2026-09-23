@@ -1,4 +1,4 @@
-import { Menu, Sparkles } from 'lucide-react';
+import { Menu } from 'lucide-react';
 
 type ChatWelcomeProps = {
     isMobile: boolean;
@@ -21,11 +21,19 @@ export default function ChatWelcome({ isMobile, onOpenSidebar, onCreateCharacter
                         <Menu size={20} />
                     </button>
                 )}
-                <span style={{ fontWeight: 500 }}>Kataru</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 500 }}>
+                    <img src="/logo.png" alt="" style={{ height: 24, width: 'auto' }} />
+                    Kataru
+                </span>
                 <div style={{ width: 36 }} />
             </div>
             <div className="empty-state">
-                <Sparkles size={64} className="empty-state-icon" />
+                <img
+                    src="/logo.png"
+                    alt="Kataru"
+                    className="empty-state-icon"
+                    style={{ width: 'auto', height: 72, opacity: 0.9 }}
+                />
                 <h2 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '0.5rem' }}>
                     会話をはじめよう
                 </h2>

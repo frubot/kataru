@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="public/logo.png" alt="Kataru" width="240">
+</p>
+
 # Kataru
 
 Kataruは、AIキャラクターとの1対1の会話や、複数キャラクターが織りなすシチュエーションを楽しめる、ローカルファーストなロールプレイチャットアプリです。

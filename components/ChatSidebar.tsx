@@ -622,6 +622,7 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, o
             <div className={`sidebar ${isOpen ? 'open' : ''}`}>
                 <div className="sidebar-header" style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                     <div className="sidebar-desktop-controls desktop-only">
+                        <img className="sidebar-brand" src="/logo.png" alt="" />
                         <button
                             type="button"
                             className="btn btn-ghost sidebar-icon-button sidebar-search-button"
@@ -647,6 +648,7 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, o
                         </button>
                     </div>
                     <div className="sidebar-mobile-controls mobile-only">
+                        <img className="sidebar-brand" src="/logo.png" alt="" />
                         <button
                             type="button"
                             className="btn btn-ghost sidebar-icon-button sidebar-search-button"
@@ -718,7 +720,6 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, o
                             {groupExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                             <Users size={14} />
                             シチュエーション
-                            <span style={{ marginLeft: '0.25rem' }}>({sortedGroups.length})</span>
                         </div>
                         {groupExpanded && (
                             <>
@@ -731,7 +732,6 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, o
                                             {favoriteSituationsExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                                             <Star size={14} fill="currentColor" />
                                             お気に入り
-                                            <span style={{ marginLeft: '0.25rem' }}>({favoriteSituations.length})</span>
                                         </div>
                                         {favoriteSituationsExpanded && (
                                             <div className="sidebar-tree-items">
@@ -747,7 +747,6 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, o
                                     {regularSituations.length > 0 ? (situationsExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />) : <span style={{ width: 14 }} />}
                                     <Users size={14} />
                                     すべてのシチュエーション
-                                    <span style={{ marginLeft: '0.25rem' }}>({regularSituations.length})</span>
                                 </div>
                                 {situationsExpanded && (
                                     <div className="sidebar-tree-items">
@@ -767,7 +766,6 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, o
                             {characterSectionExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                             <User size={14} />
                             キャラクター
-                            <span style={{ marginLeft: '0.25rem' }}>({sortedCharacters.length})</span>
                         </div>
                         {characterSectionExpanded && (
                             sortedCharacters.length === 0 ? (
@@ -787,7 +785,6 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, o
                                                 {favoritesExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                                                 <Star size={14} fill="currentColor" />
                                                 お気に入り
-                                                <span style={{ marginLeft: '0.25rem' }}>({favoriteCharacters.length})</span>
                                             </div>
                                             {favoritesExpanded && (
                                                 <div className="sidebar-tree-items">
@@ -803,7 +800,6 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, o
                                         {regularCharacters.length > 0 ? (charactersExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />) : <span style={{ width: 14 }} />}
                                         <User size={14} />
                                         すべてのキャラクター
-                                        <span style={{ marginLeft: '0.25rem' }}>({regularCharacters.length})</span>
                                     </div>
                                     {charactersExpanded && (
                                         <div className="sidebar-tree-items">

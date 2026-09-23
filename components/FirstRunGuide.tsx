@@ -418,7 +418,10 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                 >
                     <Menu size={20} />
                 </button>
-                <span style={{ fontWeight: 500 }}>Kataru</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 500 }}>
+                    <img src="/logo.png" alt="" style={{ height: 24, width: 'auto' }} />
+                    Kataru
+                </span>
                 <div style={{ width: 36 }} />
             </div>
 
@@ -456,6 +459,11 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                     {step === 'api-type' ? (
                         <>
                             <div className="onboarding-heading">
+                                <img
+                                    src="/logo.png"
+                                    alt=""
+                                    style={{ height: 44, width: 'auto', flexShrink: 0 }}
+                                />
                                 <div>
                                     <p className="onboarding-step-label">1 / 4 · APIの種類を選ぶ</p>
                                     <h1>Kataruへようこそ</h1>

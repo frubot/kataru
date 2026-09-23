@@ -1120,14 +1120,16 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     value={expressionDetectionModel}
                                     onChange={setExpressionDetectionModel}
                                 />
-                                <RoleModelField
-                                    role="memoryGateModel"
-                                    label="メモリ保存の判定"
-                                    inputId="memory-gate-model-input"
-                                    value={memoryGateModel}
-                                    onChange={setMemoryGateModel}
-                                    outputModality="decisions"
-                                />
+                                {memoryGateEnabled && (
+                                    <RoleModelField
+                                        role="memoryGateModel"
+                                        label="メモリ保存の判定"
+                                        inputId="memory-gate-model-input"
+                                        value={memoryGateModel}
+                                        onChange={setMemoryGateModel}
+                                        outputModality="decisions"
+                                    />
+                                )}
                                 <RoleModelField
                                     role="memoryExtractionModel"
                                     label="メモリ保存"

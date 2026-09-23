@@ -9,7 +9,7 @@ use super::prompts::{character_setting, string};
 
 pub(super) const MEMORY_GATE_TIMEOUT_SECS: u64 = 15;
 const REASON_THRESHOLD: f64 = 0.5;
-const USED_THRESHOLD: f64 = 0.5;
+const USED_THRESHOLD: f64 = 0.6;
 const SETTING_MAX_CHARS: usize = 4000;
 const MESSAGE_MAX_CHARS: usize = 1500;
 const REPLY_MAX_CHARS: usize = 2400;

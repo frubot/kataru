@@ -18,11 +18,19 @@ use tracing::Instrument;
 
 use crate::{
     AppState,
-    db::{persist_conversation_result, persist_conversation_submission},
+    db::{
+        persist_conversation_memories, persist_conversation_result, persist_conversation_submission,
+    },
     error::{AppError, AppResult},
 };
 
-use super::{GenerationMode, memory::prepare_conversation_memories, orchestrator::run_turn};
+use super::{
+    GenerationMode,
+    memory::prepare_conversation_memories,
+    orchestrator::{
+        MemoryExtraction, MemoryFollowUp, ShadowGate, TurnOutput, extract_turn_memories, run_turn,
+    },
+};
 
 const COMPLETED_JOB_RETENTION: Duration = Duration::from_secs(10 * 60);
 
@@ -30,6 +38,7 @@ const COMPLETED_JOB_RETENTION: Duration = Duration::from_secs(10 * 60);
 pub struct ConversationJobs {
     inner: Arc<Mutex<HashMap<String, ConversationJob>>>,
     history_persistence: Arc<Mutex<()>>,
+    memory_persistence: Arc<Mutex<()>>,
 }
 
 #[derive(Clone)]
@@ -155,6 +164,10 @@ impl ConversationJobs {
 
     pub(crate) async fn lock_history_persistence(&self) -> OwnedMutexGuard<()> {
         self.history_persistence.clone().lock_owned().await
+    }
+
+    async fn lock_memory_persistence(&self) -> OwnedMutexGuard<()> {
+        self.memory_persistence.clone().lock_owned().await
     }
 
     async fn complete(&self, job_id: &str, result: Value) {
@@ -481,7 +494,7 @@ pub async fn start(
                 "Conversation generation started"
             );
             match run_turn(job_state.clone(), payload.clone()).await {
-                Ok(mut result) => {
+                Ok(TurnOutput { mut result, memory }) => {
                     let message_count = result
                         .get("messages")
                         .and_then(serde_json::Value::as_array)
@@ -492,40 +505,6 @@ pub async fn start(
                         "Conversation generation completed"
                     );
                     normalize_result_ids(&task_job_id, &mut result);
-                    if !job_state.conversation_jobs.is_running(&task_job_id).await {
-                        tracing::debug!(
-                            stage = "cancelled_before_memory_persistence",
-                            "Conversation job was cancelled before memory persistence"
-                        );
-                        return;
-                    }
-                    let prepared_memories = if secret_mode {
-                        Vec::new()
-                    } else {
-                        match prepare_conversation_memories(&job_state, &payload, &result).await {
-                            Ok(memories) => memories,
-                            Err(error) => {
-                                tracing::warn!(
-                                    stage = "memory_persistence_preparation_failed",
-                                    classification = error.diagnostic_class(),
-                                    "Conversation job could not prepare memory persistence"
-                                );
-                                job_state
-                                    .conversation_jobs
-                                    .fail(
-                                        &task_job_id,
-                                        error.to_string(),
-                                        result
-                                            .get("fullJsonLogs")
-                                            .and_then(Value::as_array)
-                                            .cloned()
-                                            .unwrap_or_default(),
-                                    )
-                                    .await;
-                                return;
-                            }
-                        }
-                    };
                     let history_persistence_guard = if secret_mode {
                         None
                     } else {
@@ -546,7 +525,6 @@ pub async fn start(
                         &job_state.database,
                         &task_room_id,
                         &result,
-                        prepared_memories,
                         secret_mode,
                     )
                     .await
@@ -575,11 +553,29 @@ pub async fn start(
                         "Conversation job persisted the generated result"
                     );
                     drop(history_persistence_guard);
+                    let memory = memory.filter(|_| !secret_mode).map(|follow_up| {
+                        let messages = result
+                            .get("messages")
+                            .and_then(Value::as_array)
+                            .cloned()
+                            .unwrap_or_default();
+                        (follow_up, messages)
+                    });
                     job_state
                         .conversation_jobs
                         .complete(&task_job_id, result)
                         .await;
                     tracing::debug!(stage = "completed", "Conversation job completed");
+                    if let Some((follow_up, messages)) = memory {
+                        persist_turn_memories(
+                            &job_state,
+                            &payload,
+                            &task_job_id,
+                            follow_up,
+                            &messages,
+                        )
+                        .await;
+                    }
                 }
                 Err(failure) => {
                     tracing::warn!(
@@ -645,58 +641,151 @@ fn valid_job_id(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
+async fn persist_turn_memories(
+    state: &AppState,
+    payload: &Value,
+    job_id: &str,
+    follow_up: MemoryFollowUp,
+    messages: &[Value],
+) {
+    tracing::debug!(
+        stage = "memory_extraction_started",
+        "Conversation memory extraction started"
+    );
+    let MemoryExtraction {
+        mut candidates,
+        mut usages,
+        shadow,
+    } = match extract_turn_memories(state, payload, follow_up, messages).await {
+        Ok(extraction) => extraction,
+        Err(error) => {
+            tracing::warn!(
+                stage = "memory_extraction_failed",
+                classification = error.diagnostic_class(),
+                "Conversation memory extraction failed"
+            );
+            return;
+        }
+    };
+    let source_message_ids = content_message_ids(messages);
+    normalize_memory_follow_up_ids(job_id, &mut candidates, &mut usages, &source_message_ids);
+    let candidate_count = candidates.len();
+    let _memory_persistence_guard = state.conversation_jobs.lock_memory_persistence().await;
+    let prepared = match prepare_conversation_memories(state, payload, messages, candidates).await {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            tracing::warn!(
+                stage = "memory_preparation_failed",
+                classification = error.diagnostic_class(),
+                "Conversation memories could not be prepared"
+            );
+            Vec::new()
+        }
+    };
+    let saved_count = prepared.len();
+    if let Some(gate) = shadow {
+        tracing::info!(
+            stage = "memory_gate_shadow",
+            gate = gate.as_str(),
+            candidate_count,
+            saved_count,
+            agreement = memory_gate_shadow_agreement(gate, saved_count > 0),
+            "Memory gate shadow comparison"
+        );
+    }
+    let _history_persistence_guard = state.conversation_jobs.lock_history_persistence().await;
+    match persist_conversation_memories(&state.database, source_message_ids, prepared, usages).await
+    {
+        Ok(true) => tracing::debug!(
+            stage = "memories_persisted",
+            saved_count,
+            "Conversation memories persisted"
+        ),
+        Ok(false) => tracing::debug!(
+            stage = "memories_discarded",
+            "Conversation memories were discarded because their source messages no longer exist"
+        ),
+        Err(error) => tracing::warn!(
+            stage = "memory_persistence_failed",
+            classification = error.diagnostic_class(),
+            "Conversation memories could not be persisted"
+        ),
+    }
+}
+
+fn memory_gate_shadow_agreement(gate: ShadowGate, saved: bool) -> &'static str {
+    match (gate, saved) {
+        (ShadowGate::Failed, _) => "gate_failed",
+        (ShadowGate::Extract, true) | (ShadowGate::Skip, false) => "agree",
+        (ShadowGate::Skip, true) => "missed",
+        (ShadowGate::Extract, false) => "unneeded",
+    }
+}
+
 fn normalize_result_ids(job_id: &str, result: &mut Value) {
     let Some(messages) = result.get_mut("messages").and_then(Value::as_array_mut) else {
         return;
     };
     let timestamp = now_millis();
-    let message_ids = messages
-        .iter_mut()
-        .enumerate()
-        .filter_map(|(index, message)| {
-            let object = message.as_object_mut()?;
-            let id = format!("{job_id}-message-{index}");
-            let has_content = object
-                .get("content")
-                .and_then(Value::as_str)
-                .is_some_and(|content| !content.trim().is_empty());
-            object.insert("id".to_owned(), Value::String(id.clone()));
+    for (index, message) in messages.iter_mut().enumerate() {
+        if let Some(object) = message.as_object_mut() {
+            object.insert(
+                "id".to_owned(),
+                Value::String(format!("{job_id}-message-{index}")),
+            );
             object.insert(
                 "timestamp".to_owned(),
                 Value::from(timestamp.saturating_add(index as u64)),
             );
-            has_content.then_some(id)
-        })
-        .collect::<Vec<_>>();
-
-    if let Some(candidates) = result
-        .get_mut("memoryCandidates")
-        .and_then(Value::as_array_mut)
-    {
-        for (index, candidate) in candidates.iter_mut().enumerate() {
-            if let Some(object) = candidate.as_object_mut() {
-                object.insert(
-                    "id".to_owned(),
-                    Value::String(format!("{job_id}-memory-{index}")),
-                );
-                object.insert("sourceMessageIds".to_owned(), json!(message_ids));
-            }
         }
     }
     if let Some(usages) = result.get_mut("usages").and_then(Value::as_array_mut) {
-        for (index, usage) in usages.iter_mut().enumerate() {
-            if let Some(object) = usage.as_object_mut() {
-                object.insert(
-                    "id".to_owned(),
-                    Value::String(format!("{job_id}-usage-{index}")),
-                );
-                object.insert(
-                    "timestamp".to_owned(),
-                    Value::from(timestamp.saturating_add(index as u64)),
-                );
-            }
+        normalize_usage_ids(usages, &format!("{job_id}-usage"), timestamp);
+    }
+}
+
+fn normalize_memory_follow_up_ids(
+    job_id: &str,
+    candidates: &mut [Value],
+    usages: &mut [Value],
+    source_message_ids: &[String],
+) {
+    for (index, candidate) in candidates.iter_mut().enumerate() {
+        if let Some(object) = candidate.as_object_mut() {
+            object.insert(
+                "id".to_owned(),
+                Value::String(format!("{job_id}-memory-{index}")),
+            );
+            object.insert("sourceMessageIds".to_owned(), json!(source_message_ids));
         }
     }
+    normalize_usage_ids(usages, &format!("{job_id}-memory-usage"), now_millis());
+}
+
+fn normalize_usage_ids(usages: &mut [Value], prefix: &str, timestamp: u64) {
+    for (index, usage) in usages.iter_mut().enumerate() {
+        if let Some(object) = usage.as_object_mut() {
+            object.insert("id".to_owned(), Value::String(format!("{prefix}-{index}")));
+            object.insert(
+                "timestamp".to_owned(),
+                Value::from(timestamp.saturating_add(index as u64)),
+            );
+        }
+    }
+}
+
+fn content_message_ids(messages: &[Value]) -> Vec<String> {
+    messages
+        .iter()
+        .filter(|message| {
+            message
+                .get("content")
+                .and_then(Value::as_str)
+                .is_some_and(|content| !content.trim().is_empty())
+        })
+        .filter_map(|message| message.get("id").and_then(Value::as_str))
+        .map(str::to_owned)
+        .collect()
 }
 
 fn prune_jobs(jobs: &mut HashMap<String, ConversationJob>) {
@@ -720,19 +809,59 @@ mod tests {
         let mut result = json!({
             "messages": [
                 { "id": "old-1", "content": "first", "timestamp": 1 },
-                { "id": "old-2", "content": "second", "timestamp": 2 }
+                { "id": "old-2", "content": "second", "timestamp": 2 },
+                { "id": "old-3", "content": " ", "timestamp": 3 }
             ],
-            "usages": [{ "id": "old-usage", "timestamp": 1 }],
-            "memoryCandidates": [{ "sourceMessageIds": ["old-1", "old-2"] }]
+            "usages": [{ "id": "old-usage", "timestamp": 1 }]
         });
         normalize_result_ids("job-12345678", &mut result);
         assert_eq!(result["messages"][0]["id"], "job-12345678-message-0");
         assert_eq!(result["messages"][1]["id"], "job-12345678-message-1");
         assert_eq!(result["usages"][0]["id"], "job-12345678-usage-0");
-        assert_eq!(result["memoryCandidates"][0]["id"], "job-12345678-memory-0");
+
+        let messages = result["messages"].as_array().expect("messages");
+        let source_message_ids = content_message_ids(messages);
         assert_eq!(
-            result["memoryCandidates"][0]["sourceMessageIds"],
+            source_message_ids,
+            vec!["job-12345678-message-0", "job-12345678-message-1"]
+        );
+        let mut candidates = vec![json!({ "sourceMessageIds": ["old-1"] })];
+        let mut usages = vec![json!({ "id": "usage-memory" })];
+        normalize_memory_follow_up_ids(
+            "job-12345678",
+            &mut candidates,
+            &mut usages,
+            &source_message_ids,
+        );
+        assert_eq!(candidates[0]["id"], "job-12345678-memory-0");
+        assert_eq!(
+            candidates[0]["sourceMessageIds"],
             json!(["job-12345678-message-0", "job-12345678-message-1"])
+        );
+        assert_eq!(usages[0]["id"], "job-12345678-memory-usage-0");
+    }
+
+    #[test]
+    fn memory_gate_shadow_agreement_classifies_gate_outcomes() {
+        assert_eq!(
+            memory_gate_shadow_agreement(ShadowGate::Extract, true),
+            "agree"
+        );
+        assert_eq!(
+            memory_gate_shadow_agreement(ShadowGate::Skip, false),
+            "agree"
+        );
+        assert_eq!(
+            memory_gate_shadow_agreement(ShadowGate::Skip, true),
+            "missed"
+        );
+        assert_eq!(
+            memory_gate_shadow_agreement(ShadowGate::Extract, false),
+            "unneeded"
+        );
+        assert_eq!(
+            memory_gate_shadow_agreement(ShadowGate::Failed, true),
+            "gate_failed"
         );
     }
 

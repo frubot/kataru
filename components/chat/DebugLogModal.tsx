@@ -20,6 +20,10 @@ function getDebugSourceLabel(source: string): string {
             return '指揮役による出力';
         case 'director-error':
             return 'キャラクタールーターのエラー';
+        case 'memory-gate-jev':
+            return 'メモリ保存の判定';
+        case 'memory-gate-error':
+            return 'メモリ保存判定のエラー';
         default:
             return source;
     }

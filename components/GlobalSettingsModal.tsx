@@ -412,8 +412,10 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         replySuggestionModel, setReplySuggestionModel,
         defaultImageModel, setDefaultImageModel,
         expressionDetectionModel, setExpressionDetectionModel,
+        memoryGateModel, setMemoryGateModel,
         memoryExtractionModel, setMemoryExtractionModel,
         memoryEmbeddingModel, setMemoryEmbeddingModel,
+        memoryGateShadowMode, setMemoryGateShadowMode,
         ttsEnabled, setTtsEnabled,
         ttsConnectionId, setTtsConnectionId,
         ttsModel, setTtsModel,
@@ -458,6 +460,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
             replySuggestionModel,
             defaultImageModel,
             expressionDetectionModel,
+            memoryGateModel,
             memoryExtractionModel,
             memoryEmbeddingModel,
         }[role];
@@ -1117,6 +1120,14 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     onChange={setExpressionDetectionModel}
                                 />
                                 <RoleModelField
+                                    role="memoryGateModel"
+                                    label="メモリ保存の判定"
+                                    inputId="memory-gate-model-input"
+                                    value={memoryGateModel}
+                                    onChange={setMemoryGateModel}
+                                    outputModality="decisions"
+                                />
+                                <RoleModelField
                                     role="memoryExtractionModel"
                                     label="メモリ保存"
                                     inputId="memory-extraction-model-input"
@@ -1495,6 +1506,17 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     })}
                                     <p style={{ margin: '0.375rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
                                         現在の要約、圧縮範囲、履歴を確認して手動編集できます。
+                                    </p>
+                                </div>
+                                <div>
+                                    {renderDebugToggle({
+                                        label: 'メモリ保存判定のシャドーモード',
+                                        enabled: memoryGateShadowMode,
+                                        onToggle: () => setMemoryGateShadowMode(!memoryGateShadowMode),
+                                        ariaLabel: 'メモリ保存判定のシャドーモードを有効化',
+                                    })}
+                                    <p style={{ margin: '0.375rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                                        Jevの判定結果を記録するだけにして、メモリ保存は毎ターン従来どおり行います。判定と実際の保存結果の比較はサーバーログに出力されます。
                                     </p>
                                 </div>
                             </div>

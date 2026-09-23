@@ -24,7 +24,8 @@ use super::Database;
 
 pub use command::StorageCommand;
 pub use conversation::{
-    get_conversation_memories, persist_conversation_result, persist_conversation_submission,
+    get_conversation_memories, persist_conversation_memories, persist_conversation_result,
+    persist_conversation_submission,
 };
 pub use images::{migrate_character_images, migrate_situation_images};
 

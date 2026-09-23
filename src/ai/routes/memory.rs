@@ -68,6 +68,19 @@ pub(crate) fn memory_extraction_prompt() -> &'static str {
 0.00-0.39 保存しない"#
 }
 
+const MEMORY_EXTRACTION_GUIDANCE: &str = r#"
+
+## 保存理由
+
+- saveReasons は、判定器が最新のターンに新しく保存すべき情報があると判断した観点です。
+- saveReasons の観点に当てはまる情報だけを抽出します。それ以外の情報は保存しません。
+- saveReasons の観点に当てはまる新しい情報が見つからない場合は updates を空配列にします。
+- usedMemories は最新のターンで既に活用されている保存済みのメモリです。usedMemories と同じ意味の内容は保存しません。"#;
+
+pub(crate) fn memory_extraction_guided_prompt() -> String {
+    format!("{}{MEMORY_EXTRACTION_GUIDANCE}", memory_extraction_prompt())
+}
+
 pub(crate) fn memory_schema() -> Value {
     json!({
         "name": "memory_save_updates",

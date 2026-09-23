@@ -32,7 +32,8 @@ struct PreparedMemory {
 pub(super) async fn prepare_conversation_memories(
     state: &AppState,
     payload: &Value,
-    result: &Value,
+    messages: &[Value],
+    candidates: Vec<Value>,
 ) -> AppResult<Vec<Value>> {
     let Some(character) = payload.get("character").filter(|value| value.is_object()) else {
         return Ok(Vec::new());
@@ -41,21 +42,10 @@ pub(super) async fn prepare_conversation_memories(
     if character_id.is_empty() {
         return Ok(Vec::new());
     }
-    let has_source_message = result
-        .get("messages")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
+    let has_source_message = messages
+        .iter()
         .any(|message| !string(message, "id").is_empty() && !string(message, "content").is_empty());
-    if !has_source_message {
-        return Ok(Vec::new());
-    }
-    let candidates = result
-        .get("memoryCandidates")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    if candidates.is_empty() {
+    if !has_source_message || candidates.is_empty() {
         return Ok(Vec::new());
     }
 

@@ -333,8 +333,10 @@ export interface AppState {
     replySuggestionModel: ModelRef;
     defaultImageModel: ModelRef;
     expressionDetectionModel: ModelRef;
+    memoryGateModel: ModelRef;
     memoryExtractionModel: ModelRef;
     memoryEmbeddingModel: ModelRef;
+    memoryGateShadowMode: boolean;
     conversationCompressionEnabled: boolean;
     generateTitleOnFirstReply: boolean;
     replySuggestionsEnabled: boolean;
@@ -394,8 +396,10 @@ export interface AppState {
     setReplySuggestionModel: (model: ModelRef) => void;
     setDefaultImageModel: (model: ModelRef) => void;
     setExpressionDetectionModel: (model: ModelRef) => void;
+    setMemoryGateModel: (model: ModelRef) => void;
     setMemoryExtractionModel: (model: ModelRef) => void;
     setMemoryEmbeddingModel: (model: ModelRef) => void;
+    setMemoryGateShadowMode: (enabled: boolean) => void;
     setConversationCompressionEnabled: (enabled: boolean) => void;
     setGenerateTitleOnFirstReply: (enabled: boolean) => void;
     setReplySuggestionsEnabled: (enabled: boolean) => void;

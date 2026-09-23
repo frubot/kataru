@@ -11,10 +11,10 @@ use crate::{
     ai::{
         AiApiClient, AiApiConfig, ai_api_config_value,
         routes::{
-            RoleSelection, entity_connection_id, extract_message_text, memory_extraction_prompt,
-            memory_schema, model_string, optional_role_selection, parse_memory_updates,
-            resolve_role_selection, role_connection, role_default_selection, structured_completion,
-            structured_completion_streaming,
+            RoleSelection, entity_connection_id, extract_message_text,
+            memory_extraction_guided_prompt, memory_extraction_prompt, memory_schema, model_string,
+            optional_role_selection, parse_memory_updates, resolve_role_selection, role_connection,
+            role_default_selection, structured_completion, structured_completion_streaming,
         },
         typesafe::{
             ChoiceAnswer, DEFAULT_JEV_MODEL, SystemOneResponse, choice_answer, is_jev_model,
@@ -29,6 +29,10 @@ use super::{
     GenerationMode,
     jobs::ConversationJobs,
     memory::request_embedding,
+    memory_gate::{
+        MEMORY_GATE_TIMEOUT_SECS, MemoryGateDecision, MemoryGateReason, MemoryGateTurn,
+        evaluate_memory_gate, memory_gate_questions, memory_gate_state,
+    },
     prompts::{
         DIRECTOR_TRANSCRIPT_USER_HISTORY, JEV_CONVERSATION_COMPLETE_OPTION, JEV_END_OPTION,
         JEV_PROTAGONIST_OPTION, SUMMARY_RECENT_USER_TURNS_TO_KEEP, actor_id, assistant_schema,
@@ -205,10 +209,25 @@ pub async fn turn(
     State(state): State<AppState>,
     Json(payload): Json<Value>,
 ) -> AppResult<Json<Value>> {
-    match run_turn(state, payload).await {
-        Ok(result) => Ok(Json(result)),
-        Err(failure) => Err(failure.error),
+    let TurnOutput { mut result, memory } = run_turn(state.clone(), payload.clone())
+        .await
+        .map_err(|failure| failure.error)?;
+    let generated = result
+        .get("messages")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let extraction = match memory {
+        Some(follow_up) => extract_turn_memories(&state, &payload, follow_up, &generated)
+            .await
+            .unwrap_or_default(),
+        None => MemoryExtraction::default(),
+    };
+    if let Some(usages) = result.get_mut("usages").and_then(Value::as_array_mut) {
+        usages.extend(extraction.usages);
     }
+    result["memoryCandidates"] = Value::Array(extraction.candidates);
+    Ok(Json(result))
 }
 
 pub(crate) struct ConversationTurnFailure {
@@ -216,10 +235,15 @@ pub(crate) struct ConversationTurnFailure {
     pub(crate) full_json_logs: Vec<Value>,
 }
 
+pub(crate) struct TurnOutput {
+    pub(crate) result: Value,
+    pub(crate) memory: Option<MemoryFollowUp>,
+}
+
 pub(crate) async fn run_turn(
     state: AppState,
     payload: Value,
-) -> Result<Value, ConversationTurnFailure> {
+) -> Result<TurnOutput, ConversationTurnFailure> {
     let secret_mode = payload
         .get("secretMode")
         .and_then(Value::as_bool)
@@ -240,12 +264,20 @@ pub(crate) async fn run_turn(
     }
 }
 
+fn request_api_config(payload: &Value) -> AppResult<Option<AiApiConfig>> {
+    ai_api_config_value(payload)
+        .cloned()
+        .map(serde_json::from_value::<AiApiConfig>)
+        .transpose()
+        .map_err(|error| AppError::BadRequest(format!("aiApiConfig が不正です: {error}")))
+}
+
 async fn run_turn_inner(
     state: AppState,
     payload: Value,
     secret_mode: bool,
     full_json_logs: &mut Vec<Value>,
-) -> AppResult<Value> {
+) -> AppResult<TurnOutput> {
     let room = object_field(&payload, "room")?.clone();
     let generation_mode = GenerationMode::from_payload(&payload)?;
     let situation = payload.get("situation").filter(|value| value.is_object());
@@ -290,12 +322,7 @@ async fn run_turn_inner(
         ));
     }
 
-    let api_config = ai_api_config_value(&payload)
-        .cloned()
-        .map(serde_json::from_value::<AiApiConfig>)
-        .transpose()
-        .map_err(|error| AppError::BadRequest(format!("aiApiConfig が不正です: {error}")))?;
-    let mut clients = RequestClients::new(&state, api_config);
+    let mut clients = RequestClients::new(&state, request_api_config(&payload)?);
 
     let summary_character = if situation.is_some() {
         participants.first()
@@ -569,25 +596,26 @@ async fn run_turn_inner(
         }
     }
 
-    let memory_candidates = if !secret_mode {
-        if let Some(context) = extraction_context {
-            let extraction_selection =
-                resolve_role_selection(&payload, "memoryExtractionModel", "memoryExtractionModel")?;
-            extract_memory_candidates(
+    let memory = match extraction_context.filter(|_| !secret_mode) {
+        Some(context) => {
+            let gate = request_memory_gate(
                 &mut clients,
-                &extraction_selection,
-                context,
+                &payload,
+                &context,
                 &generated,
-                &room_id,
+                generation_mode.is_continue(),
+                &room,
                 &mut usages,
+                full_json_logs,
             )
-            .await
-            .unwrap_or_default()
-        } else {
-            Vec::new()
+            .await;
+            if let Some(decision) = &gate {
+                apply_used_memory_ids(&mut generated, &decision.used_memory_ids);
+                used_memory_ids.clone_from(&decision.used_memory_ids);
+            }
+            plan_memory_follow_up(context, gate, boolean(&payload, "memoryGateShadowMode"))
         }
-    } else {
-        Vec::new()
+        None => None,
     };
 
     if secret_mode {
@@ -596,14 +624,16 @@ async fn run_turn_inner(
         used_memory_ids.clear();
     }
     let full_json_logs = std::mem::take(full_json_logs);
-    Ok(json!({
-        "messages": generated,
-        "usages": usages,
-        "fullJsonLogs": full_json_logs,
-        "summary": summary_result,
-        "memoryCandidates": memory_candidates,
-        "usedMemoryIds": used_memory_ids,
-    }))
+    Ok(TurnOutput {
+        result: json!({
+            "messages": generated,
+            "usages": usages,
+            "fullJsonLogs": full_json_logs,
+            "summary": summary_result,
+            "usedMemoryIds": used_memory_ids,
+        }),
+        memory,
+    })
 }
 
 struct GenerationDebugContext<'a> {
@@ -1272,9 +1302,15 @@ async fn request_director_typesafe(
 
     if !secret_mode {
         let situation_id = format!("{}:director", string(situation, "id"));
-        push_jev_usage(usages, &response, &situation_id, &selection.model);
+        push_jev_usage(
+            usages,
+            &response,
+            &situation_id,
+            &selection.model,
+            "director",
+        );
         if let Some(second) = &second_response {
-            push_jev_usage(usages, second, &situation_id, &selection.model);
+            push_jev_usage(usages, second, &situation_id, &selection.model, "director");
         }
         let mut log = json!({
             "roomId": string(room, "id"),
@@ -1348,6 +1384,7 @@ fn push_jev_usage(
     response: &SystemOneResponse,
     character_id: &str,
     model: &str,
+    source: &str,
 ) {
     let Some(usage) = &response.usage else {
         return;
@@ -1356,7 +1393,7 @@ fn push_jev_usage(
         "id": format!("usage-{}", now_ms()),
         "characterId": character_id,
         "model": model,
-        "source": "director",
+        "source": source,
         "promptTokens": usage.input_tokens,
         "completionTokens": usage.output_tokens,
         "totalTokens": usage.input_tokens + usage.output_tokens,
@@ -1583,14 +1620,255 @@ struct ExtractionContext {
     existing_memories: Vec<ScoredMemory>,
 }
 
-async fn extract_memory_candidates(
+struct ExtractionGuidance {
+    reasons: Vec<MemoryGateReason>,
+    used_memory_ids: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ShadowGate {
+    Extract,
+    Skip,
+    Failed,
+}
+
+impl ShadowGate {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Extract => "extract",
+            Self::Skip => "skip",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+pub(crate) struct MemoryFollowUp {
+    context: ExtractionContext,
+    guidance: Option<ExtractionGuidance>,
+    shadow: Option<ShadowGate>,
+}
+
+#[derive(Default)]
+pub(crate) struct MemoryExtraction {
+    pub(crate) candidates: Vec<Value>,
+    pub(crate) usages: Vec<Value>,
+    pub(crate) shadow: Option<ShadowGate>,
+}
+
+fn plan_memory_follow_up(
+    context: ExtractionContext,
+    gate: Option<MemoryGateDecision>,
+    shadow_mode: bool,
+) -> Option<MemoryFollowUp> {
+    if shadow_mode {
+        let shadow = match &gate {
+            Some(decision) if decision.should_extract() => ShadowGate::Extract,
+            Some(_) => ShadowGate::Skip,
+            None => ShadowGate::Failed,
+        };
+        return Some(MemoryFollowUp {
+            context,
+            guidance: None,
+            shadow: Some(shadow),
+        });
+    }
+    let decision = gate.filter(MemoryGateDecision::should_extract)?;
+    Some(MemoryFollowUp {
+        context,
+        guidance: Some(ExtractionGuidance {
+            reasons: decision.reasons,
+            used_memory_ids: decision.used_memory_ids,
+        }),
+        shadow: None,
+    })
+}
+
+fn apply_used_memory_ids(messages: &mut [Value], used_memory_ids: &[String]) {
+    for message in messages {
+        let Some(object) = message.as_object_mut() else {
+            continue;
+        };
+        if used_memory_ids.is_empty() {
+            object.remove("usedMemoryIds");
+        } else {
+            object.insert("usedMemoryIds".into(), json!(used_memory_ids));
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn request_memory_gate(
+    clients: &mut RequestClients<'_>,
+    payload: &Value,
+    context: &ExtractionContext,
+    generated: &[Value],
+    continuation: bool,
+    room: &Value,
+    usages: &mut Vec<Value>,
+    full_json_logs: &mut Vec<Value>,
+) -> Option<MemoryGateDecision> {
+    let selection = optional_role_selection(payload, "memoryGateModel", "memoryGateModel");
+    let memory_ids = context
+        .existing_memories
+        .iter()
+        .map(|memory| memory.id.clone())
+        .collect::<Vec<_>>();
+    let memories = context
+        .existing_memories
+        .iter()
+        .map(|memory| memory.content.clone())
+        .collect::<Vec<_>>();
+    let state = memory_gate_state(&MemoryGateTurn {
+        character: &context.character,
+        history: &context.recent_history,
+        reply: generated,
+        memories: &memories,
+        continuation,
+    });
+    let questions = memory_gate_questions(&string(&context.character, "name"), &memories);
+    let prompt = serde_json::to_string_pretty(&json!({
+        "state": state,
+        "questions": questions,
+    }))
+    .expect("memory gate request must be serializable");
+    let started = now_ms();
+    let debug_context = GenerationDebugContext {
+        room,
+        character_id: actor_id(&context.character),
+        character_name: string(&context.character, "name"),
+        model: selection
+            .as_ref()
+            .map(|selection| selection.model.clone())
+            .unwrap_or_default(),
+        prompt: &prompt,
+    };
+    let outcome = match &selection {
+        Some(selection) => {
+            run_memory_gate(clients, selection, &state, &questions, &memory_ids).await
+        }
+        None => Err(AppError::BadRequest(
+            "memoryGateModel が設定されていません。".into(),
+        )),
+    };
+    match outcome {
+        Ok((response, decision)) => {
+            push_jev_usage(
+                usages,
+                &response,
+                &usage_character_id(&context.character),
+                &debug_context.model,
+                "memory-gate",
+            );
+            full_json_logs.push(json!({
+                "roomId": string(room, "id"),
+                "roomName": string(room, "name"),
+                "characterId": debug_context.character_id,
+                "characterName": debug_context.character_name,
+                "model": debug_context.model,
+                "status": "success",
+                "source": "memory-gate-jev",
+                "prompt": prompt,
+                "json": serde_json::to_string_pretty(&json!({
+                    "decision": decision.summary(),
+                    "response": response,
+                }))
+                .expect("Jev response must be serializable"),
+                "elapsedMs": now_ms().saturating_sub(started),
+            }));
+            Some(decision)
+        }
+        Err(error) => {
+            tracing::warn!(
+                classification = error.diagnostic_class(),
+                "Memory gate failed; this turn is not sent to memory extraction"
+            );
+            push_error_debug_log(
+                full_json_logs,
+                &debug_context,
+                "memory-gate-error",
+                None,
+                &error,
+                now_ms().saturating_sub(started),
+            );
+            None
+        }
+    }
+}
+
+async fn run_memory_gate(
     clients: &mut RequestClients<'_>,
     selection: &RoleSelection,
-    context: ExtractionContext,
+    state: &Value,
+    questions: &Value,
+    memory_ids: &[String],
+) -> AppResult<(SystemOneResponse, MemoryGateDecision)> {
+    let api_client = clients.for_selection(selection)?;
+    if !api_client.is_typesafe() && !api_client.is_openrouter() {
+        return Err(AppError::BadRequest(
+            "メモリ保存の判定にはTypeSafe AIまたはOpenRouter接続が必要です。".into(),
+        ));
+    }
+    let response = system_one(
+        &api_client,
+        &selection.model,
+        state,
+        questions,
+        MEMORY_GATE_TIMEOUT_SECS,
+    )
+    .await?;
+    let decision = evaluate_memory_gate(&response, memory_ids)?;
+    Ok((response, decision))
+}
+
+pub(crate) async fn extract_turn_memories(
+    state: &AppState,
+    payload: &Value,
+    follow_up: MemoryFollowUp,
     generated: &[Value],
-    room_id: &str,
-    usages: &mut Vec<Value>,
-) -> AppResult<Vec<Value>> {
+) -> AppResult<MemoryExtraction> {
+    let mut clients = RequestClients::new(state, request_api_config(payload)?);
+    let selection =
+        resolve_role_selection(payload, "memoryExtractionModel", "memoryExtractionModel")?;
+    let room_id = payload
+        .pointer("/room/id")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let mut usages = Vec::new();
+    let candidates = extract_memory_candidates(
+        &mut clients,
+        &selection,
+        follow_up.context,
+        follow_up.guidance.as_ref(),
+        generated,
+        room_id,
+        &mut usages,
+    )
+    .await?;
+    Ok(MemoryExtraction {
+        candidates,
+        usages,
+        shadow: follow_up.shadow,
+    })
+}
+
+fn memory_prompt_entries<'a>(memories: impl IntoIterator<Item = &'a ScoredMemory>) -> Value {
+    memories
+        .into_iter()
+        .map(|memory| {
+            json!({
+                "content": memory.content,
+                "kind": string(&memory.data, "kind"),
+                "scope": string(&memory.data, "scope"),
+            })
+        })
+        .collect()
+}
+
+fn memory_extraction_request(
+    context: &ExtractionContext,
+    guidance: Option<&ExtractionGuidance>,
+    generated: &[Value],
+) -> (String, Value) {
     let mut recent = context
         .recent_history
         .iter()
@@ -1600,21 +1878,50 @@ async fn extract_memory_candidates(
         .collect::<Vec<_>>();
     recent.reverse();
     recent.extend(generated.iter().cloned());
+    let mut input = json!({
+        "targetCharacter": string(&context.character, "name"),
+        "characterSystemPrompt": character_setting(&context.character),
+        "recentMessages": recent,
+    });
+    let Some(guidance) = guidance else {
+        input["existingMemories"] = memory_prompt_entries(&context.existing_memories);
+        return (memory_extraction_prompt().to_owned(), input);
+    };
+    let (used, existing): (Vec<_>, Vec<_>) = context
+        .existing_memories
+        .iter()
+        .partition(|memory| guidance.used_memory_ids.contains(&memory.id));
+    input["saveReasons"] = guidance
+        .reasons
+        .iter()
+        .map(|reason| Value::String(reason.save_reason().to_owned()))
+        .collect();
+    input["usedMemories"] = memory_prompt_entries(used);
+    input["existingMemories"] = memory_prompt_entries(existing);
+    (memory_extraction_guided_prompt(), input)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn extract_memory_candidates(
+    clients: &mut RequestClients<'_>,
+    selection: &RoleSelection,
+    context: ExtractionContext,
+    guidance: Option<&ExtractionGuidance>,
+    generated: &[Value],
+    room_id: &str,
+    usages: &mut Vec<Value>,
+) -> AppResult<Vec<Value>> {
+    let (system_prompt, input) = memory_extraction_request(&context, guidance, generated);
     let body = json!({
         "model": selection.model,
         "messages": [
             {
                 "role": "system",
-                "content": memory_extraction_prompt(),
+                "content": system_prompt,
             },
             {
                 "role": "user",
-                "content": serde_json::to_string(&json!({
-                    "targetCharacter": string(&context.character, "name"),
-                    "characterSystemPrompt": character_setting(&context.character),
-                    "recentMessages": recent,
-                    "existingMemories": context.existing_memories.iter().map(|memory| &memory.data).collect::<Vec<_>>(),
-                }))?,
+                "content": serde_json::to_string(&input)?,
             },
         ],
         "temperature": 0.1,
@@ -1800,16 +2107,23 @@ fn names_from_expressions(value: Option<&Value>) -> Vec<String> {
         .collect()
 }
 
+fn usage_character_id(character: &Value) -> String {
+    let source_id = string(character, "sourceCharacterId");
+    if source_id.is_empty() {
+        string(character, "id")
+    } else {
+        source_id
+    }
+}
+
 fn push_usage(usages: &mut Vec<Value>, raw: &Value, character: &Value, source: &str) {
-    let id = {
-        let source_id = string(character, "sourceCharacterId");
-        if source_id.is_empty() {
-            string(character, "id")
-        } else {
-            source_id
-        }
-    };
-    push_usage_with_id(usages, raw, &id, &model_string(character, "model"), source);
+    push_usage_with_id(
+        usages,
+        raw,
+        &usage_character_id(character),
+        &model_string(character, "model"),
+        source,
+    );
 }
 
 fn push_usage_with_id(
@@ -2264,6 +2578,150 @@ mod tests {
             messages[0]["usedMemoryIds"],
             json!(["memory-1", "memory-2"])
         );
+    }
+
+    fn scored_memory(id: &str, content: &str) -> ScoredMemory {
+        ScoredMemory {
+            id: id.to_owned(),
+            content: content.to_owned(),
+            data: json!({
+                "id": id,
+                "content": content,
+                "kind": "fact",
+                "scope": "character",
+                "embedding": [0.1, 0.2, 0.3],
+            }),
+            score: 1.0,
+        }
+    }
+
+    fn extraction_context() -> ExtractionContext {
+        ExtractionContext {
+            character: json!({"id": "character-1", "name": "葵", "systemPrompt": "高校生"}),
+            recent_history: vec![json!({"role": "user", "content": "猫が苦手なんだ"})],
+            existing_memories: vec![
+                scored_memory("memory-used", "主人公は紅茶が好き"),
+                scored_memory("memory-other", "葵は弓道部"),
+            ],
+        }
+    }
+
+    fn gate_decision(new_reasons: &[&str], used: &[&str]) -> MemoryGateDecision {
+        let mut answers = serde_json::Map::new();
+        for reason in [
+            "world",
+            "character",
+            "relationship",
+            "protagonist",
+            "instruction",
+        ] {
+            let probability = if new_reasons.contains(&reason) {
+                0.8
+            } else {
+                0.1
+            };
+            answers.insert(
+                format!("reason_{reason}"),
+                json!({
+                    "type": "choice",
+                    "choice": if probability > 0.5 { "new" } else { "none" },
+                    "probabilities": {"none": 1.0 - probability, "known": 0.0, "new": probability},
+                }),
+            );
+        }
+        let memory_ids = ["memory-used", "memory-other"];
+        for (index, id) in memory_ids.iter().enumerate() {
+            answers.insert(
+                format!("used_{index}"),
+                json!({"type": "noul", "noul": if used.contains(id) { 0.9 } else { 0.1 }}),
+            );
+        }
+        let response: SystemOneResponse = serde_json::from_value(json!({
+            "model": "jev-latest",
+            "answers": answers,
+        }))
+        .expect("gate response");
+        evaluate_memory_gate(&response, &memory_ids.map(str::to_owned)).expect("gate decision")
+    }
+
+    #[test]
+    fn memory_gate_skips_extraction_without_new_information() {
+        let follow_up =
+            plan_memory_follow_up(extraction_context(), Some(gate_decision(&[], &[])), false);
+        assert!(follow_up.is_none());
+    }
+
+    #[test]
+    fn failed_memory_gate_does_not_request_extraction() {
+        assert!(plan_memory_follow_up(extraction_context(), None, false).is_none());
+    }
+
+    #[test]
+    fn memory_gate_passes_reasons_and_used_memories_to_extraction() {
+        let follow_up = plan_memory_follow_up(
+            extraction_context(),
+            Some(gate_decision(&["protagonist"], &["memory-used"])),
+            false,
+        )
+        .expect("follow-up");
+        assert!(follow_up.shadow.is_none());
+
+        let (system_prompt, input) = memory_extraction_request(
+            &follow_up.context,
+            follow_up.guidance.as_ref(),
+            &[json!({"role": "assistant", "content": "覚えておくね"})],
+        );
+
+        assert!(system_prompt.contains("saveReasons"));
+        assert_eq!(
+            input["saveReasons"],
+            json!([MemoryGateReason::Protagonist.save_reason()])
+        );
+        assert_eq!(
+            input["usedMemories"],
+            json!([{"content": "主人公は紅茶が好き", "kind": "fact", "scope": "character"}])
+        );
+        assert_eq!(
+            input["existingMemories"],
+            json!([{"content": "葵は弓道部", "kind": "fact", "scope": "character"}])
+        );
+        assert_eq!(input["recentMessages"].as_array().map(Vec::len), Some(2));
+    }
+
+    #[test]
+    fn shadow_mode_always_extracts_with_the_unguided_prompt() {
+        for (gate, expected) in [
+            (Some(gate_decision(&[], &[])), ShadowGate::Skip),
+            (Some(gate_decision(&["world"], &[])), ShadowGate::Extract),
+            (None, ShadowGate::Failed),
+        ] {
+            let follow_up =
+                plan_memory_follow_up(extraction_context(), gate, true).expect("follow-up");
+            assert_eq!(follow_up.shadow, Some(expected));
+            assert!(follow_up.guidance.is_none());
+
+            let (system_prompt, input) = memory_extraction_request(&follow_up.context, None, &[]);
+            assert_eq!(system_prompt, memory_extraction_prompt());
+            assert!(input.get("saveReasons").is_none());
+            assert!(input.get("usedMemories").is_none());
+            assert_eq!(input["existingMemories"].as_array().map(Vec::len), Some(2));
+            assert!(input["existingMemories"][0].get("embedding").is_none());
+        }
+    }
+
+    #[test]
+    fn gate_used_memories_replace_the_prompt_memories_on_messages() {
+        let mut messages = vec![
+            json!({"id": "message-1", "usedMemoryIds": ["memory-used", "memory-other"]}),
+            json!({"id": "message-2", "usedMemoryIds": ["memory-used", "memory-other"]}),
+        ];
+
+        apply_used_memory_ids(&mut messages, &["memory-used".to_owned()]);
+        assert_eq!(messages[0]["usedMemoryIds"], json!(["memory-used"]));
+        assert_eq!(messages[1]["usedMemoryIds"], json!(["memory-used"]));
+
+        apply_used_memory_ids(&mut messages, &[]);
+        assert!(messages[0].get("usedMemoryIds").is_none());
     }
 
     #[test]

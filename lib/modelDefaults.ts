@@ -17,6 +17,7 @@ export const DEFAULT_TITLE_GENERATION_MODEL = 'google/gemma-4-31b-it';
 export const DEFAULT_REPLY_SUGGESTION_MODEL = 'deepseek/deepseek-v4-flash-0731';
 export const DEFAULT_IMAGE_MODEL = 'x-ai/grok-imagine-image-2.0';
 export const DEFAULT_EXPRESSION_DETECTION_MODEL = 'google/gemma-4-31b-it';
+export const DEFAULT_MEMORY_GATE_MODEL = '~typesafe/jev-latest';
 export const DEFAULT_MEMORY_EXTRACTION_MODEL = 'deepseek/deepseek-v4-flash-0731';
 export const DEFAULT_MEMORY_EMBEDDING_MODEL = 'qwen/qwen3-embedding-8b';
 export const DEFAULT_ANTHROPIC_TEXT_MODEL = 'claude-sonnet-4-6';
@@ -30,6 +31,7 @@ export interface ModelDefaults {
     replySuggestionModel: ModelRef;
     defaultImageModel: ModelRef;
     expressionDetectionModel: ModelRef;
+    memoryGateModel: ModelRef;
     memoryExtractionModel: ModelRef;
     memoryEmbeddingModel: ModelRef;
 }
@@ -45,6 +47,7 @@ export const MODEL_DEFAULT_FIELDS: readonly ModelRoleKey[] = [
     'replySuggestionModel',
     'defaultImageModel',
     'expressionDetectionModel',
+    'memoryGateModel',
     'memoryExtractionModel',
     'memoryEmbeddingModel',
 ];
@@ -62,6 +65,7 @@ export const DEFAULT_MODEL_DEFAULTS: ModelDefaults = {
     replySuggestionModel: defaultModelRef(DEFAULT_REPLY_SUGGESTION_MODEL),
     defaultImageModel: defaultModelRef(DEFAULT_IMAGE_MODEL),
     expressionDetectionModel: defaultModelRef(DEFAULT_EXPRESSION_DETECTION_MODEL),
+    memoryGateModel: defaultModelRef(DEFAULT_MEMORY_GATE_MODEL),
     memoryExtractionModel: defaultModelRef(DEFAULT_MEMORY_EXTRACTION_MODEL),
     memoryEmbeddingModel: defaultModelRef(DEFAULT_MEMORY_EMBEDDING_MODEL),
 };
@@ -149,6 +153,7 @@ export function normalizeModelDefaults(
         replySuggestionModel: normalizeModelRef(record.replySuggestionModel, fallback.replySuggestionModel),
         defaultImageModel: normalizeModelRef(record.defaultImageModel, fallback.defaultImageModel),
         expressionDetectionModel: normalizeModelRef(record.expressionDetectionModel, fallback.expressionDetectionModel),
+        memoryGateModel: normalizeModelRef(record.memoryGateModel, fallback.memoryGateModel),
         memoryExtractionModel: normalizeModelRef(record.memoryExtractionModel, fallback.memoryExtractionModel),
         memoryEmbeddingModel: normalizeModelRef(record.memoryEmbeddingModel, fallback.memoryEmbeddingModel),
     };

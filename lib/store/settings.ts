@@ -170,6 +170,7 @@ export function modelDefaultsFromState(state: ModelDefaults): ModelDefaults {
         replySuggestionModel: state.replySuggestionModel,
         defaultImageModel: state.defaultImageModel,
         expressionDetectionModel: state.expressionDetectionModel,
+        memoryGateModel: state.memoryGateModel,
         memoryExtractionModel: state.memoryExtractionModel,
         memoryEmbeddingModel: state.memoryEmbeddingModel,
     });
@@ -223,8 +224,10 @@ type SettingsSlice = Pick<
     | 'replySuggestionModel'
     | 'defaultImageModel'
     | 'expressionDetectionModel'
+    | 'memoryGateModel'
     | 'memoryExtractionModel'
     | 'memoryEmbeddingModel'
+    | 'memoryGateShadowMode'
     | 'conversationCompressionEnabled'
     | 'generateTitleOnFirstReply'
     | 'replySuggestionsEnabled'
@@ -265,8 +268,10 @@ type SettingsSlice = Pick<
     | 'setReplySuggestionModel'
     | 'setDefaultImageModel'
     | 'setExpressionDetectionModel'
+    | 'setMemoryGateModel'
     | 'setMemoryExtractionModel'
     | 'setMemoryEmbeddingModel'
+    | 'setMemoryGateShadowMode'
     | 'setConversationCompressionEnabled'
     | 'setGenerateTitleOnFirstReply'
     | 'setReplySuggestionsEnabled'
@@ -301,6 +306,7 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         vnTypingSpeed: DEFAULT_VN_TYPING_SPEED,
         keyboardShortcuts: createDefaultKeyboardShortcuts(),
         ...getDefaultModelDefaults(),
+        memoryGateShadowMode: false,
         conversationCompressionEnabled: DEFAULT_CONVERSATION_COMPRESSION_ENABLED,
         generateTitleOnFirstReply: false,
         replySuggestionsEnabled: false,
@@ -404,11 +410,18 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         setExpressionDetectionModel: (expressionDetectionModel) => {
             updateModelDefault(set, get, 'expressionDetectionModel', expressionDetectionModel);
         },
+        setMemoryGateModel: (memoryGateModel) => {
+            updateModelDefault(set, get, 'memoryGateModel', memoryGateModel);
+        },
         setMemoryExtractionModel: (memoryExtractionModel) => {
             updateModelDefault(set, get, 'memoryExtractionModel', memoryExtractionModel);
         },
         setMemoryEmbeddingModel: (memoryEmbeddingModel) => {
             updateModelDefault(set, get, 'memoryEmbeddingModel', memoryEmbeddingModel);
+        },
+        setMemoryGateShadowMode: (memoryGateShadowMode) => {
+            set({ memoryGateShadowMode });
+            fire(db.setMeta('memoryGateShadowMode', memoryGateShadowMode));
         },
         setConversationCompressionEnabled: (conversationCompressionEnabled) => {
             set({ conversationCompressionEnabled });

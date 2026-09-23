@@ -7,7 +7,9 @@ use super::{
     Database,
     json::{now_millis, optional_string, required_i64, required_string},
     memories::{get_by_character, touch_in_transaction, upsert as upsert_memory},
-    messages::{get_by_room, sanitize_assistant, upsert as upsert_message},
+    messages::{
+        all_exist as all_messages_exist, get_by_room, sanitize_assistant, upsert as upsert_message,
+    },
     rooms::upsert as upsert_room,
     usage::upsert as upsert_usage_record,
 };
@@ -64,11 +66,34 @@ pub async fn persist_conversation_submission(
         .await
 }
 
+pub async fn persist_conversation_memories(
+    database: &Database,
+    source_message_ids: Vec<String>,
+    memories: Vec<Value>,
+    usages: Vec<Value>,
+) -> AppResult<bool> {
+    database
+        .call(move |connection| {
+            let transaction = connection.transaction()?;
+            for usage in usages {
+                upsert_usage_record(&transaction, usage)?;
+            }
+            let sources_exist = all_messages_exist(&transaction, source_message_ids)?;
+            if sources_exist {
+                for memory in memories {
+                    upsert_memory(&transaction, memory)?;
+                }
+            }
+            transaction.commit()?;
+            Ok(sources_exist)
+        })
+        .await
+}
+
 pub async fn persist_conversation_result(
     database: &Database,
     room_id: &str,
     result: &Value,
-    prepared_memories: Vec<Value>,
     secret_mode: bool,
 ) -> AppResult<()> {
     if secret_mode {
@@ -167,9 +192,6 @@ pub async fn persist_conversation_result(
             for message in messages {
                 upsert_message(&transaction, &room_id, message)?;
             }
-            for memory in prepared_memories {
-                upsert_memory(&transaction, memory)?;
-            }
             touch_in_transaction(&transaction, &used_memory_ids, now)?;
             for usage in usages {
                 upsert_usage_record(&transaction, usage)?;
@@ -232,7 +254,9 @@ mod tests {
     use rusqlite::params;
     use serde_json::json;
 
-    use super::{persist_conversation_result, persist_conversation_submission};
+    use super::{
+        persist_conversation_memories, persist_conversation_result, persist_conversation_submission,
+    };
     use crate::db::storage::{memories, messages::get_by_room, test_support::test_room};
     use crate::db::{Database, storage::json::query_optional_json};
 
@@ -313,15 +337,18 @@ mod tests {
             "updatedAt": 20,
             "usageCount": 0
         })];
-        persist_conversation_result(
+        persist_conversation_result(&database, "room-background", &result, false)
+            .await
+            .expect("persist generated result");
+        let memories_saved = persist_conversation_memories(
             &database,
-            "room-background",
-            &result,
+            vec!["message-assistant".to_owned()],
             prepared_memories,
-            false,
+            Vec::new(),
         )
         .await
-        .expect("persist generated result");
+        .expect("persist extracted memories");
+        assert!(memories_saved);
 
         database
             .call(|connection| {
@@ -361,6 +388,57 @@ mod tests {
             })
             .await
             .expect("verify background result");
+    }
+
+    #[tokio::test]
+    async fn late_memories_are_dropped_when_their_source_messages_were_deleted() {
+        let database = Database::open(Path::new(":memory:")).expect("open late memory database");
+        let memory = json!({
+            "id": "memory-late",
+            "characterId": "character-1",
+            "sourceMessageIds": ["message-deleted"],
+            "scope": "character",
+            "kind": "fact",
+            "content": "late memory",
+            "importance": 0.8,
+            "confidence": 0.9,
+            "createdAt": 20,
+            "updatedAt": 20,
+            "usageCount": 0
+        });
+        let usage = json!({
+            "id": "usage-late",
+            "characterId": "character-1",
+            "timestamp": 20,
+            "promptTokens": 2,
+            "completionTokens": 3,
+            "totalTokens": 5,
+            "cost": 0.01
+        });
+
+        let memories_saved = persist_conversation_memories(
+            &database,
+            vec!["message-deleted".to_owned()],
+            vec![memory],
+            vec![usage],
+        )
+        .await
+        .expect("persist late memory follow-up");
+
+        assert!(!memories_saved);
+        database
+            .call(|connection| {
+                assert!(memories::get(connection, "memory-late")?.is_none());
+                let usage_count = connection.query_row(
+                    "SELECT COUNT(*) FROM usage_records WHERE id = 'usage-late'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                assert_eq!(usage_count, 1);
+                Ok(())
+            })
+            .await
+            .expect("verify late memory follow-up");
     }
 
     #[tokio::test]

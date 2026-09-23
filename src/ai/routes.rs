@@ -25,7 +25,9 @@ pub(crate) use common::{
     RoleSelection, entity_connection_id, model_string, optional_role_selection,
     resolve_role_selection, role_connection, role_default_selection, upstream_error,
 };
-pub(crate) use memory::{memory_extraction_prompt, memory_schema, parse_memory_updates};
+pub(crate) use memory::{
+    memory_extraction_guided_prompt, memory_extraction_prompt, memory_schema, parse_memory_updates,
+};
 pub(crate) use structured::{
     extract_message_text, structured_completion, structured_completion_streaming,
 };

@@ -22,10 +22,24 @@ export interface Costume {
     vrm?: VrmAvatar;
 }
 
+export interface VrmAnimation {
+    /** 表示名。会話のmotionトリガー名としても使う。 */
+    name: string;
+    /** 'asset:<id>' または data URL。 */
+    source: string;
+    /** trueなら停止までループ。false/未指定なら1回再生して待機に戻る。 */
+    loop?: boolean;
+    /** VRMA内の表情トラックを再生するか。未指定なら除去して既存の表情制御を優先する。 */
+    useExpressions?: boolean;
+}
+
 export interface VrmAvatar {
     source: string;
     framing: { scale: number; offsetY: number; rotation: number };
     expressionMap: Record<string, string>;
+    /** 手続き待機モーションの代わりに常時ループするanimations[].name。 */
+    idleAnimation?: string;
+    animations?: VrmAnimation[];
 }
 
 export interface Character {
@@ -68,6 +82,8 @@ export interface Message {
     characterId?: string;
     toCharacterIds?: string[];
     expression?: string;
+    /** VRMアバターのワンショットモーション名。表示時に1回だけ再生する。 */
+    motion?: string;
     memories?: string[];
     /** Long-term memory records that were inserted into this assistant response's prompt. */
     usedMemoryIds?: string[];
@@ -460,14 +476,14 @@ export interface AppState {
     setRoomReplySuggestions: (id: string, replySuggestions?: RoomReplySuggestions) => void;
     setRoomSecretMode: (id: string, enabled: boolean) => void;
 
-    addMessage: (roomId: string, role: 'user' | 'assistant', content: string, characterId?: string, meta?: Pick<Message, 'expression' | 'memories' | 'toCharacterIds'>) => string;
+    addMessage: (roomId: string, role: 'user' | 'assistant', content: string, characterId?: string, meta?: Pick<Message, 'expression' | 'motion' | 'memories' | 'toCharacterIds'>) => string;
     deleteLastMessage: (roomId: string) => void;
     deleteMessagesFrom: (roomId: string, fromIndex: number) => Promise<MemoryRecord[]>;
     restoreMessagesAt: (roomId: string, fromIndex: number, messages: Message[], memories?: MemoryRecord[]) => Promise<void>;
     rewindRoomCompression: (roomId: string) => Promise<RoomCompressionSnapshot | null>;
     restoreRoomCompression: (roomId: string, snapshot: RoomCompressionSnapshot) => Promise<void>;
     attachMemoriesToMessage: (roomId: string, messageId: string, memories: string[]) => void;
-    updateLastAssistantMessage: (roomId: string, content: string, meta?: Pick<Message, 'expression' | 'memories' | 'toCharacterIds'>) => void;
+    updateLastAssistantMessage: (roomId: string, content: string, meta?: Pick<Message, 'expression' | 'motion' | 'memories' | 'toCharacterIds'>) => void;
     flushLastAssistantMessage: (roomId: string) => void;
     refreshConversationRoom: (roomId: string) => Promise<void>;
     clearRoomMessages: (roomId: string) => void;

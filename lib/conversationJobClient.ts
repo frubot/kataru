@@ -8,6 +8,7 @@ export type ConversationJobPreviewTurn = {
     characterName?: string;
     formattedMessages?: string[];
     expression?: string;
+    motion?: string;
     complete: boolean;
 };
 
@@ -24,6 +25,7 @@ export type ConversationJobStatus<TResult> = {
         characterName?: string;
         formattedMessages?: string[];
         expression?: string;
+        motion?: string;
         turns?: ConversationJobPreviewTurn[];
     };
 };

@@ -13,6 +13,8 @@ pub struct AssistantEnvelope {
     pub to: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expression: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub motion: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -25,6 +27,7 @@ pub struct DirectorDecision {
 pub fn parse_assistant_response(
     content: &str,
     expression_names: &[String],
+    motion_names: &[String],
     message_mode: bool,
 ) -> AppResult<AssistantEnvelope> {
     let parsed = parse_json_from_text(content);
@@ -89,11 +92,30 @@ pub fn parse_assistant_response(
             })
             .or_else(|| expression_names.first().cloned())
     };
+    let requested_motion = record
+        .and_then(|value| get(value, &["motion"]))
+        .and_then(Value::as_str)
+        .map(str::trim);
+    // Motions are one-shot fire events: only a fully registered name produces a
+    // value. Missing, unknown, and explicit "none" all stay None (no fallback).
+    let motion = if motion_names.is_empty() {
+        None
+    } else {
+        requested_motion
+            .filter(|requested| !requested.eq_ignore_ascii_case("none"))
+            .and_then(|requested| {
+                motion_names
+                    .iter()
+                    .find(|name| name.eq_ignore_ascii_case(requested))
+                    .cloned()
+            })
+    };
     Ok(AssistantEnvelope {
         message: messages.join("\n\n"),
         messages,
         to,
         expression,
+        motion,
     })
 }
 
@@ -210,6 +232,25 @@ pub(crate) fn assistant_expression_preview(
     expression_names
         .iter()
         .find(|name| name.eq_ignore_ascii_case(expression.trim()))
+        .cloned()
+}
+
+/// Only publish a fully received, registered motion; "none" and unknown names stay None.
+pub(crate) fn assistant_motion_preview(
+    content: &str,
+    motion_names: &[String],
+) -> Option<String> {
+    let cursor = json_property_value_start(content, &["motion"])?;
+    if content.as_bytes().get(cursor) != Some(&b'"') {
+        return None;
+    }
+    let (motion, _, complete) = json_string_at(content, cursor);
+    if !complete {
+        return None;
+    }
+    motion_names
+        .iter()
+        .find(|name| name.eq_ignore_ascii_case(motion.trim()))
         .cloned()
 }
 
@@ -733,6 +774,7 @@ mod tests {
         let response = parse_assistant_response(
             "```json\n{\"response\":{\"messages\":[\"a\",\"b\"],\"emotion\":\"happy\"}}\n```",
             &["neutral".into(), "happy".into()],
+            &[],
             true,
         )
         .unwrap();
@@ -743,7 +785,8 @@ mod tests {
     #[test]
     fn finds_json_after_short_explanation() {
         let response =
-            parse_assistant_response("Here: {\"message\":\"hello\"} done", &[], false).unwrap();
+            parse_assistant_response("Here: {\"message\":\"hello\"} done", &[], &[], false)
+                .unwrap();
         assert_eq!(response.message, "hello");
     }
 
@@ -752,6 +795,7 @@ mod tests {
         let response = parse_assistant_response(
             r#"{"message":"  hello  ","expression":" HAPPY ","to":[" Bob ","Bob",42,""],}"#,
             &["neutral".into(), "Happy".into()],
+            &[],
             false,
         )
         .unwrap();
@@ -766,6 +810,7 @@ mod tests {
         let response = parse_assistant_response(
             r#"{"message":"literal ,} and ,] plus \"quoted\" and \\path",}"#,
             &[],
+            &[],
             false,
         )
         .unwrap();
@@ -779,13 +824,14 @@ mod tests {
     #[test]
     fn selects_message_or_messages_for_response_mode() {
         let both = r#"{"message":"single","messages":["first","second"]}"#;
-        let single = parse_assistant_response(both, &[], false).unwrap();
+        let single = parse_assistant_response(both, &[], &[], false).unwrap();
         assert_eq!(single.messages, ["single"]);
 
-        let multiple = parse_assistant_response(both, &[], true).unwrap();
+        let multiple = parse_assistant_response(both, &[], &[], true).unwrap();
         assert_eq!(multiple.messages, ["first", "second"]);
 
-        let fallback = parse_assistant_response(r#"{"message":"fallback"}"#, &[], true).unwrap();
+        let fallback =
+            parse_assistant_response(r#"{"message":"fallback"}"#, &[], &[], true).unwrap();
         assert_eq!(fallback.messages, ["fallback"]);
     }
 
@@ -794,6 +840,7 @@ mod tests {
         let with_neutral = parse_assistant_response(
             r#"{"message":"hello","expression":"unknown"}"#,
             &["neutral".into(), "happy".into()],
+            &[],
             false,
         )
         .unwrap();
@@ -802,6 +849,7 @@ mod tests {
         let without_neutral = parse_assistant_response(
             r#"{"message":"hello","expression":"unknown"}"#,
             &["happy".into(), "sad".into()],
+            &[],
             false,
         )
         .unwrap();
@@ -809,8 +857,37 @@ mod tests {
     }
 
     #[test]
+    fn normalizes_only_registered_motions_and_never_falls_back() {
+        let names = vec!["wave".into(), "jump".into()];
+
+        let registered = parse_assistant_response(
+            r#"{"message":"hello","motion":" WAVE "}"#,
+            &[],
+            &names,
+            false,
+        )
+        .unwrap();
+        assert_eq!(registered.motion.as_deref(), Some("wave"));
+
+        for (label, json) in [
+            ("none", r#"{"message":"hello","motion":"none"}"#),
+            ("none uppercased", r#"{"message":"hello","motion":"NONE"}"#),
+            ("unknown", r#"{"message":"hello","motion":"spin"}"#),
+            ("missing", r#"{"message":"hello"}"#),
+        ] {
+            let response = parse_assistant_response(json, &[], &names, false).unwrap();
+            assert_eq!(response.motion, None, "{label} must not fire a motion");
+        }
+
+        let without_names =
+            parse_assistant_response(r#"{"message":"hello","motion":"wave"}"#, &[], &[], false)
+                .unwrap();
+        assert_eq!(without_names.motion, None);
+    }
+
+    #[test]
     fn treats_an_object_without_reply_fields_as_structured_with_ellipsis_fallback() {
-        let response = parse_assistant_response(r#"{"unexpected":true}"#, &[], false).unwrap();
+        let response = parse_assistant_response(r#"{"unexpected":true}"#, &[], &[], false).unwrap();
 
         assert_eq!(response.messages, ["..."]);
         assert_eq!(response.message, "...");
@@ -833,6 +910,27 @@ mod tests {
         assert_eq!(
             assistant_expression_preview(r#"{"expression":"neutral""#, &names),
             Some("neutral".into())
+        );
+    }
+
+    #[test]
+    fn previews_only_complete_registered_motions() {
+        let names = vec!["wave".into(), "jump".into()];
+        for partial in [
+            r#"{"thought":"hidden"#,
+            r#"{"motion":"wa"#,
+            r#"{"motion":"spin","message":"hi"#,
+            r#"{"motion":"none","message":"hi"#,
+        ] {
+            assert_eq!(assistant_motion_preview(partial, &names), None);
+        }
+        assert_eq!(
+            assistant_motion_preview(r#"{"motion":"WAVE","message":"hi"#, &names),
+            Some("wave".into())
+        );
+        assert_eq!(
+            assistant_motion_preview(r#"{"motion":"jump""#, &names),
+            Some("jump".into())
         );
     }
 
@@ -868,6 +966,7 @@ mod tests {
                 messages: vec!["あいう".into(), "えおか".into()],
                 to: vec!["character-2".into()],
                 expression: Some("happy".into()),
+                motion: Some("wave".into()),
             },
             5,
         );
@@ -876,6 +975,7 @@ mod tests {
         assert_eq!(response.message, "あいう\n\nえお");
         assert_eq!(response.to, ["character-2"]);
         assert_eq!(response.expression.as_deref(), Some("happy"));
+        assert_eq!(response.motion.as_deref(), Some("wave"));
     }
 
     #[test]
@@ -888,7 +988,7 @@ mod tests {
 
     #[test]
     fn rejects_unstructured_response() {
-        let result = parse_assistant_response("hello", &[], false);
+        let result = parse_assistant_response("hello", &[], &[], false);
         assert!(matches!(
             result,
             Err(AppError::Upstream(_, axum::http::StatusCode::BAD_GATEWAY))
@@ -898,7 +998,7 @@ mod tests {
     #[test]
     fn sanitizes_escaped_line_breaks_and_unclosed_markdown() {
         let response =
-            parse_assistant_response(r#"{"message":"hello\\\\nworld *unfinished"}"#, &[], false)
+            parse_assistant_response(r#"{"message":"hello\\\\nworld *unfinished"}"#, &[], &[], false)
                 .unwrap();
 
         assert_eq!(response.message, "helloworld unfinished");

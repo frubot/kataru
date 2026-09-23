@@ -1,5 +1,5 @@
 import type { Character, Costume, Room, VnTypingSpeed } from './store/types';
-import { getVrmExpressionNames } from './vrm';
+import { getVrmExpressionNames, getVrmMotionNames } from './vrm';
 
 export const DEFAULT_COSTUME_NAME = 'default';
 const NEUTRAL_EXPRESSION_NAME = 'neutral';
@@ -23,6 +23,7 @@ export type VisualNovelCostumeOption = {
 };
 
 type VisualNovelExpressionSource = Pick<Character, 'expressions' | 'costumes'>;
+type VisualNovelMotionSource = Pick<Character, 'costumes'>;
 
 export type VisualNovelBounceSnapshot = {
     contextKey: string | null;
@@ -136,6 +137,30 @@ export function getVisualNovelExpressionNames(
         : selectedCostume
             ? [NEUTRAL_EXPRESSION_NAME, ...(selectedCostume.expressions ?? []).map((expression) => expression.name)]
             : (character.expressions ?? []).map((expression) => expression.name);
+    const seen = new Set<string>();
+    return names
+        .map((name) => name.trim())
+        .filter((name) => {
+            const key = name.toLowerCase();
+            if (!name || seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+}
+
+export function getVisualNovelMotionNames(
+    character: VisualNovelMotionSource | null | undefined,
+    costumeName = DEFAULT_COSTUME_NAME,
+): string[] {
+    if (!character) return [];
+    const selectedCostume = costumeName !== DEFAULT_COSTUME_NAME
+        ? (character.costumes ?? []).find((costume) => costume.name === costumeName)
+        : null;
+    // One-shot motions only exist on VRM avatars; 2D costumes never expose names.
+    const activeCostume = selectedCostume ?? findDefaultCostume(character);
+    const names = activeCostume?.kind === 'vrm' && activeCostume.vrm
+        ? getVrmMotionNames(activeCostume.vrm)
+        : [];
     const seen = new Set<string>();
     return names
         .map((name) => name.trim())

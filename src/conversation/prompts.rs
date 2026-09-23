@@ -89,10 +89,12 @@ pub fn character_setting(character: &Value) -> String {
     sections.join("\n\n")
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn character_system_prompt(
     character: &Value,
     use_message_mode: bool,
     expression_names: &[String],
+    motion_names: &[String],
     summary: Option<&str>,
     relevant_memories: &[String],
     situation: Option<&Value>,
@@ -117,6 +119,13 @@ pub fn character_system_prompt(
         prompt.push_str(&format!(
             "\nJSONの expression には次から1つだけ選んでください: {}。強い感情がない場合は {default} を使用してください。",
             expression_names.join(", ")
+        ));
+    }
+
+    if !motion_names.is_empty() {
+        prompt.push_str(&format!(
+            "\nJSONの motion には体の動きを加えたい場合だけ次から1つ選んでください: {}。不要な場合は none を使用してください。",
+            motion_names.join(", ")
         ));
     }
 
@@ -166,6 +175,7 @@ pub fn character_system_prompt(
 
 pub fn assistant_schema(
     expression_names: &[String],
+    motion_names: &[String],
     use_message_mode: bool,
     include_thought: bool,
     max_characters: usize,
@@ -194,6 +204,20 @@ pub fn assistant_schema(
             }),
         );
         required.push("expression");
+    }
+    if !motion_names.is_empty() {
+        let mut motion_enum = Vec::with_capacity(motion_names.len() + 1);
+        motion_enum.push("none".to_owned());
+        motion_enum.extend(motion_names.iter().cloned());
+        properties.insert(
+            "motion".into(),
+            json!({
+                "type": "string",
+                "description": "あなたの体の動き(ワンショットモーション)",
+                "enum": motion_enum,
+            }),
+        );
+        required.push("motion");
     }
     if use_message_mode {
         properties.insert(
@@ -580,6 +604,7 @@ mod tests {
             &character,
             false,
             &[],
+            &[],
             None,
             &[],
             Some(&situation),
@@ -609,6 +634,7 @@ mod tests {
         let prompt = character_system_prompt(
             &character,
             false,
+            &[],
             &[],
             Some("これまでの要約"),
             &["重要なメモリ".into()],
@@ -661,6 +687,7 @@ mod tests {
             &character,
             false,
             &[],
+            &[],
             None,
             &[],
             Some(&situation),
@@ -682,6 +709,7 @@ mod tests {
         let prompt = character_system_prompt(
             &character,
             false,
+            &[],
             &[],
             None,
             &[],
@@ -706,6 +734,7 @@ mod tests {
             &json!({"name": "葵"}),
             false,
             &[],
+            &[],
             None,
             &[],
             Some(&json!({"situationPrompt": "放課後の教室"})),
@@ -717,7 +746,7 @@ mod tests {
 
     #[test]
     fn assistant_schema_puts_thought_first_when_enabled() {
-        let schema = assistant_schema(&["neutral".into()], false, true, 512);
+        let schema = assistant_schema(&["neutral".into()], &[], false, true, 512);
         let properties = schema["json_schema"]["schema"]["properties"]
             .as_object()
             .expect("schema properties");
@@ -743,7 +772,7 @@ mod tests {
 
     #[test]
     fn assistant_schema_omits_thought_when_disabled() {
-        let schema = assistant_schema(&[], true, false, 256);
+        let schema = assistant_schema(&[], &[], true, false, 256);
         let properties = schema["json_schema"]["schema"]["properties"]
             .as_object()
             .expect("schema properties");
@@ -757,6 +786,91 @@ mod tests {
             schema["json_schema"]["schema"]["properties"]["messages"]["items"]["maxLength"],
             256
         );
+    }
+
+    #[test]
+    fn assistant_schema_adds_motion_enum_with_none_option() {
+        let schema = assistant_schema(
+            &["neutral".into()],
+            &["wave".into(), "jump".into()],
+            false,
+            false,
+            512,
+        );
+        let properties = schema["json_schema"]["schema"]["properties"]
+            .as_object()
+            .expect("schema properties");
+
+        assert_eq!(
+            properties.keys().map(String::as_str).collect::<Vec<_>>(),
+            ["expression", "motion", "message"]
+        );
+        assert_eq!(
+            schema["json_schema"]["schema"]["required"],
+            json!(["expression", "motion", "message"])
+        );
+        assert_eq!(
+            schema["json_schema"]["schema"]["properties"]["motion"]["enum"],
+            json!(["none", "wave", "jump"])
+        );
+        assert_eq!(
+            schema["json_schema"]["schema"]["properties"]["motion"]["description"],
+            "あなたの体の動き(ワンショットモーション)"
+        );
+    }
+
+    #[test]
+    fn assistant_schema_omits_motion_when_no_motions_registered() {
+        let schema = assistant_schema(&["neutral".into()], &[], false, false, 512);
+        let properties = schema["json_schema"]["schema"]["properties"]
+            .as_object()
+            .expect("schema properties");
+
+        assert!(!properties.contains_key("motion"));
+        assert_eq!(
+            schema["json_schema"]["schema"]["required"],
+            json!(["expression", "message"])
+        );
+    }
+
+    #[test]
+    fn character_prompt_lists_motions_after_expression_instruction() {
+        let prompt = character_system_prompt(
+            &json!({"name": "葵"}),
+            false,
+            &["neutral".into(), "happy".into()],
+            &["wave".into(), "jump".into()],
+            None,
+            &[],
+            None,
+            &[],
+        );
+
+        let expression_index = prompt
+            .find("JSONの expression には次から1つだけ選んでください: neutral, happy")
+            .expect("expression instruction");
+        let motion_index = prompt
+            .find(
+                "JSONの motion には体の動きを加えたい場合だけ次から1つ選んでください: wave, jump。不要な場合は none を使用してください。",
+            )
+            .expect("motion instruction");
+        assert!(motion_index > expression_index);
+    }
+
+    #[test]
+    fn character_prompt_omits_motion_instruction_when_no_motions_registered() {
+        let prompt = character_system_prompt(
+            &json!({"name": "葵"}),
+            false,
+            &["neutral".into()],
+            &[],
+            None,
+            &[],
+            None,
+            &[],
+        );
+
+        assert!(!prompt.contains("JSONの motion"));
     }
 
     #[test]

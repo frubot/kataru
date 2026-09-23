@@ -1,12 +1,18 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRMLoaderPlugin, VRMUtils, type VRM } from '@pixiv/three-vrm';
+import {
+    createVRMAnimationClip,
+    VRMAnimationLoaderPlugin,
+    VRMLookAtQuaternionProxy,
+    type VRMAnimation,
+} from '@pixiv/three-vrm-animation';
 import { RotateCcw } from 'lucide-react';
-import type { VrmAvatar } from '@/lib/store/types';
+import type { VrmAnimation, VrmAvatar } from '@/lib/store/types';
 import { resolveStoredImageUrl } from '@/lib/imageSource';
-import { isVrmSource, resolveVrmExpression, validateVrmBuffer } from '@/lib/vrm';
+import { isVrmSource, isVrmaSource, resolveVrmExpression, validateVrmBuffer, validateVrmaBuffer } from '@/lib/vrm';
 import {
     computeVrmPixelToOffset,
     DEFAULT_VRM_VIEW_ADJUSTMENT,
@@ -22,10 +28,17 @@ import { applyVrmRelaxedPose, createVrmIdleAnimation } from '@/lib/vrmPose';
 import { getTtsAudioLevel } from '@/lib/ttsPlayer';
 import StoredImage from './StoredImage';
 
-export type VrmPreview = { expressions: string[]; capture: (mode?: 'portrait' | 'avatar') => string };
+export type VrmPreview = {
+    expressions: string[];
+    capture: (mode?: 'portrait' | 'avatar') => string;
+    /** Per-animation load result so editors can warn about clips that failed. */
+    motions: { name: string; error: string | null }[];
+};
 type Props = {
     avatar: VrmAvatar;
     expression?: string | null;
+    /** Fires the named motion once every time the nonce changes. */
+    motion?: { name: string; nonce: string } | null;
     fallbackImage?: string;
     name: string;
     /** Enables dragging and wheel zoom in the game view. The saved framing is never changed. */
@@ -37,12 +50,26 @@ type Props = {
 
 type DragState = { pointerId: number; originX: number; originY: number; lastX: number; lastY: number; moved: boolean };
 
-export default function VrmAvatarView({ avatar, expression, fallbackImage, name, interactive = false, lipSync = false, onReady }: Props) {
+/** A VRMA clip bound to the mixer with the playback metadata it was loaded with. */
+type LoadedVrmMotion = {
+    action: THREE.AnimationAction;
+    /** Expression keys the clip owns while it plays (useExpressions clips only). */
+    expressions: Set<string>;
+    loop: boolean;
+};
+
+export default function VrmAvatarView({ avatar, expression, motion, fallbackImage, name, interactive = false, lipSync = false, onReady }: Props) {
     const host = useRef<HTMLDivElement>(null);
-    const live = useRef({ avatar, expression, interactive, lipSync, onReady, ready: false });
+    const live = useRef({ avatar, expression, motion, interactive, lipSync, onReady, ready: false });
     useEffect(() => {
-        live.current = { ...live.current, avatar, expression, interactive, lipSync, onReady };
-    }, [avatar, expression, interactive, lipSync, onReady]);
+        live.current = { ...live.current, avatar, expression, motion, interactive, lipSync, onReady };
+    }, [avatar, expression, motion, interactive, lipSync, onReady]);
+    // Clip flags (loop, useExpressions, idleAnimation) are read live each frame;
+    // only a renamed or replaced animation should rebuild the scene.
+    const animationKey = useMemo(
+        () => (avatar.animations ?? []).map((animation) => `${animation.name}\n${animation.source}`).join('\n'),
+        [avatar.animations],
+    );
     const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
     const [error, setError] = useState('');
     const [attempt, setAttempt] = useState(0);
@@ -131,6 +158,7 @@ export default function VrmAvatarView({ avatar, expression, fallbackImage, name,
         if (!container) return;
         let disposed = false;
         let renderer: THREE.WebGLRenderer | undefined;
+        let mixer: THREE.AnimationMixer | undefined;
         let vrm: VRM | undefined;
         let resize: ResizeObserver | undefined;
         let frame = 0;
@@ -173,6 +201,9 @@ export default function VrmAvatarView({ avatar, expression, fallbackImage, name,
                 });
                 const loader = new GLTFLoader(manager);
                 loader.register((parser) => new VRMLoaderPlugin(parser));
+                // VRMA files parse through the same loader; this plugin only
+                // reacts to the VRMC_vrm_animation extension.
+                loader.register((parser) => new VRMAnimationLoaderPlugin(parser));
                 const gltf = await loader.parseAsync(buffer, '');
                 const loaded = gltf.userData.vrm as VRM | undefined;
                 if (disposed || !loaded) {
@@ -188,6 +219,57 @@ export default function VrmAvatarView({ avatar, expression, fallbackImage, name,
                 vrm.scene.traverse((object) => { object.frustumCulled = false; });
                 applyVrmRelaxedPose(vrm.humanoid);
                 vrm.update(0);
+                const animationMixer = new THREE.AnimationMixer(vrm.scene);
+                mixer = animationMixer;
+                // Clips steer the gaze through this proxy; createVRMAnimationClip
+                // binds to it by name, so it must exist before any clip is made.
+                const lookAtProxy = vrm.lookAt ? new VRMLookAtQuaternionProxy(vrm.lookAt) : null;
+                if (lookAtProxy) {
+                    lookAtProxy.name = 'VRMLookAtQuaternionProxy';
+                    vrm.scene.add(lookAtProxy);
+                }
+                const motions = new Map<string, LoadedVrmMotion>();
+                const seenMotionNames = new Set<string>();
+                const loadMotion = async (animation: VrmAnimation): Promise<{ name: string; error: string | null }> => {
+                    const key = animation.name.trim().toLowerCase();
+                    try {
+                        if (!key) throw new Error('モーション名が設定されていません。');
+                        if (seenMotionNames.has(key)) throw new Error(`モーション名「${animation.name}」が重複しています。`);
+                        seenMotionNames.add(key);
+                        if (!isVrmaSource(animation.source)) throw new Error('VRMAの保存データが不正です。');
+                        const response = await fetch(resolveStoredImageUrl(animation.source), { signal: abort.signal, credentials: 'same-origin' });
+                        if (!response.ok) throw new Error('保存したVRMAを読み込めませんでした。');
+                        const buffer = await response.arrayBuffer();
+                        if (disposed) return { name: animation.name, error: null };
+                        validateVrmaBuffer(buffer);
+                        const gltf = await loader.parseAsync(buffer, '');
+                        // The clip retargets onto our model; the VRMA scene itself is dead weight.
+                        VRMUtils.deepDispose(gltf.scene);
+                        if (disposed || !vrm) return { name: animation.name, error: null };
+                        const vrmAnimation = (gltf.userData.vrmAnimations as VRMAnimation[] | undefined)?.[0];
+                        if (!vrmAnimation) throw new Error('VRMAにモーションが含まれていません。');
+                        const clip = createVRMAnimationClip(vrmAnimation, vrm);
+                        clip.name = animation.name;
+                        const driven = new Set<string>();
+                        clip.tracks = clip.tracks.filter((track) => {
+                            const expressionKey = /^VRMExpression_(.+)\.weight$/.exec(track.name)?.[1];
+                            if (!expressionKey) return true;
+                            if (animation.useExpressions) {
+                                driven.add(expressionKey);
+                                return true;
+                            }
+                            return false;
+                        });
+                        if (clip.tracks.length === 0) throw new Error('このモデルに対応するボーンがありません。');
+                        motions.set(key, { action: animationMixer.clipAction(clip), expressions: driven, loop: animation.loop === true });
+                        return { name: animation.name, error: null };
+                    } catch (reason) {
+                        return { name: animation.name, error: reason instanceof Error ? reason.message : 'VRMAを読み込めませんでした。' };
+                    }
+                };
+                // The fetches overlap the synchronous renderer setup below and
+                // are awaited before the component reports ready.
+                const motionResults = Promise.all((live.current.avatar.animations ?? []).map(loadMotion));
                 vrm.scene.updateMatrixWorld(true);
                 const bounds = new THREE.Box3().setFromObject(vrm.scene);
                 const size = bounds.getSize(new THREE.Vector3());
@@ -236,6 +318,25 @@ export default function VrmAvatarView({ avatar, expression, fallbackImage, name,
                 let mouthLevel = 0;
                 const animateIdle = createVrmIdleAnimation(vrm.humanoid);
                 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+                const motionList = await motionResults;
+                if (disposed) return;
+                // Playback arbitration: at most one idle clip and one fired
+                // one-shot are live; `retiring` holds actions fading to a stop.
+                let idle: { action: THREE.AnimationAction; entry: LoadedVrmMotion } | null = null;
+                let oneshot: { action: THREE.AnimationAction; entry: LoadedVrmMotion; stopping: boolean } | null = null;
+                let lastNonce: string | undefined;
+                let suspended = false;
+                const retiring = new Set<THREE.AnimationAction>();
+                animationMixer.addEventListener('finished', ({ action }) => {
+                    // A finished one-shot parks on its last frame
+                    // (clampWhenFinished); dissolve it, then the idle resumes
+                    // once the retiring sweep stops the action.
+                    if (oneshot && action === oneshot.action && !oneshot.stopping) {
+                        oneshot.stopping = true;
+                        action.fadeOut(0.25);
+                        retiring.add(action);
+                    }
+                });
                 let previous = performance.now();
                 let elapsed = 0;
                 let blinkAt = 2.5;
@@ -264,7 +365,104 @@ export default function VrmAvatarView({ avatar, expression, fallbackImage, name,
                     );
                     camera.updateProjectionMatrix();
                     const moving = !reduceMotion.matches && !neutral;
-                    animateIdle(elapsed, moving);
+                    if (neutral) {
+                        // A capture freezes every clip and rebuilds the relaxed
+                        // pose; playback resumes on the next regular frame.
+                        if (!suspended) {
+                            suspended = true;
+                            animationMixer.stopAllAction();
+                            retiring.clear();
+                            oneshot = null;
+                        }
+                        vrm.humanoid.resetNormalizedPose();
+                        applyVrmRelaxedPose(vrm.humanoid);
+                        lookAtProxy?.quaternion.identity();
+                        animateIdle(elapsed, false);
+                    } else {
+                        const resume = suspended;
+                        suspended = false;
+                        const fired = current.motion;
+                        if (fired && fired.nonce !== lastNonce) {
+                            lastNonce = fired.nonce;
+                            const entry = motions.get(fired.name.trim().toLowerCase());
+                            if (entry && !reduceMotion.matches) {
+                                if (oneshot) {
+                                    oneshot.action.fadeOut(0.15);
+                                    retiring.add(oneshot.action);
+                                    oneshot = null;
+                                }
+                                if (idle) {
+                                    // The fired clip may be the idle clip; only
+                                    // fade out a different one.
+                                    if (idle.action !== entry.action) {
+                                        idle.action.fadeOut(0.2);
+                                        retiring.add(idle.action);
+                                    }
+                                    idle = null;
+                                }
+                                entry.action.reset();
+                                entry.action.setLoop(entry.loop ? THREE.LoopRepeat : THREE.LoopOnce, entry.loop ? Infinity : 1);
+                                entry.action.clampWhenFinished = true;
+                                retiring.delete(entry.action);
+                                entry.action.fadeIn(0.2).play();
+                                oneshot = { action: entry.action, entry, stopping: false };
+                            }
+                        }
+                        if (oneshot && reduceMotion.matches) {
+                            // Reduced motion cuts in immediately rather than
+                            // letting a running clip play out.
+                            oneshot.action.fadeOut(0.15);
+                            retiring.add(oneshot.action);
+                            oneshot = null;
+                        }
+                        if (oneshot?.entry.loop && current.motion == null) {
+                            // A looped emote holds only while its motion prop is
+                            // present; once the scene moves on, fade back to idle.
+                            oneshot.action.fadeOut(0.25);
+                            retiring.add(oneshot.action);
+                            oneshot = null;
+                        }
+                        const idleKey = (current.avatar.idleAnimation ?? '').trim().toLowerCase();
+                        const wantIdle = !oneshot && !reduceMotion.matches && idleKey ? motions.get(idleKey) ?? null : null;
+                        if (wantIdle !== (idle?.entry ?? null)) {
+                            if (idle) {
+                                idle.action.fadeOut(0.2);
+                                retiring.add(idle.action);
+                                idle = null;
+                            }
+                            if (wantIdle) {
+                                retiring.delete(wantIdle.action);
+                                wantIdle.action.reset();
+                                wantIdle.action.setLoop(THREE.LoopRepeat, Infinity);
+                                wantIdle.action.clampWhenFinished = false;
+                                wantIdle.action.fadeIn(0.2).play();
+                                idle = { action: wantIdle.action, entry: wantIdle };
+                            }
+                        }
+                        if (resume && idle && !idle.action.isRunning()) idle.action.reset().play();
+                        // The mixer writes bones, expressions and the look-at
+                        // proxy first; the procedural layers below either stand
+                        // down or overwrite the managed bones afterwards.
+                        animationMixer.update(delta);
+                        for (const action of [...retiring]) {
+                            if (action.getEffectiveWeight() <= 0.001) {
+                                action.stop();
+                                retiring.delete(action);
+                                if (oneshot?.action === action) oneshot = null;
+                            }
+                        }
+                        // While any clip is live (including its fade tail) the
+                        // procedural idle must not reset the managed bones or
+                        // it would stomp the clip's output.
+                        if (idle === null && oneshot === null && retiring.size === 0) animateIdle(elapsed, moving);
+                    }
+                    // Expression keys a playing clip drives are skipped here so
+                    // the two writers never fight over the same weight.
+                    const clipExpressions = new Set<string>();
+                    if (!neutral) {
+                        if (idle) idle.entry.expressions.forEach((key) => clipExpressions.add(key));
+                        if (oneshot && !oneshot.stopping) oneshot.entry.expressions.forEach((key) => clipExpressions.add(key));
+                    }
                     const selected = neutral ? null : resolveVrmExpression(current.avatar, current.expression);
                     // Eyelids close in ~70ms and reopen over ~150ms; irregular
                     // spacing and the occasional double blink look less mechanical.
@@ -284,6 +482,7 @@ export default function VrmAvatarView({ avatar, expression, fallbackImage, name,
                         1 - Math.exp(-delta * (lipTarget > mouthLevel ? 25 : 8)),
                     );
                     for (const key of expressions) {
+                        if (clipExpressions.has(key)) continue;
                         const target = key === selected ? 1 : key === 'blink' ? blink : key === mouthKey ? mouthLevel : 0;
                         const value = vrm.expressionManager?.getValue(key) ?? 0;
                         vrm.expressionManager?.setValue(key, neutral || key === 'blink' || key === mouthKey ? target : THREE.MathUtils.lerp(value, target, 1 - Math.exp(-delta * 12)));
@@ -294,7 +493,7 @@ export default function VrmAvatarView({ avatar, expression, fallbackImage, name,
                 render(0);
                 live.current.ready = true;
                 setStatus('ready');
-                live.current.onReady?.({ expressions, capture: (mode: 'portrait' | 'avatar' = 'portrait') => {
+                live.current.onReady?.({ expressions, motions: motionList, capture: (mode: 'portrait' | 'avatar' = 'portrait') => {
                     if (disposed || !renderer) throw new Error('プレビューを読み直してください。');
                     render(0, true);
                     const source = renderer.domElement;
@@ -332,6 +531,10 @@ export default function VrmAvatarView({ avatar, expression, fallbackImage, name,
             cancelAnimationFrame(frame);
             resize?.disconnect();
             live.current.onReady?.(null);
+            if (mixer) {
+                mixer.stopAllAction();
+                if (vrm) mixer.uncacheRoot(vrm.scene);
+            }
             if (vrm) VRMUtils.deepDispose(vrm.scene);
             if (renderer) {
                 renderer.domElement.removeEventListener('webglcontextlost', contextLost);
@@ -340,7 +543,7 @@ export default function VrmAvatarView({ avatar, expression, fallbackImage, name,
                 renderer.domElement.remove();
             }
         };
-    }, [avatar.source, attempt]);
+    }, [avatar.source, animationKey, attempt]);
 
     // Wheel zoom is registered imperatively: React attaches wheel listeners as passive,
     // so preventDefault would not stop the surrounding page from scrolling.

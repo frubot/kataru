@@ -401,6 +401,41 @@ describe('character sharing', () => {
         }
     });
 
+    test('round-trips VRM motion settings and rejects invalid animation entries', () => {
+        const vrm = {
+            source: 'data:model/gltf-binary;base64,Z2xURg==',
+            framing: { scale: 1.2, offsetY: 0.1, rotation: 15 },
+            expressionMap: { smile: 'happy' },
+            idleAnimation: 'idle',
+            animations: [
+                { name: 'idle', source: 'data:application/x-vrma;base64,AAAA', loop: true },
+                { name: 'wave', source: 'data:application/x-vrma;base64,BBBB', useExpressions: true },
+            ],
+        };
+        const costume = { name: '3d', kind: 'vrm' as const, image: 'data:image/png;base64,aW1hZ2U=', vrm };
+        const backup = validCharacterBackup();
+        backup.data.character.costumes = [costume];
+        expect(parseCharacterBackup(JSON.stringify(backup)).characters[0].costumes).toEqual([costume]);
+
+        for (const patch of [
+            { idleAnimation: 1 },
+            { idleAnimation: 'x'.repeat(257) },
+            { animations: 'inline' },
+            { animations: [{ name: '   ', source: 'data:application/x-vrma;base64,AAAA' }] },
+            { animations: [{ name: 'x'.repeat(65), source: 'data:application/x-vrma;base64,AAAA' }] },
+            { animations: [{ name: 'a', source: `asset:${'a'.repeat(64)}` }] },
+            { animations: [{ name: 'a', source: 'data:model/gltf-binary;base64,AAAA' }] },
+            { animations: [{ name: 'a', source: 'data:application/x-vrma;base64,AAAA', loop: 'yes' }] },
+            { animations: [{ name: 'a', source: 'data:application/x-vrma;base64,AAAA', useExpressions: 1 }] },
+            { animations: [{ name: 'a' }] },
+            { animations: new Array(33).fill({ name: 'a', source: 'data:application/x-vrma;base64,AAAA' }) },
+        ]) {
+            const broken = validCharacterBackup();
+            broken.data.character.costumes = [{ ...costume, vrm: { ...vrm, ...patch } as never }];
+            expect(() => parseCharacterBackup(JSON.stringify(broken))).toThrow('キャラクターファイルの形式が正しくありません');
+        }
+    });
+
     test('parses a character as a new import without conversation data', () => {
         const backup = validCharacterBackup();
         const parsed = parseCharacterBackup(JSON.stringify(backup));

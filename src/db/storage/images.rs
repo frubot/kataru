@@ -288,11 +288,20 @@ pub(super) fn inline_character_images(
             if let Some(image) = costume.get_mut("image") {
                 inline_image_source(connection, image)?;
             }
-            if let Some(source) = costume
-                .get_mut("vrm")
-                .and_then(|avatar| avatar.get_mut("source"))
-            {
-                inline_image_source(connection, source)?;
+            if let Some(avatar) = costume.get_mut("vrm") {
+                if let Some(source) = avatar.get_mut("source") {
+                    inline_image_source(connection, source)?;
+                }
+                if let Some(animations) = avatar
+                    .get_mut("animations")
+                    .and_then(Value::as_array_mut)
+                {
+                    for animation in animations {
+                        if let Some(source) = animation.get_mut("source") {
+                            inline_image_source(connection, source)?;
+                        }
+                    }
+                }
             }
             if let Some(expressions) = costume.get_mut("expressions") {
                 inline_expression_images(connection, expressions)?;

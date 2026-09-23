@@ -17,6 +17,7 @@ export type ChatStreamingPreview = {
     characterName?: string;
     formattedMessages?: string[];
     expression?: string;
+    motion?: string;
     turns?: ConversationJobPreviewTurn[];
     generationBaselineMessageIds?: string[];
 };

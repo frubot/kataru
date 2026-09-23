@@ -22,7 +22,7 @@ type ApplyConversationResultOperations = {
         role: 'user' | 'assistant',
         content: string,
         characterId?: string,
-        meta?: Pick<Message, 'expression' | 'memories' | 'toCharacterIds'>,
+        meta?: Pick<Message, 'expression' | 'motion' | 'memories' | 'toCharacterIds'>,
     ) => string;
     rememberStreamedFinalMessageIds: (messageIds: string[]) => void;
     refreshConversationRoom: (roomId: string) => Promise<void>;
@@ -118,6 +118,7 @@ export async function applyConversationResult(
                 message.characterId,
                 {
                     expression: message.expression,
+                    motion: message.motion,
                     toCharacterIds: message.toCharacterIds ?? [],
                 },
             );

@@ -48,6 +48,7 @@ import {
     findVisualNovelCostume,
     getVisualNovelCostumeOptions,
     getVisualNovelExpressionNames,
+    getVisualNovelMotionNames,
     getVisualNovelPreloadCandidates,
     resolveVisualNovelCostumeName,
     resolveVisualNovelExpressionImage,
@@ -120,9 +121,11 @@ type ConversationCharacter = {
     enableThinking?: boolean;
     enableMemory?: boolean;
     expressions?: { name: string }[];
+    motions?: { name: string }[];
     costumes?: {
         name: string;
         expressions?: { name: string }[];
+        motions?: { name: string }[];
     }[];
 };
 type ConversationParticipant = ConversationCharacter & {
@@ -155,9 +158,11 @@ function toConversationCharacter(character: Character | null): ConversationChara
         enableMemory: character.enableMemory,
         // Resolved through the default costume so a VRM avatar exposes its mapped names.
         expressions: getVisualNovelExpressionNames(character).map((name) => ({ name })),
+        motions: getVisualNovelMotionNames(character).map((name) => ({ name })),
         costumes: character.costumes?.map((costume) => ({
             name: costume.name,
             expressions: getVisualNovelExpressionNames(character, costume.name).map((name) => ({ name })),
+            motions: getVisualNovelMotionNames(character, costume.name).map((name) => ({ name })),
         })),
     };
 }
@@ -561,7 +566,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             await waitForConversationJobPoll(controller.signal, CONVERSATION_JOB_POLL_INTERVAL_MS);
             const job = await getConversationJob<RustTurnResponse>(session.jobId, controller.signal);
             if (
-                job.preview && (job.preview.content.trim() || job.preview.expression)
+                job.preview && (job.preview.content.trim() || job.preview.expression || job.preview.motion)
                 && getCurrentRoom()?.id === job.roomId
             ) {
                 setStreamingPreview({
@@ -572,6 +577,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     characterName: job.preview.characterName,
                     formattedMessages: job.preview.formattedMessages,
                     expression: job.preview.expression,
+                    motion: job.preview.motion,
                     turns: job.preview.turns,
                     generationBaselineMessageIds: session.generationBaselineMessageIds,
                 });
@@ -1479,6 +1485,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             return undefined;
         }
         const expressions = situationVnPresentation.sceneExpressions ?? {};
+        const sceneMotion = situationVnPresentation.sceneMotion;
         return groupCharacters.map((participant) => {
             const costumeName = resolveVisualNovelCostumeName(room, participant);
             const costume = findVisualNovelCostume(participant, costumeName);
@@ -1492,6 +1499,9 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     ? costume?.image ?? participant.icon ?? null
                     : resolveVisualNovelExpressionImage(participant, expression, costumeName),
                 expression,
+                motion: sceneMotion?.characterId === participant.id
+                    ? { name: sceneMotion.name, nonce: sceneMotion.nonce }
+                    : undefined,
                 vrm,
                 vrmFallbackImage: costume?.image ?? participant.icon ?? null,
                 active: vnActiveSpriteId != null && participant.id === vnActiveSpriteId,
@@ -1503,9 +1513,18 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         isSituationVisualNovelMode,
         room,
         situationVnPresentation.sceneExpressions,
+        situationVnPresentation.sceneMotion,
         vnActiveSpriteId,
         vnBounceActive,
     ]);
+
+    // Solo mode shows a single character, so the scene motion always targets it.
+    const soloMotion = situationVnPresentation.sceneMotion
+        ? {
+            name: situationVnPresentation.sceneMotion.name,
+            nonce: situationVnPresentation.sceneMotion.nonce,
+        }
+        : undefined;
 
     const vnStagePreloadSources = useMemo(() => {
         if (!vnStageSprites?.length) return undefined;
@@ -1736,6 +1755,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     stagePreloadSources={vnStagePreloadSources}
                     expressionImage={vnExpressionImage}
                     expression={situationVnPresentation.sceneExpression}
+                    motion={soloMotion}
                     backgroundImage={vnBackgroundImage}
                     bounceActive={vnBounceActive}
                     replySuggestions={replySuggestions}

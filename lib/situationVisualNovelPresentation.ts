@@ -16,6 +16,7 @@ export type SituationVisualNovelItem = {
     characterId?: string;
     characterName?: string;
     expression?: string;
+    motion?: string;
     previewTurnIndex?: number;
     streamingComplete?: boolean;
     pageIndex?: number;
@@ -36,6 +37,7 @@ export type SituationVisualNovelPresentationState = {
     sceneCharacterId?: string;
     sceneExpression?: string;
     sceneExpressions?: Record<string, string | undefined>;
+    sceneMotion?: { characterId?: string; name: string; nonce: string };
 };
 
 type InitialPresentationInput = {
@@ -127,6 +129,7 @@ export function buildSituationVisualNovelRoomItems(
                 content: message.content,
                 characterId: message.characterId,
                 expression: message.expression,
+                motion: message.motion,
             };
             const preview = previewByMessageId.get(message.id);
             item.utteranceKey = preview?.utteranceKey;
@@ -167,7 +170,7 @@ export function buildSituationVisualNovelPreviewItems(
 ): SituationVisualNovelItem[] {
     if (!jobId || !turns) return [];
     return turns
-        .filter((turn) => turn.content.trim() || turn.expression)
+        .filter((turn) => turn.content.trim() || turn.expression || turn.motion)
         .flatMap((turn) => {
             const id = `${jobId}:${turn.turnIndex}`;
             const previous = previousItems.find((item) => item.id === id)?.pagination;
@@ -186,6 +189,7 @@ export function buildSituationVisualNovelPreviewItems(
                 characterId: turn.characterId,
                 characterName: turn.characterName,
                 expression: turn.expression,
+                motion: turn.motion,
                 previewTurnIndex: turn.turnIndex,
                 streamingComplete: page.complete,
                 pageIndex,
@@ -195,13 +199,22 @@ export function buildSituationVisualNovelPreviewItems(
         });
 }
 
+// The nonce identifies one motion event per utterance: pages of the same message
+// share it, and a persisted room item keeps its preview's utterance key, so
+// pagination and preview reconciliation cannot retrigger an already played motion.
+function motionNonceForItem(item: SituationVisualNovelItem): string {
+    return item.utteranceKey ?? item.id;
+}
+
 function sceneFromItems(items: SituationVisualNovelItem[]): {
     sceneCharacterId?: string;
     sceneExpression?: string;
     sceneExpressions?: Record<string, string | undefined>;
+    sceneMotion?: { characterId?: string; name: string; nonce: string };
 } {
     let sceneCharacterId: string | undefined;
     let sceneExpression: string | undefined;
+    let sceneMotion: { characterId?: string; name: string; nonce: string } | undefined;
     const sceneExpressions: Record<string, string | undefined> = {};
     for (const item of items) {
         if (item.role !== 'assistant') continue;
@@ -210,11 +223,16 @@ function sceneFromItems(items: SituationVisualNovelItem[]): {
         }
         sceneCharacterId = item.characterId;
         sceneExpression = item.expression;
+        // Motions are one-shot events: only the latest item may replay on entry.
+        sceneMotion = item.motion
+            ? { characterId: item.characterId, name: item.motion, nonce: motionNonceForItem(item) }
+            : undefined;
     }
     return {
         sceneCharacterId,
         sceneExpression,
         sceneExpressions,
+        sceneMotion,
     };
 }
 
@@ -234,7 +252,11 @@ function sceneForVisibleItem(state: SituationVisualNovelPresentationState, item:
     // Metadata can arrive before the first displayable sentence. Keep the previous
     // portrait until dialogue begins, which is also when the character bounces.
     if (item.role !== 'assistant' || (item.source === 'preview' && !item.content.trim())) {
-        return { sceneCharacterId: state.sceneCharacterId, sceneExpression: state.sceneExpression };
+        return {
+            sceneCharacterId: state.sceneCharacterId,
+            sceneExpression: state.sceneExpression,
+            sceneMotion: state.sceneMotion,
+        };
     }
     const sceneExpressions = item.characterId
         ? {
@@ -246,6 +268,11 @@ function sceneForVisibleItem(state: SituationVisualNovelPresentationState, item:
         sceneCharacterId: item.characterId,
         sceneExpression: item.expression ?? (item.characterId === state.sceneCharacterId ? state.sceneExpression : undefined),
         sceneExpressions,
+        // A motion is a one-shot event: fire it for the visible item, then drop it
+        // so it cannot linger on later items the way an expression does.
+        sceneMotion: item.motion
+            ? { characterId: item.characterId, name: item.motion, nonce: motionNonceForItem(item) }
+            : undefined,
     };
 }
 

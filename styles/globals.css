@@ -3712,6 +3712,11 @@ body {
 .vrm-expression-row > span { flex: 1; overflow-wrap: anywhere; min-width: 0; }
 .vrm-expression-row .model-selector { flex: 1; min-width: 0; }
 .vrm-expression-row button { flex-shrink: 0; }
+.vrm-motion-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; font-size: 0.8rem; }
+.vrm-motion-row > .vrm-motion-name { flex: 1; overflow-wrap: anywhere; min-width: 0; }
+.vrm-motion-row label { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.vrm-motion-row button { flex-shrink: 0; }
+.vrm-motion-error { flex-basis: 100%; color: var(--error); }
 .vrm-editor-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .vn-character-wrap.vn-character-3d {
   margin-bottom: 0;

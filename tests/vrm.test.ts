@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
-import { createVrmExpressionMap, DEFAULT_VRM_FRAMING, resolveVrmExpression, validateVrmBuffer } from '../lib/vrm';
+import { createVrmExpressionMap, DEFAULT_VRM_FRAMING, getVrmMotionNames, isVrmaSource, MAX_VRMA_BYTES, resolveVrmExpression, validateVrmBuffer, validateVrmaBuffer, VRM_DATA_PREFIX, VRMA_DATA_PREFIX } from '../lib/vrm';
 import { findVisualNovelCostume, getVisualNovelCostumeOptions, getVisualNovelExpressionNames, resolveVisualNovelExpressionImage } from '../lib/visualNovelPresentation';
-import type { Character } from '../lib/store/types';
+import type { Character, VrmAvatar } from '../lib/store/types';
 
 function glb(json: unknown): ArrayBuffer {
     const text = new TextEncoder().encode(JSON.stringify(json));
@@ -24,6 +24,48 @@ describe('VRM import and presentation', () => {
         const truncated = glb({ extensions: { VRM: {} } }).slice(0, 25);
         expect(() => validateVrmBuffer(truncated)).toThrow();
         expect(() => validateVrmBuffer(glb({ extensions: { VRM: {} }, images: [{ uri: 'https://example.com/texture.png' }] }))).toThrow('外部リソース');
+    });
+
+    test('accepts VRMA containers only when the animation extension is present and self-contained', () => {
+        expect(() => validateVrmaBuffer(glb({ extensions: { VRMC_vrm_animation: {} } }))).not.toThrow();
+        for (const json of [
+            { extensions: { VRM: {} } },
+            { extensions: { VRMC_vrm: {} } },
+            { asset: { version: '2.0' } },
+        ]) {
+            expect(() => validateVrmaBuffer(glb(json))).toThrow('有効なVRMAファイルを選択してください。');
+        }
+        const truncated = glb({ extensions: { VRMC_vrm_animation: {} } }).slice(0, 25);
+        expect(() => validateVrmaBuffer(truncated)).toThrow();
+        expect(() => validateVrmaBuffer(new ArrayBuffer(40))).toThrow();
+        expect(() => validateVrmaBuffer(glb({ extensions: { VRMC_vrm_animation: {} }, buffers: [{ uri: 'https://example.com/buffer.bin' }] })))
+            .toThrow('外部リソースを参照するVRMAには対応していません。');
+    });
+
+    test('accepts VRMA data URLs and asset ids while rejecting VRM or external sources', () => {
+        expect(isVrmaSource(`${VRMA_DATA_PREFIX}AAAA`)).toBe(true);
+        expect(isVrmaSource(`asset:${'a'.repeat(64)}`)).toBe(true);
+        expect(isVrmaSource(`asset:${'a'.repeat(64)}`, false)).toBe(false);
+        expect(isVrmaSource(`${VRM_DATA_PREFIX}AAAA`)).toBe(false);
+        expect(isVrmaSource(VRMA_DATA_PREFIX)).toBe(false);
+        expect(isVrmaSource(`${VRMA_DATA_PREFIX}!!??`)).toBe(false);
+        expect(isVrmaSource(`${VRMA_DATA_PREFIX}${'A'.repeat(Math.ceil(MAX_VRMA_BYTES / 3) * 4 + 4)}`)).toBe(false);
+        expect(isVrmaSource('https://example.com/motion.vrma')).toBe(false);
+        expect(isVrmaSource(123)).toBe(false);
+    });
+
+    test('lists unique trimmed motion names and tolerates avatars without animations', () => {
+        const avatar: VrmAvatar = { source: 'unused', framing: DEFAULT_VRM_FRAMING, expressionMap: {} };
+        expect(getVrmMotionNames(avatar)).toEqual([]);
+        avatar.animations = [
+            { name: 'wave', source: 'a' },
+            { name: '', source: 'b' },
+            { name: '   ', source: 'c' },
+            { name: 'idle', source: 'd' },
+            { name: ' wave ', source: 'e' },
+            { name: 'walk', source: 'f' },
+        ];
+        expect(getVrmMotionNames(avatar)).toEqual(['wave', 'idle', 'walk']);
     });
 
     test('exposes mapped emotions to the conversation while keeping blink and mouth controls automatic', () => {

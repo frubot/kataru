@@ -21,6 +21,8 @@ export type VisualNovelStageSprite = {
     icon?: string;
     image: string | null;
     expression?: string | null;
+    /** One-shot VRM motion to play; a changed nonce retriggers it. */
+    motion?: { name: string; nonce: string };
     vrm?: VrmAvatar;
     vrmFallbackImage?: string | null;
     active: boolean;
@@ -78,6 +80,8 @@ type VisualNovelViewProps = {
     stagePreloadSources?: string[];
     expressionImage: string | null;
     expression?: string | null;
+    /** One-shot VRM motion for the solo (non-sprite) avatar; nonce retriggers it. */
+    motion?: { name: string; nonce: string };
     backgroundImage?: string;
     bounceActive: boolean;
     replySuggestions: ReactNode;
@@ -120,6 +124,7 @@ export default function VisualNovelView({
     stagePreloadSources,
     expressionImage,
     expression,
+    motion,
     backgroundImage,
     bounceActive,
     replySuggestions,
@@ -213,6 +218,7 @@ export default function VisualNovelView({
                                             <VrmAvatarView
                                                 avatar={sprite.vrm}
                                                 expression={sprite.expression}
+                                                motion={sprite.motion}
                                                 name={sprite.name}
                                                 fallbackImage={sprite.vrmFallbackImage ?? undefined}
                                                 lipSync={sprite.active}
@@ -236,7 +242,7 @@ export default function VisualNovelView({
                 ) : character ? (
                     <div className={`vn-character-wrap ${vrmAvatar ? 'vn-character-3d' : bounceActive ? 'vn-character-bounce' : ''}`}>
                         {vrmAvatar ? <Suspense fallback={expressionImage ? <StoredImage src={expressionImage} alt={character.name} className="vn-character-image" /> : <span>3D表示を準備中…</span>}>
-                            <VrmAvatarView avatar={vrmAvatar} expression={expression} name={character.name} fallbackImage={selectedCostume?.image} interactive lipSync />
+                            <VrmAvatarView avatar={vrmAvatar} expression={expression} motion={motion} name={character.name} fallbackImage={selectedCostume?.image} interactive lipSync />
                         </Suspense> : expressionImage ? (
                             <SpriteImage src={expressionImage} alt={character.name} />
                         ) : (

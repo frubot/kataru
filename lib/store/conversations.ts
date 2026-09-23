@@ -566,6 +566,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
                 ...(characterId ? { characterId } : {}),
                 ...(toCharacterIds && toCharacterIds.length > 0 ? { toCharacterIds } : {}),
                 ...(meta?.expression ? { expression: meta.expression } : {}),
+                ...(meta?.motion ? { motion: meta.motion } : {}),
                 ...(memories && memories.length > 0 ? { memories } : {}),
                 timestamp: now,
             };
@@ -807,6 +808,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
                             content,
                             ...(meta ? {
                                 expression: meta.expression,
+                                motion: meta.motion,
                                 memories: memories && memories.length > 0 ? memories : undefined,
                                 toCharacterIds: toCharacterIds && toCharacterIds.length > 0 ? toCharacterIds : undefined,
                             } : {}),

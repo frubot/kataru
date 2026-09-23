@@ -205,8 +205,9 @@ impl ConversationJobs {
         character_id: &str,
         character_name: &str,
         expression: Option<&str>,
+        motion: Option<&str>,
     ) {
-        if content.trim().is_empty() && expression.is_none() {
+        if content.trim().is_empty() && expression.is_none() && motion.is_none() {
             return;
         }
         let Ok(mut jobs) = self.inner.try_lock() else {
@@ -252,7 +253,11 @@ impl ConversationJobs {
         if let Some(expression) = expression {
             turns[turn_index]["expression"] = Value::String(expression.to_owned());
         }
+        if let Some(motion) = motion {
+            turns[turn_index]["motion"] = Value::String(motion.to_owned());
+        }
         let expression = turns[turn_index].get("expression").cloned();
+        let motion = turns[turn_index].get("motion").cloned();
         let mut preview = json!({
             "content": content,
             "characterId": character_id,
@@ -262,10 +267,14 @@ impl ConversationJobs {
         if let Some(expression) = expression {
             preview["expression"] = expression;
         }
+        if let Some(motion) = motion {
+            preview["motion"] = motion;
+        }
         job.preview = Some(preview);
         job.updated_at = now_millis();
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn finalize_preview(
         &self,
         job_id: &str,
@@ -274,6 +283,7 @@ impl ConversationJobs {
         character_name: &str,
         formatted_messages: &[String],
         expression: Option<&str>,
+        motion: Option<&str>,
     ) {
         if content.trim().is_empty() {
             return;
@@ -317,6 +327,9 @@ impl ConversationJobs {
         if let Some(expression) = expression {
             turn["expression"] = Value::String(expression.to_owned());
         }
+        if let Some(motion) = motion {
+            turn["motion"] = Value::String(motion.to_owned());
+        }
         turns[turn_index] = turn;
         let mut preview = json!({
             "content": content,
@@ -327,6 +340,9 @@ impl ConversationJobs {
         });
         if let Some(expression) = expression {
             preview["expression"] = Value::String(expression.to_owned());
+        }
+        if let Some(motion) = motion {
+            preview["motion"] = Value::String(motion.to_owned());
         }
         job.preview = Some(preview);
         job.updated_at = now_millis();
@@ -992,21 +1008,28 @@ mod tests {
             .await
             .expect("insert streaming job");
 
-        jobs.update_preview(job_id, "", "actor-a", "A", Some("happy"));
+        jobs.update_preview(job_id, "", "actor-a", "A", Some("happy"), None);
         let snapshot = jobs.get(job_id).await.expect("expression-only preview");
         assert_eq!(snapshot["preview"]["expression"], "happy");
         assert_eq!(snapshot["preview"]["turns"][0]["expression"], "happy");
         assert_eq!(snapshot["preview"]["turns"][0]["complete"], false);
-        jobs.update_preview(job_id, "こ", "actor-a", "A", Some("happy"));
-        jobs.update_preview(job_id, "こんにちは", "actor-a", "A", None);
-        assert_eq!(
-            jobs.get(job_id).await.unwrap()["preview"]["expression"],
-            "happy"
-        );
-        jobs.finalize_preview(job_id, "こんにちは", "actor-a", "A", &[], Some("happy"))
-            .await;
-        jobs.update_preview(job_id, "や", "actor-b", "B", None);
-        jobs.finalize_preview(job_id, "やあ", "actor-b", "B", &[], None)
+        jobs.update_preview(job_id, "こ", "actor-a", "A", Some("happy"), Some("wave"));
+        jobs.update_preview(job_id, "こんにちは", "actor-a", "A", None, None);
+        let mid_snapshot = jobs.get(job_id).await.unwrap();
+        assert_eq!(mid_snapshot["preview"]["expression"], "happy");
+        assert_eq!(mid_snapshot["preview"]["motion"], "wave");
+        jobs.finalize_preview(
+            job_id,
+            "こんにちは",
+            "actor-a",
+            "A",
+            &[],
+            Some("happy"),
+            Some("wave"),
+        )
+        .await;
+        jobs.update_preview(job_id, "や", "actor-b", "B", None, None);
+        jobs.finalize_preview(job_id, "やあ", "actor-b", "B", &[], None, None)
             .await;
 
         let snapshot = jobs.get(job_id).await.expect("streaming job");
@@ -1018,10 +1041,13 @@ mod tests {
         assert_eq!(turns[0]["content"], "こんにちは");
         assert_eq!(turns[0]["characterId"], "actor-a");
         assert_eq!(turns[0]["expression"], "happy");
+        assert_eq!(turns[0]["motion"], "wave");
         assert_eq!(turns[0]["complete"], true);
         assert_eq!(turns[1]["turnIndex"], 1);
         assert_eq!(turns[1]["content"], "やあ");
         assert_eq!(turns[1]["characterId"], "actor-b");
         assert_eq!(turns[1]["complete"], true);
+        assert!(turns[1].get("expression").is_none());
+        assert!(turns[1].get("motion").is_none());
     }
 }

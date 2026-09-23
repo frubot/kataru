@@ -42,9 +42,9 @@ use super::{
     },
     response::{
         AssistantEnvelope, DirectorDecision, assistant_expression_preview,
-        assistant_response_preview, limit_assistant_reply_characters, parse_assistant_response,
-        parse_director_decision, parse_summary_response, sanitize_assistant_reply_content,
-        sanitize_message_content,
+        assistant_motion_preview, assistant_response_preview, limit_assistant_reply_characters,
+        parse_assistant_response, parse_director_decision, parse_summary_response,
+        sanitize_assistant_reply_content, sanitize_message_content,
     },
 };
 
@@ -766,10 +766,13 @@ async fn generate_for_character(
     streaming_preview: Option<(&ConversationJobs, &str)>,
 ) -> AppResult<Vec<Value>> {
     let api_client = clients.for_connection(entity_connection_id(character).as_deref())?;
-    let expression_names = expression_names(character, room, string(room, "viewMode") == "vn");
+    let visual_novel_mode = string(room, "viewMode") == "vn";
+    let expression_names = expression_names(character, room, visual_novel_mode);
+    let motion_names = motion_names(character, room, visual_novel_mode);
     let max_characters = character_max_characters(character);
     let schema = assistant_schema(
         &expression_names,
+        &motion_names,
         message_mode,
         boolean(character, "enableThinking"),
         max_characters,
@@ -778,6 +781,7 @@ async fn generate_for_character(
         character,
         message_mode,
         &expression_names,
+        &motion_names,
         summary,
         &memories
             .iter()
@@ -819,6 +823,7 @@ async fn generate_for_character(
                 &debug_context.character_id,
                 &debug_context.character_name,
                 assistant_expression_preview(partial, &expression_names).as_deref(),
+                assistant_motion_preview(partial, &motion_names).as_deref(),
             );
         })
         .await
@@ -842,7 +847,12 @@ async fn generate_for_character(
         }
     };
     let content = extract_message_text(&raw);
-    let envelope = match parse_assistant_response(&content, &expression_names, message_mode) {
+    let envelope = match parse_assistant_response(
+        &content,
+        &expression_names,
+        &motion_names,
+        message_mode,
+    ) {
         Ok(envelope) => limit_assistant_reply_characters(envelope, max_characters),
         Err(error) => {
             if !secret_mode {
@@ -866,6 +876,7 @@ async fn generate_for_character(
             &string(character, "name"),
             &envelope.messages,
             envelope.expression.as_deref(),
+            envelope.motion.as_deref(),
         )
         .await;
     }
@@ -931,6 +942,11 @@ fn envelope_to_messages(
                 && let Some(expression) = &envelope.expression
             {
                 message.insert("expression".into(), Value::String(expression.clone()));
+            }
+            if index == 0
+                && let Some(motion) = &envelope.motion
+            {
+                message.insert("motion".into(), Value::String(motion.clone()));
             }
             Value::Object(message)
         })
@@ -2119,6 +2135,29 @@ fn expression_names(character: &Value, room: &Value, visual_novel_mode: bool) ->
     unique_strings(names_from_expressions(character.get("expressions")))
 }
 
+fn motion_names(character: &Value, room: &Value, visual_novel_mode: bool) -> Vec<String> {
+    if !visual_novel_mode {
+        return Vec::new();
+    }
+    let selected_costume = room
+        .get("costumeSelections")
+        .and_then(Value::as_object)
+        .and_then(|selections| selections.get(&string(character, "id")))
+        .and_then(Value::as_str)
+        .filter(|name| *name != "default");
+    if let Some(costume_name) = selected_costume
+        && let Some(costume) = character
+            .get("costumes")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .find(|costume| string(costume, "name") == costume_name)
+    {
+        return unique_strings(names_from_expressions(costume.get("motions")));
+    }
+    unique_strings(names_from_expressions(character.get("motions")))
+}
+
 fn names_from_expressions(value: Option<&Value>) -> Vec<String> {
     value
         .and_then(Value::as_array)
@@ -2589,6 +2628,7 @@ mod tests {
                 messages: Vec::new(),
                 to: Vec::new(),
                 expression: None,
+                motion: None,
             },
             &json!({"id": "character-1", "name": "葵"}),
             false,
@@ -2990,6 +3030,51 @@ mod tests {
             vec!["neutral", "uniform-happy"]
         );
         assert!(expression_names(&character, &room, false).is_empty());
+    }
+
+    #[test]
+    fn visual_novel_uses_selected_costume_motions() {
+        let character = json!({
+            "id": "actor-1",
+            "motions": [
+                {"name": "wave"},
+                {"name": "jump"}
+            ],
+            "costumes": [{
+                "name": "uniform",
+                "motions": [{"name": "uniform-salute"}]
+            }]
+        });
+        let room = json!({
+            "viewMode": "vn",
+            "costumeSelections": {"actor-1": "uniform"}
+        });
+
+        assert_eq!(
+            motion_names(&character, &room, true),
+            vec!["uniform-salute"]
+        );
+        assert!(motion_names(&character, &room, false).is_empty());
+    }
+
+    #[test]
+    fn visual_novel_falls_back_to_character_motions_without_costume() {
+        let character = json!({
+            "id": "actor-1",
+            "motions": [{"name": "wave"}, {"name": "jump"}],
+            "costumes": [{
+                "name": "uniform",
+                "motions": [{"name": "uniform-salute"}]
+            }]
+        });
+
+        for room in [
+            json!({"viewMode": "vn"}),
+            json!({"viewMode": "vn", "costumeSelections": {"actor-1": "default"}}),
+            json!({"viewMode": "vn", "costumeSelections": {"actor-1": "missing"}}),
+        ] {
+            assert_eq!(motion_names(&character, &room, true), vec!["wave", "jump"]);
+        }
     }
 
     #[test]

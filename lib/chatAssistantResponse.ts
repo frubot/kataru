@@ -5,6 +5,7 @@ type AssistantEnvelope = {
     messages: string[];
     to: string[];
     expression?: string;
+    motion?: string;
 };
 
 type AssistantResponseFormat = {
@@ -38,12 +39,23 @@ function normalizeExpressionName(expression: string | undefined, expressionNames
     return matched ?? getDefaultExpressionName(expressionNames);
 }
 
+// Motions are one-shot fire events: only a fully registered name produces a
+// value. Missing, unknown, and explicit "none" all stay undefined (no fallback).
+function normalizeMotionName(motion: string | undefined, motionNames: string[]): string | undefined {
+    if (motionNames.length === 0 || !motion) return undefined;
+    const requested = motion.trim();
+    if (!requested || requested.toLowerCase() === 'none') return undefined;
+    return motionNames.find((name) => name.toLowerCase() === requested.toLowerCase());
+}
+
 export function buildAssistantResponseFormat(
     expressionNames?: string[],
+    motionNames?: string[],
     toNames?: string[],
     useMessageMode = false,
 ): AssistantResponseFormat {
     const hasExpression = !!expressionNames && expressionNames.length > 0;
+    const hasMotion = !!motionNames && motionNames.length > 0;
     const hasTo = !!toNames && toNames.length > 0;
     const properties: Record<string, unknown> = {};
     const required: string[] = [];
@@ -55,6 +67,15 @@ export function buildAssistantResponseFormat(
             enum: expressionNames,
         };
         required.push('expression');
+    }
+
+    if (hasMotion) {
+        properties.motion = {
+            type: 'string',
+            description: 'あなたの体の動き(ワンショットモーション)',
+            enum: ['none', ...motionNames],
+        };
+        required.push('motion');
     }
 
     if (useMessageMode) {
@@ -293,12 +314,14 @@ function parseAssistantJson(content: string): Partial<AssistantEnvelope> | null 
     const messages = parseMessageStrings(messagesValue);
     const to = parseToNames(getRecordValue(record, ['to', 'recipients', 'recipient']));
     const expressionValue = getRecordValue(record, ['expression', 'emotion']);
+    const motionValue = getRecordValue(record, ['motion', 'gesture', 'action']);
 
     return {
         message: messageStrings[0],
         messages,
         to,
         expression: typeof expressionValue === 'string' ? expressionValue : undefined,
+        motion: typeof motionValue === 'string' ? motionValue : undefined,
     };
 }
 
@@ -381,6 +404,7 @@ export function sanitizeAssistantReplyContent(content: string): string {
 export function parseAssistantResponse(
     content: string,
     expressionNames?: string[],
+    motionNames?: string[],
     useMessageMode = false,
     requireStructuredJson = false,
 ): AssistantEnvelope {
@@ -407,12 +431,17 @@ export function parseAssistantResponse(
         parsedJson?.expression,
         expressionNames ?? [],
     );
+    const motion = normalizeMotionName(
+        parsedJson?.motion,
+        motionNames ?? [],
+    );
 
     return {
         message: normalizedMessages.join('\n\n'),
         messages: normalizedMessages,
         to: uniqueTrimmedStrings(parsedJson?.to ?? []),
         ...(expression ? { expression } : {}),
+        ...(motion ? { motion } : {}),
     };
 }
 

@@ -598,22 +598,36 @@ async fn run_turn_inner(
 
     let memory = match extraction_context.filter(|_| !secret_mode) {
         Some(context) => {
-            let gate = request_memory_gate(
-                &mut clients,
-                &payload,
-                &context,
-                &generated,
-                generation_mode.is_continue(),
-                &room,
-                &mut usages,
-                full_json_logs,
+            let gate_enabled = payload
+                .get("memoryGateEnabled")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+            let gate = if gate_enabled {
+                let gate = request_memory_gate(
+                    &mut clients,
+                    &payload,
+                    &context,
+                    &generated,
+                    generation_mode.is_continue(),
+                    &room,
+                    &mut usages,
+                    full_json_logs,
+                )
+                .await;
+                if let Some(decision) = &gate {
+                    apply_used_memory_ids(&mut generated, &decision.used_memory_ids);
+                    used_memory_ids.clone_from(&decision.used_memory_ids);
+                }
+                gate
+            } else {
+                None
+            };
+            plan_memory_follow_up(
+                context,
+                gate,
+                boolean(&payload, "memoryGateShadowMode"),
+                gate_enabled,
             )
-            .await;
-            if let Some(decision) = &gate {
-                apply_used_memory_ids(&mut generated, &decision.used_memory_ids);
-                used_memory_ids.clone_from(&decision.used_memory_ids);
-            }
-            plan_memory_follow_up(context, gate, boolean(&payload, "memoryGateShadowMode"))
         }
         None => None,
     };
@@ -1659,7 +1673,15 @@ fn plan_memory_follow_up(
     context: ExtractionContext,
     gate: Option<MemoryGateDecision>,
     shadow_mode: bool,
+    gate_enabled: bool,
 ) -> Option<MemoryFollowUp> {
+    if !gate_enabled {
+        return Some(MemoryFollowUp {
+            context,
+            guidance: None,
+            shadow: None,
+        });
+    }
     if shadow_mode {
         let shadow = match &gate {
             Some(decision) if decision.should_extract() => ShadowGate::Extract,
@@ -2647,13 +2669,13 @@ mod tests {
     #[test]
     fn memory_gate_skips_extraction_without_new_information() {
         let follow_up =
-            plan_memory_follow_up(extraction_context(), Some(gate_decision(&[], &[])), false);
+            plan_memory_follow_up(extraction_context(), Some(gate_decision(&[], &[])), false, true);
         assert!(follow_up.is_none());
     }
 
     #[test]
     fn failed_memory_gate_does_not_request_extraction() {
-        assert!(plan_memory_follow_up(extraction_context(), None, false).is_none());
+        assert!(plan_memory_follow_up(extraction_context(), None, false, true).is_none());
     }
 
     #[test]
@@ -2662,6 +2684,7 @@ mod tests {
             extraction_context(),
             Some(gate_decision(&["protagonist"], &["memory-used"])),
             false,
+            true,
         )
         .expect("follow-up");
         assert!(follow_up.shadow.is_none());
@@ -2696,7 +2719,7 @@ mod tests {
             (None, ShadowGate::Failed),
         ] {
             let follow_up =
-                plan_memory_follow_up(extraction_context(), gate, true).expect("follow-up");
+                plan_memory_follow_up(extraction_context(), gate, true, true).expect("follow-up");
             assert_eq!(follow_up.shadow, Some(expected));
             assert!(follow_up.guidance.is_none());
 
@@ -2706,6 +2729,22 @@ mod tests {
             assert!(input.get("usedMemories").is_none());
             assert_eq!(input["existingMemories"].as_array().map(Vec::len), Some(2));
             assert!(input["existingMemories"][0].get("embedding").is_none());
+        }
+    }
+
+    #[test]
+    fn disabled_gate_always_extracts_with_the_unguided_prompt() {
+        for shadow_mode in [false, true] {
+            let follow_up = plan_memory_follow_up(extraction_context(), None, shadow_mode, false)
+                .expect("follow-up");
+            assert!(follow_up.shadow.is_none());
+            assert!(follow_up.guidance.is_none());
+
+            let (system_prompt, input) = memory_extraction_request(&follow_up.context, None, &[]);
+            assert_eq!(system_prompt, memory_extraction_prompt());
+            assert!(input.get("saveReasons").is_none());
+            assert!(input.get("usedMemories").is_none());
+            assert_eq!(input["existingMemories"].as_array().map(Vec::len), Some(2));
         }
     }
 

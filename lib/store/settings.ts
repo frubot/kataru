@@ -41,6 +41,7 @@ export const DEFAULT_CHARACTER_FREQUENCY_PENALTY = 0;
 export const DEFAULT_CHARACTER_PRESENCE_PENALTY = 0;
 export const DEFAULT_CHARACTER_REPETITION_PENALTY = 1;
 export const DEFAULT_CONVERSATION_COMPRESSION_ENABLED = true;
+export const DEFAULT_MEMORY_GATE_ENABLED = true;
 export const DEFAULT_TTS_ENABLED = true;
 export const DEFAULT_TTS_CONNECTION_ID = DEFAULT_CONNECTION_ID;
 export const DEFAULT_TTS_MODEL = 'deepgram/aura-2';
@@ -227,6 +228,7 @@ type SettingsSlice = Pick<
     | 'memoryGateModel'
     | 'memoryExtractionModel'
     | 'memoryEmbeddingModel'
+    | 'memoryGateEnabled'
     | 'memoryGateShadowMode'
     | 'conversationCompressionEnabled'
     | 'generateTitleOnFirstReply'
@@ -271,6 +273,7 @@ type SettingsSlice = Pick<
     | 'setMemoryGateModel'
     | 'setMemoryExtractionModel'
     | 'setMemoryEmbeddingModel'
+    | 'setMemoryGateEnabled'
     | 'setMemoryGateShadowMode'
     | 'setConversationCompressionEnabled'
     | 'setGenerateTitleOnFirstReply'
@@ -306,6 +309,7 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         vnTypingSpeed: DEFAULT_VN_TYPING_SPEED,
         keyboardShortcuts: createDefaultKeyboardShortcuts(),
         ...getDefaultModelDefaults(),
+        memoryGateEnabled: DEFAULT_MEMORY_GATE_ENABLED,
         memoryGateShadowMode: false,
         conversationCompressionEnabled: DEFAULT_CONVERSATION_COMPRESSION_ENABLED,
         generateTitleOnFirstReply: false,
@@ -418,6 +422,10 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         },
         setMemoryEmbeddingModel: (memoryEmbeddingModel) => {
             updateModelDefault(set, get, 'memoryEmbeddingModel', memoryEmbeddingModel);
+        },
+        setMemoryGateEnabled: (memoryGateEnabled) => {
+            set({ memoryGateEnabled });
+            fire(db.setMeta('memoryGateEnabled', memoryGateEnabled));
         },
         setMemoryGateShadowMode: (memoryGateShadowMode) => {
             set({ memoryGateShadowMode });

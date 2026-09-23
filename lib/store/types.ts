@@ -336,6 +336,7 @@ export interface AppState {
     memoryGateModel: ModelRef;
     memoryExtractionModel: ModelRef;
     memoryEmbeddingModel: ModelRef;
+    memoryGateEnabled: boolean;
     memoryGateShadowMode: boolean;
     conversationCompressionEnabled: boolean;
     generateTitleOnFirstReply: boolean;
@@ -399,6 +400,7 @@ export interface AppState {
     setMemoryGateModel: (model: ModelRef) => void;
     setMemoryExtractionModel: (model: ModelRef) => void;
     setMemoryEmbeddingModel: (model: ModelRef) => void;
+    setMemoryGateEnabled: (enabled: boolean) => void;
     setMemoryGateShadowMode: (enabled: boolean) => void;
     setConversationCompressionEnabled: (enabled: boolean) => void;
     setGenerateTitleOnFirstReply: (enabled: boolean) => void;

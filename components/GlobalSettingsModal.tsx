@@ -415,6 +415,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         memoryGateModel, setMemoryGateModel,
         memoryExtractionModel, setMemoryExtractionModel,
         memoryEmbeddingModel, setMemoryEmbeddingModel,
+        memoryGateEnabled, setMemoryGateEnabled,
         memoryGateShadowMode, setMemoryGateShadowMode,
         ttsEnabled, setTtsEnabled,
         ttsConnectionId, setTtsConnectionId,
@@ -1632,6 +1633,41 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                             position: 'absolute',
                                             top: '2px',
                                             left: replySuggestionsEnabled ? '22px' : '2px',
+                                            width: '20px',
+                                            height: '20px',
+                                            borderRadius: '50%',
+                                            background: '#fff',
+                                            transition: 'left 0.2s ease',
+                                            boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                                        }} />
+                                    </button>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', marginTop: '1rem' }}>
+                                    <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
+                                        メモリ保存の必要性をJevで判定
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setMemoryGateEnabled(!memoryGateEnabled)}
+                                        style={{
+                                            position: 'relative',
+                                            width: '44px',
+                                            height: '24px',
+                                            borderRadius: '12px',
+                                            border: 'none',
+                                            cursor: 'pointer',
+                                            background: memoryGateEnabled ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
+                                            transition: 'background 0.2s ease',
+                                            padding: 0,
+                                            flexShrink: 0,
+                                        }}
+                                        aria-label="メモリ保存の判定を有効化"
+                                        aria-pressed={memoryGateEnabled}
+                                    >
+                                        <span style={{
+                                            position: 'absolute',
+                                            top: '2px',
+                                            left: memoryGateEnabled ? '22px' : '2px',
                                             width: '20px',
                                             height: '20px',
                                             borderRadius: '50%',

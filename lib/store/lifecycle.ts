@@ -37,6 +37,7 @@ import { fire, nextRoomLoadSequence, persistGroup, toStoredRoom } from './persis
 import {
     clearThemeCache,
     DEFAULT_CONVERSATION_COMPRESSION_ENABLED,
+    DEFAULT_MEMORY_GATE_ENABLED,
     DEFAULT_THEME_SELECTION,
     DEFAULT_TTS_ACTION_CAPTION,
     DEFAULT_TTS_AUTO_PLAY,
@@ -129,7 +130,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
         hydrate: async () => {
             if (get().hydrated) return;
             await db.migrateLegacyDatabase();
-            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, storedChatWallpaper, storedDefaultViewMode, currentRoomId, vnTypingSpeed, storedKeyboardShortcuts, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedModelDefaults, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedRoleApiTypes, storedConversationCompressionEnabled, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion, storedTtsEnabled, storedTtsConnectionId, storedTtsModel, storedTtsVoice, storedTtsSpeed, storedTtsVolume, storedTtsAutoPlay, storedTtsActionCaption, storedTtsCaptionCfgScale, storedTtsChunkMinChars, storedTtsFirstChunkMinChars, storedTtsNarrationEnabled, storedTtsNarratorVoice, storedMemoryGateShadowMode] = await Promise.all([
+            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, storedChatWallpaper, storedDefaultViewMode, currentRoomId, vnTypingSpeed, storedKeyboardShortcuts, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedModelDefaults, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedRoleApiTypes, storedConversationCompressionEnabled, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion, storedTtsEnabled, storedTtsConnectionId, storedTtsModel, storedTtsVoice, storedTtsSpeed, storedTtsVolume, storedTtsAutoPlay, storedTtsActionCaption, storedTtsCaptionCfgScale, storedTtsChunkMinChars, storedTtsFirstChunkMinChars, storedTtsNarrationEnabled, storedTtsNarratorVoice, storedMemoryGateEnabled, storedMemoryGateShadowMode] = await Promise.all([
                 db.getAllCharacters(),
                 db.getAllGroups(),
                 db.getAllRooms(),
@@ -183,6 +184,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 db.getMeta<number>('ttsFirstChunkMinChars'),
                 db.getMeta<boolean>('ttsNarrationEnabled'),
                 db.getMeta<string>('ttsNarratorVoice'),
+                db.getMeta<boolean>('memoryGateEnabled'),
                 db.getMeta<boolean>('memoryGateShadowMode'),
             ]);
             // Drop any previously stored client-side API key from IndexedDB.
@@ -437,6 +439,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 vnTypingSpeed: resolvedVnTypingSpeed,
                 keyboardShortcuts: resolvedKeyboardShortcuts,
                 ...resolvedModelDefaults,
+                memoryGateEnabled: storedMemoryGateEnabled !== false,
                 memoryGateShadowMode: storedMemoryGateShadowMode === true,
                 conversationCompressionEnabled: resolvedConversationCompressionEnabled,
                 generateTitleOnFirstReply: resolvedGenerateTitleOnFirstReply,
@@ -483,6 +486,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 vnTypingSpeed: DEFAULT_VN_TYPING_SPEED,
                 keyboardShortcuts: createDefaultKeyboardShortcuts(),
                 ...getDefaultModelDefaults(),
+                memoryGateEnabled: DEFAULT_MEMORY_GATE_ENABLED,
                 memoryGateShadowMode: false,
                 conversationCompressionEnabled: DEFAULT_CONVERSATION_COMPRESSION_ENABLED,
                 generateTitleOnFirstReply: false,

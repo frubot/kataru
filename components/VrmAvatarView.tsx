@@ -508,7 +508,12 @@ export default function VrmAvatarView({ avatar, expression, motion, fallbackImag
                 setCanGaze(vrm.lookAt != null);
                 live.current.onReady?.({ expressions, motions: motionList, capture: (mode: 'portrait' | 'avatar' = 'portrait') => {
                     if (disposed || !renderer) throw new Error('プレビューを読み直してください。');
+                    // Captured thumbnails must match the saved framing, so the
+                    // transient drag/zoom adjustment is parked for this render.
+                    const transient = view.current.adjustment;
+                    view.current.adjustment = { ...DEFAULT_VRM_VIEW_ADJUSTMENT };
                     render(0, true);
+                    view.current.adjustment = transient;
                     const source = renderer.domElement;
                     const thumbnail = document.createElement('canvas');
                     const context = thumbnail.getContext('2d')!;

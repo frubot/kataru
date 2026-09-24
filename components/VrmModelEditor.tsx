@@ -107,7 +107,7 @@ export default function VrmModelEditor({ avatar, name, fallbackImage, expression
     return <>
         {avatar && <div className="vrm-editor-preview">
             <div className="vrm-preview"><Suspense fallback={<p>プレビューを準備中…</p>}>
-                <VrmAvatarView avatar={avatar} expression={expression} motion={previewMotion} name={name || 'プレビュー'} fallbackImage={fallbackImage} onReady={handleReady} />
+                <VrmAvatarView avatar={avatar} expression={expression} motion={previewMotion} name={name || 'プレビュー'} fallbackImage={fallbackImage} interactive onReady={handleReady} />
             </Suspense></div>
         </div>}
         <div className="vrm-editor-controls">

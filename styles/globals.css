@@ -400,6 +400,24 @@ body {
   min-height: 2.75rem;
   cursor: pointer;
   text-align: left;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.model-selector-trigger:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--bg-hover);
+}
+
+.model-selector-trigger:focus {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.model-selector-trigger:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
 }
 
 .model-selector-trigger:disabled {
@@ -1743,27 +1761,6 @@ body {
 .global-settings-selector-control .provider-selector-menu {
   right: 0;
   left: auto;
-}
-
-.global-settings-selector-control .model-selector-trigger {
-  border-color: transparent;
-  background: transparent;
-  box-shadow: none;
-}
-
-.global-settings-selector-control .model-selector-trigger:hover:not(:disabled) {
-  border-color: transparent;
-  background: var(--bg-hover);
-}
-
-.global-settings-selector-control .model-selector-trigger:focus {
-  border-color: transparent;
-  box-shadow: none;
-}
-
-.global-settings-selector-control .model-selector-trigger:focus-visible {
-  outline: 2px solid var(--accent-primary);
-  outline-offset: 2px;
 }
 
 .ai-connection-card {

@@ -9,8 +9,8 @@ import { useModalKeyboard } from './useModalKeyboard';
  *  framing, expression and motion controls sit in the other; the panes sit
  *  side by side on wide screens and stack on mobile.
  *  The parent owns the avatar draft and decides what closing means. */
-export default function VrmEditorModal({ avatar, name, fallbackImage, expressionNames = [], title = '3Dアバターの設定', confirmLabel = '確定', cancelLabel = '戻る', onChange, onConfirm, onClose }: {
-    avatar: VrmAvatar;
+export default function VrmEditorModal({ avatar, name, fallbackImage, expressionNames = [], title = '3Dアバターの設定', confirmLabel = '確定', cancelLabel = '戻る', confirmDisabled = false, onChange, onConfirm, onClose }: {
+    avatar?: VrmAvatar;
     /** Preview caption, typically the character or costume name. */
     name: string;
     fallbackImage?: string;
@@ -19,6 +19,8 @@ export default function VrmEditorModal({ avatar, name, fallbackImage, expression
     title?: string;
     confirmLabel?: string;
     cancelLabel?: string;
+    /** Extra gate on top of the preview-ready check (e.g. an invalid name). */
+    confirmDisabled?: boolean;
     onChange: (avatar: VrmAvatar) => void;
     /** May throw; the message is shown inside the modal. */
     onConfirm: (avatar: VrmAvatar, preview: VrmPreview) => void;
@@ -39,7 +41,7 @@ export default function VrmEditorModal({ avatar, name, fallbackImage, expression
 
     const handleConfirm = () => {
         const current = preview.current;
-        if (!current || !ready) return;
+        if (!avatar || !current || !ready) return;
         try {
             onConfirm(avatar, current);
         } catch (reason) {
@@ -88,7 +90,7 @@ export default function VrmEditorModal({ avatar, name, fallbackImage, expression
 
                 <div className="vrm-editor-modal-footer">
                     <button type="button" className="btn btn-ghost" onClick={onClose} disabled={loading}>{cancelLabel}</button>
-                    <button type="button" className="btn btn-primary" disabled={!ready || loading} onClick={handleConfirm}>{confirmLabel}</button>
+                    <button type="button" className="btn btn-primary" disabled={!ready || loading || confirmDisabled} onClick={handleConfirm}>{confirmLabel}</button>
                 </div>
             </div>
         </div>

@@ -406,12 +406,9 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                         existingNames={costumes.map((costume) => costume.name)} expressionNames={expressionNames}
                         onSave={(costume) => { onUpsert(costume); setNewName(''); setVrmDraft(null); }}
                         onCancel={() => setVrmDraft(null)} />}
-                    {editingVrm && <div>
-                        <h3 style={labelStyle}>{editingVrm.name} の3D設定</h3>
-                        <VrmCostumeEditor key={editingVrm.name} costume={editingVrm} name={editingVrm.name}
-                            existingNames={costumes.map((costume) => costume.name)} expressionNames={expressionNames}
-                            onSave={(costume) => { onUpsert(costume); setEditingVrm(null); }} onCancel={() => setEditingVrm(null)} />
-                    </div>}
+                    {editingVrm && <VrmCostumeEditor key={editingVrm.name} costume={editingVrm} name={editingVrm.name}
+                        existingNames={costumes.map((costume) => costume.name)} expressionNames={expressionNames}
+                        onSave={(costume) => { onUpsert(costume); setEditingVrm(null); }} onCancel={() => setEditingVrm(null)} />}
 
                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
                         {busy && busy !== UPLOAD_BUSY_KEY && (

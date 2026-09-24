@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { X, Sparkles, Loader2, Upload } from 'lucide-react';
 import { resizeToMaxEdge, cropSquareToJpeg, cropSquareToPng, cropRectToPng, loadImage } from '@/lib/imageUtils';
 import {
@@ -13,7 +13,7 @@ import { serializeModelRef, type ModelRef } from '@/lib/modelDefaults';
 import type { VrmAvatar } from '@/lib/store/types';
 import { readVrmFile } from '@/lib/vrm';
 import ModelSelector from './ModelSelector';
-import VrmModelEditor from './VrmModelEditor';
+import VrmEditorModal from './VrmEditorModal';
 import type { VrmPreview } from './VrmAvatarView';
 import { useModalKeyboard } from './useModalKeyboard';
 const MAX_EDGE = 1536;
@@ -61,9 +61,6 @@ export default function ImageGenerationModal({
     const [neutralCrop, setNeutralCrop] = useState<CropBox | null>(null);
     const [cropTarget, setCropTarget] = useState<CropTarget>('avatar');
     const [vrmAvatar, setVrmAvatar] = useState<VrmAvatar | null>(initialVrm ?? null);
-    const [vrmReady, setVrmReady] = useState(false);
-    const [vrmLoading, setVrmLoading] = useState(false);
-    const vrmPreviewRef = useRef<VrmPreview | null>(null);
     const abortRef = useRef<AbortController | null>(null);
     const modalRef = useRef<HTMLDivElement>(null);
     const imgRef = useRef<HTMLImageElement>(null);
@@ -101,9 +98,6 @@ export default function ImageGenerationModal({
             abortRef.current = null;
         }
         setVrmAvatar(initialVrm ?? null);
-        setVrmReady(false);
-        setVrmLoading(false);
-        vrmPreviewRef.current = null;
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen]);
 
@@ -176,8 +170,6 @@ export default function ImageGenerationModal({
         if (file.name.toLowerCase().endsWith('.vrm')) {
             try {
                 const avatar = await readVrmFile(file);
-                vrmPreviewRef.current = null;
-                setVrmReady(false);
                 setVrmAvatar(avatar);
             } catch (err) {
                 setError(err instanceof Error ? err.message : 'VRMの読み込みに失敗しました');
@@ -213,28 +205,16 @@ export default function ImageGenerationModal({
         }
     };
 
-    const handleVrmReady = useCallback((value: VrmPreview | null) => {
-        vrmPreviewRef.current = value;
-        setVrmReady(value !== null);
-    }, []);
-
-    const handleClearVrm = () => {
+    const handleVrmEditorClose = () => {
+        if (vrmAvatar && vrmAvatar !== initialVrm
+            && !window.confirm('VRMの設定がまだ確定されていません。閉じますか？')) return;
         setVrmAvatar(null);
-        setVrmReady(false);
-        setVrmLoading(false);
-        vrmPreviewRef.current = null;
         setError(null);
     };
 
-    const handleConfirmVrm = () => {
-        const preview = vrmPreviewRef.current;
-        if (!vrmAvatar || !preview || !vrmReady) return;
-        try {
-            onComplete(preview.capture('avatar'), preview.capture(), vrmAvatar);
-            onClose();
-        } catch (e) {
-            setError(e instanceof Error ? e.message : 'プレビューの取得に失敗しました');
-        }
+    const handleConfirmVrm = (avatar: VrmAvatar, preview: VrmPreview) => {
+        onComplete(preview.capture('avatar'), preview.capture(), avatar);
+        onClose();
     };
 
     const handleConfirm = async () => {
@@ -358,26 +338,6 @@ export default function ImageGenerationModal({
                         </>
                     )}
 
-                    {vrmAvatar && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                            <VrmModelEditor
-                                avatar={vrmAvatar}
-                                name={vrmPreviewName ?? 'キャラクター'}
-                                fallbackImage={vrmFallbackImage}
-                                expressionNames={expressionNames}
-                                onChange={setVrmAvatar}
-                                onReady={handleVrmReady}
-                                onError={setError}
-                                onLoadingChange={setVrmLoading}
-                            />
-                            {error && <p style={{ color: 'var(--error)', fontSize: '0.8125rem' }}>{error}</p>}
-                            <div className="image-generation-inline-actions">
-                                <button className="btn btn-ghost" onClick={handleClearVrm}>戻る</button>
-                                <button className="btn btn-primary" disabled={!vrmReady || vrmLoading} onClick={handleConfirmVrm}>確定</button>
-                            </div>
-                        </div>
-                    )}
-
                     {fullBody && imgNatural && avatarCrop && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                             {source === 'uploaded' && neutralCrop && (
@@ -433,6 +393,18 @@ export default function ImageGenerationModal({
                     )}
                 </div>
             </div>
+
+            {vrmAvatar && (
+                <VrmEditorModal
+                    avatar={vrmAvatar}
+                    name={vrmPreviewName ?? 'キャラクター'}
+                    fallbackImage={vrmFallbackImage}
+                    expressionNames={expressionNames}
+                    onChange={setVrmAvatar}
+                    onConfirm={handleConfirmVrm}
+                    onClose={handleVrmEditorClose}
+                />
+            )}
         </div>
     );
 }

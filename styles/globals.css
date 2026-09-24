@@ -3729,6 +3729,59 @@ body {
 .vrm-motion-row button { flex-shrink: 0; }
 .vrm-motion-error { flex-basis: 100%; color: var(--error); }
 .vrm-editor-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.vrm-editor-preview { min-width: 0; }
+.vrm-editor-controls { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+
+/* Standalone VRM editor modal: preview pane beside the controls pane. */
+.vrm-editor-modal {
+  width: min(94vw, 920px);
+  max-width: 920px;
+  height: min(85vh, 720px);
+}
+.vrm-editor-modal > .modal-body.vrm-editor-modal-body {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 1.25rem;
+  overflow: hidden;
+}
+.vrm-editor-modal .vrm-editor-preview {
+  min-height: 0;
+  display: flex;
+}
+.vrm-editor-modal .vrm-preview {
+  flex: 1;
+  width: 100%;
+  height: auto;
+  aspect-ratio: auto;
+  margin: 0;
+  min-height: 0;
+}
+.vrm-editor-modal .vrm-editor-controls {
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+.vrm-editor-modal-error {
+  margin: 0;
+  padding: 0 1.5rem 0.75rem;
+  color: var(--error);
+  font-size: 0.8125rem;
+}
+.vrm-editor-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 1.5rem 1.25rem;
+}
+
+@media (max-width: 720px) {
+  .vrm-editor-modal { height: 92vh; }
+  .vrm-editor-modal > .modal-body.vrm-editor-modal-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 36vh) minmax(0, 1fr);
+  }
+}
 .vn-character-wrap.vn-character-3d {
   margin-bottom: 0;
   width: 100%;

@@ -105,8 +105,8 @@ export default function VrmModelEditor({ avatar, name, fallbackImage, expression
     return <>
         <button type="button" className="btn btn-secondary" disabled={loading} onClick={() => fileInput.current?.click()}>{avatar ? 'VRMファイルを変更' : 'VRMファイルを選択'}</button>
         <input ref={fileInput} type="file" accept=".vrm" disabled={loading} onChange={(event) => { void selectFile(event.target.files?.[0]); event.target.value = ''; }} style={{ display: 'none' }} />
-        <p className="vrm-hint">VRM 0.x / 1.0、50MBまで。モデルはこの端末に保存されます。</p>
-        {loading && <p role="status">ファイルを読み込み中…</p>}
+        <p className="vrm-hint">VRM 0.x / 1.0、50MBまで。</p>
+        {loading && <p role="status">読み込み中…</p>}
         {avatar && <>
             <div className="vrm-preview"><Suspense fallback={<p>プレビューを準備中…</p>}>
                 <VrmAvatarView avatar={avatar} expression={expression} motion={previewMotion} name={name || 'プレビュー'} fallbackImage={fallbackImage} onReady={handleReady} />
@@ -122,15 +122,14 @@ export default function VrmModelEditor({ avatar, name, fallbackImage, expression
             <button type="button" className="btn btn-ghost" onClick={() => onChange({ ...avatar, framing: { ...DEFAULT_VRM_FRAMING } })}>表示位置をリセット</button>
             <details>
                 <summary>表情の対応・プレビュー</summary>
-                <p className="vrm-hint">会話で使う表情名とモデルの表情を対応させます。「通常顔」の項目はAIに渡しません。</p>
-                <button type="button" className="btn btn-ghost" onClick={() => setExpression('neutral')}>通常顔を表示</button>
+                <button type="button" className="btn btn-ghost" onClick={() => setExpression('neutral')}>プレビューをリセット</button>
                 {names.map((entry) => <div className="vrm-expression-row" key={entry}>
                     <span>{entry}</span>
                     <OptionSelector ariaLabel={`${entry}に対応するVRM表情`} value={avatar.expressionMap[entry] ?? ''} onChange={(target) => {
                         onChange({ ...avatar, expressionMap: { ...avatar.expressionMap, [entry]: target } });
                         setExpression(entry);
                     }} options={[
-                        { value: '', label: '通常顔' },
+                        { value: '', label: 'デフォルト' },
                         ...available.map((target) => ({ value: target, label: target })),
                     ]} />
                     <button type="button" className="btn btn-ghost" aria-label={`${entry}の表情を確認`} onClick={() => setExpression(entry)}>確認</button>
@@ -145,12 +144,10 @@ export default function VrmModelEditor({ avatar, name, fallbackImage, expression
             </details>
             <details>
                 <summary>モーション</summary>
-                <p className="vrm-hint">VRMAモーションを登録できます。待機に指定すると常時ループで再生されます。</p>
                 <button type="button" className="btn btn-secondary" disabled={loading} onClick={() => vrmaInput.current?.click()}>VRMAファイルを追加</button>
                 <input ref={vrmaInput} type="file" accept=".vrma" disabled={loading} onChange={(event) => { void selectMotion(event.target.files?.[0]); event.target.value = ''; }} style={{ display: 'none' }} />
                 {animations.length > 0 && <div className="vrm-motion-row">
-                    <label><input type="radio" name={idleGroup} checked={idleName === undefined} onChange={() => onChange({ ...avatar, idleAnimation: undefined })} />標準</label>
-                    <span className="vrm-hint">手続きアイドル</span>
+                    <label><input type="radio" name={idleGroup} checked={idleName === undefined} onChange={() => onChange({ ...avatar, idleAnimation: undefined })} />デフォルトの待機モーションを使用する</label>
                 </div>}
                 {animations.map((animation, index) => {
                     const issue = previewMotions.find((entry) => entry.name === animation.name)?.error;
@@ -159,7 +156,7 @@ export default function VrmModelEditor({ avatar, name, fallbackImage, expression
                         <label><input type="checkbox" checked={animation.loop ?? false} onChange={(event) => updateAnimation(index, { loop: event.target.checked })} />ループ</label>
                         <label><input type="checkbox" checked={animation.useExpressions ?? false} onChange={(event) => updateAnimation(index, { useExpressions: event.target.checked })} />表情も再生</label>
                         <button type="button" className="btn btn-ghost" aria-label={`${animation.name}を再生`} onClick={() => setPreviewMotion({ name: animation.name, nonce: String(++motionNonce.current) })}>再生</button>
-                        <label><input type="radio" name={idleGroup} checked={idleName === animation.name} onChange={() => onChange({ ...avatar, idleAnimation: animation.name })} />待機</label>
+                        <label><input type="radio" name={idleGroup} checked={idleName === animation.name} onChange={() => onChange({ ...avatar, idleAnimation: animation.name })} />待機モーションに設定</label>
                         <button type="button" className="btn btn-ghost" aria-label={`${animation.name}を削除`} onClick={() => removeAnimation(index)}>削除</button>
                         {issue && <span className="vrm-motion-error" title={issue}>読み込みエラー</span>}
                     </div>;

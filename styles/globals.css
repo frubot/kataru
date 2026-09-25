@@ -3722,6 +3722,12 @@ body {
 .vrm-expression-row button { flex-shrink: 0; }
 .vrm-motion-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; font-size: 0.8rem; }
 .vrm-motion-row > .vrm-motion-name { flex: 1; overflow-wrap: anywhere; min-width: 0; }
+.vrm-motion-row > .vrm-motion-name-input { flex: 1; min-width: 0; width: auto; padding: 0.375rem 0.5rem; font-size: 0.8rem; }
+.vrm-motion-options { flex-basis: 100%; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.vrm-expression-row .btn-icon,
+.vrm-motion-row .btn-icon { padding: 0.375rem 0.5rem; }
+.vrm-editor-controls details > summary { position: relative; }
+.vrm-summary-action { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); }
 .vrm-motion-row label { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .vrm-motion-row button { flex-shrink: 0; }
 .vrm-motion-error { flex-basis: 100%; color: var(--error); }

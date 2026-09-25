@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useId, useRef, useState } from 'react';
+import { Check, Pencil, Play, RotateCcw, Trash2 } from 'lucide-react';
 import type { VrmAnimation, VrmAvatar } from '@/lib/store/types';
 import { createVrmExpressionMap, DEFAULT_VRM_FRAMING, readVrmFile, readVrmaFile } from '@/lib/vrm';
 import type { VrmPreview } from './VrmAvatarView';
@@ -27,6 +28,9 @@ export default function VrmModelEditor({ avatar, name, fallbackImage, expression
     const [customName, setCustomName] = useState('');
     const [previewMotion, setPreviewMotion] = useState<{ name: string; nonce: string } | null>(null);
     const [previewMotions, setPreviewMotions] = useState<{ name: string; error: string | null }[]>([]);
+    // One motion row at a time can open its option/name editor, keyed by name.
+    const [editingMotion, setEditingMotion] = useState<string | null>(null);
+    const [motionNameDraft, setMotionNameDraft] = useState('');
     const fileInput = useRef<HTMLInputElement>(null);
     const vrmaInput = useRef<HTMLInputElement>(null);
     const generation = useRef(0);
@@ -62,6 +66,7 @@ export default function VrmModelEditor({ avatar, name, fallbackImage, expression
             setCustomName('');
             setPreviewMotion(null);
             setPreviewMotions([]);
+            setEditingMotion(null);
             onReady?.(null);
             onChange(next);
         } catch (reason) {
@@ -93,12 +98,29 @@ export default function VrmModelEditor({ avatar, name, fallbackImage, expression
     const removeAnimation = (index: number) => {
         if (!avatar) return;
         const removed = avatar.animations?.[index];
+        if (removed && editingMotion === removed.name) setEditingMotion(null);
         onChange({
             ...avatar,
             animations: (avatar.animations ?? []).filter((_, position) => position !== index),
             // A removed idle motion falls back to the procedural idle animation.
             idleAnimation: removed && avatar.idleAnimation === removed.name ? undefined : avatar.idleAnimation,
         });
+    };
+    const commitMotionEdit = (animation: VrmAnimation) => {
+        if (!avatar) return;
+        const next = motionNameDraft.trim();
+        const taken = (avatar.animations ?? []).some((entry) => entry !== animation && entry.name.toLowerCase() === next.toLowerCase());
+        if (!next || taken) return;
+        if (next !== animation.name) {
+            // idleAnimation and chat triggers store the name, so move them across the rename.
+            onChange({
+                ...avatar,
+                animations: (avatar.animations ?? []).map((entry) => entry === animation ? { ...entry, name: next } : entry),
+                idleAnimation: avatar.idleAnimation === animation.name ? next : avatar.idleAnimation,
+            });
+            if (previewMotion?.name === animation.name) setPreviewMotion(null);
+        }
+        setEditingMotion(null);
     };
     const names = Array.from(new Set([...Object.keys(avatar?.expressionMap ?? {}), ...expressionNames.filter((entry) => entry !== 'neutral')]));
     const animations = avatar?.animations ?? [];
@@ -126,8 +148,10 @@ export default function VrmModelEditor({ avatar, name, fallbackImage, expression
                 </label>)}
                 <button type="button" className="btn btn-ghost" onClick={() => onChange({ ...avatar, framing: { ...DEFAULT_VRM_FRAMING } })}>表示位置をリセット</button>
                 <details>
-                    <summary>表情の対応・プレビュー</summary>
-                    <button type="button" className="btn btn-ghost" onClick={() => setExpression('neutral')}>プレビューをリセット</button>
+                    <summary>
+                        表情の対応・プレビュー
+                        <button type="button" className="btn btn-ghost btn-icon vrm-summary-action" title="プレビューをリセット" aria-label="プレビューをリセット" onClick={(event) => { event.preventDefault(); setExpression('neutral'); }}><RotateCcw size={14} aria-hidden="true" /></button>
+                    </summary>
                     {names.map((entry) => <div className="vrm-expression-row" key={entry}>
                         <span>{entry}</span>
                         <OptionSelector ariaLabel={`${entry}に対応するVRM表情`} value={avatar.expressionMap[entry] ?? ''} onChange={(target) => {
@@ -137,7 +161,7 @@ export default function VrmModelEditor({ avatar, name, fallbackImage, expression
                             { value: '', label: 'デフォルト' },
                             ...available.map((target) => ({ value: target, label: target })),
                         ]} />
-                        <button type="button" className="btn btn-ghost" aria-label={`${entry}の表情を確認`} onClick={() => setExpression(entry)}>確認</button>
+                        <button type="button" className="btn btn-ghost btn-icon" title="表情を確認" aria-label={`${entry}の表情を確認`} onClick={() => setExpression(entry)}><Play size={14} aria-hidden="true" /></button>
                     </div>)}
                     <div className="vrm-expression-row">
                         <input className="input" aria-label="追加する表情名" placeholder="表情名を追加" value={customName} onChange={(event) => setCustomName(event.target.value)} />
@@ -156,13 +180,44 @@ export default function VrmModelEditor({ avatar, name, fallbackImage, expression
                     </div>}
                     {animations.map((animation, index) => {
                         const issue = previewMotions.find((entry) => entry.name === animation.name)?.error;
+                        const editing = editingMotion === animation.name;
+                        const draftName = motionNameDraft.trim();
+                        const duplicate = editing && animations.some((entry) => entry !== animation && entry.name.toLowerCase() === draftName.toLowerCase());
+                        const nameInvalid = draftName.length === 0 || duplicate;
                         return <div className="vrm-motion-row" key={animation.name}>
-                            <span className="vrm-motion-name">{animation.name}</span>
-                            <label><input type="checkbox" checked={animation.loop ?? false} onChange={(event) => updateAnimation(index, { loop: event.target.checked })} />ループ</label>
-                            <label><input type="checkbox" checked={animation.useExpressions ?? false} onChange={(event) => updateAnimation(index, { useExpressions: event.target.checked })} />表情も再生</label>
-                            <button type="button" className="btn btn-ghost" aria-label={`${animation.name}を再生`} onClick={() => setPreviewMotion({ name: animation.name, nonce: String(++motionNonce.current) })}>再生</button>
-                            <label><input type="radio" name={idleGroup} checked={idleName === animation.name} onChange={() => onChange({ ...avatar, idleAnimation: animation.name })} />待機モーションに設定</label>
-                            <button type="button" className="btn btn-ghost" aria-label={`${animation.name}を削除`} onClick={() => removeAnimation(index)}>削除</button>
+                            {editing ? <input
+                                className="input vrm-motion-name-input"
+                                aria-label="モーション名"
+                                aria-invalid={nameInvalid}
+                                value={motionNameDraft}
+                                maxLength={64}
+                                autoFocus
+                                onChange={(event) => setMotionNameDraft(event.target.value)}
+                                onKeyDown={(event) => {
+                                    if (event.nativeEvent.isComposing) return;
+                                    if (event.key === 'Enter' && !nameInvalid) {
+                                        event.preventDefault();
+                                        commitMotionEdit(animation);
+                                    } else if (event.key === 'Escape') {
+                                        // Keep the key from bubbling into the modal's close handler.
+                                        event.preventDefault();
+                                        setEditingMotion(null);
+                                    }
+                                }}
+                            /> : <span className="vrm-motion-name">{animation.name}</span>}
+                            <button type="button" className="btn btn-ghost btn-icon" title="再生" aria-label={`${animation.name}を再生`} onClick={() => setPreviewMotion({ name: animation.name, nonce: String(++motionNonce.current) })}><Play size={14} aria-hidden="true" /></button>
+                            {editing
+                                ? <button type="button" className="btn btn-ghost btn-icon" title="完了" aria-label={`${animation.name}の編集を完了`} disabled={nameInvalid} onClick={() => commitMotionEdit(animation)}><Check size={14} aria-hidden="true" /></button>
+                                : <button type="button" className="btn btn-ghost btn-icon" title="編集" aria-label={`${animation.name}の設定を編集`} onClick={() => { setEditingMotion(animation.name); setMotionNameDraft(animation.name); }}><Pencil size={14} aria-hidden="true" /></button>}
+                            <button type="button" className="btn btn-ghost btn-icon" title="削除" aria-label={`${animation.name}を削除`} style={{ color: 'var(--error)' }} onClick={() => removeAnimation(index)}><Trash2 size={14} aria-hidden="true" /></button>
+                            {editing && <>
+                                <div className="vrm-motion-options">
+                                    <label><input type="checkbox" checked={animation.loop ?? false} onChange={(event) => updateAnimation(index, { loop: event.target.checked })} />ループ</label>
+                                    <label><input type="checkbox" checked={animation.useExpressions ?? false} onChange={(event) => updateAnimation(index, { useExpressions: event.target.checked })} />表情も再生</label>
+                                    <label><input type="radio" name={idleGroup} checked={idleName === animation.name} onChange={() => onChange({ ...avatar, idleAnimation: animation.name })} />待機モーションに設定</label>
+                                </div>
+                                {duplicate && <span className="vrm-motion-error">同じ名前のモーションがあります</span>}
+                            </>}
                             {issue && <span className="vrm-motion-error" title={issue}>読み込みエラー</span>}
                         </div>;
                     })}

@@ -4,6 +4,7 @@ mod config;
 mod conversation;
 mod db;
 mod doctor;
+mod env_file;
 mod error;
 mod logging;
 mod static_assets;
@@ -83,8 +84,13 @@ async fn main() {
 }
 
 async fn run() -> AppResult<()> {
+    // .envはRUST_LOGやAI接続の環境変数に効かせるため、ログ初期化より先に読み込む。
+    let env_files = env_file::load();
     let verbose = logging::verbose_requested();
     logging::init(verbose);
+    for path in &env_files {
+        tracing::info!(file = %path.display(), "loaded environment variables");
+    }
 
     if update::run_special_command_if_requested().await? {
         return Ok(());

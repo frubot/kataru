@@ -9,6 +9,7 @@ description = "Standalone local-first roleplay chat application"
 axum = { version = "0.8", features = ["json", "macros"] }
 base64 = "0.22"
 directories = "6"
+dotenvy = "0.15"
 futures-util = "0.3"
 keyring = "4.1"
 mime_guess = "2"

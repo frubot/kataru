@@ -504,7 +504,7 @@ mod tests {
             axum::serve(listener, app).await.expect("serve test app");
         });
 
-        let image_data = b"cacheable-image";
+        let image_data = b"\x89PNG\r\n\x1a\ncacheable-image";
         let asset_id = Sha256::digest(image_data)
             .iter()
             .map(|byte| format!("{byte:02x}"))

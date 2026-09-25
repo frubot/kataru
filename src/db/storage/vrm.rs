@@ -12,8 +12,15 @@ const DATA_PREFIX: &str = "data:model/gltf-binary;base64,";
 pub(crate) const MAX_VRMA_BYTES: usize = 20 * 1024 * 1024;
 pub(crate) const VRMA_MIME: &str = "application/x-vrma";
 const VRMA_DATA_PREFIX: &str = "data:application/x-vrma;base64,";
-const MAX_VRM_ANIMATIONS: usize = 32;
+pub(crate) const MAX_VRM_ANIMATIONS: usize = 32;
 const MAX_VRM_ANIMATION_NAME: usize = 64;
+
+/// モーション名の検証。チャット契約の予約値 "none" はトリガー不能なため禁止する。
+pub(crate) fn valid_motion_name(name: &str) -> bool {
+    !name.trim().is_empty()
+        && name.chars().count() <= MAX_VRM_ANIMATION_NAME
+        && !name.trim().eq_ignore_ascii_case("none")
+}
 
 fn invalid() -> AppError {
     AppError::BadRequest(
@@ -137,10 +144,7 @@ fn persist_animations(
             let name = animation["name"].as_str().ok_or_else(invalid)?;
             // "none" is the chat contract's reserved "no motion" value, so a
             // clip stored under it could never be triggered.
-            if name.trim().is_empty()
-                || name.chars().count() > MAX_VRM_ANIMATION_NAME
-                || name.trim().eq_ignore_ascii_case("none")
-            {
+            if !valid_motion_name(name) {
                 return Err(invalid());
             }
             for flag in ["loop", "useExpressions"] {
@@ -271,7 +275,7 @@ mod tests {
 
     fn character_with_avatar(avatar: Value, id: &str) -> Value {
         json!({ "id": id, "updatedAt": 1, "costumes": [{
-            "name": "3d", "kind": "vrm", "image": "data:image/png;base64,aW1hZ2U=", "vrm": avatar
+            "name": "3d", "kind": "vrm", "image": format!("data:image/png;base64,{}", BASE64.encode(b"\x89PNG\r\n\x1a\nimage")), "vrm": avatar
         }] })
     }
 

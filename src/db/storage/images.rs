@@ -16,6 +16,22 @@ fn image_asset_id(data: &[u8]) -> String {
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+/// 画像マジックバイトからMIME typeを検出する。SVG等の判別不能なものはNone。
+/// パッケージ書き出しが扱える形式と一致させるため、保存時にもこの結果で正規化する。
+pub(super) fn detect_image_mime(data: &[u8]) -> Option<&'static str> {
+    if data.starts_with(&[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) {
+        Some("image/png")
+    } else if data.starts_with(&[0xff, 0xd8, 0xff]) {
+        Some("image/jpeg")
+    } else if data.starts_with(b"GIF8") {
+        Some("image/gif")
+    } else if data.len() >= 12 && data.starts_with(b"RIFF") && data[8..12].starts_with(b"WEBP") {
+        Some("image/webp")
+    } else {
+        None
+    }
+}
+
 fn decode_image_data_url(source: &str) -> AppResult<Option<(String, Vec<u8>)>> {
     let Some(rest) = source.strip_prefix("data:") else {
         return Ok(None);
@@ -41,6 +57,13 @@ fn decode_image_data_url(source: &str) -> AppResult<Option<(String, Vec<u8>)>> {
             "空の画像は保存できません。".to_owned(),
         ));
     }
+    // 宣言されたMIME typeではなく内容から判定する。対応外の形式はパッケージに
+    // 書き出せないため、ここで拒否して保存時と書き出し時の対応形式を揃える。
+    let Some(mime_type) = detect_image_mime(&data) else {
+        return Err(AppError::BadRequest(
+            "画像はPNG・JPEG・WebP・GIF形式で指定してください。".to_owned(),
+        ));
+    };
     Ok(Some((mime_type.to_owned(), data)))
 }
 
@@ -350,7 +373,21 @@ pub fn migrate_character_images(transaction: &Transaction<'_>) -> AppResult<()> 
 
     for (character_id, data_json) in stored_characters {
         let mut character: Value = serde_json::from_str(&data_json)?;
-        let (asset_ids, changed) = externalize_character_images(transaction, &mut character)?;
+        // パッケージに書き出せない形式の画像を残した旧データは、そのまま保持して
+        // 起動を妨げない（データ起因のBadRequestのみスキップし、DB障害は失敗とする）。
+        let (asset_ids, changed) = match externalize_character_images(transaction, &mut character)
+        {
+            Ok(result) => result,
+            Err(error @ AppError::BadRequest(_)) => {
+                tracing::warn!(
+                    character_id,
+                    %error,
+                    "対応していない画像を含むキャラクターの外部化をスキップしました"
+                );
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
         if changed {
             transaction.execute(
                 "UPDATE characters SET data_json = ?2 WHERE id = ?1",
@@ -378,7 +415,20 @@ pub fn migrate_situation_images(transaction: &Transaction<'_>) -> AppResult<()> 
 
     for (situation_id, data_json) in stored_situations {
         let mut situation: Value = serde_json::from_str(&data_json)?;
-        let (asset_ids, changed) = externalize_situation_images(transaction, &mut situation)?;
+        // 上と同じく、対応外形式の画像を残した旧データは起動を妨げない。
+        let (asset_ids, changed) = match externalize_situation_images(transaction, &mut situation)
+        {
+            Ok(result) => result,
+            Err(error @ AppError::BadRequest(_)) => {
+                tracing::warn!(
+                    situation_id,
+                    %error,
+                    "対応していない画像を含むシチュエーションの外部化をスキップしました"
+                );
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
         if changed {
             transaction.execute(
                 "UPDATE situations SET data_json = ?2 WHERE id = ?1",
@@ -409,7 +459,7 @@ mod tests {
         let mut connection = open_test_database();
         let data_url = format!(
             "data:image/png;base64,{}",
-            BASE64.encode(b"same-image-bytes")
+            BASE64.encode(b"\x89PNG\r\n\x1a\nsame-image-bytes")
         );
         let character = json!({
             "id": "character-1",
@@ -463,7 +513,7 @@ mod tests {
         let mut connection = open_test_database();
         let data_url = format!(
             "data:image/png;base64,{}",
-            BASE64.encode(b"temporary-image")
+            BASE64.encode(b"\x89PNG\r\n\x1a\ntemporary-image")
         );
         let transaction = connection.transaction().expect("start first transaction");
         upsert_character(
@@ -520,7 +570,7 @@ mod tests {
         let mut connection = open_test_database();
         let data_url = format!(
             "data:image/png;base64,{}",
-            BASE64.encode(b"situation-background")
+            BASE64.encode(b"\x89PNG\r\n\x1a\nsituation-background")
         );
         let transaction = connection.transaction().expect("start transaction");
         upsert_situation(
@@ -558,5 +608,41 @@ mod tests {
         inline_situation_images(&connection, &mut exported)
             .expect("inline exported situation background");
         assert_eq!(exported["backgroundImage"], data_url);
+    }
+
+    #[test]
+    fn image_save_detects_content_and_rejects_unsupported_formats() {
+        let mut connection = open_test_database();
+        // 宣言されたMIMEと内容が異なる場合は、内容から検出した形式で保存する。
+        let mislabeled = format!(
+            "data:image/avif;base64,{}",
+            BASE64.encode(b"\x89PNG\r\n\x1a\nactual-png")
+        );
+        put_character(
+            &mut connection,
+            json!({ "id": "character-1", "updatedAt": 1, "icon": mislabeled }),
+        )
+        .expect("store mislabeled image");
+        assert_eq!(
+            connection
+                .query_row("SELECT mime_type FROM image_assets", [], |row| {
+                    row.get::<_, String>(0)
+                })
+                .expect("read stored mime"),
+            "image/png"
+        );
+
+        // パッケージに書き出せない形式（SVG等の判別不能なもの）は保存時に拒否する。
+        let svg = format!(
+            "data:image/svg+xml;base64,{}",
+            BASE64.encode(b"<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>")
+        );
+        assert!(
+            put_character(
+                &mut connection,
+                json!({ "id": "character-2", "updatedAt": 1, "icon": svg }),
+            )
+            .is_err()
+        );
     }
 }

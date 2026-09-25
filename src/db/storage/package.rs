@@ -21,9 +21,12 @@ use crate::error::{AppError, AppResult};
 
 use super::{
     characters::upsert_character,
-    images::{prune_orphaned_image_assets, store_asset},
+    images::{detect_image_mime, prune_orphaned_image_assets, store_asset},
     json::{now_millis, serialize},
-    vrm::{MAX_VRM_BYTES, MAX_VRMA_BYTES, VRM_MIME, VRMA_MIME, validate_model, validate_vrma},
+    vrm::{
+        MAX_VRM_ANIMATIONS, MAX_VRM_BYTES, MAX_VRMA_BYTES, VRM_MIME, VRMA_MIME, valid_motion_name,
+        validate_model, validate_vrma,
+    },
 };
 
 const MANIFEST_ENTRY: &str = "manifest.json";
@@ -225,19 +228,190 @@ fn extension_for_mime(mime_type: &str) -> AppResult<&'static str> {
     }
 }
 
-/// 画像マジックバイトからMIME typeを検出する。SVG等の判別不能なものは拒否する。
-fn detect_image_mime(data: &[u8]) -> Option<&'static str> {
-    if data.starts_with(&[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) {
-        Some("image/png")
-    } else if data.starts_with(&[0xff, 0xd8, 0xff]) {
-        Some("image/jpeg")
-    } else if data.starts_with(b"GIF8") {
-        Some("image/gif")
-    } else if data.len() >= 12 && data.starts_with(b"RIFF") && data[8..12].starts_with(b"WEBP") {
-        Some("image/webp")
-    } else {
-        None
+/// 保存時の形式検証が入る前に取り込まれた画像の救済。未知の image/* MIMEでも
+/// 内容が対応形式なら検出結果で書き出す。
+fn normalize_stored_mime(mime_type: &str, data: &[u8]) -> AppResult<String> {
+    if extension_for_mime(mime_type).is_ok() {
+        return Ok(mime_type.to_owned());
     }
+    if mime_type.starts_with("image/")
+        && let Some(detected) = detect_image_mime(data)
+    {
+        return Ok(detected.to_owned());
+    }
+    Err(AppError::Internal(format!(
+        "保存アセットのMIME typeが不正です: {mime_type}"
+    )))
+}
+
+/// 画像フィールドの値。アセット参照か画像data URLのみ許可し、
+/// 外部URLを参照するキャラクターの取り込みを防ぐ。
+fn valid_image_source(value: &Value) -> bool {
+    value.as_str().is_some_and(|source| {
+        source.starts_with(ASSET_REFERENCE_PREFIX) || source.starts_with("data:image/")
+    })
+}
+
+/// `isValidExpression` (lib/importExport.ts) の移植。
+fn valid_expression(value: &Value) -> bool {
+    let Some(expression) = value.as_object() else {
+        return false;
+    };
+    expression
+        .get("name")
+        .and_then(Value::as_str)
+        .is_some_and(|name| !name.trim().is_empty())
+        && expression
+            .get("image")
+            .is_some_and(valid_image_source)
+        && expression
+            .get("promptDetail")
+            .is_none_or(Value::is_string)
+}
+
+fn valid_expression_list(value: Option<&Value>) -> bool {
+    value.is_none_or(|expressions| {
+        expressions
+            .as_array()
+            .is_some_and(|expressions| expressions.iter().all(valid_expression))
+    })
+}
+
+/// `isVrmSource` / `isVrmaSource` (lib/vrm.ts) の移植。パッケージ内では
+/// "asset:" 参照が主だが、data URLも保存経路で受理されるため両方を許可する。
+fn valid_model_source(value: Option<&Value>, mime: &str) -> bool {
+    value.and_then(Value::as_str).is_some_and(|source| {
+        source.starts_with(ASSET_REFERENCE_PREFIX)
+            || source.starts_with(&format!("data:{mime};base64,"))
+    })
+}
+
+/// `isValidVrmAvatar` (lib/importExport.ts) の移植。バイナリ実体の検証は
+/// persist_vrm / validate_model が担うため、ここでは構造と値域だけを見る。
+fn valid_vrm_avatar(value: &Value) -> bool {
+    let Some(avatar) = value.as_object() else {
+        return false;
+    };
+    let Some(framing) = avatar.get("framing").and_then(Value::as_object) else {
+        return false;
+    };
+    let framing_valid = [
+        ("scale", 0.5, 2.0),
+        ("offsetY", -0.5, 0.5),
+        ("rotation", -180.0, 180.0),
+    ]
+    .iter()
+    .all(|(key, min, max)| {
+        framing
+            .get(*key)
+            .and_then(Value::as_f64)
+            .is_some_and(|value| value >= *min && value <= *max)
+    });
+    let Some(expression_map) = avatar.get("expressionMap").and_then(Value::as_object) else {
+        return false;
+    };
+    let map_valid = expression_map.len() <= 256
+        && expression_map.iter().all(|(name, target)| {
+            !name.trim().is_empty()
+                && name.len() <= 256
+                && target.as_str().is_some_and(|target| target.len() <= 256)
+        });
+    let animations_valid = avatar.get("animations").is_none_or(|animations| {
+        animations.as_array().is_some_and(|animations| {
+            animations.len() <= MAX_VRM_ANIMATIONS
+                && animations.iter().all(|animation| {
+                    let Some(animation) = animation.as_object() else {
+                        return false;
+                    };
+                    animation
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .is_some_and(valid_motion_name)
+                        && ["loop", "useExpressions"]
+                            .iter()
+                            .all(|key| animation.get(*key).is_none_or(Value::is_boolean))
+                        && valid_model_source(animation.get("source"), VRMA_MIME)
+                })
+        })
+    });
+    let idle_valid = avatar.get("idleAnimation").is_none_or(|idle| {
+        idle.as_str().is_some_and(|idle| {
+            avatar
+                .get("animations")
+                .and_then(Value::as_array)
+                .is_some_and(|animations| {
+                    animations.iter().any(|animation| {
+                        animation.get("name").and_then(Value::as_str) == Some(idle)
+                    })
+                })
+        })
+    });
+    framing_valid
+        && map_valid
+        && animations_valid
+        && idle_valid
+        && valid_model_source(avatar.get("source"), VRM_MIME)
+}
+
+/// `isValidCostume` (lib/importExport.ts) の移植。
+fn valid_costume(value: &Value) -> bool {
+    let Some(costume) = value.as_object() else {
+        return false;
+    };
+    let kind = costume.get("kind").and_then(Value::as_str);
+    costume
+        .get("name")
+        .and_then(Value::as_str)
+        .is_some_and(|name| !name.trim().is_empty())
+        && costume.get("image").is_some_and(valid_image_source)
+        && costume.get("promptDetail").is_none_or(Value::is_string)
+        && costume
+            .get("kind")
+            .is_none_or(|kind| matches!(kind.as_str(), Some("image" | "vrm")))
+        && valid_expression_list(costume.get("expressions"))
+        && if kind == Some("vrm") {
+            costume.get("vrm").is_some_and(valid_vrm_avatar)
+        } else {
+            !costume.contains_key("vrm")
+        }
+}
+
+/// character.json が保存・描画に耐える型かを検証する。upsert_character は
+/// 画像参照とVRMを再検証するが、配列以外の costumes 等はそのまま保存して
+/// しまい、設定画面の `.find()` が落ちるため、ここで copySharedCharacter が
+/// 引き継ぐ全フィールドの型を確認する。
+fn valid_shared_character(object: &Map<String, Value>) -> bool {
+    object
+        .get("name")
+        .and_then(Value::as_str)
+        .is_some_and(|name| !name.trim().is_empty())
+        && object.get("systemPrompt").is_some_and(Value::is_string)
+        && ["speechStyle", "protagonistPrompt", "userConstraints"]
+            .iter()
+            .all(|key| object.get(*key).is_none_or(Value::is_string))
+        && object.get("icon").is_none_or(valid_image_source)
+        && [
+            "maxCharacters",
+            "maxHistory",
+            "temperature",
+            "topP",
+            "topK",
+            "frequencyPenalty",
+            "presencePenalty",
+            "repetitionPenalty",
+        ]
+        .iter()
+        .all(|key| object.get(*key).is_none_or(Value::is_number))
+        && object.get("enableMemory").is_none_or(Value::is_boolean)
+        && object
+            .get("model")
+            .is_none_or(|model| model.is_string() || model.is_object())
+        && valid_expression_list(object.get("expressions"))
+        && object.get("costumes").is_none_or(|costumes| {
+            costumes
+                .as_array()
+                .is_some_and(|costumes| costumes.iter().all(valid_costume))
+        })
 }
 
 pub fn build_character_package(
@@ -285,6 +459,7 @@ pub fn build_character_package(
             )
             .optional()?
             .ok_or_else(|| AppError::Internal("保存画像の参照が壊れています。".to_owned()))?;
+        let mime_type = normalize_stored_mime(&mime_type, &data)?;
         let extension = extension_for_mime(&mime_type)?;
         assets.push((asset_id, extension, mime_type, data));
     }
@@ -322,6 +497,28 @@ pub fn build_character_package(
         "generator": format!("Kataru/{}", env!("CARGO_PKG_VERSION")),
         "assets": manifest_assets,
     });
+    let manifest_json = serialize(&manifest)?;
+    let shared_json = serialize(&shared)?;
+    // 読み込み側（parse_package）の上限と揃え、書き出したパッケージが
+    // そのまま再インポートできることを保証する。
+    if assets.len() + 2 > MAX_PACKAGE_ENTRIES
+        || manifest_json.len() as u64 > MAX_JSON_ENTRY_BYTES
+        || shared_json.len() as u64 > MAX_JSON_ENTRY_BYTES
+    {
+        return Err(package_too_large());
+    }
+    let mut total_size = (manifest_json.len() + shared_json.len()) as u64;
+    for (_, _, mime_type, data) in &assets {
+        let cap = match mime_type.as_str() {
+            VRM_MIME => MAX_VRM_BYTES as u64,
+            VRMA_MIME => MAX_VRMA_BYTES as u64,
+            _ => MAX_IMAGE_ENTRY_BYTES,
+        };
+        total_size += data.len() as u64;
+        if data.len() as u64 > cap || total_size > MAX_PACKAGE_UNCOMPRESSED_BYTES {
+            return Err(package_too_large());
+        }
+    }
 
     let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
     writer
@@ -330,14 +527,14 @@ pub fn build_character_package(
             file_options(CompressionMethod::Deflated),
         )
         .map_err(zip_error)?;
-    writer.write_all(serialize(&manifest)?.as_bytes())?;
+    writer.write_all(manifest_json.as_bytes())?;
     writer
         .start_file(
             CHARACTER_ENTRY,
             file_options(CompressionMethod::Deflated),
         )
         .map_err(zip_error)?;
-    writer.write_all(serialize(&shared)?.as_bytes())?;
+    writer.write_all(shared_json.as_bytes())?;
     for (asset_id, extension, _, data) in &assets {
         writer
             .start_file(
@@ -510,15 +707,7 @@ fn parse_package(bytes: &[u8]) -> AppResult<ParsedPackage> {
     let character: Value =
         serde_json::from_slice(&character_data).map_err(|_| invalid_package())?;
     let character_object = character.as_object().ok_or_else(invalid_package)?;
-    let valid_name = character_object
-        .get("name")
-        .and_then(Value::as_str)
-        .is_some_and(|name| !name.trim().is_empty());
-    let valid_prompt = character_object
-        .get("systemPrompt")
-        .and_then(Value::as_str)
-        .is_some();
-    if !valid_name || !valid_prompt {
+    if !valid_shared_character(character_object) {
         return Err(invalid_package());
     }
 
@@ -1514,5 +1703,160 @@ mod tests {
         let preview = inspect_character_package(&package).expect("inspect vrm");
         assert!(preview.has_vrm);
         assert_eq!(preview.asset_count, 3);
+    }
+
+    #[test]
+    fn package_parsing_rejects_malformed_shared_character_fields() {
+        // 配列以外の costumes / expressions や型違いのフィールドはそのまま
+        // 保存されると設定画面の .find() 等が落ちるため、取り込み前に拒否する。
+        for character in [
+            json!({ "name": "N", "systemPrompt": "s", "costumes": "not-an-array" }),
+            json!({ "name": "N", "systemPrompt": "s", "costumes": { "0": {} } }),
+            json!({ "name": "N", "systemPrompt": "s", "expressions": "neutral" }),
+            json!({ "name": "N", "systemPrompt": "s", "costumes": ["default"] }),
+            json!({ "name": "N", "systemPrompt": "s", "costumes": [{ "name": 42, "image": "i" }] }),
+            json!({ "name": "N", "systemPrompt": "s", "costumes": [{ "name": "c" }] }),
+            json!({ "name": "N", "systemPrompt": "s", "costumes": [{ "name": "c", "image": "i", "kind": "audio" }] }),
+            // kind が "vrm" でないのに vrm を保持、または "vrm" なのに vrm が無い。
+            json!({ "name": "N", "systemPrompt": "s", "costumes": [{ "name": "c", "image": "i", "vrm": {} }] }),
+            json!({ "name": "N", "systemPrompt": "s", "costumes": [{ "name": "c", "image": "i", "kind": "vrm" }] }),
+            json!({ "name": "N", "systemPrompt": "s", "expressions": [{ "name": "n" }] }),
+            json!({ "name": "N", "systemPrompt": "s", "expressions": [{ "name": "n", "image": "i", "promptDetail": 1 }] }),
+            json!({ "name": "N", "systemPrompt": "s", "temperature": "hot" }),
+            json!({ "name": "N", "systemPrompt": "s", "maxCharacters": "400" }),
+            json!({ "name": "N", "systemPrompt": "s", "enableMemory": "yes" }),
+            json!({ "name": "N", "systemPrompt": "s", "icon": 3 }),
+            json!({ "name": "N", "systemPrompt": "s", "model": 7 }),
+        ] {
+            let package = package_of(&character, vec![]);
+            assert_bad_request(parse_package(&package), "malformed shared fields");
+        }
+
+        // VRMアバターの構造（framing・expressionMap・モーション・idle整合）も検査する。
+        let icon = png_bytes("icon");
+        let icon_id = sha256_hex(&icon);
+        for avatar in [
+            json!({ "source": format!("asset:{icon_id}") }),
+            json!({ "source": format!("asset:{icon_id}"), "framing": "fit", "expressionMap": {} }),
+            json!({ "source": format!("asset:{icon_id}"), "framing": { "scale": 9, "offsetY": 0, "rotation": 0 }, "expressionMap": {} }),
+            json!({ "source": format!("asset:{icon_id}"), "framing": { "scale": 1, "offsetY": 0, "rotation": 0 }, "expressionMap": { "": "x" } }),
+            json!({ "source": format!("asset:{icon_id}"), "framing": { "scale": 1, "offsetY": 0, "rotation": 0 }, "expressionMap": {},
+                "animations": [{ "name": "none", "source": format!("asset:{icon_id}") }] }),
+            json!({ "source": format!("asset:{icon_id}"), "framing": { "scale": 1, "offsetY": 0, "rotation": 0 }, "expressionMap": {},
+                "animations": [{ "name": "wave", "source": "https://example.com/a.vrma" }] }),
+            json!({ "source": format!("asset:{icon_id}"), "framing": { "scale": 1, "offsetY": 0, "rotation": 0 }, "expressionMap": {},
+                "idleAnimation": "missing" }),
+            json!({ "source": "https://example.com/a.vrm", "framing": { "scale": 1, "offsetY": 0, "rotation": 0 }, "expressionMap": {} }),
+        ] {
+            let character = json!({
+                "name": "N",
+                "systemPrompt": "s",
+                "costumes": [{
+                    "name": "3d", "kind": "vrm",
+                    "image": format!("asset:{icon_id}"),
+                    "vrm": avatar,
+                }],
+            });
+            let package = package_of(&character, vec![asset_entry(&icon, "png")]);
+            assert_bad_request(parse_package(&package), "malformed vrm avatar");
+        }
+
+        // 妥当なフィールドは従来どおり受理する。
+        let valid = json!({
+            "name": "N",
+            "systemPrompt": "s",
+            "model": { "model": "x", "connectionId": "openrouter" },
+            "icon": format!("asset:{icon_id}"),
+            "temperature": 0.8,
+            "enableMemory": true,
+            "expressions": [{ "name": "neutral", "image": format!("asset:{icon_id}") }],
+            "costumes": [{ "name": "default", "kind": "image", "image": format!("asset:{icon_id}") }],
+        });
+        parse_package(&package_of(&valid, vec![asset_entry(&icon, "png")]))
+            .expect("valid shared character");
+    }
+
+    #[test]
+    fn export_enforces_the_same_limits_as_import() {
+        let mut db = open_test_database();
+        // manifest+character と合わせて64エントリに収まるのは62アセットまで。
+        // 63個は書き出しても再インポートできないため、書き出し時点で拒否する。
+        let expressions = |count: usize| -> Value {
+            json!((0..count)
+                .map(|index| {
+                    json!({
+                        "name": format!("e{index}"),
+                        "image": data_url("image/png", &png_bytes(&format!("asset-{index}"))),
+                    })
+                })
+                .collect::<Vec<_>>())
+        };
+        put_character(
+            &mut db,
+            json!({ "id": "fits", "name": "N", "systemPrompt": "s", "updatedAt": 1,
+                "expressions": expressions(62) }),
+        )
+        .expect("store 62-asset character");
+        let package = build_character_package(&db, "fits", true, &id_set(&[]), "openrouter")
+            .expect("62 assets must fit");
+        assert_eq!(zip_names(&package).len(), MAX_PACKAGE_ENTRIES);
+        parse_package(&package).expect("62-asset package reimports");
+
+        put_character(
+            &mut db,
+            json!({ "id": "overflow", "name": "N", "systemPrompt": "s", "updatedAt": 1,
+                "expressions": expressions(63) }),
+        )
+        .expect("store 63-asset character");
+        assert_bad_request(
+            build_character_package(&db, "overflow", true, &id_set(&[]), "openrouter"),
+            "63 assets exceed the entry limit",
+        );
+
+        // 保存側にサイズ上限がないため、20MiBを超える画像アセットも同様に拒否する。
+        let oversized = {
+            let mut data = b"\x89PNG\r\n\x1a\n".to_vec();
+            data.resize(MAX_IMAGE_ENTRY_BYTES as usize + 1, 0);
+            data
+        };
+        let asset_id = store_asset(&db, "image/png", &oversized).expect("store oversized image");
+        put_character(
+            &mut db,
+            json!({ "id": "huge", "name": "N", "systemPrompt": "s", "updatedAt": 1,
+                "icon": format!("asset:{asset_id}") }),
+        )
+        .expect("store oversized icon");
+        assert_bad_request(
+            build_character_package(&db, "huge", true, &id_set(&[]), "openrouter"),
+            "oversized image asset",
+        );
+    }
+
+    #[test]
+    fn export_normalizes_stored_mime_by_content() {
+        let mut db = open_test_database();
+        // 形式検証の導入前に保存された画像を想定。MIMEが未知でも実体がPNGなら
+        // 検出結果で書き出し、再インポートできる。
+        let data = png_bytes("legacy");
+        let asset_id = store_asset(&db, "image/avif", &data).expect("store legacy asset");
+        put_character(
+            &mut db,
+            json!({ "id": "c", "name": "N", "systemPrompt": "s", "updatedAt": 1,
+                "icon": format!("asset:{asset_id}") }),
+        )
+        .expect("store character");
+        let package = build_character_package(&db, "c", true, &id_set(&[]), "openrouter")
+            .expect("build package");
+        let names = zip_names(&package);
+        assert!(names.iter().any(|name| name.ends_with(".png")));
+        let manifest: Value = serde_json::from_slice(
+            &zip_entry(&package, "manifest.json").expect("manifest"),
+        )
+        .expect("parse manifest");
+        assert_eq!(manifest["assets"][0]["mime"], "image/png");
+
+        let mut target = open_test_database();
+        import_character_package(&mut target, &package, "f", "openrouter", &id_set(&[]))
+            .expect("import normalized package");
     }
 }

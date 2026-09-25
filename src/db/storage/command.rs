@@ -545,7 +545,7 @@ mod tests {
                 character: json!({
                     "id": "character-1",
                     "name": "Alice",
-                    "icon": "data:image/png;base64,AA==",
+                    "icon": "data:image/png;base64,iVBORw0KGgo=",
                     "updatedAt": 1
                 }),
             },
@@ -572,7 +572,7 @@ mod tests {
         .expect("load character with images");
 
         assert_eq!(character["id"], "character-1");
-        assert_eq!(character["icon"], "data:image/png;base64,AA==");
+        assert_eq!(character["icon"], "data:image/png;base64,iVBORw0KGgo=");
         assert_eq!(
             execute(
                 &mut connection,
@@ -780,7 +780,7 @@ mod tests {
     #[test]
     fn write_commands_return_stored_documents_with_asset_references() {
         let mut connection = open_test_database();
-        let image = "data:image/png;base64,aW1hZ2U=";
+        let image = "data:image/png;base64,iVBORw0KGgo=";
 
         let situation = execute(
             &mut connection,

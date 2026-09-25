@@ -6,6 +6,9 @@ import {
     dragVrmViewAdjustment,
     isVrmResetTap,
     normalizeVrmWheelDelta,
+    pinchVrmViewAdjustment,
+    rotateVrmViewAdjustment,
+    VRM_ROTATE_DEGREES_PER_PIXEL,
     vrmViewZoom,
     VRM_VIEW_OFFSET_LIMIT,
     VRM_VIEW_SCALE_LIMIT,
@@ -100,14 +103,41 @@ describe('VRM game-view interaction', () => {
         expect(zoomVrmViewAdjustment(DEFAULT_VRM_VIEW_ADJUSTMENT, 0)).toEqual(DEFAULT_VRM_VIEW_ADJUSTMENT);
     });
 
+    test('orbits the camera on the primary drag and wraps past the half turn', () => {
+        const turned = rotateVrmViewAdjustment(DEFAULT_VRM_VIEW_ADJUSTMENT, 90);
+        expect(turned.rotation).toBeCloseTo(90 * VRM_ROTATE_DEGREES_PER_PIXEL, 10);
+        // Rotating leaves the pan offsets alone, and dragging back unwinds the turn.
+        expect(turned.offsetX).toBe(0);
+        expect(rotateVrmViewAdjustment(turned, -90).rotation).toBeCloseTo(0, 10);
+        // The angle stays inside (-180, 180] instead of growing without bound.
+        expect(rotateVrmViewAdjustment(DEFAULT_VRM_VIEW_ADJUSTMENT, 360 * 2 / VRM_ROTATE_DEGREES_PER_PIXEL).rotation).toBe(0);
+        expect(rotateVrmViewAdjustment(DEFAULT_VRM_VIEW_ADJUSTMENT, 400).rotation).toBeCloseTo(-160, 10);
+        expect(rotateVrmViewAdjustment(DEFAULT_VRM_VIEW_ADJUSTMENT, Number.NaN))
+            .toEqual(DEFAULT_VRM_VIEW_ADJUSTMENT);
+    });
+
+    test('pinches zoom by the finger-spread ratio and clamps the extremes', () => {
+        const zoomed = pinchVrmViewAdjustment(DEFAULT_VRM_VIEW_ADJUSTMENT, 1.5);
+        expect(zoomed.scale).toBeCloseTo(1.5, 10);
+        expect(zoomed.offsetX).toBe(0);
+        // Closing the fingers back by the same ratio cancels the zoom.
+        expect(pinchVrmViewAdjustment(zoomed, 1 / 1.5).scale).toBeCloseTo(1, 10);
+        expect(pinchVrmViewAdjustment(DEFAULT_VRM_VIEW_ADJUSTMENT, 1e6).scale).toBe(VRM_VIEW_SCALE_LIMIT.max);
+        expect(pinchVrmViewAdjustment(DEFAULT_VRM_VIEW_ADJUSTMENT, 1e-6).scale).toBe(VRM_VIEW_SCALE_LIMIT.min);
+        // Fingers landing on the same spot or a broken ratio change nothing.
+        expect(pinchVrmViewAdjustment(DEFAULT_VRM_VIEW_ADJUSTMENT, 0)).toEqual(DEFAULT_VRM_VIEW_ADJUSTMENT);
+        expect(pinchVrmViewAdjustment(DEFAULT_VRM_VIEW_ADJUSTMENT, Number.NaN)).toEqual(DEFAULT_VRM_VIEW_ADJUSTMENT);
+    });
+
     test('keeps NaN fallbacks and clamped infinities out of the scene', () => {
-        expect(clampVrmViewAdjustment({ scale: Number.NaN, offsetX: Number.NaN, offsetY: Number.NaN }))
+        expect(clampVrmViewAdjustment({ scale: Number.NaN, offsetX: Number.NaN, offsetY: Number.NaN, rotation: Number.NaN }))
             .toEqual(DEFAULT_VRM_VIEW_ADJUSTMENT);
         expect(clampVrmViewAdjustment({
             scale: Number.POSITIVE_INFINITY,
             offsetX: Number.POSITIVE_INFINITY,
             offsetY: Number.NEGATIVE_INFINITY,
-        })).toEqual({ scale: VRM_VIEW_SCALE_LIMIT.max, offsetX: VRM_VIEW_OFFSET_LIMIT, offsetY: -VRM_VIEW_OFFSET_LIMIT });
+            rotation: Number.NaN,
+        })).toEqual({ scale: VRM_VIEW_SCALE_LIMIT.max, offsetX: VRM_VIEW_OFFSET_LIMIT, offsetY: -VRM_VIEW_OFFSET_LIMIT, rotation: 0 });
     });
 
     test('detects a quick double tap but not a slow or distant second tap', () => {

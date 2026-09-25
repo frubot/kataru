@@ -19,6 +19,8 @@ import {
     dragVrmViewAdjustment,
     isVrmResetTap,
     normalizeVrmWheelDelta,
+    pinchVrmViewAdjustment,
+    rotateVrmViewAdjustment,
     vrmViewZoom,
     zoomVrmViewAdjustment,
     type VrmTapSample,
@@ -48,7 +50,19 @@ type Props = {
     onReady?: (preview: VrmPreview | null) => void;
 };
 
-type DragState = { pointerId: number; originX: number; originY: number; lastX: number; lastY: number; moved: boolean };
+type DragState = {
+    /** Mouse drags orbit or pan by button; a touch gesture pans with one finger and orbits+zooms with two. */
+    mode: 'rotate' | 'pan';
+    touch: boolean;
+    pointers: Map<number, { x: number; y: number }>;
+    /** Finger spread from the last move; the ratio against it drives pinch zoom. */
+    pinchDistance: number;
+    originX: number;
+    originY: number;
+    moved: boolean;
+    /** A second finger joined, so the gesture can no longer count as a tap. */
+    multiTouch: boolean;
+};
 
 /** A VRMA clip bound to the mixer with the playback metadata it was loaded with. */
 type LoadedVrmMotion = {
@@ -89,7 +103,8 @@ export default function VrmAvatarView({ avatar, expression, motion, fallbackImag
         const adjustment = view.current.adjustment;
         const next = adjustment.scale !== DEFAULT_VRM_VIEW_ADJUSTMENT.scale
             || adjustment.offsetX !== DEFAULT_VRM_VIEW_ADJUSTMENT.offsetX
-            || adjustment.offsetY !== DEFAULT_VRM_VIEW_ADJUSTMENT.offsetY;
+            || adjustment.offsetY !== DEFAULT_VRM_VIEW_ADJUSTMENT.offsetY
+            || adjustment.rotation !== DEFAULT_VRM_VIEW_ADJUSTMENT.rotation;
         // Pointer moves fire continuously; only re-render when the reset button appears or goes away.
         if (next === adjustedFlag.current) return;
         adjustedFlag.current = next;
@@ -101,48 +116,102 @@ export default function VrmAvatarView({ avatar, expression, motion, fallbackImag
         adjustedFlag.current = false;
         setAdjusted(false);
     };
+    const fingerSpread = (pointers: DragState['pointers']) => {
+        const [a, b] = [...pointers.values()];
+        return a && b ? Math.hypot(a.x - b.x, a.y - b.y) : 0;
+    };
     const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
         if (!live.current.interactive || !live.current.ready) return;
-        if (event.pointerType === 'mouse' && event.button !== 0) return;
+        if (event.pointerType === 'mouse') {
+            // Left button orbits the avatar; the right button pans it.
+            if (drag.current) return;
+            const mode = event.button === 0 ? 'rotate' : event.button === 2 ? 'pan' : null;
+            if (mode === null) return;
+            drag.current = {
+                mode,
+                touch: false,
+                pointers: new Map([[event.pointerId, { x: event.clientX, y: event.clientY }]]),
+                pinchDistance: 0,
+                originX: event.clientX,
+                originY: event.clientY,
+                moved: false,
+                multiTouch: false,
+            };
+        } else {
+            // Touch: one finger pans; a second finger turns the drag into orbit + pinch.
+            if (drag.current && !drag.current.touch) return;
+            const current = drag.current ??= {
+                mode: 'pan',
+                touch: true,
+                pointers: new Map(),
+                pinchDistance: 0,
+                originX: event.clientX,
+                originY: event.clientY,
+                moved: false,
+                multiTouch: false,
+            };
+            if (current.pointers.size >= 2) return;
+            current.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+            if (current.pointers.size === 2) {
+                current.multiTouch = true;
+                current.pinchDistance = fingerSpread(current.pointers);
+            }
+        }
         event.currentTarget.setPointerCapture(event.pointerId);
-        drag.current = {
-            pointerId: event.pointerId,
-            originX: event.clientX,
-            originY: event.clientY,
-            lastX: event.clientX,
-            lastY: event.clientY,
-            moved: false,
-        };
         setDragging(true);
     };
     const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
         const current = drag.current;
-        if (!current || current.pointerId !== event.pointerId) return;
-        const deltaX = event.clientX - current.lastX;
-        const deltaY = event.clientY - current.lastY;
-        current.lastX = event.clientX;
-        current.lastY = event.clientY;
+        const point = current?.pointers.get(event.pointerId);
+        if (!current || !point) return;
+        const deltaX = event.clientX - point.x;
+        const deltaY = event.clientY - point.y;
+        point.x = event.clientX;
+        point.y = event.clientY;
         current.moved = current.moved
             || Math.hypot(event.clientX - current.originX, event.clientY - current.originY) > 4;
         const state = view.current;
-        state.adjustment = dragVrmViewAdjustment(state.adjustment, {
-            deltaX,
-            deltaY,
-            pixelToOffset: state.pixelToOffset,
-            zoom: vrmViewZoom(live.current.avatar.framing.scale, state.adjustment),
-        });
+        if (current.pointers.size === 2) {
+            // Two fingers work like a turntable: the pair's sideways drift orbits
+            // the avatar and the changing spread zooms.
+            state.adjustment = rotateVrmViewAdjustment(state.adjustment, deltaX / 2);
+            const spread = fingerSpread(current.pointers);
+            if (current.pinchDistance > 0 && spread > 0) {
+                state.adjustment = pinchVrmViewAdjustment(state.adjustment, spread / current.pinchDistance);
+            }
+            current.pinchDistance = spread;
+        } else if (current.mode === 'pan') {
+            state.adjustment = dragVrmViewAdjustment(state.adjustment, {
+                deltaX,
+                deltaY,
+                pixelToOffset: state.pixelToOffset,
+                zoom: vrmViewZoom(live.current.avatar.framing.scale, state.adjustment),
+            });
+        } else {
+            state.adjustment = rotateVrmViewAdjustment(state.adjustment, deltaX);
+        }
         if (current.moved) syncAdjusted();
     };
     const handlePointerEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
         const current = drag.current;
-        if (!current || current.pointerId !== event.pointerId) return;
-        drag.current = null;
-        setDragging(false);
+        if (!current || !current.pointers.delete(event.pointerId)) return;
         if (event.currentTarget.hasPointerCapture(event.pointerId)) {
             event.currentTarget.releasePointerCapture(event.pointerId);
         }
+        if (current.pointers.size > 0) {
+            // A finger stays down after a two-finger gesture: panning resumes from
+            // where that finger rests and the next pinch measures from scratch.
+            current.pinchDistance = 0;
+            const [remaining] = current.pointers.values();
+            current.originX = remaining.x;
+            current.originY = remaining.y;
+            return;
+        }
+        drag.current = null;
+        setDragging(false);
         // A double tap/click restores the saved framing without opening the settings.
-        if (current.moved) {
+        // Only a primary gesture (left button or a lone finger) can count as a tap.
+        if (current.moved || current.multiTouch || (!current.touch && current.mode !== 'rotate')) {
             lastTap.current = null;
             return;
         }
@@ -352,7 +421,7 @@ export default function VrmAvatarView({ avatar, expression, motion, fallbackImag
                     // rescaling an ancestor of the model reads as a kick and the
                     // avatar keeps wobbling. Framing, zoom and pan therefore all
                     // live on the orthographic camera and never touch the rig.
-                    const yaw = framing.rotation * Math.PI / 180;
+                    const yaw = (framing.rotation + adjustment.rotation) * Math.PI / 180;
                     const offsetX = adjustment.offsetX * size.y;
                     const offsetY = (framing.offsetY + adjustment.offsetY) * size.y;
                     camera.zoom = vrmViewZoom(framing.scale, adjustment);
@@ -588,20 +657,22 @@ export default function VrmAvatarView({ avatar, expression, motion, fallbackImag
         onPointerMove={interactive ? handlePointerMove : undefined}
         onPointerUp={interactive ? handlePointerEnd : undefined}
         onPointerCancel={interactive ? handlePointerEnd : undefined}
+        // The right button pans, so the browser's context menu must stay closed.
+        onContextMenu={interactive ? (event) => event.preventDefault() : undefined}
     >
         <div
             ref={host}
             className="vrm-canvas"
             role="img"
-            aria-label={interactive ? `${name}の3Dアバター。ドラッグで移動、ホイールで拡大縮小できます。` : `${name}の3Dアバター`}
+            aria-label={interactive ? `${name}の3Dアバター。左ドラッグや2本指で回転、右ドラッグや1本指で移動、ホイールやピンチで拡大縮小できます。` : `${name}の3Dアバター`}
             style={{ visibility: status === 'ready' ? 'visible' : 'hidden' }}
         />
         {(showReset || showGaze) && <div className="vrm-view-tools">
             {showReset && <button
                 type="button"
                 className="vrm-view-reset"
-                title="表示位置と拡大率を戻す"
-                aria-label="表示位置と拡大率を戻す"
+                title="表示位置・向き・拡大率を戻す"
+                aria-label="表示位置・向き・拡大率を戻す"
                 onPointerDown={(event) => event.stopPropagation()}
                 onClick={resetView}
             >

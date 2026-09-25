@@ -22,19 +22,15 @@ OpenRouter、OpenAI互換API、Anthropic APIに対応しています。TypeSafe 
 
 ## 動作要件
 
-- Node.js 20.19 以降
-- npm
-- Rust stable ツールチェーン（Cargo を含む）
+- **対応OS**: Windows / macOS / Linux
 - OpenRouter / OpenAI / Anthropic いずれかのAPIキー、またはローカル等で稼働中の互換APIサーバー
 - （読み上げ機能を使う場合）ローカルで起動したVOICEVOXエンジンまたはIrodori TTS Server、あるいは音声合成に対応しているAPI
 
 ## セットアップ
 
-まずは依存関係をインストールします。
-
-```bash
-npm install
-```
+1. [GitHub Releases](https://github.com/frubot/kataru/releases) からお使いのOS向け（Windows / macOS / Linux）のアーカイブをダウンロードして展開します。
+2. 実行ファイル（`kataru` または `kataru.exe`）を起動します。
+3. ブラウザで <http://127.0.0.1:37371> を開きます。
 
 ### AI接続先の設定
 
@@ -53,6 +49,22 @@ Kataruでは複数のAI接続先を登録し、キャラクターごとや用途
 > **Note**: CLIからの接続先追加・管理手順については、後述の [接続先の追加・削除（CLI）](#接続先の追加削除cli) を参照してください。
 
 ## 開発
+
+ソースコードからビルド・開発する場合の手順です。
+
+### 開発環境要件
+
+- Node.js 20.19 以降
+- npm
+- Rust stable ツールチェーン（Cargo を含む）
+
+### 依存関係のインストール
+
+```bash
+npm install
+```
+
+### 開発サーバーの起動
 
 ```bash
 npm run dev

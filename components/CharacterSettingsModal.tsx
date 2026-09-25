@@ -341,7 +341,7 @@ function CharacterSettingsModalContent({
     initialGeneratedDraft,
     onOpenMemoryList,
 }: CharacterSettingsModalProps) {
-    const { createCharacter, updateCharacter, defaultChatModel, ttsConnectionId, ttsSpeed: defaultTtsSpeed, ttsVolume: defaultTtsVolume } = useStore();
+    const { createCharacter, updateCharacter, defaultChatModel, ttsEnabled, ttsConnectionId, ttsSpeed: defaultTtsSpeed, ttsVolume: defaultTtsVolume } = useStore();
     const [initialDraft] = useState(() => buildInitialCharacterDraft(
         character,
         defaultChatModel,
@@ -583,7 +583,7 @@ function CharacterSettingsModalContent({
     const hasCustomParams = (model.model.trim() !== '' && !modelRefsEqual(model, defaultChatModel))
         || maxCharacters || maxHistory || temperature !== null || topP !== null || topK !== null
         || frequencyPenalty !== null || presencePenalty !== null || repetitionPenalty !== null
-        || ttsVoice.trim() !== '' || ttsSpeed != null || ttsVolume != null;
+        || (ttsEnabled && (ttsVoice.trim() !== '' || ttsSpeed != null || ttsVolume != null));
     const promptSectionsStyle: React.CSSProperties = {
         display: 'flex',
         flexDirection: 'column',
@@ -961,6 +961,7 @@ function CharacterSettingsModalContent({
                                     </div>
                                 </div>
 
+                                {ttsEnabled && (<>
                                 {/* 声 */}
                                 <div>
                                     <label style={{ ...labelStyle, fontSize: '0.8125rem', marginBottom: '0.375rem' }}>声</label>
@@ -1104,6 +1105,7 @@ function CharacterSettingsModalContent({
                                         }}
                                     />
                                 </div>
+                                </>)}
 
                                 {/* Maximum reply characters */}
                                 <div>

@@ -135,7 +135,12 @@ fn persist_animations(
                 return Err(invalid());
             }
             let name = animation["name"].as_str().ok_or_else(invalid)?;
-            if name.trim().is_empty() || name.chars().count() > MAX_VRM_ANIMATION_NAME {
+            // "none" is the chat contract's reserved "no motion" value, so a
+            // clip stored under it could never be triggered.
+            if name.trim().is_empty()
+                || name.chars().count() > MAX_VRM_ANIMATION_NAME
+                || name.trim().eq_ignore_ascii_case("none")
+            {
                 return Err(invalid());
             }
             for flag in ["loop", "useExpressions"] {
@@ -439,6 +444,8 @@ mod tests {
             json!([{ "source": vrma_source() }]),
             json!([{ "name": " ", "source": vrma_source() }]),
             json!([{ "name": "x".repeat(MAX_VRM_ANIMATION_NAME + 1), "source": vrma_source() }]),
+            json!([{ "name": "none", "source": vrma_source() }]),
+            json!([{ "name": " NoNe ", "source": vrma_source() }]),
             json!([{ "name": "wave", "source": vrma_source(), "loop": "yes" }]),
             json!([{ "name": "wave", "source": vrma_source(), "useExpressions": 1 }]),
             json!([{ "name": "wave", "source": "data:model/gltf-binary;base64,AAAA" }]),

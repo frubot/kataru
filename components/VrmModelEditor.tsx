@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Check, Pencil, Play, RotateCcw, Trash2 } from 'lucide-react';
 import type { VrmAnimation, VrmAvatar } from '@/lib/store/types';
-import { createVrmExpressionMap, DEFAULT_VRM_FRAMING, readVrmFile, readVrmaFile } from '@/lib/vrm';
+import { createVrmExpressionMap, DEFAULT_VRM_FRAMING, MAX_VRM_ANIMATION_NAME, readVrmFile, readVrmaFile, vrmMotionNameError } from '@/lib/vrm';
 import type { VrmPreview } from './VrmAvatarView';
 import OptionSelector from './OptionSelector';
 
@@ -84,8 +84,13 @@ export default function VrmModelEditor({ avatar, name, fallbackImage, expression
             // Motion names double as chat triggers and the idle pick, so keep them unique.
             const taken = new Set((avatar.animations ?? []).map((entry) => entry.name.toLowerCase()));
             const base = animation.name.trim() || 'モーション';
+            const invalidName = vrmMotionNameError(base);
+            if (invalidName) throw new Error(invalidName);
             let name = base;
-            for (let suffix = 2; taken.has(name.toLowerCase()); suffix += 1) name = `${base} (${suffix})`;
+            for (let suffix = 2; taken.has(name.toLowerCase()); suffix += 1) {
+                const tag = ` (${suffix})`;
+                name = `${Array.from(base).slice(0, MAX_VRM_ANIMATION_NAME - tag.length).join('')}${tag}`;
+            }
             onChange({ ...avatar, animations: [...(avatar.animations ?? []), { ...animation, name }] });
         } catch (reason) {
             onError?.(reason instanceof Error ? reason.message : '読み込みに失敗しました。');
@@ -110,7 +115,7 @@ export default function VrmModelEditor({ avatar, name, fallbackImage, expression
         if (!avatar) return;
         const next = motionNameDraft.trim();
         const taken = (avatar.animations ?? []).some((entry) => entry !== animation && entry.name.toLowerCase() === next.toLowerCase());
-        if (!next || taken) return;
+        if (taken || vrmMotionNameError(next)) return;
         if (next !== animation.name) {
             // idleAnimation and chat triggers store the name, so move them across the rename.
             onChange({
@@ -182,15 +187,15 @@ export default function VrmModelEditor({ avatar, name, fallbackImage, expression
                         const issue = previewMotions.find((entry) => entry.name === animation.name)?.error;
                         const editing = editingMotion === animation.name;
                         const draftName = motionNameDraft.trim();
+                        const nameError = editing ? vrmMotionNameError(draftName) : null;
                         const duplicate = editing && animations.some((entry) => entry !== animation && entry.name.toLowerCase() === draftName.toLowerCase());
-                        const nameInvalid = draftName.length === 0 || duplicate;
+                        const nameInvalid = nameError !== null || duplicate;
                         return <div className="vrm-motion-row" key={animation.name}>
                             {editing ? <input
                                 className="input vrm-motion-name-input"
                                 aria-label="モーション名"
                                 aria-invalid={nameInvalid}
                                 value={motionNameDraft}
-                                maxLength={64}
                                 autoFocus
                                 onChange={(event) => setMotionNameDraft(event.target.value)}
                                 onKeyDown={(event) => {
@@ -217,6 +222,7 @@ export default function VrmModelEditor({ avatar, name, fallbackImage, expression
                                     <label><input type="radio" name={idleGroup} checked={idleName === animation.name} onChange={() => onChange({ ...avatar, idleAnimation: animation.name })} />待機モーションに設定</label>
                                 </div>
                                 {duplicate && <span className="vrm-motion-error">同じ名前のモーションがあります</span>}
+                                {!duplicate && nameError && <span className="vrm-motion-error">{nameError}</span>}
                             </>}
                             {issue && <span className="vrm-motion-error" title={issue}>読み込みエラー</span>}
                         </div>;

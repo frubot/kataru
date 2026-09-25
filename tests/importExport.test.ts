@@ -420,9 +420,14 @@ describe('character sharing', () => {
         for (const patch of [
             { idleAnimation: 1 },
             { idleAnimation: 'x'.repeat(257) },
+            { idleAnimation: 'ghost' },
+            { idleAnimation: 'idle', animations: undefined },
             { animations: 'inline' },
             { animations: [{ name: '   ', source: 'data:application/x-vrma;base64,AAAA' }] },
             { animations: [{ name: 'x'.repeat(65), source: 'data:application/x-vrma;base64,AAAA' }] },
+            { animations: [{ name: '🎉'.repeat(65), source: 'data:application/x-vrma;base64,AAAA' }] },
+            { animations: [{ name: 'none', source: 'data:application/x-vrma;base64,AAAA' }] },
+            { animations: [{ name: ' NoNe ', source: 'data:application/x-vrma;base64,AAAA' }] },
             { animations: [{ name: 'a', source: `asset:${'a'.repeat(64)}` }] },
             { animations: [{ name: 'a', source: 'data:model/gltf-binary;base64,AAAA' }] },
             { animations: [{ name: 'a', source: 'data:application/x-vrma;base64,AAAA', loop: 'yes' }] },
@@ -434,6 +439,18 @@ describe('character sharing', () => {
             broken.data.character.costumes = [{ ...costume, vrm: { ...vrm, ...patch } as never }];
             expect(() => parseCharacterBackup(JSON.stringify(broken))).toThrow('キャラクターファイルの形式が正しくありません');
         }
+
+        const astralName = '🎉'.repeat(64);
+        const astral = validCharacterBackup();
+        astral.data.character.costumes = [{
+            ...costume,
+            vrm: {
+                ...vrm,
+                idleAnimation: astralName,
+                animations: [{ name: astralName, source: 'data:application/x-vrma;base64,AAAA' }],
+            } as never,
+        }];
+        expect(() => parseCharacterBackup(JSON.stringify(astral))).not.toThrow();
     });
 
     test('parses a character as a new import without conversation data', () => {

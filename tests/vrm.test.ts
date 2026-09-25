@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { createVrmExpressionMap, DEFAULT_VRM_FRAMING, getVrmMotionNames, isVrmaSource, MAX_VRMA_BYTES, resolveVrmExpression, validateVrmBuffer, validateVrmaBuffer, VRM_DATA_PREFIX, VRMA_DATA_PREFIX } from '../lib/vrm';
+import { createVrmExpressionMap, DEFAULT_VRM_FRAMING, getVrmMotionNames, isVrmaSource, MAX_VRMA_BYTES, resolveVrmExpression, validateVrmBuffer, validateVrmaBuffer, VRM_DATA_PREFIX, VRMA_DATA_PREFIX, vrmMotionNameError } from '../lib/vrm';
 import { findVisualNovelCostume, getVisualNovelCostumeOptions, getVisualNovelExpressionNames, resolveVisualNovelExpressionImage } from '../lib/visualNovelPresentation';
 import type { Character, VrmAvatar } from '../lib/store/types';
 
@@ -64,8 +64,26 @@ describe('VRM import and presentation', () => {
             { name: 'idle', source: 'd' },
             { name: ' wave ', source: 'e' },
             { name: 'walk', source: 'f' },
+            { name: 'none', source: 'g' },
+            { name: ' None ', source: 'h' },
         ];
         expect(getVrmMotionNames(avatar)).toEqual(['wave', 'idle', 'walk']);
+    });
+
+    test('validates motion names against the server save rules', () => {
+        expect(vrmMotionNameError('wave')).toBeNull();
+        expect(vrmMotionNameError('x'.repeat(64))).toBeNull();
+        expect(vrmMotionNameError('🎉'.repeat(64))).toBeNull();
+        for (const name of [
+            '',
+            '   ',
+            'x'.repeat(65),
+            '🎉'.repeat(65),
+            'none',
+            ' None ',
+        ]) {
+            expect(vrmMotionNameError(name)).not.toBeNull();
+        }
     });
 
     test('exposes mapped emotions to the conversation while keeping blink and mouth controls automatic', () => {

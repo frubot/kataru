@@ -5,6 +5,7 @@ export const MAX_VRM_BYTES = 50 * 1024 * 1024;
 export const VRM_DATA_PREFIX = 'data:model/gltf-binary;base64,';
 export const MAX_VRMA_BYTES = 20 * 1024 * 1024;
 export const VRMA_DATA_PREFIX = 'data:application/x-vrma;base64,';
+export const MAX_VRM_ANIMATION_NAME = 64;
 export const DEFAULT_VRM_FRAMING = { scale: 1, offsetY: 0, rotation: 0 };
 const AUTOMATIC_EXPRESSIONS = /^(neutral|blink|blinkLeft|blinkRight|lookUp|lookDown|lookLeft|lookRight|aa|ih|ou|ee|oh)$/i;
 
@@ -22,10 +23,24 @@ export function resolveVrmExpression(avatar: VrmAvatar, expression?: string | nu
     return Object.entries(avatar.expressionMap).find(([name]) => name.toLowerCase() === expression.toLowerCase())?.[1] || null;
 }
 
+/** The chat contract reserves `none` for "no motion", so a clip with that name can never fire. */
+export function isReservedVrmMotionName(name: string): boolean {
+    return name.trim().toLowerCase() === 'none';
+}
+
+/** Validates a stored motion name against the rules the server enforces on save. */
+export function vrmMotionNameError(name: string): string | null {
+    if (!name.trim()) return 'モーション名を入力してください。';
+    // The server counts Unicode characters, not UTF-16 units.
+    if (Array.from(name).length > MAX_VRM_ANIMATION_NAME) return `モーション名は${MAX_VRM_ANIMATION_NAME}文字以内にしてください。`;
+    if (isReservedVrmMotionName(name)) return '「none」は「動かさない」の予約値のため使えません。';
+    return null;
+}
+
 export function getVrmMotionNames(avatar: VrmAvatar): string[] {
     return (avatar.animations ?? [])
         .map((animation) => animation.name.trim())
-        .filter((name, index, names) => name.length > 0 && names.indexOf(name) === index);
+        .filter((name, index, names) => name.length > 0 && names.indexOf(name) === index && !isReservedVrmMotionName(name));
 }
 
 export function isVrmSource(source: unknown, allowAsset = true): source is string {

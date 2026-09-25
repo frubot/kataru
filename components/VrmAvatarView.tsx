@@ -65,10 +65,10 @@ export default function VrmAvatarView({ avatar, expression, motion, fallbackImag
     useEffect(() => {
         live.current = { ...live.current, avatar, expression, motion, interactive, lipSync, lookAtCamera, onReady };
     }, [avatar, expression, motion, interactive, lipSync, lookAtCamera, onReady]);
-    // Clip flags (loop, useExpressions, idleAnimation) are read live each frame;
-    // only a renamed or replaced animation should rebuild the scene.
+    // loop/useExpressions bake into the clip at load, so they join the reload
+    // key; only idleAnimation is read live each frame.
     const animationKey = useMemo(
-        () => (avatar.animations ?? []).map((animation) => `${animation.name}\n${animation.source}`).join('\n'),
+        () => (avatar.animations ?? []).map((animation) => `${animation.name}\n${animation.source}\n${animation.loop === true}\n${animation.useExpressions === true}`).join('\n'),
         [avatar.animations],
     );
     const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');

@@ -14,7 +14,7 @@ import { isAiConnectionKind } from './aiApi';
 import { DEFAULT_MODEL_DEFAULTS, normalizeModelRef, type ModelRef } from './modelDefaults';
 import { normalizeCharactersForCostumeDiffs } from './visualDiffMigration';
 import { generateId } from './id';
-import { isVrmSource, isVrmaSource } from './vrm';
+import { isVrmSource, isVrmaSource, vrmMotionNameError } from './vrm';
 
 export type { ExportedConnection, ParsedBackup } from './store/types';
 
@@ -452,8 +452,7 @@ function isValidCostume(value: unknown): boolean {
 function isValidVrmAnimation(value: unknown): boolean {
     return isRecord(value)
         && typeof value.name === 'string'
-        && value.name.trim().length > 0
-        && value.name.length <= 64
+        && vrmMotionNameError(value.name) === null
         && isVrmaSource(value.source, false)
         && isOptionalBoolean(value.loop)
         && isOptionalBoolean(value.useExpressions);
@@ -467,9 +466,12 @@ function isValidVrmAvatar(value: unknown): boolean {
         && typeof framing.rotation === 'number' && isOptionalNumber(framing.rotation, { min: -180, max: 180 })
         && Object.keys(value.expressionMap).length <= 256
         && Object.entries(value.expressionMap).every(([name, target]) => name.trim() && name.length <= 256 && typeof target === 'string' && target.length <= 256)
-        && (value.idleAnimation === undefined || (typeof value.idleAnimation === 'string' && value.idleAnimation.length <= 256))
         && (value.animations === undefined
-            || (Array.isArray(value.animations) && value.animations.length <= 32 && value.animations.every(isValidVrmAnimation)));
+            || (Array.isArray(value.animations) && value.animations.length <= 32 && value.animations.every(isValidVrmAnimation)))
+        // The server requires idleAnimation to name a registered animation.
+        && (value.idleAnimation === undefined
+            || (Array.isArray(value.animations)
+                && value.animations.some((animation) => isRecord(animation) && animation.name === value.idleAnimation)));
 }
 
 /** 共有ファイルの model は新形式の ModelRef か旧形式の文字列/{ model, aiApiType }。 */

@@ -6,11 +6,11 @@ use std::collections::HashSet;
 use super::images::store_asset;
 use crate::error::{AppError, AppResult};
 
-const MAX_VRM_BYTES: usize = 50 * 1024 * 1024;
-const VRM_MIME: &str = "model/gltf-binary";
+pub(crate) const MAX_VRM_BYTES: usize = 50 * 1024 * 1024;
+pub(crate) const VRM_MIME: &str = "model/gltf-binary";
 const DATA_PREFIX: &str = "data:model/gltf-binary;base64,";
-const MAX_VRMA_BYTES: usize = 20 * 1024 * 1024;
-const VRMA_MIME: &str = "application/x-vrma";
+pub(crate) const MAX_VRMA_BYTES: usize = 20 * 1024 * 1024;
+pub(crate) const VRMA_MIME: &str = "application/x-vrma";
 const VRMA_DATA_PREFIX: &str = "data:application/x-vrma;base64,";
 const MAX_VRM_ANIMATIONS: usize = 32;
 const MAX_VRM_ANIMATION_NAME: usize = 64;
@@ -51,7 +51,7 @@ fn has_uri(value: &Value) -> bool {
     }
 }
 
-fn validate_model(data: &[u8]) -> AppResult<()> {
+pub(crate) fn validate_model(data: &[u8]) -> AppResult<()> {
     if data.len() > MAX_VRM_BYTES {
         return Err(invalid());
     }
@@ -67,7 +67,7 @@ fn validate_model(data: &[u8]) -> AppResult<()> {
     Ok(())
 }
 
-fn validate_vrma(data: &[u8]) -> AppResult<()> {
+pub(crate) fn validate_vrma(data: &[u8]) -> AppResult<()> {
     if data.len() > MAX_VRMA_BYTES {
         return Err(invalid_vrma());
     }

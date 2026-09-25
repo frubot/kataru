@@ -11,7 +11,7 @@ import type {
 import * as db from './db';
 import { getAiConnections } from './aiConnections';
 import { isAiConnectionKind } from './aiApi';
-import { DEFAULT_MODEL_DEFAULTS, normalizeModelRef, type ModelRef } from './modelDefaults';
+import { downloadBlob, shareBlobFile } from './characterPackage';
 import { normalizeCharactersForCostumeDiffs } from './visualDiffMigration';
 import { generateId } from './id';
 import { isVrmSource, isVrmaSource, vrmMotionNameError } from './vrm';
@@ -33,60 +33,6 @@ export interface FullBackup {
         memories: MemoryRecord[];
         usageRecords: UsageRecord[];
         connections?: ExportedConnection[];
-    };
-}
-
-export type SharedCharacter = Omit<
-    Character,
-    'id' | 'favorite' | 'createdAt' | 'updatedAt' | 'enableThinking' | 'model'
-> & { model: string | ModelRef };
-
-export interface CharacterBackup {
-    version: 1;
-    exportedAt: number;
-    type: 'character';
-    data: {
-        character: SharedCharacter;
-    };
-}
-
-export interface ParsedImport {
-    type: 'full' | 'character';
-    data: ParsedBackup;
-}
-
-function copySharedCharacter(character: Character | SharedCharacter): SharedCharacter {
-    const model = normalizeModelRef(character.model, DEFAULT_MODEL_DEFAULTS.defaultChatModel);
-    return {
-        name: character.name,
-        systemPrompt: character.systemPrompt,
-        // カスタム接続（cx_*）は他環境に存在しないため、共有ファイルでは組み込み
-        // 接続のIDだけを残し、それ以外はモデル名のみに落とす。
-        model: isAiConnectionKind(model.connectionId) ? model : model.model,
-        ...(character.speechStyle !== undefined ? { speechStyle: character.speechStyle } : {}),
-        ...(character.protagonistPrompt !== undefined ? { protagonistPrompt: character.protagonistPrompt } : {}),
-        ...(character.userConstraints !== undefined ? { userConstraints: character.userConstraints } : {}),
-        ...(character.icon !== undefined ? { icon: character.icon } : {}),
-        ...(character.maxCharacters !== undefined ? { maxCharacters: character.maxCharacters } : {}),
-        ...(character.maxHistory !== undefined ? { maxHistory: character.maxHistory } : {}),
-        ...(character.temperature !== undefined ? { temperature: character.temperature } : {}),
-        ...(character.topP !== undefined ? { topP: character.topP } : {}),
-        ...(character.topK !== undefined ? { topK: character.topK } : {}),
-        ...(character.frequencyPenalty !== undefined ? { frequencyPenalty: character.frequencyPenalty } : {}),
-        ...(character.presencePenalty !== undefined ? { presencePenalty: character.presencePenalty } : {}),
-        ...(character.repetitionPenalty !== undefined ? { repetitionPenalty: character.repetitionPenalty } : {}),
-        ...(character.enableMemory !== undefined ? { enableMemory: character.enableMemory } : {}),
-        ...(character.expressions !== undefined ? {
-            expressions: character.expressions.map((expression) => ({ ...expression })),
-        } : {}),
-        ...(character.costumes !== undefined ? {
-            costumes: character.costumes.map((costume) => ({
-                ...costume,
-                ...(costume.expressions ? {
-                    expressions: costume.expressions.map((expression) => ({ ...expression })),
-                } : {}),
-            })),
-        } : {}),
     };
 }
 
@@ -156,47 +102,8 @@ export async function createFullBackup(): Promise<string> {
     return JSON.stringify(backup, null, 2);
 }
 
-export async function createCharacterBackup(characterId: string, includeVrm = true): Promise<string> {
-    const character = await db.getCharacterWithImages(characterId);
-    if (!character) {
-        throw new Error('共有するキャラクターが見つかりません');
-    }
-    const backup: CharacterBackup = {
-        version: 1,
-        exportedAt: Date.now(),
-        type: 'character',
-        data: {
-            character: copySharedCharacter(includeVrm ? character : {
-                ...character,
-                costumes: character.costumes?.map((costume) => costume.kind === 'vrm'
-                    ? { name: costume.name, kind: 'image', image: costume.image, promptDetail: costume.promptDetail }
-                    : costume),
-            }),
-        },
-    };
-    return JSON.stringify(backup, null, 2);
-}
-
-export function createCharacterBackupFilename(name: string): string {
-    const normalized = Array.from(name.normalize('NFKC'), (character) => (
-        character.charCodeAt(0) <= 0x1f || '<>:"/\\|?*'.includes(character)
-            ? '_'
-            : character
-    )).join('')
-        .replace(/[. ]+$/g, '')
-        .trim();
-    const safeName = (normalized || 'character').slice(0, 80);
-    return `${safeName}.kataru-character.json`;
-}
-
 export function downloadJson(json: string, filename: string) {
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(new Blob([json], { type: 'application/json' }), filename);
 }
 
 export async function shareJsonFile(
@@ -204,36 +111,7 @@ export async function shareJsonFile(
     filename: string,
     title: string,
 ): Promise<'shared' | 'downloaded' | 'cancelled'> {
-    if (typeof navigator !== 'undefined' && typeof File === 'function' && typeof navigator.share === 'function') {
-        const file = new File([json], filename, { type: 'application/json' });
-        const shareData: ShareData = { files: [file], title };
-        let canShareFiles = true;
-        if (typeof navigator.canShare === 'function') {
-            try {
-                canShareFiles = navigator.canShare(shareData);
-            } catch {
-                canShareFiles = false;
-            }
-        }
-        if (canShareFiles) {
-            try {
-                await navigator.share(shareData);
-                return 'shared';
-            } catch (error) {
-                if (
-                    typeof error === 'object'
-                    && error !== null
-                    && 'name' in error
-                    && error.name === 'AbortError'
-                ) {
-                    return 'cancelled';
-                }
-            }
-        }
-    }
-
-    downloadJson(json, filename);
-    return 'downloaded';
+    return shareBlobFile(new Blob([json], { type: 'application/json' }), filename, title);
 }
 
 // IndexedDB では大容量保存が可能だが、実運用上の安全圏として上限を設ける
@@ -411,10 +289,8 @@ function isOptionalBoolean(value: unknown): boolean {
     return value === undefined || typeof value === 'boolean';
 }
 
-function isValidSharedImageSource(value: unknown): boolean {
-    return typeof value === 'string'
-        && value.length > 0
-        && !value.startsWith('asset:');
+function isNonEmptyString(value: unknown): boolean {
+    return typeof value === 'string' && value.length > 0;
 }
 
 function isOptionalNumber(
@@ -434,7 +310,7 @@ function isValidExpression(value: unknown): boolean {
         && typeof value.name === 'string'
         && value.name.trim().length > 0
         && isOptionalString(value.promptDetail)
-        && isValidSharedImageSource(value.image);
+        && isNonEmptyString(value.image);
 }
 
 function isValidCostume(value: unknown): boolean {
@@ -442,7 +318,7 @@ function isValidCostume(value: unknown): boolean {
         && typeof value.name === 'string'
         && value.name.trim().length > 0
         && isOptionalString(value.promptDetail)
-        && isValidSharedImageSource(value.image)
+        && isNonEmptyString(value.image)
         && (value.kind === undefined || value.kind === 'image' || value.kind === 'vrm')
         && (value.kind === 'vrm' ? isValidVrmAvatar(value.vrm) : value.vrm === undefined)
         && (value.expressions === undefined
@@ -474,90 +350,8 @@ function isValidVrmAvatar(value: unknown): boolean {
                 && value.animations.some((animation) => isRecord(animation) && animation.name === value.idleAnimation)));
 }
 
-/** 共有ファイルの model は新形式の ModelRef か旧形式の文字列/{ model, aiApiType }。 */
-function isValidSharedModel(value: unknown): boolean {
-    if (typeof value === 'string') return value.trim().length > 0;
-    return isRecord(value)
-        && typeof value.model === 'string'
-        && value.model.trim().length > 0
-        && (value.connectionId === undefined
-            || (typeof value.connectionId === 'string' && value.connectionId.trim().length > 0))
-        && (value.aiApiType === undefined || typeof value.aiApiType === 'string');
-}
-
-function isValidSharedCharacter(value: unknown): value is SharedCharacter {
-    if (!isRecord(value)) return false;
-    return typeof value.name === 'string'
-        && value.name.trim().length > 0
-        && typeof value.systemPrompt === 'string'
-        && isValidSharedModel(value.model)
-        && isOptionalString(value.speechStyle)
-        && isOptionalString(value.protagonistPrompt)
-        && isOptionalString(value.userConstraints)
-        && (value.icon === undefined || isValidSharedImageSource(value.icon))
-        && isOptionalNumber(value.maxCharacters, { min: 1, integer: true })
-        && isOptionalNumber(value.maxHistory, { min: 1, max: 100, integer: true })
-        && isOptionalNumber(value.temperature, { min: 0, max: 2 })
-        && isOptionalNumber(value.topP, { min: 0, max: 1 })
-        && isOptionalNumber(value.topK, { min: 0, max: 100, integer: true })
-        && isOptionalNumber(value.frequencyPenalty, { min: -2, max: 2 })
-        && isOptionalNumber(value.presencePenalty, { min: -2, max: 2 })
-        && isOptionalNumber(value.repetitionPenalty, { min: 0, max: 2 })
-        && isOptionalBoolean(value.enableMemory)
-        && (value.expressions === undefined
-            || (Array.isArray(value.expressions) && value.expressions.every(isValidExpression)))
-        && (value.costumes === undefined
-            || (Array.isArray(value.costumes) && value.costumes.every(isValidCostume)));
-}
-
-function parseCharacterBackupValue(parsed: unknown): ParsedBackup {
-    if (
-        !isRecord(parsed)
-        || parsed.version !== 1
-        || parsed.type !== 'character'
-        || typeof parsed.exportedAt !== 'number'
-        || !Number.isFinite(parsed.exportedAt)
-        || !isRecord(parsed.data)
-        || !isValidSharedCharacter(parsed.data.character)
-    ) {
-        throw new Error('キャラクターファイルの形式が正しくありません');
-    }
-
-    const now = Date.now();
-    const shared = copySharedCharacter(parsed.data.character);
-    const character: Character = {
-        id: generateId(),
-        ...shared,
-        model: normalizeModelRef(shared.model, DEFAULT_MODEL_DEFAULTS.defaultChatModel),
-        createdAt: now,
-        updatedAt: now,
-    };
-    return {
-        characters: [character],
-        groups: [],
-        rooms: [],
-        memories: [],
-        usageRecords: [],
-    };
-}
-
 export function parseFullBackup(json: string): ParsedBackup {
     return parseFullBackupValue(parseBackupJson(json));
-}
-
-export function parseCharacterBackup(json: string): ParsedBackup {
-    return parseCharacterBackupValue(parseBackupJson(json));
-}
-
-export function parseImportFile(json: string): ParsedImport {
-    const parsed = parseBackupJson(json);
-    if (isRecord(parsed) && parsed.type === 'full') {
-        return { type: 'full', data: parseFullBackupValue(parsed) };
-    }
-    if (isRecord(parsed) && parsed.type === 'character') {
-        return { type: 'character', data: parseCharacterBackupValue(parsed) };
-    }
-    throw new Error('インポートファイルの形式が正しくありません');
 }
 
 // IDを全て再生成してマージ時の衝突を防ぐ

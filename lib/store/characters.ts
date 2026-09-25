@@ -72,6 +72,7 @@ type CharacterSlice = Pick<
     | 'updateCharacter'
     | 'deleteCharacter'
     | 'duplicateCharacter'
+    | 'addImportedCharacter'
     | 'getCharacter'
 >;
 
@@ -235,6 +236,11 @@ export function createCharacterSlice(set: StoreSet, get: StoreGet): CharacterSli
             fire(persistCharacter(next));
             fire(duplicateDedicatedMemories(source.id, newId));
             return newId;
+        },
+
+        addImportedCharacter: (character) => {
+            // サーバーが永続化済みのCharacter（asset参照）をそのままstateへ追加する。
+            set((state) => ({ characters: [...state.characters, character] }));
         },
 
         getCharacter: (id) => get().characters.find((character) => character.id === id),

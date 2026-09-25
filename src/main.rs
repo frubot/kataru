@@ -1,5 +1,6 @@
 mod ai;
 mod ai_config;
+mod character_package;
 mod config;
 mod conversation;
 mod db;
@@ -48,6 +49,8 @@ const STORAGE_REQUEST_BODY_LIMIT: usize = 512 * 1024 * 1024;
 const CONVERSATION_REQUEST_BODY_LIMIT: usize = 64 * 1024 * 1024;
 // 判定用の縮小JPEGをneutral・対象画像の最大2枚受け付ける（各4MiBとJSONの余裕）。
 const EXPRESSION_DETECTION_REQUEST_BODY_LIMIT: usize = 9 * 1024 * 1024;
+// .kataruパッケージは圧縮済みZIPをそのまま受け取る（展開後の実体は256MiBまで検証する）。
+const CHARACTER_PACKAGE_REQUEST_BODY_LIMIT: usize = 300 * 1024 * 1024;
 
 fn response_compression_predicate() -> impl Predicate {
     // 巨大な画像data URLを含むJSONは、圧縮コストの方が高い。
@@ -192,6 +195,22 @@ fn api_router() -> Router<AppState> {
         .route(
             "/storage",
             post(handle_storage_command).layer(DefaultBodyLimit::max(STORAGE_REQUEST_BODY_LIMIT)),
+        )
+        .route(
+            "/characters/{character_id}/package",
+            get(character_package::export_package),
+        )
+        .route(
+            "/character-packages/inspect",
+            post(character_package::inspect_package).layer(DefaultBodyLimit::max(
+                CHARACTER_PACKAGE_REQUEST_BODY_LIMIT,
+            )),
+        )
+        .route(
+            "/character-packages/import",
+            post(character_package::import_package).layer(DefaultBodyLimit::max(
+                CHARACTER_PACKAGE_REQUEST_BODY_LIMIT,
+            )),
         )
         .route("/chat", post(ai::chat))
         .route("/ai/status", post(ai::connection_status))

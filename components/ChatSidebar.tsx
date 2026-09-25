@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Plus, Settings, Trash2, ChevronDown, ChevronRight, User, Users, Copy, EllipsisVertical, PanelLeftClose, PanelLeftOpen, Search, Share2, SquarePen, Star, X } from 'lucide-react';
 import { useStore, Character, Situation, resolveSituationParticipants } from '@/lib/store';
-import { createCharacterBackup, createCharacterBackupFilename, shareJsonFile } from '@/lib/importExport';
+import { createCharacterPackage, createCharacterPackageFilename, shareBlobFile } from '@/lib/characterPackage';
 import StoredImage from './StoredImage';
 import CharacterShareOptions from './CharacterShareOptions';
 import SituationSettingsModal from './SituationSettingsModal';
@@ -269,9 +269,9 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, o
             return;
         }
         try {
-            const json = await createCharacterBackup(character.id, includeVrm ?? true);
-            const filename = createCharacterBackupFilename(character.name);
-            await shareJsonFile(json, filename, `${character.name} - Kataru`);
+            const blob = await createCharacterPackage(character.id, includeVrm ?? true, defaultChatModel.connectionId);
+            const filename = createCharacterPackageFilename(character.name);
+            await shareBlobFile(blob, filename, `${character.name} - Kataru`);
             setSharingCharacter(null);
         } catch (error) {
             const message = error instanceof Error ? error.message : 'キャラクターの共有に失敗しました';

@@ -1,8 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, ChevronRight, Loader2, Plus, Sparkles, Upload, User, X } from 'lucide-react';
 import type { GeneratedCharacterDraft } from '@/lib/characterGeneration';
-import { resolveCharacterImportPreviewImage } from '@/lib/characterImportPreview';
-import { parseCharacterBackup, type ParsedBackup } from '@/lib/importExport';
+import { AI_CONNECTION_KINDS } from '@/lib/aiApi';
+import { getAiConnections } from '@/lib/aiConnections';
+import {
+    importCharacterPackage,
+    inspectCharacterPackage,
+    type CharacterPackageInspection,
+} from '@/lib/characterPackage';
 import { useStore } from '@/lib/store';
 import CharacterGeneratorModal from './CharacterGeneratorModal';
 import StoredImage from './StoredImage';
@@ -21,8 +26,11 @@ export default function CharacterAddModal({
     onCreate,
     onGenerated,
 }: CharacterAddModalProps) {
-    const { mergeBackup } = useStore();
-    const [importData, setImportData] = useState<ParsedBackup | null>(null);
+    const { addImportedCharacter, defaultChatModel } = useStore();
+    const [packageFile, setPackageFile] = useState<{
+        file: File;
+        inspection: CharacterPackageInspection;
+    } | null>(null);
     const [importError, setImportError] = useState<string | null>(null);
     const [isReading, setIsReading] = useState(false);
     const [isImporting, setIsImporting] = useState(false);
@@ -33,7 +41,7 @@ export default function CharacterAddModal({
 
     useEffect(() => {
         if (isOpen) return;
-        setImportData(null);
+        setPackageFile(null);
         setImportError(null);
         setIsReading(false);
         setIsImporting(false);
@@ -61,10 +69,10 @@ export default function CharacterAddModal({
         setImportError(null);
         setIsReading(true);
         try {
-            const parsed = parseCharacterBackup(await file.text());
-            setImportData(parsed);
+            const inspection = await inspectCharacterPackage(file);
+            setPackageFile({ file, inspection });
         } catch (error) {
-            setImportData(null);
+            setPackageFile(null);
             setImportError(error instanceof Error ? error.message : 'インポートに失敗しました');
         } finally {
             setIsReading(false);
@@ -72,12 +80,20 @@ export default function CharacterAddModal({
     };
 
     const handleImport = async () => {
-        if (!importData || busy) return;
+        if (!packageFile || busy) return;
 
         setImportError(null);
         setIsImporting(true);
         try {
-            await mergeBackup(importData);
+            const connectionIds = await getAiConnections()
+                .then((response) => response.connections.map((connection) => connection.id))
+                .catch(() => [] as string[]);
+            const character = await importCharacterPackage(packageFile.file, {
+                fallbackModel: defaultChatModel.model,
+                fallbackConnectionId: defaultChatModel.connectionId,
+                knownConnectionIds: [...AI_CONNECTION_KINDS, ...connectionIds],
+            });
+            addImportedCharacter(character);
             setIsImporting(false);
             onClose();
         } catch (error) {
@@ -86,10 +102,7 @@ export default function CharacterAddModal({
         }
     };
 
-    const previewCharacter = importData?.characters[0] ?? null;
-    const previewImage = previewCharacter
-        ? resolveCharacterImportPreviewImage(previewCharacter)
-        : null;
+    const inspection = packageFile?.inspection ?? null;
 
     return (
         <>
@@ -126,20 +139,44 @@ export default function CharacterAddModal({
                     </div>
 
                     <div className="modal-body">
-                        {previewCharacter ? (
+                        {inspection ? (
                             <div className="character-import-preview">
                                 <div className="character-import-preview-image">
-                                    {previewImage ? (
+                                    {inspection.previewImage ? (
                                         <StoredImage
-                                            src={previewImage}
-                                            alt={`${previewCharacter.name}のdefault衣装・neutral表情`}
+                                            src={inspection.previewImage}
+                                            alt={`${inspection.name}のプレビュー`}
                                             loading="eager"
                                         />
                                     ) : (
                                         <User size={52} aria-hidden="true" />
                                     )}
                                 </div>
-                                <h3>{previewCharacter.name}</h3>
+                                <h3>{inspection.name}</h3>
+                                <p style={{
+                                    margin: 0,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    flexWrap: 'wrap',
+                                    gap: '0.5rem',
+                                    color: 'var(--text-secondary)',
+                                    fontSize: '0.8rem',
+                                }}>
+                                    <span>{inspection.assetCount}個のアセット</span>
+                                    {inspection.hasVrm && (
+                                        <span style={{
+                                            padding: '0.1rem 0.5rem',
+                                            border: '1px solid var(--accent-primary)',
+                                            borderRadius: '999px',
+                                            color: 'var(--accent-primary)',
+                                            fontSize: '0.7rem',
+                                            fontWeight: 600,
+                                        }}>
+                                            3D衣装あり
+                                        </span>
+                                    )}
+                                </p>
                             </div>
                         ) : (
                             <div className="character-add-options">
@@ -181,7 +218,7 @@ export default function CharacterAddModal({
                         <input
                             ref={fileInputRef}
                             type="file"
-                            accept=".json,application/json"
+                            accept=".kataru,.zip"
                             onChange={handleFileSelect}
                             disabled={busy}
                             style={{ display: 'none' }}
@@ -195,13 +232,13 @@ export default function CharacterAddModal({
                         )}
                     </div>
 
-                    {previewCharacter && (
+                    {inspection && (
                         <div className="modal-footer">
                             <button
                                 type="button"
                                 className="btn btn-secondary"
                                 onClick={() => {
-                                    setImportData(null);
+                                    setPackageFile(null);
                                     setImportError(null);
                                 }}
                                 disabled={busy}

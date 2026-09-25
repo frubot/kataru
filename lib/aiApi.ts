@@ -19,9 +19,13 @@ export {
     type ModelRef,
 } from './modelDefaults';
 
+/** All connection kinds the server knows about. Built-in connections use the
+ * same value as their connection id. */
+export const AI_CONNECTION_KINDS = ['openrouter', 'openai-compatible', 'anthropic', 'typesafe', 'voicevox', 'irodori'] as const;
+
 /** The kind of API a connection speaks. Built-in connections use the same
  * value as their connection id. */
-export type AiConnectionKind = 'openrouter' | 'openai-compatible' | 'anthropic' | 'typesafe' | 'voicevox' | 'irodori';
+export type AiConnectionKind = (typeof AI_CONNECTION_KINDS)[number];
 
 /** 互換エイリアス。組み込み接続の id と同じ値を取る。 */
 export type AiApiType = AiConnectionKind;
@@ -41,7 +45,7 @@ export const AI_API_TYPE_LABELS = AI_CONNECTION_KIND_LABELS;
 export const DEFAULT_AI_API_TYPE: AiApiType = DEFAULT_CONNECTION_ID;
 
 export function isAiConnectionKind(value: unknown): value is AiConnectionKind {
-    return value === 'openrouter' || value === 'openai-compatible' || value === 'anthropic' || value === 'typesafe' || value === 'voicevox' || value === 'irodori';
+    return AI_CONNECTION_KINDS.includes(value as AiConnectionKind);
 }
 
 /** 互換エイリアス。 */

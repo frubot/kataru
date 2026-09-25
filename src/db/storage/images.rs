@@ -53,14 +53,19 @@ fn persist_image_source(
         return Ok(false);
     };
     if let Some(asset_id) = source_text.strip_prefix(IMAGE_ASSET_PREFIX) {
-        let exists = connection.query_row(
-            "SELECT EXISTS(SELECT 1 FROM image_assets WHERE id = ?1)",
-            params![asset_id],
-            |row| row.get::<_, bool>(0),
-        )?;
-        if !exists {
+        let mime_type = connection
+            .query_row(
+                "SELECT mime_type FROM image_assets WHERE id = ?1",
+                params![asset_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .ok_or_else(|| {
+                AppError::BadRequest("参照された保存画像が見つかりません。".to_owned())
+            })?;
+        if !mime_type.starts_with("image/") {
             return Err(AppError::BadRequest(
-                "参照された保存画像が見つかりません。".to_owned(),
+                "参照されたアセットは画像ではありません。".to_owned(),
             ));
         }
         referenced_assets.insert(asset_id.to_owned());
@@ -392,10 +397,10 @@ mod tests {
 
     use super::{
         IMAGE_ASSET_PREFIX, inline_character_images, inline_situation_images,
-        prune_orphaned_image_assets,
+        prune_orphaned_image_assets, store_asset,
     };
     use crate::db::storage::{
-        characters::{upsert_character, upsert_situation},
+        characters::{put_character, upsert_character, upsert_situation},
         test_support::open_test_database,
     };
 
@@ -483,6 +488,30 @@ mod tests {
                 })
                 .expect("count remaining assets"),
             0
+        );
+    }
+
+    #[test]
+    fn image_fields_reject_references_to_non_image_assets() {
+        let mut connection = open_test_database();
+        let model_id = store_asset(&connection, "model/gltf-binary", b"not-an-image")
+            .expect("store model asset");
+        for character in [
+            json!({ "id": "character-1", "updatedAt": 1, "icon": format!("asset:{model_id}") }),
+            json!({ "id": "character-1", "updatedAt": 1,
+                "expressions": [{ "name": "neutral", "image": format!("asset:{model_id}") }] }),
+            json!({ "id": "character-1", "updatedAt": 1,
+                "costumes": [{ "name": "default", "image": format!("asset:{model_id}") }] }),
+        ] {
+            assert!(put_character(&mut connection, character).is_err());
+        }
+        // 存在しないアセット参照も従来どおり拒否する。
+        assert!(
+            put_character(
+                &mut connection,
+                json!({ "id": "character-1", "updatedAt": 1, "icon": "asset:missing" })
+            )
+            .is_err()
         );
     }
 

@@ -3,17 +3,16 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 import { clearAiConnectionsCache } from '../lib/aiConnections';
 
 import {
-    createCharacterBackup,
-    createCharacterBackupFilename,
     createFullBackup,
-    parseCharacterBackup,
     parseFullBackup,
-    parseImportFile,
     reassignIds,
     shareJsonFile,
-    type CharacterBackup,
     type FullBackup,
 } from '../lib/importExport';
+import {
+    createCharacterPackageFilename,
+    shareBlobFile,
+} from '../lib/characterPackage';
 import type {
     Character,
     MemoryRecord,
@@ -131,27 +130,6 @@ function validBackup(): FullBackup {
 
 function backupJson(backup = validBackup()): string {
     return JSON.stringify(backup);
-}
-
-function validCharacterBackup(): CharacterBackup {
-    return {
-        version: 1,
-        exportedAt: 123,
-        type: 'character',
-        data: {
-            character: {
-                name: 'アリス',
-                systemPrompt: 'アリスのシステムプロンプト',
-                speechStyle: '丁寧に話す',
-                model: { connectionId: 'openrouter', model: 'test-model' },
-                icon: 'data:image/png;base64,AA==',
-                expressions: [{
-                    name: 'neutral',
-                    image: 'data:image/png;base64,AQ==',
-                }],
-            },
-        },
-    };
 }
 
 afterEach(() => {
@@ -333,195 +311,12 @@ describe('createFullBackup and parseFullBackup', () => {
     });
 });
 
-describe('character sharing', () => {
-    test('exports one character with inline images and without local metadata', async () => {
-        const source: Character & { enableSummary: boolean } = {
-            ...character('character-a', 'アリス'),
-            favorite: true,
-            enableThinking: true,
-            enableSummary: false,
-            frequencyPenalty: 0,
-            presencePenalty: -0.5,
-            repetitionPenalty: 1.15,
-            icon: 'data:image/png;base64,AA==',
-            expressions: [{ name: 'neutral', image: 'data:image/png;base64,AQ==' }],
-        };
-        const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
-            const request = JSON.parse(String(init?.body)) as { op: string; character_id?: string };
-            expect(request).toEqual({
-                op: 'get_character_with_images',
-                character_id: source.id,
-            });
-            return {
-                ok: true,
-                json: async () => ({ result: source }),
-            };
-        });
-        vi.stubGlobal('fetch', fetchMock);
-
-        const json = await createCharacterBackup(source.id);
-        const envelope = JSON.parse(json) as CharacterBackup;
-
-        expect(envelope.type).toBe('character');
-        expect(envelope.version).toBe(1);
-        expect(envelope.data.character).toMatchObject({
-            name: source.name,
-            icon: source.icon,
-            expressions: source.expressions,
-            frequencyPenalty: 0,
-            presencePenalty: -0.5,
-            repetitionPenalty: 1.15,
-        });
-        expect(parseCharacterBackup(json).characters[0]).toMatchObject(envelope.data.character);
-        expect(envelope.data.character).not.toHaveProperty('id');
-        expect(envelope.data.character).not.toHaveProperty('favorite');
-        expect(envelope.data.character).not.toHaveProperty('enableThinking');
-        expect(envelope.data.character).not.toHaveProperty('enableSummary');
-        expect(envelope.data.character).not.toHaveProperty('createdAt');
-        expect(envelope.data.character).not.toHaveProperty('updatedAt');
-        expect(fetchMock).toHaveBeenCalledTimes(1);
-    });
-
-    test('round-trips VRM settings and can share only the 2D thumbnail', async () => {
-        const source = character('vrm-character', 'VRM Character');
-        source.costumes = [{ name: '3d', kind: 'vrm', image: 'data:image/png;base64,aW1hZ2U=', vrm: {
-            source: 'data:model/gltf-binary;base64,Z2xURg==',
-            framing: { scale: 1.2, offsetY: 0.1, rotation: 15 }, expressionMap: { smile: 'happy' },
-        } }];
-        vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => new Response(JSON.stringify({ result: source }), { status: 200 })));
-        const included = parseCharacterBackup(await createCharacterBackup(source.id, true));
-        expect(included.characters[0].costumes).toEqual(source.costumes);
-        const thumbnailOnly = parseCharacterBackup(await createCharacterBackup(source.id, false));
-        expect(thumbnailOnly.characters[0].costumes?.[0]).toEqual({ name: '3d', kind: 'image', image: source.costumes[0].image });
-        for (const invalid of ['https://example.com/model.vrm', `asset:${'a'.repeat(64)}`]) {
-            source.costumes[0].vrm!.source = invalid;
-            const backup = validCharacterBackup();
-            backup.data.character.costumes = source.costumes;
-            expect(() => parseCharacterBackup(JSON.stringify(backup))).toThrow();
-        }
-    });
-
-    test('round-trips VRM motion settings and rejects invalid animation entries', () => {
-        const vrm = {
-            source: 'data:model/gltf-binary;base64,Z2xURg==',
-            framing: { scale: 1.2, offsetY: 0.1, rotation: 15 },
-            expressionMap: { smile: 'happy' },
-            idleAnimation: 'idle',
-            animations: [
-                { name: 'idle', source: 'data:application/x-vrma;base64,AAAA', loop: true },
-                { name: 'wave', source: 'data:application/x-vrma;base64,BBBB', useExpressions: true },
-            ],
-        };
-        const costume = { name: '3d', kind: 'vrm' as const, image: 'data:image/png;base64,aW1hZ2U=', vrm };
-        const backup = validCharacterBackup();
-        backup.data.character.costumes = [costume];
-        expect(parseCharacterBackup(JSON.stringify(backup)).characters[0].costumes).toEqual([costume]);
-
-        for (const patch of [
-            { idleAnimation: 1 },
-            { idleAnimation: 'x'.repeat(257) },
-            { idleAnimation: 'ghost' },
-            { idleAnimation: 'idle', animations: undefined },
-            { animations: 'inline' },
-            { animations: [{ name: '   ', source: 'data:application/x-vrma;base64,AAAA' }] },
-            { animations: [{ name: 'x'.repeat(65), source: 'data:application/x-vrma;base64,AAAA' }] },
-            { animations: [{ name: '🎉'.repeat(65), source: 'data:application/x-vrma;base64,AAAA' }] },
-            { animations: [{ name: 'none', source: 'data:application/x-vrma;base64,AAAA' }] },
-            { animations: [{ name: ' NoNe ', source: 'data:application/x-vrma;base64,AAAA' }] },
-            { animations: [{ name: 'a', source: `asset:${'a'.repeat(64)}` }] },
-            { animations: [{ name: 'a', source: 'data:model/gltf-binary;base64,AAAA' }] },
-            { animations: [{ name: 'a', source: 'data:application/x-vrma;base64,AAAA', loop: 'yes' }] },
-            { animations: [{ name: 'a', source: 'data:application/x-vrma;base64,AAAA', useExpressions: 1 }] },
-            { animations: [{ name: 'a' }] },
-            { animations: new Array(33).fill({ name: 'a', source: 'data:application/x-vrma;base64,AAAA' }) },
-        ]) {
-            const broken = validCharacterBackup();
-            broken.data.character.costumes = [{ ...costume, vrm: { ...vrm, ...patch } as never }];
-            expect(() => parseCharacterBackup(JSON.stringify(broken))).toThrow('キャラクターファイルの形式が正しくありません');
-        }
-
-        const astralName = '🎉'.repeat(64);
-        const astral = validCharacterBackup();
-        astral.data.character.costumes = [{
-            ...costume,
-            vrm: {
-                ...vrm,
-                idleAnimation: astralName,
-                animations: [{ name: astralName, source: 'data:application/x-vrma;base64,AAAA' }],
-            } as never,
-        }];
-        expect(() => parseCharacterBackup(JSON.stringify(astral))).not.toThrow();
-    });
-
-    test('parses a character as a new import without conversation data', () => {
-        const backup = validCharacterBackup();
-        const parsed = parseCharacterBackup(JSON.stringify(backup));
-
-        expect(parsed.characters).toHaveLength(1);
-        expect(parsed.characters[0]).toMatchObject(backup.data.character);
-        expect(parsed.characters[0].model).toEqual({ connectionId: 'openrouter', model: 'test-model' });
-        expect(parsed.characters[0].id).toEqual(expect.any(String));
-        expect(parsed.characters[0].createdAt).toEqual(expect.any(Number));
-        expect(parsed.characters[0].updatedAt).toEqual(expect.any(Number));
-        expect(parsed.groups).toEqual([]);
-        expect(parsed.rooms).toEqual([]);
-        expect(parsed.memories).toEqual([]);
-        expect(parsed.usageRecords).toEqual([]);
-    });
-
-    test('accepts legacy string and aiApiType model fields in character files', () => {
-        const legacyString = validCharacterBackup();
-        legacyString.data.character.model = 'legacy-model' as never;
-        const parsedString = parseCharacterBackup(JSON.stringify(legacyString));
-        expect(parsedString.characters[0].model).toEqual({
-            connectionId: 'openrouter',
-            model: 'legacy-model',
-        });
-
-        const legacyRef = validCharacterBackup();
-        legacyRef.data.character.model = { model: 'legacy-model', aiApiType: 'anthropic' } as never;
-        const parsedRef = parseCharacterBackup(JSON.stringify(legacyRef));
-        expect(parsedRef.characters[0].model).toEqual({
-            connectionId: 'anthropic',
-            model: 'legacy-model',
-        });
-    });
-
-    test('recognizes both full backups and character files', () => {
-        expect(parseImportFile(backupJson()).type).toBe('full');
-        expect(parseImportFile(JSON.stringify(validCharacterBackup())).type).toBe('character');
-    });
-
-    test('rejects invalid settings and machine-local image references', () => {
-        const invalidTemperature = validCharacterBackup();
-        invalidTemperature.data.character.temperature = 3;
-        expect(() => parseCharacterBackup(JSON.stringify(invalidTemperature)))
-            .toThrow('キャラクターファイルの形式が正しくありません');
-
-        for (const [key, value] of [
-            ['frequencyPenalty', -2.1],
-            ['presencePenalty', 2.1],
-            ['repetitionPenalty', -0.1],
-            ['repetitionPenalty', 2.1],
-            ['frequencyPenalty', '0.5'],
-        ] as const) {
-            const invalidPenalty = validCharacterBackup();
-            Object.assign(invalidPenalty.data.character, { [key]: value });
-            expect(() => parseCharacterBackup(JSON.stringify(invalidPenalty)))
-                .toThrow('キャラクターファイルの形式が正しくありません');
-        }
-
-        const localAsset = validCharacterBackup();
-        localAsset.data.character.icon = `asset:${'a'.repeat(64)}`;
-        expect(() => parseCharacterBackup(JSON.stringify(localAsset)))
-            .toThrow('キャラクターファイルの形式が正しくありません');
-    });
-
-    test('creates a filesystem-safe character filename', () => {
-        expect(createCharacterBackupFilename(' Alice: test/01. '))
-            .toBe('Alice_ test_01.kataru-character.json');
-        expect(createCharacterBackupFilename('   '))
-            .toBe('character.kataru-character.json');
+describe('character packages and file sharing', () => {
+    test('creates a filesystem-safe character package filename', () => {
+        expect(createCharacterPackageFilename(' Alice: test/01. '))
+            .toBe('Alice_ test_01.kataru');
+        expect(createCharacterPackageFilename('   '))
+            .toBe('character.kataru');
     });
 
     test('uses native file sharing when it is available', async () => {
@@ -537,6 +332,33 @@ describe('character sharing', () => {
         expect(shareData.title).toBe('Alice');
         expect(shareData.files?.[0]).toBeInstanceOf(File);
         expect(shareData.files?.[0].name).toBe('alice.json');
+    });
+
+    test('uses native file sharing for packages when it is available', async () => {
+        const share = vi.fn().mockResolvedValue(undefined);
+        vi.stubGlobal('navigator', {
+            canShare: vi.fn(() => true),
+            share,
+        });
+
+        const blob = new Blob(['zip'], { type: 'application/zip' });
+        await expect(shareBlobFile(blob, 'alice.kataru', 'Alice')).resolves.toBe('shared');
+
+        const shareData = share.mock.calls[0][0] as ShareData;
+        expect(shareData.title).toBe('Alice');
+        expect(shareData.files?.[0]).toBeInstanceOf(File);
+        expect(shareData.files?.[0].name).toBe('alice.kataru');
+        expect(shareData.files?.[0].type).toBe('application/zip');
+    });
+
+    test('reports cancellation when native sharing is aborted', async () => {
+        vi.stubGlobal('navigator', {
+            canShare: vi.fn(() => true),
+            share: vi.fn().mockRejectedValue(new DOMException('cancelled', 'AbortError')),
+        });
+
+        const blob = new Blob(['zip'], { type: 'application/zip' });
+        await expect(shareBlobFile(blob, 'alice.kataru', 'Alice')).resolves.toBe('cancelled');
     });
 
     test('downloads the JSON when native file sharing is unavailable', async () => {
@@ -556,6 +378,26 @@ describe('character sharing', () => {
         expect(createObjectURL).toHaveBeenCalledOnce();
         expect(click).toHaveBeenCalledOnce();
         expect(revokeObjectURL).toHaveBeenCalledWith('blob:character');
+    });
+
+    test('downloads the package blob when native file sharing is unavailable', async () => {
+        const click = vi.fn();
+        const createObjectURL = vi.fn(() => 'blob:package');
+        const revokeObjectURL = vi.fn();
+        vi.stubGlobal('navigator', {
+            canShare: vi.fn(() => false),
+            share: vi.fn(),
+        });
+        vi.stubGlobal('document', {
+            createElement: vi.fn(() => ({ href: '', download: '', click })),
+        });
+        vi.stubGlobal('URL', { createObjectURL, revokeObjectURL });
+
+        const blob = new Blob(['zip'], { type: 'application/zip' });
+        await expect(shareBlobFile(blob, 'alice.kataru', 'Alice')).resolves.toBe('downloaded');
+        expect(createObjectURL).toHaveBeenCalledWith(blob);
+        expect(click).toHaveBeenCalledOnce();
+        expect(revokeObjectURL).toHaveBeenCalledWith('blob:package');
     });
 });
 

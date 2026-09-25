@@ -7,6 +7,7 @@ mod json;
 mod memories;
 mod messages;
 mod meta;
+mod package;
 mod rooms;
 #[cfg(test)]
 mod test_support;
@@ -28,6 +29,9 @@ pub use conversation::{
     persist_conversation_submission,
 };
 pub use images::{migrate_character_images, migrate_situation_images};
+pub use package::{
+    PackagePreview, build_character_package, import_character_package, inspect_character_package,
+};
 
 pub async fn handle_storage_command(
     State(state): State<crate::AppState>,

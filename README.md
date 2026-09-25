@@ -38,123 +38,19 @@ npm install
 
 ### AI接続先の設定
 
-接続先は「設定」→「モデル」→「接続先」で管理します。同じ種類の接続先を複数登録できるほか、キャラクター設定や用途別モデル（会話・要約・シチュエーションの指揮など）のモデル選択で接続先を個別に指定できます。
+Kataruでは複数のAI接続先を登録し、キャラクターごとや用途別モデルに自由に割り当てて利用できます。
 
-Kataruは実行時に、カレントディレクトリまたは実行ファイルと同じディレクトリの `.env` ファイルを探し、読み込みます。
+基本はアプリ起動後、画面の **「設定」→「モデル」→「接続先」** からGUIで追加・設定します（APIキーはOSの資格情報ストアに安全に保管されます）。CLIコマンドや環境変数（`.env`）での事前設定にも対応しています。
 
-#### 1. OpenRouter を使う場合
+#### 主な接続先と用途
 
-「設定」→「モデル」→「接続先」で接続を編集（または新規追加）し、APIキーを登録できます（キーはOSの資格情報ストアに安全に保管されます）。また、「使用しないプロバイダー」一覧から特定のプロバイダーをルーティング対象外に指定することも可能です。
+- **OpenRouter**: 多彩なクラウドモデルを単一APIキーで利用（会話・要約・画像生成・TTSなど）
+- **OpenAI / 互換API**: 公式OpenAIのほか、OllamaやLM Studio、vLLM等のローカルLLMサーバー（Embeddings・画像生成・TTSにも対応）
+- **Anthropic / 互換API**: Claudeシリーズ等のMessages API互換モデル
+- **TypeSafe AI (Jev)**: 内部処理を高速化する専用接続
+- **VOICEVOX / Irodori TTS**: 音声読み上げ（TTS）専用のローカル・外部音声サーバー
 
-CLIから設定する場合:
-
-```bash
-kataru config set openrouter.api-key
-```
-
-※開発中にCargoから実行する場合は `kataru` を `cargo run --` に置き換えてください。
-
-環境変数で指定する場合:
-
-- **PowerShell**:
-  ```powershell
-  $env:OPENROUTER_API_KEY = "your-api-key"
-  npm run dev
-  ```
-- **bash**:
-  ```bash
-  export OPENROUTER_API_KEY="your-api-key"
-  npm run dev
-  ```
-
-起動後、ブラウザで <http://127.0.0.1:3000> を開きます。
-
-#### 2. OpenAI または互換API を使う場合
-
-OpenAI や LM Studio、Ollama、vLLM などを利用する場合は、「設定」→「モデル」→「接続先」で「OpenAI / 互換API」の接続を編集（または新規追加）し、APIキーとエンドポイントを設定します。
-
-CLIから設定する場合:
-
-```bash
-kataru config set openai.api-key
-kataru config set openai.base-url http://127.0.0.1:1234/v1
-```
-
-環境変数で指定する場合:
-
-- **PowerShell**:
-  ```powershell
-  $env:OPENAI_BASE_URL = "http://127.0.0.1:1234/v1"
-  $env:OPENAI_API_KEY = "your-api-key"
-  npm run dev
-  ```
-- **bash**:
-  ```bash
-  export OPENAI_BASE_URL="http://127.0.0.1:1234/v1"
-  export OPENAI_API_KEY="your-api-key"
-  npm run dev
-  ```
-
-> **Note**: Embeddingsや画像生成、音声合成（TTS）は接続先ごとの設定画面から有効化できます。利用するには接続先サーバー側の対応が必要です。
-
-#### 3. Anthropic または互換API を使う場合
-
-「設定」→「モデル」→「接続先」で「Anthropic / 互換API」の接続を編集（または新規追加）し、APIキーとエンドポイントを設定します。Kataru内部のリクエストおよびレスポンスは、サーバー側で自動的に Messages API 形式に相互変換されます。
-
-CLIから設定する場合:
-
-```bash
-kataru config set anthropic.api-key
-kataru config set anthropic.base-url https://api.anthropic.com/v1
-```
-
-環境変数で指定する場合:
-`ANTHROPIC_API_KEY` と `ANTHROPIC_BASE_URL` が利用可能です。
-
-- モデルIDには `claude-...` など、接続先で有効な識別子を指定してください。
-> **Warning**:　Embedding及び画像生成には非対応です。利用したい場合、対応しているAPIを併用してください。
-
-#### 4. TypeSafe AI (Jev) を使う場合
-
-Kataru内部で使用する処理を高速化できる、「System One (Jev)」専用の接続先です。OpenRouter経由でも利用できます。
-
-「設定」→「モデル」→「接続先」で「接続先を追加」から種類「TypeSafe AI (Jev)」を選び、APIキーを設定します。
-
-CLIから設定する場合:
-
-```bash
-kataru config connection set-key typesafe
-```
-
-環境変数で指定する場合:
-`TYPESAFE_API_KEY` と `TYPESAFE_BASE_URL`（デフォルト: `https://api.typesafe.ai/v1`）が利用可能です。
-
-#### 5. VOICEVOX を使う場合
-
-音声読み上げ（TTS）専用の接続先です。ローカルで起動したVOICEVOXエンジンに接続します。APIキーは不要です。
-
-「設定」→「モデル」→「接続先」で「接続先を追加」から種類「VOICEVOX」を選び、エンドポイントを設定します（デフォルト: `http://127.0.0.1:50021`）。
-
-CLIから設定する場合:
-
-```bash
-kataru config connection add voicevox --name "VOICEVOX" --base-url http://127.0.0.1:50021
-```
-
-#### 6. Irodori TTS を使う場合
-
-音声読み上げ（TTS）専用の接続先です。[Irodori-TTS-Server](https://github.com/Aratako/Irodori-TTS-Server)に接続します。APIキーは省略できます（サーバー側で `IRODORI_API_KEY` を設定している場合のみ必要です）。
-
-「設定」→「モデル」→「接続先」で「接続先を追加」から種類「Irodori TTS」を選び、エンドポイントを設定します（デフォルト: `http://127.0.0.1:8088`）。
-
-CLIから設定する場合:
-
-```bash
-kataru config connection add irodori --name "Irodori TTS" --base-url http://127.0.0.1:8088
-```
-
-環境変数で指定する場合:
-`IRODORI_BASE_URL` と `IRODORI_API_KEY` が利用可能です。
+> **Note**: CLIからの接続先追加・管理手順については、後述の [接続先の追加・削除（CLI）](#接続先の追加削除cli) を参照してください。
 
 ## 開発
 

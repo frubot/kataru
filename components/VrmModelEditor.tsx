@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Check, Pencil, Play, RotateCcw, Trash2 } from 'lucide-react';
 import type { VrmAnimation, VrmAvatar } from '@/lib/store/types';
-import { createVrmExpressionMap, DEFAULT_VRM_FRAMING, MAX_VRM_ANIMATION_NAME, readVrmFile, readVrmaFile, vrmMotionNameError } from '@/lib/vrm';
+import { createVrmExpressionMap, MAX_VRM_ANIMATION_NAME, readVrmFile, readVrmaFile, vrmMotionNameError } from '@/lib/vrm';
 import type { VrmPreview } from './VrmAvatarView';
 import OptionSelector from './OptionSelector';
 
@@ -143,15 +143,6 @@ export default function VrmModelEditor({ avatar, name, fallbackImage, expression
             <p className="vrm-hint">VRM 0.x / 1.0、50MBまで。</p>
             {loading && <p role="status">読み込み中…</p>}
             {avatar && <>
-                {([
-                    ['scale', '拡大率', 0.5, 2, 0.05],
-                    ['offsetY', '上下位置', -0.5, 0.5, 0.01],
-                    ['rotation', '向き', -180, 180, 5],
-                ] as const).map(([key, label, min, max, step]) => <label className="vrm-control" key={key}>
-                    <span>{label} <output>{avatar.framing[key]}</output></span>
-                    <input type="range" aria-label={label} min={min} max={max} step={step} value={avatar.framing[key]} onChange={(event) => onChange({ ...avatar, framing: { ...avatar.framing, [key]: Number(event.target.value) } })} />
-                </label>)}
-                <button type="button" className="btn btn-ghost" onClick={() => onChange({ ...avatar, framing: { ...DEFAULT_VRM_FRAMING } })}>表示位置をリセット</button>
                 <details>
                     <summary>
                         表情の対応・プレビュー

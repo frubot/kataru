@@ -3713,9 +3713,6 @@ body {
 .vrm-preview { width: min(100%, 300px); aspect-ratio: 2 / 3; margin: 0 auto; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 10px; overflow: hidden; }
 .vrm-editor { display: flex; flex-direction: column; gap: 10px; }
 .vrm-hint { color: var(--text-muted); font-size: 0.8rem; margin: 0; }
-.vrm-control { display: flex; align-items: center; gap: 16px; font-size: 0.8rem; }
-.vrm-control > span { min-width: 110px; }
-.vrm-control input { flex: 1; min-width: 0; }
 .vrm-expression-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .vrm-expression-row > span { flex: 1; overflow-wrap: anywhere; min-width: 0; }
 .vrm-expression-row .model-selector { flex: 1; min-width: 0; }

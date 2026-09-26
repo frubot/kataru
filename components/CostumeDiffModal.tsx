@@ -172,7 +172,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
 
     const confirmDraft = () => {
         const name = validateName();
-        if (!name || !draftImage || busy) return;
+        if (!name || !draftImage || busy) return false;
         onUpsert({
             name,
             promptDetail: newPromptDetail.trim() || undefined,
@@ -182,6 +182,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
         setNewPromptDetail('');
         setDraftImage(null);
         setError(null);
+        return true;
     };
 
     const handleAdd = () => {
@@ -244,9 +245,9 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
         }
     };
 
-    const handleConfirmUpload = async () => {
+    const handleConfirmUpload = async (): Promise<boolean> => {
         const name = validateName();
-        if (!name || !uploadImage || !uploadCrop) return;
+        if (!name || !uploadImage || !uploadCrop) return false;
 
         setBusy(UPLOAD_BUSY_KEY);
         try {
@@ -261,8 +262,10 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
             setNewName('');
             setNewPromptDetail('');
             clearUploadDraft();
+            return true;
         } catch (e) {
             setError(e instanceof Error ? e.message : '画像の切り取りに失敗しました');
+            return false;
         } finally {
             setBusy(null);
         }
@@ -282,6 +285,16 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
         clearUploadDraft();
         setDraftImage(null);
         setVrmDraft(null);
+    };
+
+    const handleAddAndClose = () => {
+        if (addMode === 'generate') {
+            if (confirmDraft()) closeAddModal();
+            return;
+        }
+        void (async () => {
+            if (await handleConfirmUpload()) setAddOpen(false);
+        })();
     };
 
     useModalKeyboard({
@@ -607,6 +620,16 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                         {busy === NEW_BUSY_KEY && <Loader2 size={16} className="animate-spin" />}
                                         {busy === NEW_BUSY_KEY ? '生成中...' : draftImage ? '追加' : '生成'}
                                     </button>
+                                    {draftImage && (
+                                        <button
+                                            type="button"
+                                            className="btn btn-primary"
+                                            onClick={handleAddAndClose}
+                                            disabled={!!busy || !canGenerateDiffs || !newName.trim() || !model.model.trim() || !baseImage}
+                                        >
+                                            追加して完了
+                                        </button>
+                                    )}
                                 </>
                             ) : addMode === 'upload' && !vrmDraft ? (
                                 <>
@@ -630,6 +653,16 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                         {busy === UPLOAD_BUSY_KEY && <Loader2 size={16} className="animate-spin" />}
                                         {busy === UPLOAD_BUSY_KEY ? '処理中...' : uploadImage ? '追加' : '選択'}
                                     </button>
+                                    {uploadImage && (
+                                        <button
+                                            type="button"
+                                            className="btn btn-primary"
+                                            onClick={handleAddAndClose}
+                                            disabled={!!busy || !newName.trim() || !uploadCrop}
+                                        >
+                                            追加して完了
+                                        </button>
+                                    )}
                                 </>
                             ) : null}
                         </div>

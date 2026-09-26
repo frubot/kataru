@@ -308,12 +308,12 @@ export default function ExpressionDiffModal({
     };
 
     const confirmDraft = () => {
-        if (!draftImage || busy) return;
+        if (!draftImage || busy) return false;
         const name = autoDetectName ? draftName : validateManualName();
-        if (!name) return;
+        if (!name) return false;
         if (nameExists(name)) {
             setError(`「${name}」は既に存在します。`);
-            return;
+            return false;
         }
         onUpsert({
             name,
@@ -325,6 +325,7 @@ export default function ExpressionDiffModal({
         setDraftImage(null);
         setDraftName('');
         setError(null);
+        return true;
     };
 
     const handleAdd = () => {
@@ -372,9 +373,9 @@ export default function ExpressionDiffModal({
         }
     };
 
-    const handleConfirmUpload = async () => {
+    const handleConfirmUpload = async (finishAfter = false): Promise<boolean> => {
         const manualName = autoDetectName ? null : validateManualName();
-        if ((!autoDetectName && !manualName) || !uploadImage || !uploadCrop) return;
+        if ((!autoDetectName && !manualName) || !uploadImage || !uploadCrop) return false;
 
         setBusy(UPLOAD_BUSY_KEY);
         setError(null);
@@ -399,7 +400,7 @@ export default function ExpressionDiffModal({
             setNewName('');
             setNewPromptDetail('');
             const nextIndex = uploadIndex + 1;
-            if (autoDetectName && nextIndex < uploadFiles.length) {
+            if (!finishAfter && autoDetectName && nextIndex < uploadFiles.length) {
                 setUploadIndex(nextIndex);
                 clearUploadDraft();
                 try {
@@ -411,8 +412,10 @@ export default function ExpressionDiffModal({
             } else {
                 clearUploadQueue();
             }
+            return true;
         } catch (e) {
             setError(e instanceof Error ? e.message : '画像の切り取りに失敗しました');
+            return false;
         } finally {
             setBusy(null);
             abortRef.current = null;
@@ -451,6 +454,16 @@ export default function ExpressionDiffModal({
         setDraftImage(null);
         setDraftName('');
         setError(null);
+    };
+
+    const handleAddAndClose = () => {
+        if (addMode === 'generate') {
+            if (confirmDraft()) closeAddModal();
+            return;
+        }
+        void (async () => {
+            if (await handleConfirmUpload(true)) setAddOpen(false);
+        })();
     };
 
     useModalKeyboard({
@@ -900,6 +913,16 @@ export default function ExpressionDiffModal({
                                         {busy === NEW_BUSY_KEY && <Loader2 size={16} className="animate-spin" />}
                                         {busy === NEW_BUSY_KEY ? (autoDetectName ? '生成・判定中...' : '生成中...') : draftImage ? '追加' : '生成'}
                                     </button>
+                                    {draftImage && (
+                                        <button
+                                            type="button"
+                                            className="btn btn-primary"
+                                            onClick={handleAddAndClose}
+                                            disabled={!!busy || !canGenerateDiffs || (!autoDetectName && !newName.trim()) || !model.model.trim() || !neutral}
+                                        >
+                                            追加して完了
+                                        </button>
+                                    )}
                                 </>
                             ) : (
                                 <>
@@ -931,6 +954,16 @@ export default function ExpressionDiffModal({
                                                     ? `追加 (${uploadIndex + 1}/${uploadFiles.length})`
                                                     : uploadImage ? '追加' : '選択'}
                                     </button>
+                                    {uploadImage && (
+                                        <button
+                                            type="button"
+                                            className="btn btn-primary"
+                                            onClick={handleAddAndClose}
+                                            disabled={!!busy || (!autoDetectName && !newName.trim()) || !uploadCrop}
+                                        >
+                                            追加して完了
+                                        </button>
+                                    )}
                                 </>
                             )}
                         </div>

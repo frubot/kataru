@@ -519,7 +519,7 @@ export default function ExpressionDiffModal({
                             <label style={{ ...labelStyle, marginBottom: 0 }}>登録済み（{displayExpressions.length}件）</label>
                             <button
                                 type="button"
-                                className="btn btn-primary"
+                                className="btn btn-ghost"
                                 onClick={() => { setError(null); setAddOpen(true); }}
                                 style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', fontSize: '0.75rem' }}
                             >

@@ -1,6 +1,7 @@
 // OpenAI互換APIとして以下を模擬する:
 //   GET  {base}/models              → モデル一覧（接続プローブ・カタログ用）
 //   POST {base}/images/generations  → { data: [{ b64_json }] }
+//   POST {base}/images/edits        → multipart/form-data を受け取り { data: [{ b64_json }] }
 //   POST {base}/chat/completions    → 最後のuser発言をエコーするスタブ
 //
 // 使い方:
@@ -102,27 +103,68 @@ function sendJson(res, status, body) {
   res.end(payload);
 }
 
-function readBody(req) {
+function readRawBody(req) {
   return new Promise((resolve) => {
     const parts = [];
     req.on("data", (part) => parts.push(part));
-    req.on("end", () => {
-      try {
-        resolve(JSON.parse(Buffer.concat(parts).toString("utf8") || "{}"));
-      } catch {
-        resolve({});
-      }
-    });
+    req.on("end", () => resolve(Buffer.concat(parts)));
   });
+}
+
+async function readBody(req) {
+  try {
+    return JSON.parse((await readRawBody(req)).toString("utf8") || "{}");
+  } catch {
+    return {};
+  }
+}
+
+// images/edits が送る multipart/form-data を最小限パースする。
+// テキストフィールドは fields、ファイルパートは files に入れる。
+function parseMultipart(body, contentType) {
+  const boundaryMatch = /boundary=(?:"([^"]+)"|([^\s;]+))/.exec(contentType ?? "");
+  const boundary = boundaryMatch?.[1] ?? boundaryMatch?.[2];
+  if (!boundary) return null;
+  const delimiter = Buffer.from(`--${boundary}`);
+  const fields = {};
+  const files = {};
+
+  let start = body.indexOf(delimiter);
+  while (start !== -1) {
+    const next = body.indexOf(delimiter, start + delimiter.length);
+    if (next === -1) break;
+    let segment = body.subarray(start + delimiter.length, next);
+    if (segment.subarray(0, 2).toString("latin1") === "\r\n") {
+      segment = segment.subarray(2);
+    }
+    if (segment.subarray(-2).toString("latin1") === "\r\n") {
+      segment = segment.subarray(0, -2);
+    }
+    const headerEnd = segment.indexOf("\r\n\r\n");
+    if (headerEnd !== -1) {
+      const headerText = segment.subarray(0, headerEnd).toString("utf8");
+      const data = segment.subarray(headerEnd + 4);
+      const name = /name="([^"]+)"/.exec(headerText)?.[1];
+      if (name) {
+        const filename = /filename="([^"]*)"/.exec(headerText)?.[1];
+        if (filename !== undefined) {
+          files[name] = { filename, data };
+        } else {
+          fields[name] = data.toString("utf8");
+        }
+      }
+    }
+    start = next;
+  }
+  return { fields, files };
 }
 
 const imageCache = new Map();
 
-function handleImageGeneration(body, res) {
-  const prompt = String(body.prompt ?? "");
-  const model = String(body.model ?? "dummy");
-  const [width, height] = parseSize(body.size);
-  console.log(`[dummy-image] ${model} ${width}x${height} prompt=${JSON.stringify(prompt.slice(0, 120))}`);
+// プロンプト中のキーワード(slow/fail/url)を解釈しつつPNGを返す共通処理。
+// seedExtra を変えると同じプロンプトでも別色の画像になる（編集元画像の区別用）。
+function respondWithImage({ prompt, model, size, seedExtra = "" }, res) {
+  const [width, height] = parseSize(size);
 
   const failMatch = /fail(?::(\d{3}))?/.exec(prompt);
   if (failMatch) {
@@ -132,7 +174,7 @@ function handleImageGeneration(body, res) {
   }
 
   const respond = () => {
-    const key = `${model}|${width}x${height}|${prompt}`;
+    const key = `${model}|${width}x${height}|${seedExtra}|${prompt}`;
     if (!imageCache.has(key)) {
       imageCache.set(key, makePng(width, height, key));
     }
@@ -158,6 +200,32 @@ function handleImageGeneration(body, res) {
   } else {
     respond();
   }
+}
+
+function handleImageGeneration(body, res) {
+  const prompt = String(body.prompt ?? "");
+  const model = String(body.model ?? "dummy");
+  console.log(`[dummy-image] ${model} prompt=${JSON.stringify(prompt.slice(0, 120))}`);
+  respondWithImage({ prompt, model, size: body.size }, res);
+}
+
+function handleImageEdit({ fields, files }, res) {
+  const prompt = String(fields.prompt ?? "");
+  const model = String(fields.model ?? "dummy");
+  const source = files.image;
+  if (!source) {
+    sendJson(res, 400, { error: { message: "dummy: missing image part", type: "dummy_error" } });
+    return;
+  }
+  // 編集元画像ごとに出力色が変わるよう、バイト列の簡易ハッシュをシードに混ぜる
+  let hash = 0;
+  for (const byte of source.data) {
+    hash = (hash * 31 + byte) >>> 0;
+  }
+  console.log(
+    `[dummy-image] edit ${model} image=${source.data.length}B prompt=${JSON.stringify(prompt.slice(0, 120))}`,
+  );
+  respondWithImage({ prompt, model, size: fields.size, seedExtra: `edit:${hash}` }, res);
 }
 
 function handleChatCompletions(body, res) {
@@ -209,6 +277,18 @@ const server = createServer(async (req, res) => {
 
   if (req.method === "POST" && path.endsWith("/images/generations")) {
     handleImageGeneration(await readBody(req), res);
+    return;
+  }
+
+  if (req.method === "POST" && path.endsWith("/images/edits")) {
+    const parsed = parseMultipart(await readRawBody(req), req.headers["content-type"]);
+    if (!parsed) {
+      sendJson(res, 400, {
+        error: { message: "dummy: expected multipart/form-data", type: "dummy_error" },
+      });
+      return;
+    }
+    handleImageEdit(parsed, res);
     return;
   }
 

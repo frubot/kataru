@@ -12,25 +12,34 @@ export type ChatGenerationSession = {
     generationBaselineMessageIds?: string[];
 };
 
+type CancelledConversationJob = {
+    status: string;
+    partialResult?: unknown;
+};
+
 type UseChatGenerationSessionsOptions = {
-    cancelRemote: (jobId: string) => Promise<'completed' | 'cancelled'>;
+    cancelRemote: (jobId: string) => Promise<CancelledConversationJob>;
     onCancelError: (error: unknown) => void;
+    onCancelled?: (roomId: string, job: CancelledConversationJob) => void;
 };
 
 export function useChatGenerationSessions({
     cancelRemote,
     onCancelError,
+    onCancelled,
 }: UseChatGenerationSessionsOptions) {
     const [activeRoomIds, setActiveRoomIds] = useState<Set<string>>(() => new Set());
     const sessionsRef = useRef<Map<string, ChatGenerationSession>>(new Map());
     const sequenceRef = useRef(0);
     const cancelRemoteRef = useRef(cancelRemote);
     const onCancelErrorRef = useRef(onCancelError);
+    const onCancelledRef = useRef(onCancelled);
 
     useEffect(() => {
         cancelRemoteRef.current = cancelRemote;
         onCancelErrorRef.current = onCancelError;
-    }, [cancelRemote, onCancelError]);
+        onCancelledRef.current = onCancelled;
+    }, [cancelRemote, onCancelError, onCancelled]);
 
     const setRoomActive = useCallback((roomId: string, active: boolean) => {
         setActiveRoomIds((current) => {
@@ -101,8 +110,8 @@ export function useChatGenerationSessions({
         if (!session) return;
 
         void cancelRemoteRef.current(session.jobId)
-            .then((status) => {
-                if (status === 'completed') return;
+            .then((job) => {
+                if (job.status === 'completed') return;
                 session.cancelled = true;
                 session.controller?.abort();
                 session.controller = null;
@@ -110,6 +119,7 @@ export function useChatGenerationSessions({
                     sessionsRef.current.delete(roomId);
                     setRoomActive(roomId, false);
                 }
+                onCancelledRef.current?.(roomId, job);
             })
             .catch((error) => {
                 onCancelErrorRef.current(error);

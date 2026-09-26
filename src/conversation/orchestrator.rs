@@ -27,7 +27,7 @@ use crate::{
 
 use super::{
     GenerationMode,
-    jobs::ConversationJobs,
+    jobs::{ConversationJobs, JobCancellation},
     memory::request_embedding,
     memory_gate::{
         MEMORY_GATE_TIMEOUT_SECS, MemoryGateDecision, MemoryGateReason, MemoryGateTurn,
@@ -209,9 +209,10 @@ pub async fn turn(
     State(state): State<AppState>,
     Json(payload): Json<Value>,
 ) -> AppResult<Json<Value>> {
-    let TurnOutput { mut result, memory } = run_turn(state.clone(), payload.clone())
-        .await
-        .map_err(|failure| failure.error)?;
+    let TurnOutput { mut result, memory } =
+        run_turn(state.clone(), payload.clone(), JobCancellation::default())
+            .await
+            .map_err(|failure| failure.error)?;
     let generated = result
         .get("messages")
         .and_then(Value::as_array)
@@ -243,6 +244,7 @@ pub(crate) struct TurnOutput {
 pub(crate) async fn run_turn(
     state: AppState,
     payload: Value,
+    cancellation: JobCancellation,
 ) -> Result<TurnOutput, ConversationTurnFailure> {
     let secret_mode = payload
         .get("secretMode")
@@ -250,7 +252,7 @@ pub(crate) async fn run_turn(
         .or_else(|| payload.pointer("/room/secretMode").and_then(Value::as_bool))
         .unwrap_or(false);
     let mut full_json_logs = Vec::new();
-    match run_turn_inner(state, payload, secret_mode, &mut full_json_logs).await {
+    match run_turn_inner(state, payload, secret_mode, &mut full_json_logs, cancellation).await {
         Ok(result) => Ok(result),
         Err(error) => {
             if secret_mode {
@@ -277,6 +279,7 @@ async fn run_turn_inner(
     payload: Value,
     secret_mode: bool,
     full_json_logs: &mut Vec<Value>,
+    cancellation: JobCancellation,
 ) -> AppResult<TurnOutput> {
     let room = object_field(&payload, "room")?.clone();
     let generation_mode = GenerationMode::from_payload(&payload)?;
@@ -341,19 +344,22 @@ async fn run_turn_inner(
         .map(|value| value.max(1) as usize)
         .unwrap_or(DEFAULT_MAX_HISTORY);
     let fallback_summary = (!previous_summary.is_empty()).then_some(previous_summary.clone());
-    let summary_attempt = maybe_summarize(
-        &mut clients,
-        &history,
-        previous_summary,
-        boolean(&payload, "conversationCompressionEnabled"),
-        history_limit,
-        prior_message_count,
-        situation.is_some(),
-        summary_selection.as_ref(),
-        situation,
-        &participants,
-    )
-    .await;
+    let summary_attempt = tokio::select! {
+        biased;
+        () = cancellation.cancelled() => Ok((fallback_summary.clone(), history.clone())),
+        attempt = maybe_summarize(
+            &mut clients,
+            &history,
+            previous_summary,
+            boolean(&payload, "conversationCompressionEnabled"),
+            history_limit,
+            prior_message_count,
+            situation.is_some(),
+            summary_selection.as_ref(),
+            situation,
+            &participants,
+        ) => attempt,
+    };
     let (current_summary, active_history) = match summary_attempt {
         Ok(result) => result,
         Err(error) => {
@@ -416,6 +422,9 @@ async fn run_turn_inner(
         };
 
         for turn_index in 0..max_turns {
+            if cancellation.is_cancelled() {
+                break;
+            }
             let mut combined = active_history.clone();
             combined.extend(generated.clone());
             let banned_actor_id = if turn_index > 0 && participants.len() > 1 {
@@ -437,39 +446,45 @@ async fn run_turn_inner(
                     candidates: vec![(actor_id(&participants[0]), "Only participant".into())],
                 }
             } else if is_typesafe_director(situation, &payload) {
-                request_director_typesafe(
-                    &mut clients,
-                    situation,
-                    &participants,
-                    &combined,
-                    turn_index,
-                    max_turns,
-                    banned_actor_id.as_deref(),
-                    generation_mode.is_continue(),
-                    &director_selection,
-                    secret_mode,
-                    &room,
-                    &mut usages,
-                    full_json_logs,
-                )
-                .await?
+                tokio::select! {
+                    biased;
+                    () = cancellation.cancelled() => break,
+                    decision = request_director_typesafe(
+                        &mut clients,
+                        situation,
+                        &participants,
+                        &combined,
+                        turn_index,
+                        max_turns,
+                        banned_actor_id.as_deref(),
+                        generation_mode.is_continue(),
+                        &director_selection,
+                        secret_mode,
+                        &room,
+                        &mut usages,
+                        full_json_logs,
+                    ) => decision?,
+                }
             } else {
-                request_director(
-                    &mut clients,
-                    situation,
-                    &participants,
-                    &combined,
-                    turn_index,
-                    max_turns,
-                    banned_actor_id.as_deref(),
-                    generation_mode.is_continue(),
-                    &director_selection,
-                    secret_mode,
-                    &room,
-                    &mut usages,
-                    full_json_logs,
-                )
-                .await?
+                tokio::select! {
+                    biased;
+                    () = cancellation.cancelled() => break,
+                    decision = request_director(
+                        &mut clients,
+                        situation,
+                        &participants,
+                        &combined,
+                        turn_index,
+                        max_turns,
+                        banned_actor_id.as_deref(),
+                        generation_mode.is_continue(),
+                        &director_selection,
+                        secret_mode,
+                        &room,
+                        &mut usages,
+                        full_json_logs,
+                    ) => decision?,
+                }
             };
 
             let selected_id = decision.actor_id.as_deref();
@@ -500,16 +515,18 @@ async fn run_turn_inner(
                     "memoryEmbeddingModel",
                     "memoryEmbeddingModel",
                 )?;
-                search_memories(
-                    &state,
-                    &mut clients,
-                    &embedding_selection,
-                    &memory_character_id,
-                    &room_id,
-                    &actor_history,
-                )
-                .await
-                .unwrap_or_default()
+                tokio::select! {
+                    biased;
+                    () = cancellation.cancelled() => break,
+                    memories = search_memories(
+                        &state,
+                        &mut clients,
+                        &embedding_selection,
+                        &memory_character_id,
+                        &room_id,
+                        &actor_history,
+                    ) => memories.unwrap_or_default(),
+                }
             } else {
                 Vec::new()
             };
@@ -521,23 +538,26 @@ async fn run_turn_inner(
                 actor_history,
                 generation_mode.is_continue() && turn_index == 0,
             );
-            let generated_messages = generate_for_character(
-                &mut clients,
-                actor,
-                &generation_history,
-                &room,
-                Some(situation),
-                &participants,
-                current_summary.as_deref(),
-                &relevant,
-                use_message_mode,
-                secret_mode,
-                &mut usages,
-                full_json_logs,
-                generated.len(),
-                streaming_preview,
-            )
-            .await?;
+            let generated_messages = tokio::select! {
+                biased;
+                () = cancellation.cancelled() => break,
+                messages = generate_for_character(
+                    &mut clients,
+                    actor,
+                    &generation_history,
+                    &room,
+                    Some(situation),
+                    &participants,
+                    current_summary.as_deref(),
+                    &relevant,
+                    use_message_mode,
+                    secret_mode,
+                    &mut usages,
+                    full_json_logs,
+                    generated.len(),
+                    streaming_preview,
+                ) => messages?,
+            };
             generated.extend(generated_messages);
             if stop_after_one {
                 break;
@@ -549,16 +569,19 @@ async fn run_turn_inner(
         let relevant = if memory_allowed {
             let embedding_selection =
                 resolve_role_selection(&payload, "memoryEmbeddingModel", "memoryEmbeddingModel")?;
-            search_memories(
-                &state,
-                &mut clients,
-                &embedding_selection,
-                &string(character, "id"),
-                &room_id,
-                &active_history,
-            )
-            .await
-            .unwrap_or_default()
+            let memory_character_id = string(character, "id");
+            tokio::select! {
+                biased;
+                () = cancellation.cancelled() => Vec::new(),
+                memories = search_memories(
+                    &state,
+                    &mut clients,
+                    &embedding_selection,
+                    &memory_character_id,
+                    &room_id,
+                    &active_history,
+                ) => memories.unwrap_or_default(),
+            }
         } else {
             Vec::new()
         };
@@ -570,24 +593,27 @@ async fn run_turn_inner(
             slice_by_user_history(&active_history, history_limit),
             generation_mode.is_continue(),
         );
-        generated = generate_for_character(
-            &mut clients,
-            character,
-            &character_history,
-            &room,
-            None,
-            &[],
-            current_summary.as_deref(),
-            &relevant,
-            use_message_mode,
-            secret_mode,
-            &mut usages,
-            full_json_logs,
-            0,
-            streaming_preview,
-        )
-        .await?;
-        if memory_allowed {
+        generated = tokio::select! {
+            biased;
+            () = cancellation.cancelled() => Vec::new(),
+            messages = generate_for_character(
+                &mut clients,
+                character,
+                &character_history,
+                &room,
+                None,
+                &[],
+                current_summary.as_deref(),
+                &relevant,
+                use_message_mode,
+                secret_mode,
+                &mut usages,
+                full_json_logs,
+                0,
+                streaming_preview,
+            ) => messages?,
+        };
+        if memory_allowed && !cancellation.is_cancelled() {
             extraction_context = Some(ExtractionContext {
                 character: character.clone(),
                 recent_history: active_history.clone(),
@@ -603,17 +629,20 @@ async fn run_turn_inner(
                 .and_then(Value::as_bool)
                 .unwrap_or(true);
             let gate = if gate_enabled {
-                let gate = request_memory_gate(
-                    &mut clients,
-                    &payload,
-                    &context,
-                    &generated,
-                    generation_mode.is_continue(),
-                    &room,
-                    &mut usages,
-                    full_json_logs,
-                )
-                .await;
+                let gate = tokio::select! {
+                    biased;
+                    () = cancellation.cancelled() => None,
+                    decision = request_memory_gate(
+                        &mut clients,
+                        &payload,
+                        &context,
+                        &generated,
+                        generation_mode.is_continue(),
+                        &room,
+                        &mut usages,
+                        full_json_logs,
+                    ) => decision,
+                };
                 if let Some(decision) = &gate {
                     apply_used_memory_ids(&mut generated, &decision.used_memory_ids);
                     used_memory_ids.clone_from(&decision.used_memory_ids);

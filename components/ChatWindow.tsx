@@ -62,7 +62,7 @@ import ChatWelcome from './chat/ChatWelcome';
 import DebugLogModal from './chat/DebugLogModal';
 import DeveloperInspectorsModal from './chat/DeveloperInspectorsModal';
 import ReplySuggestions from './chat/ReplySuggestions';
-import { applyConversationResult, recordConversationDebugLogs } from './chat/applyConversationResult';
+import { applyConversationResult, applySecretConversationMessages, recordConversationDebugLogs } from './chat/applyConversationResult';
 import { useChatGenerationSessions } from './chat/useChatGenerationSessions';
 import type { ChatGenerationSession } from './chat/useChatGenerationSessions';
 import { useChatMentions } from './chat/useChatMentions';
@@ -444,6 +444,16 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             console.warn('Conversation job cancellation failed:', error);
             showChatNotice('生成を停止できませんでした。もう一度お試しください。');
         },
+        onCancelled: (roomId, job) => {
+            const targetRoom = useStore.getState().rooms.find((candidate) => candidate.id === roomId);
+            if (!targetRoom) return;
+            void handleCancelledJobResult(
+                job.partialResult as RustTurnResponse | undefined,
+                targetRoom,
+            ).catch((error) => {
+                console.warn('Cancelled conversation result handling failed:', error);
+            });
+        },
     });
     const currentRoomId = room?.id;
     const isLoading = currentRoomId ? activeGenerationRoomIds.has(currentRoomId) : false;
@@ -558,6 +568,38 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         });
     }, []);
 
+    const handleCancelledJobResult = useCallback(async (
+        partialResult: RustTurnResponse | undefined,
+        sourceRoom: Room | undefined,
+    ) => {
+        recordJobDebugLogs(partialResult, sourceRoom, sourceRoom?.secretMode === true);
+        if (!sourceRoom) return;
+        if (sourceRoom.secretMode === true) {
+            if (partialResult) {
+                applySecretConversationMessages(
+                    partialResult,
+                    sourceRoom.id,
+                    () => true,
+                    {
+                        updateRoomSummary,
+                        compressRoomHistory,
+                        addMessage,
+                        rememberStreamedFinalMessageIds,
+                    },
+                );
+            }
+            return;
+        }
+        await refreshConversationRoom(sourceRoom.id);
+    }, [
+        addMessage,
+        compressRoomHistory,
+        recordJobDebugLogs,
+        refreshConversationRoom,
+        rememberStreamedFinalMessageIds,
+        updateRoomSummary,
+    ]);
+
     const pollConversationJob = useCallback(async (
         session: ChatGenerationSession,
         controller: AbortController,
@@ -605,6 +647,12 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         }
         if (job.status === 'failed') {
             recordJobDebugLogs(job.partialResult, sourceRoom);
+            return;
+        }
+        if (job.status === 'cancelled') {
+            await handleCancelledJobResult(job.partialResult, sourceRoom).catch((error) => {
+                console.warn('Cancelled conversation result handling failed:', error);
+            });
             return;
         }
         if (job.status !== 'running') return;
@@ -657,6 +705,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         clearGenerationController,
         finishGenerationSession,
         getCurrentRoom,
+        handleCancelledJobResult,
         hasGenerationSession,
         isVisualNovelMode,
         logChatError,
@@ -890,6 +939,11 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 ? await pollConversationJob(session, controller)
                 : accepted;
             if (job.status === 'cancelled') {
+                if (!session.cancelled) {
+                    await handleCancelledJobResult(job.partialResult, sourceRoom).catch((error) => {
+                        console.warn('Cancelled conversation result handling failed:', error);
+                    });
+                }
                 return { status: 'aborted' };
             }
             if (job.status === 'failed') {

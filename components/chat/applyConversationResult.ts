@@ -77,6 +77,60 @@ export function recordConversationDebugLogs(
     }
 }
 
+type SecretConversationApplyOperations = Pick<
+    ApplyConversationResultOperations,
+    | 'updateRoomSummary'
+    | 'compressRoomHistory'
+    | 'addMessage'
+    | 'rememberStreamedFinalMessageIds'
+>;
+
+/**
+ * Applies generated messages client-side for secret rooms, whose history never
+ * reaches the server-side conversation store. `isGenerationActive` lets the
+ * normal completion flow bail out mid-apply when the user aborts; cancelled-job
+ * callers pass `() => true` so every retained message is applied.
+ */
+export function applySecretConversationMessages(
+    data: RustTurnResponse,
+    roomId: string,
+    isGenerationActive: () => boolean,
+    operations: SecretConversationApplyOperations,
+): string[] {
+    if (data.summary?.text) {
+        operations.updateRoomSummary(
+            roomId,
+            data.summary.text,
+            data.summary.checkpointUserMessageId,
+        );
+        if (Number.isInteger(data.summary.keepCount) && data.summary.keepCount > 0) {
+            operations.compressRoomHistory(roomId, data.summary.keepCount);
+        }
+    }
+    const assistantMessages = Array.isArray(data.messages) ? data.messages : [];
+    const messageIds: string[] = [];
+    for (const message of assistantMessages) {
+        if (!message?.content?.trim()) continue;
+        if (!isGenerationActive()) {
+            throw new DOMException('Generation stopped', 'AbortError');
+        }
+        const messageId = operations.addMessage(
+            roomId,
+            'assistant',
+            message.content,
+            message.characterId,
+            {
+                expression: message.expression,
+                motion: message.motion,
+                toCharacterIds: message.toCharacterIds ?? [],
+            },
+        );
+        messageIds.push(messageId);
+        operations.rememberStreamedFinalMessageIds([messageId]);
+    }
+    return messageIds;
+}
+
 export async function applyConversationResult(
     options: ApplyConversationResultOptions,
     operations: ApplyConversationResultOperations,
@@ -90,41 +144,16 @@ export async function applyConversationResult(
     const assistantMessages = Array.isArray(data.messages) ? data.messages : [];
     recordConversationDebugLogs(options, operations);
 
-    if (isSecretMode && data.summary?.text) {
-        operations.updateRoomSummary(
-            sourceRoom.id,
-            data.summary.text,
-            data.summary.checkpointUserMessageId,
-        );
-        if (Number.isInteger(data.summary.keepCount) && data.summary.keepCount > 0) {
-            operations.compressRoomHistory(sourceRoom.id, data.summary.keepCount);
-        }
-    }
-
     let assistantMessageIds = assistantMessages
         .filter((message) => message?.content?.trim() && message.id)
         .map((message) => message.id);
     if (isSecretMode) {
-        assistantMessageIds = [];
-        for (const message of assistantMessages) {
-            if (!message?.content?.trim()) continue;
-            if (!operations.isGenerationActive()) {
-                throw new DOMException('Generation stopped', 'AbortError');
-            }
-            const messageId = operations.addMessage(
-                sourceRoom.id,
-                'assistant',
-                message.content,
-                message.characterId,
-                {
-                    expression: message.expression,
-                    motion: message.motion,
-                    toCharacterIds: message.toCharacterIds ?? [],
-                },
-            );
-            assistantMessageIds.push(messageId);
-            operations.rememberStreamedFinalMessageIds([messageId]);
-        }
+        assistantMessageIds = applySecretConversationMessages(
+            data,
+            sourceRoom.id,
+            operations.isGenerationActive,
+            operations,
+        );
     } else {
         operations.rememberStreamedFinalMessageIds(assistantMessageIds);
         await operations.refreshConversationRoom(sourceRoom.id);

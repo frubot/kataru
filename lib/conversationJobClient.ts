@@ -68,7 +68,9 @@ export async function listConversationJobs<TResult>(): Promise<ConversationJobSt
     return data.jobs ?? [];
 }
 
-export async function cancelConversationJob(jobId: string): Promise<'completed' | 'cancelled'> {
+export async function cancelConversationJob(
+    jobId: string,
+): Promise<ConversationJobStatus<unknown>> {
     const response = await fetchWithTransientRetry(
         `/api/conversation/jobs/${encodeURIComponent(jobId)}`,
         {
@@ -79,6 +81,5 @@ export async function cancelConversationJob(jobId: string): Promise<'completed' 
         },
     );
     if (!response.ok) await throwChatRequestError(response, 0, 'cancel');
-    const job = await response.json() as ConversationJobStatus<unknown>;
-    return job.status === 'completed' ? 'completed' : 'cancelled';
+    return response.json() as Promise<ConversationJobStatus<unknown>>;
 }

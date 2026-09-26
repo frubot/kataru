@@ -1,6 +1,9 @@
 use std::{
     collections::HashMap,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -11,8 +14,9 @@ use axum::{
 };
 use serde_json::{Map, Value, json};
 use tokio::{
-    sync::{Mutex, OwnedMutexGuard},
-    task::{AbortHandle, JoinHandle},
+    sync::{Mutex, Notify, OwnedMutexGuard},
+    task::JoinHandle,
+    time::timeout,
 };
 use tracing::Instrument;
 
@@ -33,6 +37,45 @@ use super::{
 };
 
 const COMPLETED_JOB_RETENTION: Duration = Duration::from_secs(10 * 60);
+const CANCELLED_JOB_SETTLE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Cooperative cancellation shared with the orchestrator. Cancelling marks a
+/// flag and wakes every listener so an in-flight request can be dropped while
+/// already completed turns are still returned and persisted.
+#[derive(Clone, Default)]
+pub(crate) struct JobCancellation {
+    inner: Arc<CancellationState>,
+}
+
+#[derive(Default)]
+struct CancellationState {
+    cancelled: AtomicBool,
+    notify: Notify,
+}
+
+impl JobCancellation {
+    pub(crate) fn cancel(&self) {
+        self.inner.cancelled.store(true, Ordering::SeqCst);
+        self.inner.notify.notify_waiters();
+    }
+
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.inner.cancelled.load(Ordering::SeqCst)
+    }
+
+    pub(crate) async fn cancelled(&self) {
+        if self.is_cancelled() {
+            return;
+        }
+        let notified = self.inner.notify.notified();
+        tokio::pin!(notified);
+        notified.as_mut().enable();
+        if self.is_cancelled() {
+            return;
+        }
+        notified.await;
+    }
+}
 
 #[derive(Clone, Default)]
 pub struct ConversationJobs {
@@ -41,7 +84,6 @@ pub struct ConversationJobs {
     memory_persistence: Arc<Mutex<()>>,
 }
 
-#[derive(Clone)]
 struct ConversationJob {
     id: String,
     room_id: String,
@@ -53,7 +95,8 @@ struct ConversationJob {
     created_at: u64,
     updated_at: u64,
     recoverable: bool,
-    abort_handle: Option<AbortHandle>,
+    cancel_token: JobCancellation,
+    join_handle: Option<JoinHandle<()>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -139,19 +182,26 @@ impl ConversationJobs {
             created_at: now,
             updated_at: now,
             recoverable,
-            abort_handle: None,
+            cancel_token: JobCancellation::default(),
+            join_handle: None,
         };
         let snapshot = job.snapshot(false);
         jobs.insert(job_id, job);
         Ok((snapshot, true))
     }
 
-    async fn attach(&self, job_id: &str, handle: &JoinHandle<()>) {
-        if let Some(job) = self.inner.lock().await.get_mut(job_id)
-            && job.status == JobStatus::Running
-        {
-            job.abort_handle = Some(handle.abort_handle());
+    async fn set_join_handle(&self, job_id: &str, handle: JoinHandle<()>) {
+        if let Some(job) = self.inner.lock().await.get_mut(job_id) {
+            job.join_handle = Some(handle);
         }
+    }
+
+    async fn cancellation(&self, job_id: &str) -> Option<JobCancellation> {
+        self.inner
+            .lock()
+            .await
+            .get(job_id)
+            .map(|job| job.cancel_token.clone())
     }
 
     async fn is_running(&self, job_id: &str) -> bool {
@@ -171,30 +221,46 @@ impl ConversationJobs {
     }
 
     async fn complete(&self, job_id: &str, result: Value) {
-        if let Some(job) = self.inner.lock().await.get_mut(job_id)
-            && job.status == JobStatus::Running
-        {
-            job.status = JobStatus::Completed;
-            job.result = Some(result);
-            job.partial_result = None;
-            job.updated_at = now_millis();
-            job.abort_handle = None;
+        if let Some(job) = self.inner.lock().await.get_mut(job_id) {
+            if job.status == JobStatus::Running {
+                job.status = JobStatus::Completed;
+                job.result = Some(result);
+                job.partial_result = None;
+                job.updated_at = now_millis();
+                job.join_handle = None;
+            } else if job.status == JobStatus::Cancelled && job.partial_result.is_none() {
+                // The task finished its turn while a cancellation was in flight:
+                // keep whatever was generated so the caller can retain it.
+                job.partial_result = Some(result);
+                job.updated_at = now_millis();
+            }
         }
     }
 
     async fn fail(&self, job_id: &str, error: String, full_json_logs: Vec<Value>) {
-        if let Some(job) = self.inner.lock().await.get_mut(job_id)
-            && job.status == JobStatus::Running
-        {
-            job.status = JobStatus::Failed;
-            job.partial_result = (!full_json_logs.is_empty()).then(|| {
+        if let Some(job) = self.inner.lock().await.get_mut(job_id) {
+            let partial_result = (!full_json_logs.is_empty()).then(|| {
                 json!({
                     "fullJsonLogs": full_json_logs,
                 })
             });
-            job.error = Some(error);
+            if job.status == JobStatus::Running {
+                job.status = JobStatus::Failed;
+                job.partial_result = partial_result;
+                job.error = Some(error);
+                job.updated_at = now_millis();
+                job.join_handle = None;
+            } else if job.status == JobStatus::Cancelled && job.partial_result.is_none() {
+                job.partial_result = partial_result;
+                job.updated_at = now_millis();
+            }
+        }
+    }
+
+    async fn set_partial_result(&self, job_id: &str, result: Value) {
+        if let Some(job) = self.inner.lock().await.get_mut(job_id) {
+            job.partial_result = Some(result);
             job.updated_at = now_millis();
-            job.abort_handle = None;
         }
     }
 
@@ -363,7 +429,7 @@ impl ConversationJobs {
             .collect()
     }
 
-    async fn cancel(&self, job_id: &str) -> Value {
+    async fn cancel(&self, job_id: &str) -> (Value, Option<JoinHandle<()>>) {
         let mut jobs = self.inner.lock().await;
         let now = now_millis();
         let job = jobs
@@ -379,18 +445,24 @@ impl ConversationJobs {
                 created_at: now,
                 updated_at: now,
                 recoverable: false,
-                abort_handle: None,
+                cancel_token: {
+                    let token = JobCancellation::default();
+                    token.cancel();
+                    token
+                },
+                join_handle: None,
             });
         if job.status == JobStatus::Running {
             job.status = JobStatus::Cancelled;
             job.updated_at = now;
-            if let Some(handle) = job.abort_handle.take() {
-                handle.abort();
-            }
+            job.cancel_token.cancel();
         }
-        job.snapshot(false)
+        let snapshot = job.snapshot(false);
+        (snapshot, job.join_handle.take())
     }
 
+    /// History-clearing commands cancel every running job outright: nothing may
+    /// keep persisting into the database that is being wiped.
     pub(crate) async fn cancel_recoverable(&self) {
         let mut jobs = self.inner.lock().await;
         let now = now_millis();
@@ -400,7 +472,8 @@ impl ConversationJobs {
             }
             job.status = JobStatus::Cancelled;
             job.updated_at = now;
-            if let Some(handle) = job.abort_handle.take() {
+            job.cancel_token.cancel();
+            if let Some(handle) = job.join_handle.take() {
                 handle.abort();
             }
         }
@@ -499,6 +572,11 @@ pub async fn start(
     );
     drop(history_persistence_guard);
 
+    let cancellation = state
+        .conversation_jobs
+        .cancellation(&job_id)
+        .await
+        .unwrap_or_default();
     let job_state = state.clone();
     let task_job_id = job_id.clone();
     let task_room_id = room_id;
@@ -509,7 +587,7 @@ pub async fn start(
                 stage = "generation_started",
                 "Conversation generation started"
             );
-            match run_turn(job_state.clone(), payload.clone()).await {
+            match run_turn(job_state.clone(), payload.clone(), cancellation).await {
                 Ok(TurnOutput { mut result, memory }) => {
                     let message_count = result
                         .get("messages")
@@ -526,7 +604,13 @@ pub async fn start(
                     } else {
                         Some(job_state.conversation_jobs.lock_history_persistence().await)
                     };
-                    if !job_state.conversation_jobs.is_running(&task_job_id).await {
+                    let job_cancelled =
+                        !job_state.conversation_jobs.is_running(&task_job_id).await;
+                    let has_messages = result
+                        .get("messages")
+                        .and_then(Value::as_array)
+                        .is_some_and(|messages| !messages.is_empty());
+                    if job_cancelled && !has_messages {
                         tracing::debug!(
                             stage = "cancelled_before_result_persistence",
                             "Conversation job was cancelled before result persistence"
@@ -550,18 +634,20 @@ pub async fn start(
                             classification = error.diagnostic_class(),
                             "Conversation job could not persist the generated result"
                         );
-                        job_state
-                            .conversation_jobs
-                            .fail(
-                                &task_job_id,
-                                error.to_string(),
-                                result
-                                    .get("fullJsonLogs")
-                                    .and_then(Value::as_array)
-                                    .cloned()
-                                    .unwrap_or_default(),
-                            )
-                            .await;
+                        if !job_cancelled {
+                            job_state
+                                .conversation_jobs
+                                .fail(
+                                    &task_job_id,
+                                    error.to_string(),
+                                    result
+                                        .get("fullJsonLogs")
+                                        .and_then(Value::as_array)
+                                        .cloned()
+                                        .unwrap_or_default(),
+                                )
+                                .await;
+                        }
                         return;
                     }
                     tracing::debug!(
@@ -569,6 +655,18 @@ pub async fn start(
                         "Conversation job persisted the generated result"
                     );
                     drop(history_persistence_guard);
+                    if job_cancelled {
+                        tracing::debug!(
+                            stage = "cancelled_partial_result_persisted",
+                            message_count,
+                            "Conversation job kept the turns completed before cancellation"
+                        );
+                        job_state
+                            .conversation_jobs
+                            .set_partial_result(&task_job_id, result)
+                            .await;
+                        return;
+                    }
                     let memory = memory.filter(|_| !secret_mode).map(|follow_up| {
                         let messages = result
                             .get("messages")
@@ -612,7 +710,7 @@ pub async fn start(
         }
         .instrument(job_span),
     );
-    state.conversation_jobs.attach(&job_id, &handle).await;
+    state.conversation_jobs.set_join_handle(&job_id, handle).await;
 
     Ok((StatusCode::ACCEPTED, Json(snapshot)))
 }
@@ -647,7 +745,23 @@ pub async fn cancel(
         stage = "cancellation_requested",
         "Conversation job cancellation requested"
     );
-    Ok(Json(state.conversation_jobs.cancel(&job_id).await))
+    let (snapshot, join_handle) = state.conversation_jobs.cancel(&job_id).await;
+    if let Some(mut handle) = join_handle {
+        // Give the task a moment to stop cooperatively and persist the turns it
+        // already completed; fall back to a hard abort if it does not settle.
+        if timeout(CANCELLED_JOB_SETTLE_TIMEOUT, &mut handle)
+            .await
+            .is_err()
+        {
+            handle.abort();
+        }
+    }
+    let snapshot = state
+        .conversation_jobs
+        .get(&job_id)
+        .await
+        .unwrap_or(snapshot);
+    Ok(Json(snapshot))
 }
 
 fn valid_job_id(value: &str) -> bool {
@@ -885,7 +999,7 @@ mod tests {
     async fn cancellation_before_start_prevents_late_job_creation() {
         let jobs = ConversationJobs::default();
         let job_id = "job-cancel-before-start";
-        let cancelled = jobs.cancel(job_id).await;
+        let (cancelled, _) = jobs.cancel(job_id).await;
         assert_eq!(cancelled["status"], "cancelled");
 
         let (snapshot, inserted) = jobs

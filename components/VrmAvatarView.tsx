@@ -97,6 +97,7 @@ export default function VrmAvatarView({ avatar, expression, motion, fallbackImag
         adjustment: { ...DEFAULT_VRM_VIEW_ADJUSTMENT },
     });
     const drag = useRef<DragState | null>(null);
+    const suppressContextMenu = useRef(false);
     const lastTap = useRef<VrmTapSample | null>(null);
     const adjustedFlag = useRef(false);
     const syncAdjusted = () => {
@@ -209,6 +210,9 @@ export default function VrmAvatarView({ avatar, expression, motion, fallbackImag
         }
         drag.current = null;
         setDragging(false);
+        // Releasing the right button off the avatar fires contextmenu on whatever
+        // sits under the cursor, so the window listener below swallows it once.
+        if (!current.touch && current.mode === 'pan') suppressContextMenu.current = true;
         // A double tap/click restores the saved framing without opening the settings.
         // Only a primary gesture (left button or a lone finger) can count as a tap.
         if (current.moved || current.multiTouch || (!current.touch && current.mode !== 'rotate')) {
@@ -242,6 +246,7 @@ export default function VrmAvatarView({ avatar, expression, motion, fallbackImag
         view.current.adjustment = { ...DEFAULT_VRM_VIEW_ADJUSTMENT };
         lastTap.current = null;
         drag.current = null;
+        suppressContextMenu.current = false;
         adjustedFlag.current = false;
         setAdjusted(false);
         live.current.onReady?.(null);
@@ -647,6 +652,24 @@ export default function VrmAvatarView({ avatar, expression, motion, fallbackImag
         };
         container.addEventListener('wheel', handleWheel, { passive: false });
         return () => container.removeEventListener('wheel', handleWheel);
+    }, [interactive]);
+
+    // A right-drag ending off the avatar (e.g. over a dialog) fires contextmenu
+    // on the element under the cursor, so the veto has to live on the window.
+    useEffect(() => {
+        if (!interactive) return;
+        const clear = () => { suppressContextMenu.current = false; };
+        const suppress = (event: Event) => {
+            if (drag.current?.mode !== 'pan' && !suppressContextMenu.current) return;
+            suppressContextMenu.current = false;
+            event.preventDefault();
+        };
+        window.addEventListener('pointerdown', clear, true);
+        window.addEventListener('contextmenu', suppress, true);
+        return () => {
+            window.removeEventListener('pointerdown', clear, true);
+            window.removeEventListener('contextmenu', suppress, true);
+        };
     }, [interactive]);
 
     const showReset = interactive && status === 'ready' && adjusted;

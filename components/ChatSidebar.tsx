@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Plus, Settings, Trash2, ChevronDown, ChevronRight, User, Users, Copy, EllipsisVertical, PanelLeftClose, PanelLeftOpen, Search, Share2, SquarePen, Star, X } from 'lucide-react';
-import { useStore, Character, Situation, resolveSituationParticipants } from '@/lib/store';
+import { useStore, Character, Situation, resolveSituationParticipants, type Room } from '@/lib/store';
 import { createCharacterPackage, createCharacterPackageFilename, shareBlobFile } from '@/lib/characterPackage';
 import StoredImage from './StoredImage';
 import CharacterShareOptions from './CharacterShareOptions';
@@ -23,6 +23,7 @@ const CONTEXT_MENU_WIDTH = 176;
 const CONTEXT_MENU_ITEM_HEIGHT = 36;
 const CONTEXT_MENU_VERTICAL_PADDING = 8;
 const CONTEXT_MENU_MARGIN = 8;
+const ROOM_PREVIEW_LIMIT = 5;
 
 function getContextMenuHeight(type: SidebarContextMenu['type']) {
     const itemCounts: Record<SidebarContextMenu['type'], number> = {
@@ -103,6 +104,7 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, o
     const { characters, groups, rooms, currentRoomId, createRoom, createRoomForSituation, setCurrentRoom, deleteRoom, deleteSituation, duplicateSituation, deleteCharacter, duplicateCharacter, updateCharacter, updateSituation, defaultChatModel } = useStore();
     const [expandedCharacters, setExpandedCharacters] = useState<Set<string>>(new Set());
     const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set(groups.map((g) => g.id)));
+    const [fullRoomLists, setFullRoomLists] = useState<Set<string>>(new Set());
     const [situationSettingsOpen, setSituationSettingsOpen] = useState(false);
     const [editingSituation, setEditingSituation] = useState<Situation | null>(null);
     const [sharingCharacter, setSharingCharacter] = useState<Character | null>(null);
@@ -212,7 +214,21 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, o
         });
     };
 
+    const setFullRoomList = (listKey: string, showAll: boolean) => {
+        setFullRoomLists((prev) => {
+            if (prev.has(listKey) === showAll) return prev;
+            const next = new Set(prev);
+            if (showAll) {
+                next.add(listKey);
+            } else {
+                next.delete(listKey);
+            }
+            return next;
+        });
+    };
+
     const toggleCharacterExpand = (characterId: string) => {
+        if (expandedCharacters.has(characterId)) setFullRoomList(`character:${characterId}`, false);
         setExpandedCharacters((prev) => {
             const next = new Set(prev);
             if (next.has(characterId)) {
@@ -225,6 +241,7 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, o
     };
 
     const toggleGroupExpand = (groupId: string) => {
+        if (!collapsedGroups.has(groupId)) setFullRoomList(`situation:${groupId}`, false);
         setCollapsedGroups((prev) => {
             const next = new Set(prev);
             if (next.has(groupId)) {
@@ -397,6 +414,65 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, o
         ? rooms.find((room) => room.id === contextMenu.roomId) ?? null
         : null;
 
+    const renderRoomList = (listKey: string, roomList: Room[]) => {
+        if (roomList.length === 0) {
+            return (
+                <div className="character-rooms">
+                    <div style={{ padding: '0.5rem 0.75rem 0.5rem 2.5rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                        チャットがありません
+                    </div>
+                </div>
+            );
+        }
+
+        const isTruncatable = roomList.length > ROOM_PREVIEW_LIMIT;
+        const showAll = !isTruncatable || fullRoomLists.has(listKey);
+        const shownRooms = showAll
+            ? roomList
+            : roomList.filter((room, index) => index < ROOM_PREVIEW_LIMIT || room.id === currentRoomId);
+        const hiddenCount = roomList.length - shownRooms.length;
+
+        return (
+            <div className="character-rooms">
+                {shownRooms.map((room) => (
+                    <div
+                        key={room.id}
+                        className={`room-item ${currentRoomId === room.id ? 'active' : ''}`}
+                        onClick={() => handleRoomSelect(room.id)}
+                        onContextMenu={(event) => openContextMenu(event, { type: 'room', roomId: room.id })}
+                        style={{ paddingLeft: '2rem' }}
+                    >
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontWeight: 500, fontSize: '0.8125rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {room.name}
+                            </div>
+                        </div>
+                        <button
+                            className="btn btn-ghost"
+                            onClick={(event) => {
+                                event.stopPropagation();
+                                deleteRoom(room.id);
+                            }}
+                            style={{ padding: '0.25rem', opacity: 0.5 }}
+                            title="チャットを削除"
+                        >
+                            <Trash2 size={14} />
+                        </button>
+                    </div>
+                ))}
+                {isTruncatable && (
+                    <button
+                        type="button"
+                        className="room-list-toggle"
+                        onClick={() => setFullRoomList(listKey, !showAll)}
+                    >
+                        {showAll ? '表示を減らす' : `さらに表示（残り${hiddenCount}件）`}
+                    </button>
+                )}
+            </div>
+        );
+    };
+
     const renderSituationList = (situationList: Situation[]) => situationList.map((group) => {
         const groupRooms = visibleRooms
             .filter((room) => room.groupId === group.id)
@@ -456,42 +532,7 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, o
                     </div>
                 </div>
 
-                {isExpanded && (
-                    <div className="character-rooms">
-                        {groupRooms.length === 0 ? (
-                            <div style={{ padding: '0.5rem 0.75rem 0.5rem 2.5rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                チャットがありません
-                            </div>
-                        ) : (
-                            groupRooms.map((room) => (
-                                <div
-                                    key={room.id}
-                                    className={`room-item ${currentRoomId === room.id ? 'active' : ''}`}
-                                    onClick={() => handleRoomSelect(room.id)}
-                                    onContextMenu={(event) => openContextMenu(event, { type: 'room', roomId: room.id })}
-                                    style={{ paddingLeft: '2rem' }}
-                                >
-                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                        <div style={{ fontWeight: 500, fontSize: '0.8125rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                            {room.name}
-                                        </div>
-                                    </div>
-                                    <button
-                                        className="btn btn-ghost"
-                                        onClick={(event) => {
-                                            event.stopPropagation();
-                                            deleteRoom(room.id);
-                                        }}
-                                        style={{ padding: '0.25rem', opacity: 0.5 }}
-                                        title="チャットを削除"
-                                    >
-                                        <Trash2 size={14} />
-                                    </button>
-                                </div>
-                            ))
-                        )}
-                    </div>
-                )}
+                {isExpanded && renderRoomList(`situation:${group.id}`, groupRooms)}
             </div>
         );
     });
@@ -565,49 +606,7 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, o
                     </div>
                 </div>
 
-                {isExpanded && (
-                    <div className="character-rooms">
-                        {characterRooms.length === 0 ? (
-                            <div style={{ padding: '0.5rem 0.75rem 0.5rem 2.5rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                チャットがありません
-                            </div>
-                        ) : (
-                            characterRooms.map((room) => (
-                                <div
-                                    key={room.id}
-                                    className={`room-item ${currentRoomId === room.id ? 'active' : ''}`}
-                                    onClick={() => handleRoomSelect(room.id)}
-                                    onContextMenu={(event) => openContextMenu(event, { type: 'room', roomId: room.id })}
-                                    style={{ paddingLeft: '2rem' }}
-                                >
-                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                        <div
-                                            style={{
-                                                fontWeight: 500,
-                                                fontSize: '0.8125rem',
-                                                overflow: 'hidden',
-                                                textOverflow: 'ellipsis',
-                                                whiteSpace: 'nowrap',
-                                            }}
-                                        >
-                                            {room.name}
-                                        </div>
-                                    </div>
-                                    <button
-                                        className="btn btn-ghost"
-                                        onClick={(event) => {
-                                            event.stopPropagation();
-                                            deleteRoom(room.id);
-                                        }}
-                                        style={{ padding: '0.25rem', opacity: 0.5 }}
-                                    >
-                                        <Trash2 size={14} />
-                                    </button>
-                                </div>
-                            ))
-                        )}
-                    </div>
-                )}
+                {isExpanded && renderRoomList(`character:${character.id}`, characterRooms)}
             </div>
         );
     });

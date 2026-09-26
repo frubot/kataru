@@ -2707,7 +2707,7 @@ body {
 }
 
 .sidebar-tree-items .character-header {
-  padding-left: 1.75rem;
+  padding-left: 2.25rem;
 }
 
 .sidebar-tree-items .character-rooms {
@@ -5156,11 +5156,15 @@ body {
 }
 
 .character-header {
+  position: sticky;
+  top: -0.5rem;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.5rem 0.75rem;
-  border-radius: 0.5rem;
+  margin-inline: -0.5rem;
+  padding: 0.5rem 1.25rem;
+  background: var(--bg-primary);
   cursor: pointer;
   transition: all 0.2s ease;
 }
@@ -5178,6 +5182,25 @@ body {
 .character-rooms .room-item {
   padding: 0.625rem 0.75rem;
   font-size: 0.875rem;
+}
+
+.room-list-toggle {
+  display: block;
+  width: 100%;
+  padding: 0.375rem 0.75rem 0.375rem 2rem;
+  border: none;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.room-list-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
 }
 
 /* User message wrapper for edit button */

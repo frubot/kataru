@@ -28,13 +28,11 @@ fn roleplay_reply_instruction(character_name: &str) -> String {
 あなたは{character_name}を演じ、ナレーションで状況を表現します。
 
 ### キャラクターの返答  
-  キャラクターの制約:
-   - {character_name}として、設定を守って返答する必要があります。
-   - しかし、設定に存在しない情報は自然な形で補完しても構いません。
-   - テンプレート的な返答を避け、独自性を出してください。
+   - {character_name}として、設定通りに返答する必要があります。
+   - 設定に存在しない情報は自然な形で補完しても構いません。
 
 ### ナレーション
-  キャラクターとしての返答だけでなく、ユーザーが周囲の状況を理解しやすいようにナレーションも表します。
+  キャラクターとしての返答だけでなく、ユーザーが周囲の状況を理解しやすいようなナレーションも表します。
   
   ナレーションの制約:
    - 感情や動作、行動、状況に関連するものはナレーションとして、三人称視点から説明してください。文体はキャラクター設定に影響されません。(Good: 嬉しそうに話す。 Bad: 嬉しそうに話しました。)
@@ -421,7 +419,7 @@ fn director_jev_examples() -> Value {
                 {"id": "rin", "name": "凛"},
             ],
             "transcript": "主人公: 凛、昨日の試合見たよ。すごかったね\n\n葵: 私も見てた！最後の得点は鳥肌ものだったよ",
-            "answer": {"next_speaker": "rin", "continue_naturally": 0.9},
+            "answer": {"next_speaker": "rin", "continue_naturally": 0.8},
         },
         {
             "actors": [
@@ -444,8 +442,8 @@ fn director_jev_examples() -> Value {
                 {"id": "aoi", "name": "葵"},
                 {"id": "rin", "name": "凛"},
             ],
-            "transcript": "主人公: じゃあまた明日ね\n\n葵: うん、また明日！\n\n凛: おつかれさまー",
-            "answer": {"next_speaker": "conversation-complete", "continue_naturally": 0.8},
+            "transcript": "主人公: じゃあまた明日ね。\n\n葵: うん、また明日！\n\n凛: おつかれさまー",
+            "answer": {"next_speaker": "conversation-complete", "continue_naturally": 0.7},
         },
         {
             "actors": [
@@ -453,6 +451,14 @@ fn director_jev_examples() -> Value {
             ],
             "transcript": "主人公: ありがとう、もう行くね\n\n葵: うん、気をつけてね。また明日！",
             "answer": {"next_speaker": "end", "continue_naturally": 0.05},
+        },
+        {
+            "actors": [
+                {"id": "aoi", "name": "葵"},
+                {"id": "rin", "name": "凛"},
+            ],
+            "transcript": "葵: はい、私の手作り料理を召し上がれ。\n\n主人公: おお、やっぱり葵は料理が上手いなぁ、凛そう思わない？\n\n",
+            "answer": {"next_speaker": "rin", "continue_naturally": 0.9},
         },
     ])
 }

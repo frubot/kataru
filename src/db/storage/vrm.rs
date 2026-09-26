@@ -29,9 +29,7 @@ fn invalid() -> AppError {
 }
 
 fn invalid_vrma() -> AppError {
-    AppError::BadRequest(
-        "モーションデータが不正です。VRMA（20MB以下）を指定してください。".into(),
-    )
+    AppError::BadRequest("モーションデータが不正です。VRMA（20MB以下）を指定してください。".into())
 }
 
 fn parse_glb_json(data: &[u8], invalid: fn() -> AppError) -> AppResult<Value> {
@@ -148,17 +146,11 @@ fn persist_animations(
                 return Err(invalid());
             }
             for flag in ["loop", "useExpressions"] {
-                if animation
-                    .get(flag)
-                    .is_some_and(|value| !value.is_boolean())
-                {
+                if animation.get(flag).is_some_and(|value| !value.is_boolean()) {
                     return Err(invalid());
                 }
             }
-            let source = animation["source"]
-                .as_str()
-                .ok_or_else(invalid)?
-                .to_owned();
+            let source = animation["source"].as_str().ok_or_else(invalid)?.to_owned();
             if let Some(id) = source.strip_prefix("asset:") {
                 if asset_mime(connection, id)?.as_deref() != Some(VRMA_MIME) {
                     return Err(invalid());
@@ -403,7 +395,11 @@ mod tests {
         let motion_id = store_asset(&db, VRMA_MIME, &vrma_data()).unwrap();
         // A motion asset cannot be used as the avatar model.
         assert!(
-            put_character(&mut db, character(&format!("asset:{motion_id}"), "bad-model")).is_err()
+            put_character(
+                &mut db,
+                character(&format!("asset:{motion_id}"), "bad-model")
+            )
+            .is_err()
         );
         // A model asset cannot be used as a motion source.
         let mut bad = avatar(&format!("asset:{model_id}"));
@@ -411,8 +407,7 @@ mod tests {
         assert!(put_character(&mut db, character_with_avatar(bad, "bad-motion")).is_err());
         // The same references succeed once the mime types match.
         let mut good = avatar(&format!("asset:{model_id}"));
-        good["animations"] =
-            json!([{ "name": "wave", "source": format!("asset:{motion_id}") }]);
+        good["animations"] = json!([{ "name": "wave", "source": format!("asset:{motion_id}") }]);
         assert!(put_character(&mut db, character_with_avatar(good, "good")).is_ok());
     }
 
@@ -427,8 +422,7 @@ mod tests {
             ),
         ] {
             let mut avatar = avatar(&model_source());
-            avatar["animations"] =
-                json!([{ "name": "wave", "source": format!("{VRMA_DATA_PREFIX}{}", BASE64.encode(&data)) }]);
+            avatar["animations"] = json!([{ "name": "wave", "source": format!("{VRMA_DATA_PREFIX}{}", BASE64.encode(&data)) }]);
             assert!(put_character(&mut db, character_with_avatar(avatar, "invalid")).is_err());
         }
         let count: i64 = db
@@ -471,8 +465,14 @@ mod tests {
         let mut db = open_test_database();
         for (idle, animations) in [
             (json!("wave"), None),
-            (json!("spin"), Some(json!([{ "name": "wave", "source": vrma_source() }]))),
-            (json!(3), Some(json!([{ "name": "wave", "source": vrma_source() }]))),
+            (
+                json!("spin"),
+                Some(json!([{ "name": "wave", "source": vrma_source() }])),
+            ),
+            (
+                json!(3),
+                Some(json!([{ "name": "wave", "source": vrma_source() }])),
+            ),
         ] {
             let mut avatar = avatar(&model_source());
             avatar["idleAnimation"] = idle;

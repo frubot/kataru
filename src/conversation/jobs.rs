@@ -658,7 +658,10 @@ pub async fn start(
         }
         .instrument(job_span),
     );
-    state.conversation_jobs.set_join_handle(&job_id, handle).await;
+    state
+        .conversation_jobs
+        .set_join_handle(&job_id, handle)
+        .await;
 
     Ok((StatusCode::ACCEPTED, Json(snapshot)))
 }
@@ -708,13 +711,8 @@ async fn run_conversation_job(
                 stage = "persisting_result",
                 "Conversation job is persisting the generated result"
             );
-            if let Err(error) = persist_conversation_result(
-                &state.database,
-                &room_id,
-                &result,
-                secret_mode,
-            )
-            .await
+            if let Err(error) =
+                persist_conversation_result(&state.database, &room_id, &result, secret_mode).await
             {
                 tracing::warn!(
                     stage = "result_persistence_failed",
@@ -1131,10 +1129,7 @@ mod tests {
             .await;
         jobs.mark_task_settled(job_id).await;
 
-        let snapshot = reader
-            .await
-            .expect("reader task")
-            .expect("job snapshot");
+        let snapshot = reader.await.expect("reader task").expect("job snapshot");
         assert_eq!(snapshot["status"], "cancelled");
         assert_eq!(
             snapshot["partialResult"]["messages"][0]["content"],

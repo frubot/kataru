@@ -320,9 +320,7 @@ pub(super) fn inline_character_images(
                 if let Some(source) = avatar.get_mut("source") {
                     inline_image_source(connection, source)?;
                 }
-                if let Some(animations) = avatar
-                    .get_mut("animations")
-                    .and_then(Value::as_array_mut)
+                if let Some(animations) = avatar.get_mut("animations").and_then(Value::as_array_mut)
                 {
                     for animation in animations {
                         if let Some(source) = animation.get_mut("source") {
@@ -375,8 +373,7 @@ pub fn migrate_character_images(transaction: &Transaction<'_>) -> AppResult<()> 
         let mut character: Value = serde_json::from_str(&data_json)?;
         // パッケージに書き出せない形式の画像を残した旧データは、そのまま保持して
         // 起動を妨げない（データ起因のBadRequestのみスキップし、DB障害は失敗とする）。
-        let (asset_ids, changed) = match externalize_character_images(transaction, &mut character)
-        {
+        let (asset_ids, changed) = match externalize_character_images(transaction, &mut character) {
             Ok(result) => result,
             Err(error @ AppError::BadRequest(_)) => {
                 tracing::warn!(
@@ -416,8 +413,7 @@ pub fn migrate_situation_images(transaction: &Transaction<'_>) -> AppResult<()> 
     for (situation_id, data_json) in stored_situations {
         let mut situation: Value = serde_json::from_str(&data_json)?;
         // 上と同じく、対応外形式の画像を残した旧データは起動を妨げない。
-        let (asset_ids, changed) = match externalize_situation_images(transaction, &mut situation)
-        {
+        let (asset_ids, changed) = match externalize_situation_images(transaction, &mut situation) {
             Ok(result) => result,
             Err(error @ AppError::BadRequest(_)) => {
                 tracing::warn!(

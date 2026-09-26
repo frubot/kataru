@@ -12,7 +12,10 @@ pub fn load() -> Vec<PathBuf> {
             Ok(()) => loaded.push(path),
             Err(dotenvy::Error::Io(error)) if error.kind() == io::ErrorKind::NotFound => {}
             Err(error) => {
-                eprintln!("warning: {} を読み込めませんでした: {error}", path.display());
+                eprintln!(
+                    "warning: {} を読み込めませんでした: {error}",
+                    path.display()
+                );
             }
         }
     }

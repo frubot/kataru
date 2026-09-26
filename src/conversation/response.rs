@@ -236,10 +236,7 @@ pub(crate) fn assistant_expression_preview(
 }
 
 /// Only publish a fully received, registered motion; "none" and unknown names stay None.
-pub(crate) fn assistant_motion_preview(
-    content: &str,
-    motion_names: &[String],
-) -> Option<String> {
+pub(crate) fn assistant_motion_preview(content: &str, motion_names: &[String]) -> Option<String> {
     let cursor = json_property_value_start(content, &["motion"])?;
     if content.as_bytes().get(cursor) != Some(&b'"') {
         return None;
@@ -997,9 +994,13 @@ mod tests {
 
     #[test]
     fn sanitizes_escaped_line_breaks_and_unclosed_markdown() {
-        let response =
-            parse_assistant_response(r#"{"message":"hello\\\\nworld *unfinished"}"#, &[], &[], false)
-                .unwrap();
+        let response = parse_assistant_response(
+            r#"{"message":"hello\\\\nworld *unfinished"}"#,
+            &[],
+            &[],
+            false,
+        )
+        .unwrap();
 
         assert_eq!(response.message, "helloworld unfinished");
         assert_eq!(response.messages, ["helloworld unfinished"]);

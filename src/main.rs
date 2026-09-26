@@ -202,15 +202,13 @@ fn api_router() -> Router<AppState> {
         )
         .route(
             "/character-packages/inspect",
-            post(character_package::inspect_package).layer(DefaultBodyLimit::max(
-                CHARACTER_PACKAGE_REQUEST_BODY_LIMIT,
-            )),
+            post(character_package::inspect_package)
+                .layer(DefaultBodyLimit::max(CHARACTER_PACKAGE_REQUEST_BODY_LIMIT)),
         )
         .route(
             "/character-packages/import",
-            post(character_package::import_package).layer(DefaultBodyLimit::max(
-                CHARACTER_PACKAGE_REQUEST_BODY_LIMIT,
-            )),
+            post(character_package::import_package)
+                .layer(DefaultBodyLimit::max(CHARACTER_PACKAGE_REQUEST_BODY_LIMIT)),
         )
         .route("/chat", post(ai::chat))
         .route("/ai/status", post(ai::connection_status))

@@ -105,12 +105,7 @@ fn normalize_model_ref(
     fallback_model: &str,
     fallback_connection_id: &str,
 ) -> (String, String) {
-    let fallback = || {
-        (
-            fallback_model.to_owned(),
-            fallback_connection_id.to_owned(),
-        )
-    };
+    let fallback = || (fallback_model.to_owned(), fallback_connection_id.to_owned());
     if let Some(model) = value.as_str() {
         let model = model.trim();
         return if model.is_empty() {
@@ -261,12 +256,8 @@ fn valid_expression(value: &Value) -> bool {
         .get("name")
         .and_then(Value::as_str)
         .is_some_and(|name| !name.trim().is_empty())
-        && expression
-            .get("image")
-            .is_some_and(valid_image_source)
-        && expression
-            .get("promptDetail")
-            .is_none_or(Value::is_string)
+        && expression.get("image").is_some_and(valid_image_source)
+        && expression.get("promptDetail").is_none_or(Value::is_string)
 }
 
 fn valid_expression_list(value: Option<&Value>) -> bool {
@@ -434,7 +425,8 @@ pub fn build_character_package(
     let mut shared = shared_character_fields(&character);
     // カスタム接続（cx_*）は他環境に存在しないため、組み込み接続のIDだけを残し、
     // それ以外はモデル名のみに落とす（copySharedCharacter と同じ規則）。
-    let (model, connection_id) = normalize_model_ref(&character["model"], "", fallback_connection_id);
+    let (model, connection_id) =
+        normalize_model_ref(&character["model"], "", fallback_connection_id);
     shared.insert(
         "model".to_owned(),
         if builtin_ids.contains(&connection_id) {
@@ -471,12 +463,13 @@ pub fn build_character_package(
             .compression_method(method)
             // エクスポートを決定的にするため固定のタイムスタンプを使う。
             .last_modified_time(
-                DateTime::from_date_and_time(1980, 1, 1, 0, 0, 0)
-                    .expect("fixed package timestamp"),
+                DateTime::from_date_and_time(1980, 1, 1, 0, 0, 0).expect("fixed package timestamp"),
             )
     };
     let zip_error = |error: zip::result::ZipError| {
-        AppError::Internal(format!("キャラクターパッケージの生成に失敗しました: {error}"))
+        AppError::Internal(format!(
+            "キャラクターパッケージの生成に失敗しました: {error}"
+        ))
     };
 
     let manifest_assets: Vec<Value> = assets
@@ -522,17 +515,11 @@ pub fn build_character_package(
 
     let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
     writer
-        .start_file(
-            MANIFEST_ENTRY,
-            file_options(CompressionMethod::Deflated),
-        )
+        .start_file(MANIFEST_ENTRY, file_options(CompressionMethod::Deflated))
         .map_err(zip_error)?;
     writer.write_all(manifest_json.as_bytes())?;
     writer
-        .start_file(
-            CHARACTER_ENTRY,
-            file_options(CompressionMethod::Deflated),
-        )
+        .start_file(CHARACTER_ENTRY, file_options(CompressionMethod::Deflated))
         .map_err(zip_error)?;
     writer.write_all(shared_json.as_bytes())?;
     for (asset_id, extension, _, data) in &assets {
@@ -613,9 +600,7 @@ fn classify_entry(name: &str) -> AppResult<(EntryKind, u64)> {
 fn validate_asset_content(extension: &str, data: &[u8]) -> AppResult<&'static str> {
     if IMAGE_EXTENSIONS.contains(&extension) {
         let detected = detect_image_mime(data).ok_or_else(|| {
-            AppError::BadRequest(
-                "パッケージ内の画像ファイル形式が正しくありません。".to_owned(),
-            )
+            AppError::BadRequest("パッケージ内の画像ファイル形式が正しくありません。".to_owned())
         })?;
         let expected = match extension {
             "png" => "image/png",
@@ -690,8 +675,7 @@ fn parse_package(bytes: &[u8]) -> AppResult<ParsedPackage> {
     }
 
     let manifest_data = manifest_data.ok_or_else(invalid_package)?;
-    let manifest: Value =
-        serde_json::from_slice(&manifest_data).map_err(|_| invalid_package())?;
+    let manifest: Value = serde_json::from_slice(&manifest_data).map_err(|_| invalid_package())?;
     let manifest = manifest.as_object().ok_or_else(invalid_package)?;
     if manifest.get("format").and_then(Value::as_str) != Some(PACKAGE_FORMAT)
         || manifest.get("version").and_then(Value::as_i64) != Some(PACKAGE_VERSION)
@@ -871,9 +855,9 @@ pub fn inspect_character_package(bytes: &[u8]) -> AppResult<PackagePreview> {
         .and_then(|object| object.get("costumes"))
         .and_then(Value::as_array)
         .is_some_and(|costumes| {
-            costumes.iter().any(|costume| {
-                costume.get("kind").and_then(Value::as_str) == Some("vrm")
-            })
+            costumes
+                .iter()
+                .any(|costume| costume.get("kind").and_then(Value::as_str) == Some("vrm"))
         });
     Ok(PackagePreview {
         name,
@@ -1163,13 +1147,7 @@ mod tests {
         let mut actual = get_character_with_images(&target_db, &imported_id)
             .expect("read target")
             .expect("imported character");
-        for key in [
-            "id",
-            "createdAt",
-            "updatedAt",
-            "favorite",
-            "enableThinking",
-        ] {
+        for key in ["id", "createdAt", "updatedAt", "favorite", "enableThinking"] {
             expected.as_object_mut().expect("object").remove(key);
             actual.as_object_mut().expect("object").remove(key);
         }
@@ -1237,9 +1215,18 @@ mod tests {
     fn export_rewrites_model_connection_ids() {
         let mut db = open_test_database();
         for (id, model) in [
-            ("custom", json!({ "model": "acme/llm", "connectionId": "cx_123" })),
-            ("builtin", json!({ "model": "acme/llm", "connectionId": "anthropic" })),
-            ("legacy", json!({ "model": "acme/llm", "aiApiType": "anthropic" })),
+            (
+                "custom",
+                json!({ "model": "acme/llm", "connectionId": "cx_123" }),
+            ),
+            (
+                "builtin",
+                json!({ "model": "acme/llm", "connectionId": "anthropic" }),
+            ),
+            (
+                "legacy",
+                json!({ "model": "acme/llm", "aiApiType": "anthropic" }),
+            ),
             ("string", json!("acme/llm")),
         ] {
             put_character(
@@ -1301,7 +1288,10 @@ mod tests {
         // ただし "/" で終わるディレクトリエントリはスキップする。
         let package = package_of(
             &character,
-            vec![("assets/".to_owned(), Vec::new()), ("dir/".to_owned(), Vec::new())],
+            vec![
+                ("assets/".to_owned(), Vec::new()),
+                ("dir/".to_owned(), Vec::new()),
+            ],
         );
         parse_package(&package).expect("directory entries are skipped");
     }
@@ -1329,12 +1319,18 @@ mod tests {
         // SVGなど画像マジックバイトを持たないファイルは拒否する。
         let package = package_of(
             &simple_shared_character(),
-            vec![asset_entry(b"<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>", "png")],
+            vec![asset_entry(
+                b"<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>",
+                "png",
+            )],
         );
         assert_bad_request(parse_package(&package), "svg bytes");
 
         // 拡張子と内容が一致しない。
-        let package = package_of(&simple_shared_character(), vec![asset_entry(&png_bytes("p"), "jpg")]);
+        let package = package_of(
+            &simple_shared_character(),
+            vec![asset_entry(&png_bytes("p"), "jpg")],
+        );
         assert_bad_request(parse_package(&package), "extension/content mismatch");
 
         // 画像上限（20MiB）を超えるエントリ。
@@ -1605,7 +1601,10 @@ mod tests {
         let make_package = |character: &Value, files: Vec<&Vec<u8>>| {
             package_of(
                 character,
-                files.into_iter().map(|data| asset_entry(data, "png")).collect(),
+                files
+                    .into_iter()
+                    .map(|data| asset_entry(data, "png"))
+                    .collect(),
             )
         };
         let full = json!({
@@ -1619,7 +1618,10 @@ mod tests {
                 "expressions": [{ "name": "NEUTRAL", "image": format!("asset:{}", id_of(&costume_neutral)) }],
             }],
         });
-        let package = make_package(&full, vec![&icon, &neutral, &costume_image, &costume_neutral]);
+        let package = make_package(
+            &full,
+            vec![&icon, &neutral, &costume_image, &costume_neutral],
+        );
         let preview = inspect_character_package(&package).expect("inspect full");
         assert_eq!(preview.name, "Alice");
         assert_eq!(preview.exported_at, 1_700_000_000_000);
@@ -1698,7 +1700,11 @@ mod tests {
         });
         let package = package_of(
             &vrm_character,
-            vec![asset_entry(&icon, "png"), asset_entry(&vrm, "vrm"), asset_entry(&vrma, "vrma")],
+            vec![
+                asset_entry(&icon, "png"),
+                asset_entry(&vrm, "vrm"),
+                asset_entry(&vrma, "vrma"),
+            ],
         );
         let preview = inspect_character_package(&package).expect("inspect vrm");
         assert!(preview.has_vrm);
@@ -1781,8 +1787,9 @@ mod tests {
         let mut db = open_test_database();
         // manifest+character と合わせて64エントリに収まるのは62アセットまで。
         // 63個は書き出しても再インポートできないため、書き出し時点で拒否する。
-        let expressions = |count: usize| -> Value {
-            json!((0..count)
+        let expressions =
+            |count: usize| -> Value {
+                json!((0..count)
                 .map(|index| {
                     json!({
                         "name": format!("e{index}"),
@@ -1790,7 +1797,7 @@ mod tests {
                     })
                 })
                 .collect::<Vec<_>>())
-        };
+            };
         put_character(
             &mut db,
             json!({ "id": "fits", "name": "N", "systemPrompt": "s", "updatedAt": 1,
@@ -1849,10 +1856,9 @@ mod tests {
             .expect("build package");
         let names = zip_names(&package);
         assert!(names.iter().any(|name| name.ends_with(".png")));
-        let manifest: Value = serde_json::from_slice(
-            &zip_entry(&package, "manifest.json").expect("manifest"),
-        )
-        .expect("parse manifest");
+        let manifest: Value =
+            serde_json::from_slice(&zip_entry(&package, "manifest.json").expect("manifest"))
+                .expect("parse manifest");
         assert_eq!(manifest["assets"][0]["mime"], "image/png");
 
         let mut target = open_test_database();

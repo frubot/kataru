@@ -252,7 +252,15 @@ pub(crate) async fn run_turn(
         .or_else(|| payload.pointer("/room/secretMode").and_then(Value::as_bool))
         .unwrap_or(false);
     let mut full_json_logs = Vec::new();
-    match run_turn_inner(state, payload, secret_mode, &mut full_json_logs, cancellation).await {
+    match run_turn_inner(
+        state,
+        payload,
+        secret_mode,
+        &mut full_json_logs,
+        cancellation,
+    )
+    .await
+    {
         Ok(result) => Ok(result),
         Err(error) => {
             if secret_mode {
@@ -876,27 +884,23 @@ async fn generate_for_character(
         }
     };
     let content = extract_message_text(&raw);
-    let envelope = match parse_assistant_response(
-        &content,
-        &expression_names,
-        &motion_names,
-        message_mode,
-    ) {
-        Ok(envelope) => limit_assistant_reply_characters(envelope, max_characters),
-        Err(error) => {
-            if !secret_mode {
-                push_error_debug_log(
-                    full_json_logs,
-                    &debug_context,
-                    "chat-response-parse-error",
-                    Some(&content),
-                    &error,
-                    now_ms().saturating_sub(started),
-                );
+    let envelope =
+        match parse_assistant_response(&content, &expression_names, &motion_names, message_mode) {
+            Ok(envelope) => limit_assistant_reply_characters(envelope, max_characters),
+            Err(error) => {
+                if !secret_mode {
+                    push_error_debug_log(
+                        full_json_logs,
+                        &debug_context,
+                        "chat-response-parse-error",
+                        Some(&content),
+                        &error,
+                        now_ms().saturating_sub(started),
+                    );
+                }
+                return Err(error);
             }
-            return Err(error);
-        }
-    };
+        };
     if let Some((jobs, job_id)) = streaming_preview {
         jobs.finalize_preview(
             job_id,
@@ -2737,8 +2741,12 @@ mod tests {
 
     #[test]
     fn memory_gate_skips_extraction_without_new_information() {
-        let follow_up =
-            plan_memory_follow_up(extraction_context(), Some(gate_decision(&[], &[])), false, true);
+        let follow_up = plan_memory_follow_up(
+            extraction_context(),
+            Some(gate_decision(&[], &[])),
+            false,
+            true,
+        );
         assert!(follow_up.is_none());
     }
 

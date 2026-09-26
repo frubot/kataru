@@ -204,12 +204,16 @@ async fn synthesize_irodori(
         if body.get("irodori").is_none() {
             body["irodori"] = json!({});
         }
-        body["irodori"]["chunk_min_chars"] = json!(options
-            .chunk_min_chars
-            .unwrap_or(IRODORI_STREAM_CHUNK_MIN_CHARS));
-        body["irodori"]["first_sentence_chunk_min_chars"] = json!(options
-            .first_sentence_chunk_min_chars
-            .unwrap_or(IRODORI_STREAM_FIRST_CHUNK_MIN_CHARS));
+        body["irodori"]["chunk_min_chars"] = json!(
+            options
+                .chunk_min_chars
+                .unwrap_or(IRODORI_STREAM_CHUNK_MIN_CHARS)
+        );
+        body["irodori"]["first_sentence_chunk_min_chars"] = json!(
+            options
+                .first_sentence_chunk_min_chars
+                .unwrap_or(IRODORI_STREAM_FIRST_CHUNK_MIN_CHARS)
+        );
     }
     let upstream = api_client
         .send_json("v1/audio/speech", &body, IRODORI_TIMEOUT_SECS)

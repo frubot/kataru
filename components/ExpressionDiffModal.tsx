@@ -756,13 +756,7 @@ export default function ExpressionDiffModal({
                                 />
                                 表情名を自動判定
                             </label>
-                            {autoDetectName ? (
-                                <p style={{ ...hintStyle, marginTop: 0, marginBottom: 8 }}>
-                                    {neutral?.image
-                                        ? 'neutralと対象画像から表情の変化を比較して、AIが表情名を判定します。'
-                                        : '対象画像からAIが表情を判定します。'}
-                                </p>
-                            ) : (
+                            {!autoDetectName && (
                                 <div style={{ marginBottom: 8 }}>
                                     <label style={fieldLabelStyle}>表情名</label>
                                     <input

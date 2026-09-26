@@ -534,13 +534,6 @@ export default function ExpressionDiffModal({
                                     })),
                                 ]}
                             />
-                            <p style={hintStyle}>
-                                {selectedCostume
-                                    ? `「${selectedCostume.name}」の衣装画像をベースに、この衣装専用の表情差分を作成します`
-                                    : defaultIsVrm
-                                        ? 'default は3Dモデルです'
-                                        : 'デフォルトの立ち絵をベースに、従来の表情差分を作成します'}
-                            </p>
                         </div>
                     )}
 
@@ -766,13 +759,12 @@ export default function ExpressionDiffModal({
                             {autoDetectName ? (
                                 <p style={{ ...hintStyle, marginTop: 0, marginBottom: 8 }}>
                                     {neutral?.image
-                                        ? 'neutralと対象画像をAPIへ送り、表情の変化を比較して判定します。'
-                                        : '対象画像をAPIへ送り、表情を判定します。neutralを登録すると比較できます。'}
-                                    機密情報が入った画像を選択しないでください
+                                        ? 'neutralと対象画像から表情の変化を比較して、AIが表情名を判定します。'
+                                        : '対象画像からAIが表情を判定します。'}
                                 </p>
                             ) : (
                                 <div style={{ marginBottom: 8 }}>
-                                    <label style={fieldLabelStyle}>表情</label>
+                                    <label style={fieldLabelStyle}>表情名</label>
                                     <input
                                         type="text"
                                         className="input"
@@ -786,7 +778,7 @@ export default function ExpressionDiffModal({
                             )}
                             {addMode === 'generate' && (
                                 <>
-                                    <label style={fieldLabelStyle}>画像の説明</label>
+                                    <label style={fieldLabelStyle}>元画像からどう変化させるか</label>
                                     <textarea
                                         className="input"
                                         value={newPromptDetail}
@@ -798,24 +790,8 @@ export default function ExpressionDiffModal({
                                     />
                                 </>
                             )}
-                            {addMode === 'generate' ? (
-                                <p style={hintStyle}>
-                                    {!canGenerateDiffs
-                                        ? '選択中の接続先では元画像を使う差分生成に対応していません。アップロードで追加してください。'
-                                        : neutral
-                                        ? autoDetectName
-                                            ? '説明が空の場合は異なる表情をおまかせで生成します。結果をプレビューしてから追加できます'
-                                            : '結果をプレビューしてから追加できます'
-                                        : '生成には「アバター画像」から立ち絵の登録が必要です。アップロードなら neutral(デフォルトの表情) や表情差分を直接追加できます。'}
-                                </p>
-                            ) : (
-                                <p style={hintStyle}>
-                                    {uploadImage
-                                        && uploadFiles.length > 1
-                                            ? '切り取り範囲を調整して追加すると、次の画像に進みます'
-                                            : '切り取り範囲を調整してください'
-                                        }
-                                </p>
+                            {addMode === 'generate' && !neutral && (
+                                <p style={hintStyle}>生成には「アバター画像」から立ち絵の登録が必要です。アップロードなら neutral(デフォルトの表情) や表情差分を直接追加できます。</p>
                             )}
                             {addMode === 'upload' && uploadImage && uploadNatural && uploadCrop && (
                                 <div style={{ marginTop: 8 }}>
@@ -834,7 +810,6 @@ export default function ExpressionDiffModal({
                                         natural={uploadNatural}
                                         crop={uploadCrop}
                                         aspect={EXPRESSION_ASPECT}
-                                        hint="この範囲を 2:3 の表情差分として保存します"
                                         onChange={(next) => setUploadCrop(next)}
                                     />
                                 </div>
@@ -867,10 +842,9 @@ export default function ExpressionDiffModal({
                                             </div>
                                         )}
                                     </div>
-                                    <p style={{ ...hintStyle, textAlign: 'center' }}>
-                                        {autoDetectName ? `判定結果: ${draftName}` : 'プレビュー'}
-                                        。説明を変えて「再生成」でやり直せます
-                                    </p>
+                                    {autoDetectName && (
+                                        <p style={{ ...hintStyle, textAlign: 'center' }}>判定結果: {draftName}</p>
+                                    )}
                                 </div>
                             )}
                             <input

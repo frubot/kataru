@@ -382,41 +382,32 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                             <div style={{ fontSize: '0.8125rem', fontWeight: 500, marginBottom: 6, wordBreak: 'break-all' }}>
                                                 {costume.name} <small>{costume.kind === 'vrm' ? '3D' : '2D'}</small>
                                             </div>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
-                                                <span style={{ fontSize: '0.6875rem', color: 'var(--text-muted)' }}>
-                                                    {isDefault ? '基準衣装' : costume.kind === 'vrm' ? 'VRMアバター' : `表情 ${costume.expressions?.length ?? 0}件`}
-                                                </span>
-                                                {isDefault ? (
-                                                    <span style={{ fontSize: '0.6875rem', color: 'var(--text-muted)' }}>
-                                                        アバター変更で更新
-                                                    </span>
-                                                ) : (
-                                                    <div style={{ display: 'flex', gap: 4 }}>
-                                                        {costume.kind === 'vrm' && (
-                                                            <button
-                                                                className="btn btn-ghost"
-                                                                title="3D表示・表情を調整"
-                                                                disabled={!!busy}
-                                                                onClick={() => setEditingVrm(costume)}
-                                                                style={{ padding: '4px 8px' }}
-                                                            >
-                                                                調整
-                                                            </button>
-                                                        )}
+                                            {!isDefault && (
+                                                <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
+                                                    {costume.kind === 'vrm' && (
                                                         <button
                                                             className="btn btn-ghost"
-                                                            title="削除"
+                                                            title="3D表示・表情を調整"
                                                             disabled={!!busy}
-                                                            onClick={() => {
-                                                                if (confirm(`「${costume.name}」を削除しますか？`)) onRemove(costume.name);
-                                                            }}
-                                                            style={{ padding: '4px 8px', color: 'var(--error)' }}
+                                                            onClick={() => setEditingVrm(costume)}
+                                                            style={{ padding: '4px 8px' }}
                                                         >
-                                                            <Trash2 size={14} />
+                                                            調整
                                                         </button>
-                                                    </div>
-                                                )}
-                                            </div>
+                                                    )}
+                                                    <button
+                                                        className="btn btn-ghost"
+                                                        title="削除"
+                                                        disabled={!!busy}
+                                                        onClick={() => {
+                                                            if (confirm(`「${costume.name}」を削除しますか？`)) onRemove(costume.name);
+                                                        }}
+                                                        style={{ padding: '4px 8px', color: 'var(--error)' }}
+                                                    >
+                                                        <Trash2 size={14} />
+                                                    </button>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 );
@@ -505,7 +496,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                             </div>
                             {addMode === 'generate' && (
                                 <>
-                                    <label style={fieldLabelStyle}>補足</label>
+                                    <label style={fieldLabelStyle}>元画像からどう変化させるか</label>
                                     <textarea
                                         className="input"
                                         value={newPromptDetail}
@@ -514,26 +505,12 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                         disabled={!!busy}
                                         rows={3}
                                         style={{ width: '100%', resize: 'vertical' }}
-                                    />
+                                    />  
                                 </>
                             )}
-                            {addMode === 'generate' ? (
-                                <p style={hintStyle}>
-                                    {!canGenerateDiffs
-                                        ? '選択中の接続先では元画像を使う差分生成に対応していません。アップロードで追加してください。'
-                                        : baseImage
-                                        ? 'デフォルトの立ち絵をベースに、衣装だけを変更して生成します。結果をプレビューしてから追加できます'
-                                        : '生成には「アバター画像」から立ち絵の登録が必要です。アップロードなら衣装差分を直接追加できます。'}
-                                </p>
-                            ) : addMode === 'upload' ? (
-                                <p style={hintStyle}>
-                                    {vrmDraft
-                                        ? '3Dモデルの表示位置と表情の対応を調整して追加します'
-                                        : uploadImage
-                                        ? '切り取り範囲を調整してから追加します'
-                                        : '画像（2:3に切り取り）または .vrm の3Dモデルを選択できます'}
-                                </p>
-                            ) : null}
+                            {addMode === 'generate' && !baseImage && (
+                                <p style={hintStyle}>生成には「アバター画像」から立ち絵の登録が必要です。アップロードなら衣装差分を直接追加できます。</p>
+                            )}
                             {addMode === 'upload' && uploadImage && uploadNatural && uploadCrop && (
                                 <div style={{ marginTop: 8 }}>
                                     <CropArea
@@ -543,7 +520,6 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                         natural={uploadNatural}
                                         crop={uploadCrop}
                                         aspect={COSTUME_ASPECT}
-                                        hint="この範囲を 2:3 の衣装差分として保存します"
                                         onChange={(next) => setUploadCrop(next)}
                                     />
                                 </div>
@@ -576,9 +552,6 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                             </div>
                                         )}
                                     </div>
-                                    <p style={{ ...hintStyle, textAlign: 'center' }}>
-                                        プレビュー。補足を変えて「再生成」でやり直せます
-                                    </p>
                                 </div>
                             )}
                             <input

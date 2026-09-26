@@ -27,11 +27,10 @@ interface CropAreaProps {
     natural: { w: number; h: number };
     crop: CropBox;
     aspect: number;
-    hint: string;
     onChange: (next: CropBox) => void;
 }
 
-export function CropArea({ imgRef, src, natural, crop, aspect, hint, onChange }: CropAreaProps) {
+export function CropArea({ imgRef, src, natural, crop, aspect, onChange }: CropAreaProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const [displaySize, setDisplaySize] = useState<{ w: number; h: number } | null>(null);
 
@@ -161,7 +160,6 @@ export function CropArea({ imgRef, src, natural, crop, aspect, hint, onChange }:
 
     return (
         <div>
-            <p style={hintStyle}>切り取り範囲をドラッグで移動、右下のハンドルでサイズ変更。{hint}</p>
             <div
                 ref={containerRef}
                 style={{
@@ -212,9 +210,3 @@ export function CropArea({ imgRef, src, natural, crop, aspect, hint, onChange }:
         </div>
     );
 }
-
-const hintStyle: CSSProperties = {
-    fontSize: '0.75rem',
-    color: 'var(--text-muted)',
-    marginTop: '0.375rem',
-};

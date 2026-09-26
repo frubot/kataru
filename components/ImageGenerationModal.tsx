@@ -369,7 +369,6 @@ export default function ImageGenerationModal({
                                     natural={imgNatural}
                                     crop={neutralCrop}
                                     aspect={NEUTRAL_ASPECT}
-                                    hint="neutral はこの範囲を 2:3 で保存します"
                                     onChange={(next) => setNeutralCrop(next)}
                                 />
                             ) : (
@@ -380,7 +379,6 @@ export default function ImageGenerationModal({
                                     natural={imgNatural}
                                     crop={avatarCrop}
                                     aspect={AVATAR_ASPECT}
-                                    hint="この範囲を 128×128 のアバターにします"
                                     onChange={(next) => setAvatarCrop(next)}
                                 />
                             )}

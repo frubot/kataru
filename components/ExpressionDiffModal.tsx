@@ -66,7 +66,8 @@ export default function ExpressionDiffModal({
     const selectedConnection = connections.find((connection) => connection.id === model.connectionId) ?? null;
     const selectedKind = selectedConnection?.kind
         ?? (isAiConnectionKind(model.connectionId) ? model.connectionId : null);
-    const canGenerateDiffs = selectedKind === 'openrouter';
+    const canGenerateDiffs = selectedKind === 'openrouter'
+        || (selectedKind === 'openai-compatible' && selectedConnection?.imageGenerationEnabled === true);
     const [busy, setBusy] = useState<string | null>(null); // expression name being generated, or internal busy key
     const [error, setError] = useState<string | null>(null);
     const abortRef = useRef<AbortController | null>(null);

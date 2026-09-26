@@ -5,6 +5,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use reqwest::multipart::{Form, Part};
 use serde_json::{Value, json};
 
 use crate::{
@@ -23,6 +24,35 @@ fn image_size(aspect_ratio: Option<&str>) -> &'static str {
         Some("3:2") => "1536x1024",
         _ => "1024x1024",
     }
+}
+
+/// Decodes a `data:<mime>;base64,<payload>` URL into its MIME type and bytes
+/// for the OpenAI-compatible `images/edits` multipart upload.
+fn decode_base_image(value: &str) -> AppResult<(String, Vec<u8>)> {
+    let Some((meta, data)) = value
+        .strip_prefix("data:")
+        .and_then(|rest| rest.split_once(','))
+    else {
+        return Err(AppError::BadRequest(
+            "baseImage は data URL 形式で指定してください。".to_owned(),
+        ));
+    };
+    if !meta.split(';').any(|part| part.trim() == "base64") {
+        return Err(AppError::BadRequest(
+            "baseImage は base64 エンコードの data URL で指定してください。".to_owned(),
+        ));
+    }
+    let mime = meta
+        .split(';')
+        .next()
+        .map(str::trim)
+        .filter(|mime| !mime.is_empty())
+        .unwrap_or("image/png")
+        .to_owned();
+    let bytes = BASE64.decode(data.trim()).map_err(|_| {
+        AppError::BadRequest("baseImage の base64 デコードに失敗しました。".to_owned())
+    })?;
+    Ok((mime, bytes))
 }
 
 pub async fn generate_image(
@@ -69,26 +99,37 @@ pub async fn generate_image(
                 "OpenAI互換APIでの画像生成は設定で無効化されています。".to_owned()
             }));
         }
-        if base_image.is_some() {
-            return Err(AppError::Upstream(
-                "OpenAI互換APIでの画像生成は、元画像を使う差分生成には対応していません。"
-                    .to_owned(),
-                StatusCode::NOT_IMPLEMENTED,
-            ));
-        }
-        let upstream = api_client
-            .send_json(
-                "images/generations",
-                &json!({
-                    "model": model,
-                    "prompt": prompt,
-                    "size": image_size(aspect_ratio),
-                    "response_format": "b64_json",
-                    "n": 1
-                }),
-                180,
-            )
-            .await?;
+        let upstream = if let Some(base_image) = base_image {
+            let (mime, bytes) = decode_base_image(&base_image)?;
+            let extension = mime.rsplit('/').next().unwrap_or("png");
+            let image_part = Part::bytes(bytes)
+                .file_name(format!("image.{extension}"))
+                .mime_str(&mime)
+                .map_err(|_| {
+                    AppError::BadRequest("baseImage の MIME タイプが不正です。".to_owned())
+                })?;
+            let form = Form::new()
+                .part("image", image_part)
+                .part("model", Part::text(model))
+                .part("prompt", Part::text(prompt))
+                .part("size", Part::text(image_size(aspect_ratio)))
+                .part("n", Part::text("1"));
+            api_client.send_multipart("images/edits", form, 180).await?
+        } else {
+            api_client
+                .send_json(
+                    "images/generations",
+                    &json!({
+                        "model": model,
+                        "prompt": prompt,
+                        "size": image_size(aspect_ratio),
+                        "response_format": "b64_json",
+                        "n": 1
+                    }),
+                    180,
+                )
+                .await?
+        };
         let data = read_upstream_json(&api_client, upstream).await?;
         let item = data.pointer("/data/0");
         let image = item

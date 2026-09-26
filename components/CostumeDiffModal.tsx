@@ -59,7 +59,8 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
     const selectedConnection = connections.find((connection) => connection.id === model.connectionId) ?? null;
     const selectedKind = selectedConnection?.kind
         ?? (isAiConnectionKind(model.connectionId) ? model.connectionId : null);
-    const canGenerateDiffs = selectedKind === 'openrouter';
+    const canGenerateDiffs = selectedKind === 'openrouter'
+        || (selectedKind === 'openai-compatible' && selectedConnection?.imageGenerationEnabled === true);
 
     useEffect(() => {
         if (isOpen && costumes.length === 0) setAddOpen(true);

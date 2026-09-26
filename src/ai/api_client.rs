@@ -315,6 +315,22 @@ impl AiApiClient {
         self.finish_request(path, started_at, result)
     }
 
+    /// Sends a multipart/form-data POST (e.g. the OpenAI images edits API).
+    pub async fn send_multipart(
+        &self,
+        path: &str,
+        form: reqwest::multipart::Form,
+        timeout_secs: u64,
+    ) -> AppResult<Response> {
+        let started_at = Instant::now();
+        let result = self
+            .post(path, Duration::from_secs(timeout_secs))
+            .multipart(form)
+            .send()
+            .await;
+        self.finish_request(path, started_at, result)
+    }
+
     /// Sends JSON to an absolute URL. Provider routing preferences are not
     /// applied: the targets of this method (e.g. the OpenRouter decisions
     /// API) do not support them.
@@ -462,6 +478,7 @@ fn safe_upstream_operation(operation: &str) -> &'static str {
         "chat/completions" => "chat/completions",
         "embeddings" => "embeddings",
         "images/generations" => "images/generations",
+        "images/edits" => "images/edits",
         "decisions" => "decisions",
         "audio/speech" => "audio/speech",
         "audio_query" => "audio_query",

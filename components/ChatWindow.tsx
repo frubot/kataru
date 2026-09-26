@@ -286,9 +286,15 @@ type ChatGenerationResult = {
     message?: string;
     toCharacterIds?: string[];
     error?: unknown;
+    /** True when the cancelled job retained generated turns that were kept. */
+    retainedMessages?: boolean;
 };
 
 type ChatConversationJobStatus = ConversationJobStatus<RustTurnResponse>;
+
+function hasRetainedCancelledMessages(result: RustTurnResponse | undefined): boolean {
+    return (result?.messages?.filter((message) => message?.content?.trim()).length ?? 0) > 0;
+}
 
 function waitForConversationJobPoll(signal: AbortSignal, intervalMs: number): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -377,6 +383,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const [streamedFinalMessageIds, setStreamedFinalMessageIds] = useState<Set<string>>(() => new Set());
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const resumedJobsRef = useRef<Set<string>>(new Set());
+    const cancelledJobResultsRef = useRef<Map<string, RustTurnResponse | undefined>>(new Map());
     const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const retrySubmissionRef = useRef<ChatRetryRequest | null>(null);
     const chatNoticeActionRunningRef = useRef(false);
@@ -448,6 +455,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             const targetRoom = useStore.getState().rooms.find((candidate) => candidate.id === roomId);
             if (!targetRoom) return;
             void handleCancelledJobResult(
+                job.jobId,
                 job.partialResult as RustTurnResponse | undefined,
                 targetRoom,
             ).catch((error) => {
@@ -569,9 +577,15 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     }, []);
 
     const handleCancelledJobResult = useCallback(async (
+        jobId: string,
         partialResult: RustTurnResponse | undefined,
         sourceRoom: Room | undefined,
     ) => {
+        // A cancelled job is observable from several paths at once — the
+        // generation poll, the DELETE response, and the resume listing — so
+        // each job's retained result is applied exactly once.
+        if (cancelledJobResultsRef.current.has(jobId)) return;
+        cancelledJobResultsRef.current.set(jobId, partialResult);
         recordJobDebugLogs(partialResult, sourceRoom, sourceRoom?.secretMode === true);
         if (!sourceRoom) return;
         if (sourceRoom.secretMode === true) {
@@ -650,7 +664,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             return;
         }
         if (job.status === 'cancelled') {
-            await handleCancelledJobResult(job.partialResult, sourceRoom).catch((error) => {
+            await handleCancelledJobResult(job.jobId, job.partialResult, sourceRoom).catch((error) => {
                 console.warn('Cancelled conversation result handling failed:', error);
             });
             return;
@@ -678,6 +692,16 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 await refreshConversationRoom(job.roomId);
                 keepStreamingPreview = isVisualNovelMode
                     && (completed.result?.messages?.length ?? 0) > 0;
+            } else if (completed.status === 'cancelled') {
+                // The job was cancelled while being monitored (e.g. stopped
+                // from another tab): apply the turns it retained.
+                await handleCancelledJobResult(
+                    completed.jobId,
+                    completed.partialResult,
+                    sourceRoom,
+                ).catch((error) => {
+                    console.warn('Cancelled conversation result handling failed:', error);
+                });
             } else if (completed.status === 'failed') {
                 recordJobDebugLogs(completed.partialResult, sourceRoom);
                 if (getCurrentRoom()?.id === job.roomId) {
@@ -901,14 +925,20 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         sourceRoom: Room,
         generationMode: ChatGenerationMode = 'reply',
     ): Promise<ChatGenerationResult> => {
-        if (!isGenerationSessionActive(session)) return { status: 'aborted' };
+        const abortedResult = (): ChatGenerationResult => ({
+            status: 'aborted',
+            retainedMessages: hasRetainedCancelledMessages(
+                cancelledJobResultsRef.current.get(session.jobId),
+            ),
+        });
+        if (!isGenerationSessionActive(session)) return abortedResult();
         session.generationBaselineMessageIds = sourceRoom.messages.map((message) => message.id);
         let keepStreamingPreview = false;
         setStreamingPreview((current) => current?.roomId === sourceRoom.id ? null : current);
 
         const controller = new AbortController();
         if (!attachGenerationController(session, controller)) {
-            return { status: 'aborted' };
+            return abortedResult();
         }
 
         try {
@@ -940,11 +970,11 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 : accepted;
             if (job.status === 'cancelled') {
                 if (!session.cancelled) {
-                    await handleCancelledJobResult(job.partialResult, sourceRoom).catch((error) => {
+                    await handleCancelledJobResult(job.jobId, job.partialResult, sourceRoom).catch((error) => {
                         console.warn('Cancelled conversation result handling failed:', error);
                     });
                 }
-                return { status: 'aborted' };
+                return abortedResult();
             }
             if (job.status === 'failed') {
                 recordJobDebugLogs(job.partialResult, sourceRoom, isSecretMode);
@@ -986,7 +1016,9 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             };
         } catch (error) {
             if (error instanceof Error && error.name === 'AbortError') {
-                return { status: session.detached ? 'detached' : 'aborted' };
+                return session.detached
+                    ? { status: 'detached' }
+                    : abortedResult();
             }
             logChatError('Rust conversation turn failed:', error);
             return { status: 'error', error };
@@ -1140,7 +1172,18 @@ export default function ChatWindow({ room, character, situation, groupName, grou
 
         const generationResult = await generateRustTurn(session, roomAfterUserMessage);
 
-        if (generationResult.status === 'error' || generationResult.status === 'aborted') {
+        // A stopped turn keeps whatever the job retained: the submitted user
+        // message and any applied replies stay instead of being rolled back.
+        if (generationResult.status === 'aborted') {
+            finishGenerationSession(session);
+            setIsSummarizing(false);
+            if (!editDraft) {
+                setTimeout(() => textareaRef.current?.focus(), 50);
+            }
+            return;
+        }
+
+        if (generationResult.status === 'error') {
             await rollbackSubmittedTurn();
             if (!editDraft) {
                 setTimeout(() => textareaRef.current?.focus(), 50);
@@ -1149,7 +1192,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             finishGenerationSession(session);
             setIsSummarizing(false);
 
-            if (generationResult.status === 'error' && generationResult.error && getCurrentRoom()?.id === room.id) {
+            if (generationResult.error && getCurrentRoom()?.id === room.id) {
                 if (isRetryableGenerationError(generationResult.error)) {
                     retrySubmissionRef.current = {
                         kind: 'submit',
@@ -1218,10 +1261,14 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         try {
             const removedMemoryRecords = await deleteMessagesFrom(room.id, cutFrom);
             const latestRoom = getCurrentRoom();
-            const result = latestRoom
+            const result: ChatGenerationResult = latestRoom
                 ? await generateRustTurn(session, latestRoom)
-                : { status: 'aborted' as const };
-            if (result.status === 'error' || result.status === 'aborted') {
+                : { status: 'aborted' };
+            // Keep turns the cancelled job retained; only a bare abort (or a
+            // failure) rolls the pre-regeneration messages back in.
+            const shouldRollBack = result.status === 'error'
+                || (result.status === 'aborted' && !result.retainedMessages);
+            if (shouldRollBack) {
                 await rollbackRestorableMessages(
                     {
                         roomId: room.id,

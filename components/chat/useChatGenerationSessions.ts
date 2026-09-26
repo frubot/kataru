@@ -13,6 +13,7 @@ export type ChatGenerationSession = {
 };
 
 type CancelledConversationJob = {
+    jobId: string;
     status: string;
     partialResult?: unknown;
 };

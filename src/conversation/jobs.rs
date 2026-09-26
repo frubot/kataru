@@ -16,7 +16,7 @@ use serde_json::{Map, Value, json};
 use tokio::{
     sync::{Mutex, Notify, OwnedMutexGuard},
     task::JoinHandle,
-    time::timeout,
+    time::{Instant, timeout, timeout_at},
 };
 use tracing::Instrument;
 
@@ -97,6 +97,12 @@ struct ConversationJob {
     recoverable: bool,
     cancel_token: JobCancellation,
     join_handle: Option<JoinHandle<()>>,
+    /// `true` once the spawned task finished every write — including the
+    /// retained partial result — or when no task will ever run. Readers wait
+    /// on `settle_notify` so a `cancelled` snapshot never appears before the
+    /// kept turns are visible.
+    task_settled: bool,
+    settle_notify: Arc<Notify>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -184,6 +190,8 @@ impl ConversationJobs {
             recoverable,
             cancel_token: JobCancellation::default(),
             join_handle: None,
+            task_settled: false,
+            settle_notify: Arc::new(Notify::new()),
         };
         let snapshot = job.snapshot(false);
         jobs.insert(job_id, job);
@@ -414,19 +422,56 @@ impl ConversationJobs {
         job.updated_at = now_millis();
     }
 
+    /// Record that the job's task finished all of its writes. Cancellation
+    /// flips the status before the task can persist the turns it kept, so
+    /// readers must wait for this mark before trusting a `cancelled` snapshot.
+    async fn mark_task_settled(&self, job_id: &str) {
+        if let Some(job) = self.inner.lock().await.get_mut(job_id) {
+            job.task_settled = true;
+            job.settle_notify.notify_waiters();
+        }
+    }
+
     async fn get(&self, job_id: &str) -> Option<Value> {
+        let mut jobs = self.inner.lock().await;
+        prune_jobs(&mut jobs);
+        let job = jobs.get(job_id)?;
+        if job.status != JobStatus::Cancelled || job.task_settled {
+            return Some(job.snapshot(true));
+        }
+        let settle_notify = job.settle_notify.clone();
+        let notified = settle_notify.notified();
+        tokio::pin!(notified);
+        notified.as_mut().enable();
+        drop(jobs);
+        let _ = timeout(CANCELLED_JOB_SETTLE_TIMEOUT, notified).await;
         let mut jobs = self.inner.lock().await;
         prune_jobs(&mut jobs);
         jobs.get(job_id).map(|job| job.snapshot(true))
     }
 
     async fn list_recoverable(&self) -> Vec<Value> {
-        let mut jobs = self.inner.lock().await;
-        prune_jobs(&mut jobs);
-        jobs.values()
-            .filter(|job| job.recoverable)
-            .map(|job| job.snapshot(job.status.is_terminal()))
-            .collect()
+        let deadline = Instant::now() + CANCELLED_JOB_SETTLE_TIMEOUT;
+        loop {
+            let mut jobs = self.inner.lock().await;
+            prune_jobs(&mut jobs);
+            let Some(settle_notify) = jobs
+                .values()
+                .find(|job| job.status == JobStatus::Cancelled && !job.task_settled)
+                .map(|job| job.settle_notify.clone())
+            else {
+                return recoverable_snapshots(&jobs);
+            };
+            let notified = settle_notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            drop(jobs);
+            if timeout_at(deadline, notified).await.is_err() {
+                let mut jobs = self.inner.lock().await;
+                prune_jobs(&mut jobs);
+                return recoverable_snapshots(&jobs);
+            }
+        }
     }
 
     async fn cancel(&self, job_id: &str) -> (Value, Option<JoinHandle<()>>) {
@@ -451,6 +496,8 @@ impl ConversationJobs {
                     token
                 },
                 join_handle: None,
+                task_settled: true,
+                settle_notify: Arc::new(Notify::new()),
             });
         if job.status == JobStatus::Running {
             job.status = JobStatus::Cancelled;
@@ -475,9 +522,18 @@ impl ConversationJobs {
             job.cancel_token.cancel();
             if let Some(handle) = job.join_handle.take() {
                 handle.abort();
+                job.task_settled = true;
+                job.settle_notify.notify_waiters();
             }
         }
     }
+}
+
+fn recoverable_snapshots(jobs: &HashMap<String, ConversationJob>) -> Vec<Value> {
+    jobs.values()
+        .filter(|job| job.recoverable)
+        .map(|job| job.snapshot(job.status.is_terminal()))
+        .collect()
 }
 
 pub async fn start(
@@ -533,6 +589,9 @@ pub async fn start(
             stage = "cancelled_before_persistence",
             "Conversation job was cancelled before persistence"
         );
+        // No task will ever run for this job, so mark it settled up front:
+        // readers waiting on the cancelled snapshot must not stall.
+        state.conversation_jobs.mark_task_settled(&job_id).await;
         let current = state
             .conversation_jobs
             .get(&job_id)
@@ -563,6 +622,7 @@ pub async fn start(
             .conversation_jobs
             .fail(&job_id, error.to_string(), Vec::new())
             .await;
+        state.conversation_jobs.mark_task_settled(&job_id).await;
         return Err(error);
     }
     tracing::debug!(
@@ -579,140 +639,147 @@ pub async fn start(
         .unwrap_or_default();
     let job_state = state.clone();
     let task_job_id = job_id.clone();
-    let task_room_id = room_id;
     let job_span = tracing::debug_span!("conversation_job", job_id = %task_job_id);
     let handle = tokio::spawn(
         async move {
-            tracing::debug!(
-                stage = "generation_started",
-                "Conversation generation started"
-            );
-            match run_turn(job_state.clone(), payload.clone(), cancellation).await {
-                Ok(TurnOutput { mut result, memory }) => {
-                    let message_count = result
-                        .get("messages")
-                        .and_then(serde_json::Value::as_array)
-                        .map_or(0, Vec::len);
-                    tracing::debug!(
-                        stage = "generation_completed",
-                        message_count,
-                        "Conversation generation completed"
-                    );
-                    normalize_result_ids(&task_job_id, &mut result);
-                    let history_persistence_guard = if secret_mode {
-                        None
-                    } else {
-                        Some(job_state.conversation_jobs.lock_history_persistence().await)
-                    };
-                    let job_cancelled =
-                        !job_state.conversation_jobs.is_running(&task_job_id).await;
-                    let has_messages = result
-                        .get("messages")
-                        .and_then(Value::as_array)
-                        .is_some_and(|messages| !messages.is_empty());
-                    if job_cancelled && !has_messages {
-                        tracing::debug!(
-                            stage = "cancelled_before_result_persistence",
-                            "Conversation job was cancelled before result persistence"
-                        );
-                        return;
-                    }
-                    tracing::debug!(
-                        stage = "persisting_result",
-                        "Conversation job is persisting the generated result"
-                    );
-                    if let Err(error) = persist_conversation_result(
-                        &job_state.database,
-                        &task_room_id,
-                        &result,
-                        secret_mode,
-                    )
-                    .await
-                    {
-                        tracing::warn!(
-                            stage = "result_persistence_failed",
-                            classification = error.diagnostic_class(),
-                            "Conversation job could not persist the generated result"
-                        );
-                        if !job_cancelled {
-                            job_state
-                                .conversation_jobs
-                                .fail(
-                                    &task_job_id,
-                                    error.to_string(),
-                                    result
-                                        .get("fullJsonLogs")
-                                        .and_then(Value::as_array)
-                                        .cloned()
-                                        .unwrap_or_default(),
-                                )
-                                .await;
-                        }
-                        return;
-                    }
-                    tracing::debug!(
-                        stage = "result_persisted",
-                        "Conversation job persisted the generated result"
-                    );
-                    drop(history_persistence_guard);
-                    if job_cancelled {
-                        tracing::debug!(
-                            stage = "cancelled_partial_result_persisted",
-                            message_count,
-                            "Conversation job kept the turns completed before cancellation"
-                        );
-                        job_state
-                            .conversation_jobs
-                            .set_partial_result(&task_job_id, result)
-                            .await;
-                        return;
-                    }
-                    let memory = memory.filter(|_| !secret_mode).map(|follow_up| {
-                        let messages = result
-                            .get("messages")
-                            .and_then(Value::as_array)
-                            .cloned()
-                            .unwrap_or_default();
-                        (follow_up, messages)
-                    });
-                    job_state
-                        .conversation_jobs
-                        .complete(&task_job_id, result)
-                        .await;
-                    tracing::debug!(stage = "completed", "Conversation job completed");
-                    if let Some((follow_up, messages)) = memory {
-                        persist_turn_memories(
-                            &job_state,
-                            &payload,
-                            &task_job_id,
-                            follow_up,
-                            &messages,
-                        )
-                        .await;
-                    }
-                }
-                Err(failure) => {
-                    tracing::warn!(
-                        stage = "generation_failed",
-                        classification = failure.error.diagnostic_class(),
-                        "Conversation generation failed"
-                    );
-                    job_state
-                        .conversation_jobs
-                        .fail(
-                            &task_job_id,
-                            failure.error.to_string(),
-                            failure.full_json_logs,
-                        )
-                        .await;
-                }
-            }
+            run_conversation_job(
+                job_state.clone(),
+                payload,
+                task_job_id.clone(),
+                room_id,
+                secret_mode,
+                cancellation,
+            )
+            .await;
+            job_state
+                .conversation_jobs
+                .mark_task_settled(&task_job_id)
+                .await;
         }
         .instrument(job_span),
     );
     state.conversation_jobs.set_join_handle(&job_id, handle).await;
 
     Ok((StatusCode::ACCEPTED, Json(snapshot)))
+}
+
+async fn run_conversation_job(
+    state: AppState,
+    payload: Value,
+    job_id: String,
+    room_id: String,
+    secret_mode: bool,
+    cancellation: JobCancellation,
+) {
+    tracing::debug!(
+        stage = "generation_started",
+        "Conversation generation started"
+    );
+    match run_turn(state.clone(), payload.clone(), cancellation).await {
+        Ok(TurnOutput { mut result, memory }) => {
+            let message_count = result
+                .get("messages")
+                .and_then(serde_json::Value::as_array)
+                .map_or(0, Vec::len);
+            tracing::debug!(
+                stage = "generation_completed",
+                message_count,
+                "Conversation generation completed"
+            );
+            normalize_result_ids(&job_id, &mut result);
+            let history_persistence_guard = if secret_mode {
+                None
+            } else {
+                Some(state.conversation_jobs.lock_history_persistence().await)
+            };
+            let job_cancelled = !state.conversation_jobs.is_running(&job_id).await;
+            let has_messages = result
+                .get("messages")
+                .and_then(Value::as_array)
+                .is_some_and(|messages| !messages.is_empty());
+            if job_cancelled && !has_messages {
+                tracing::debug!(
+                    stage = "cancelled_before_result_persistence",
+                    "Conversation job was cancelled before result persistence"
+                );
+                return;
+            }
+            tracing::debug!(
+                stage = "persisting_result",
+                "Conversation job is persisting the generated result"
+            );
+            if let Err(error) = persist_conversation_result(
+                &state.database,
+                &room_id,
+                &result,
+                secret_mode,
+            )
+            .await
+            {
+                tracing::warn!(
+                    stage = "result_persistence_failed",
+                    classification = error.diagnostic_class(),
+                    "Conversation job could not persist the generated result"
+                );
+                if !job_cancelled {
+                    state
+                        .conversation_jobs
+                        .fail(
+                            &job_id,
+                            error.to_string(),
+                            result
+                                .get("fullJsonLogs")
+                                .and_then(Value::as_array)
+                                .cloned()
+                                .unwrap_or_default(),
+                        )
+                        .await;
+                }
+                return;
+            }
+            tracing::debug!(
+                stage = "result_persisted",
+                "Conversation job persisted the generated result"
+            );
+            drop(history_persistence_guard);
+            if job_cancelled {
+                tracing::debug!(
+                    stage = "cancelled_partial_result_persisted",
+                    message_count,
+                    "Conversation job kept the turns completed before cancellation"
+                );
+                state
+                    .conversation_jobs
+                    .set_partial_result(&job_id, result)
+                    .await;
+                return;
+            }
+            let memory = memory.filter(|_| !secret_mode).map(|follow_up| {
+                let messages = result
+                    .get("messages")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                (follow_up, messages)
+            });
+            state.conversation_jobs.complete(&job_id, result).await;
+            tracing::debug!(stage = "completed", "Conversation job completed");
+            if let Some((follow_up, messages)) = memory {
+                persist_turn_memories(&state, &payload, &job_id, follow_up, &messages).await;
+            }
+        }
+        Err(failure) => {
+            tracing::warn!(
+                stage = "generation_failed",
+                classification = failure.error.diagnostic_class(),
+                "Conversation generation failed"
+            );
+            state
+                .conversation_jobs
+                .fail(&job_id, failure.error.to_string(), failure.full_json_logs)
+                .await;
+        }
+    }
 }
 
 pub async fn get(
@@ -754,6 +821,10 @@ pub async fn cancel(
             .is_err()
         {
             handle.abort();
+            let _ = handle.await;
+            // The aborted task can no longer mark itself; release readers
+            // waiting for the cancelled snapshot to settle.
+            state.conversation_jobs.mark_task_settled(&job_id).await;
         }
     }
     let snapshot = state
@@ -1037,6 +1108,68 @@ mod tests {
         let listed = jobs.list_recoverable().await;
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0]["jobId"], "job-recoverable");
+    }
+
+    #[tokio::test]
+    async fn cancelled_job_reads_wait_for_the_task_to_settle() {
+        let jobs = ConversationJobs::default();
+        let job_id = "job-settle-wait";
+        jobs.insert(job_id.to_owned(), "room-1".to_owned(), true)
+            .await
+            .expect("insert job");
+        jobs.cancel(job_id).await;
+
+        let reader = tokio::spawn({
+            let jobs = jobs.clone();
+            async move { jobs.get(job_id).await }
+        });
+        tokio::task::yield_now().await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert!(!reader.is_finished(), "read must wait for settlement");
+
+        jobs.set_partial_result(job_id, json!({ "messages": [{ "content": "partial" }] }))
+            .await;
+        jobs.mark_task_settled(job_id).await;
+
+        let snapshot = reader
+            .await
+            .expect("reader task")
+            .expect("job snapshot");
+        assert_eq!(snapshot["status"], "cancelled");
+        assert_eq!(
+            snapshot["partialResult"]["messages"][0]["content"],
+            "partial"
+        );
+    }
+
+    #[tokio::test]
+    async fn recoverable_listing_waits_for_settling_cancelled_jobs() {
+        let jobs = ConversationJobs::default();
+        let job_id = "job-list-settle-wait";
+        jobs.insert(job_id.to_owned(), "room-1".to_owned(), true)
+            .await
+            .expect("insert job");
+        jobs.cancel(job_id).await;
+
+        let lister = tokio::spawn({
+            let jobs = jobs.clone();
+            async move { jobs.list_recoverable().await }
+        });
+        tokio::task::yield_now().await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert!(!lister.is_finished(), "listing must wait for settlement");
+
+        jobs.set_partial_result(job_id, json!({ "messages": [{ "content": "partial" }] }))
+            .await;
+        jobs.mark_task_settled(job_id).await;
+
+        let listed = lister.await.expect("lister task");
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0]["status"], "cancelled");
+        assert_eq!(
+            listed[0]["partialResult"]["messages"][0]["content"],
+            "partial"
+        );
     }
 
     #[tokio::test]

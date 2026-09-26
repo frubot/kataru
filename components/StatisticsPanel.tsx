@@ -1,9 +1,10 @@
 import { useState, useMemo, useEffect } from 'react';
-import { BarChart3, Calendar, Users } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, BarChart3, Calendar, Users } from 'lucide-react';
 import { useStore, type UsageRecord } from '@/lib/store';
 import OptionSelector from '@/components/OptionSelector';
 
-type ViewMode = 'tokens' | 'cost';
+type ViewMode = 'tokens' | 'input' | 'output' | 'requests' | 'cost';
+type SortOrder = 'desc' | 'asc';
 type PeriodFilter = 'all' | 'thisMonth' | 'lastMonth' | 'last3Months' | 'lastYear';
 type ChartGranularity = 'day' | 'week' | 'month';
 
@@ -24,6 +25,37 @@ const periodOptions: { value: PeriodFilter; label: string }[] = [
     { value: 'last3Months', label: '過去3ヶ月' },
     { value: 'lastYear', label: '過去1年' },
 ];
+
+const viewModeOptions: { value: ViewMode; label: string; chartLabel: string }[] = [
+    { value: 'requests', label: 'リクエスト数', chartLabel: 'リクエスト数' },
+    { value: 'input', label: '入力', chartLabel: '入力トークン' },
+    { value: 'output', label: '出力', chartLabel: '出力トークン' },
+    { value: 'tokens', label: 'トークン', chartLabel: '合計トークン' },
+    { value: 'cost', label: '料金', chartLabel: '料金' },
+];
+
+interface MetricTotals {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    cost: number;
+    recordCount?: number;
+}
+
+function getMetricValue(totals: MetricTotals, viewMode: ViewMode): number {
+    switch (viewMode) {
+        case 'requests':
+            return totals.recordCount ?? 1;
+        case 'input':
+            return totals.promptTokens;
+        case 'output':
+            return totals.completionTokens;
+        case 'cost':
+            return totals.cost;
+        default:
+            return totals.totalTokens;
+    }
+}
 
 function getDateRange(period: PeriodFilter): { start: number; end: number } {
     const now = new Date();
@@ -118,7 +150,7 @@ function buildChartData(
                 : `${year}年${month}月${date}日`;
         const value = records.reduce((sum, record) => {
             if (record.timestamp < start || record.timestamp >= end) return sum;
-            return sum + (viewMode === 'tokens' ? record.totalTokens : record.cost);
+            return sum + getMetricValue(record, viewMode);
         }, 0);
 
         points.push({ start, end, label, description, value });
@@ -141,6 +173,7 @@ interface CharacterStats {
 export default function StatisticsPanel() {
     const { usageRecords, characters, cleanOldUsageRecords } = useStore();
     const [viewMode, setViewMode] = useState<ViewMode>('tokens');
+    const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
     const [period, setPeriod] = useState<PeriodFilter>('all');
     const [selectedCharacter, setSelectedCharacter] = useState<string>('all');
 
@@ -186,12 +219,11 @@ export default function StatisticsPanel() {
             }
         }
 
-        return Array.from(statsMap.values()).sort((a, b) => (
-            viewMode === 'tokens'
-                ? b.totalTokens - a.totalTokens
-                : b.cost - a.cost
-        ));
-    }, [filteredRecords, characters, viewMode]);
+        const direction = sortOrder === 'desc' ? -1 : 1;
+        return Array.from(statsMap.values()).sort(
+            (a, b) => (getMetricValue(a, viewMode) - getMetricValue(b, viewMode)) * direction,
+        );
+    }, [filteredRecords, characters, viewMode, sortOrder]);
 
     const totals = useMemo(() => {
         return characterStats.reduce(
@@ -222,9 +254,48 @@ export default function StatisticsPanel() {
         Math.floor((chartData.length - 1) / 2),
         chartData.length - 1,
     ])).filter((index) => index >= 0);
-    const formatChartValue = (value: number) => (
-        viewMode === 'tokens' ? `${formatTokens(value)} トークン` : formatCost(value)
-    );
+    const formatChartValue = (value: number) => {
+        if (viewMode === 'cost') return formatCost(value);
+        if (viewMode === 'requests') return `${formatTokens(value)}回`;
+        return `${formatTokens(value)} トークン`;
+    };
+    const activeChartLabel = viewModeOptions.find((opt) => opt.value === viewMode)?.chartLabel ?? '';
+    const sortOrderLabel = sortOrder === 'desc' ? '高い順' : '低い順';
+    const handleColumnSort = (mode: ViewMode) => {
+        if (mode === viewMode) {
+            setSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'));
+        } else {
+            setViewMode(mode);
+            setSortOrder('desc');
+        }
+    };
+    const renderSortableHeader = (mode: ViewMode, label: string) => {
+        const isActive = viewMode === mode;
+        return (
+            <th
+                scope="col"
+                className={`statistics-table-number${isActive ? ' is-active' : ''}`}
+                aria-sort={isActive ? (sortOrder === 'desc' ? 'descending' : 'ascending') : 'none'}
+            >
+                <button
+                    type="button"
+                    className="statistics-table-sort-button"
+                    onClick={() => handleColumnSort(mode)}
+                    aria-label={
+                        isActive
+                            ? `${label}（${sortOrderLabel}）。クリックで並び順を切り替え`
+                            : `${label}で並べ替え`
+                    }
+                    title={isActive ? `${sortOrderLabel}（クリックで切替）` : `${label}で並べ替え`}
+                >
+                    <span>{label}</span>
+                    {isActive
+                        ? (sortOrder === 'desc' ? <ArrowDown size={12} /> : <ArrowUp size={12} />)
+                        : <ArrowUpDown size={12} className="statistics-table-sort-hint" aria-hidden="true" />}
+                </button>
+            </th>
+        );
+    };
 
     return (
         <div className="statistics-panel">
@@ -275,10 +346,10 @@ export default function StatisticsPanel() {
                                     onChange={(next) => setViewMode(next as ViewMode)}
                                     ariaLabel="項目"
                                     menuStyle={{ minWidth: 'min(12rem, calc(100vw - 3rem))' }}
-                                    options={[
-                                        { value: 'tokens', label: 'トークン' },
-                                        { value: 'cost', label: '料金' },
-                                    ]}
+                                    options={viewModeOptions.map((opt) => ({
+                                        value: opt.value,
+                                        label: opt.label,
+                                    }))}
                                 />
                             </div>
                         </div>
@@ -289,7 +360,7 @@ export default function StatisticsPanel() {
                                 <div className="statistics-chart-heading">
                                     <div>
                                         <h3 id="statistics-chart-heading">利用推移</h3>
-                                        <p>{viewMode === 'tokens' ? '合計トークン' : '料金'}の推移</p>
+                                        <p>{activeChartLabel}の推移</p>
                                     </div>
                                     {chartPeak && (
                                         <div className="statistics-chart-peak">
@@ -301,7 +372,7 @@ export default function StatisticsPanel() {
                                 <div
                                     className="statistics-chart"
                                     role="img"
-                                    aria-label={`${viewMode === 'tokens' ? 'トークン' : '料金'}の利用推移。ピークは${chartPeak ? `${chartPeak.description}の${formatChartValue(chartPeak.value)}` : 'ありません'}`}
+                                    aria-label={`${activeChartLabel}の利用推移。ピークは${chartPeak ? `${chartPeak.description}の${formatChartValue(chartPeak.value)}` : 'ありません'}`}
                                 >
                                     <div className="statistics-chart-grid" aria-hidden="true">
                                         <span />
@@ -344,7 +415,7 @@ export default function StatisticsPanel() {
                             <h3 className="statistics-total-heading">
                                 合計
                             </h3>
-                            {viewMode === 'tokens' ? (
+                            {viewMode !== 'cost' ? (
                                 <div className="statistics-total-metrics statistics-total-metrics-tokens">
                                     <div className="statistics-total-metric">
                                         <div className="statistics-total-label">入力</div>
@@ -392,27 +463,17 @@ export default function StatisticsPanel() {
                                         <thead>
                                             <tr>
                                                 <th scope="col">キャラクター</th>
-                                                <th scope="col" className="statistics-table-number">リクエスト</th>
-                                                <th scope="col" className="statistics-table-number">入力</th>
-                                                <th scope="col" className="statistics-table-number">出力</th>
-                                                <th
-                                                    scope="col"
-                                                    className={`statistics-table-number${viewMode === 'tokens' ? ' is-active' : ''}`}
-                                                >
-                                                    合計トークン
-                                                </th>
-                                                <th
-                                                    scope="col"
-                                                    className={`statistics-table-number${viewMode === 'cost' ? ' is-active' : ''}`}
-                                                >
-                                                    料金
-                                                </th>
+                                                {renderSortableHeader('requests', 'リクエスト')}
+                                                {renderSortableHeader('input', '入力')}
+                                                {renderSortableHeader('output', '出力')}
+                                                {renderSortableHeader('tokens', '合計トークン')}
+                                                {renderSortableHeader('cost', '料金')}
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {characterStats.map((stat, index) => {
-                                                const selectedTotal = viewMode === 'tokens' ? totals.totalTokens : totals.cost;
-                                                const selectedValue = viewMode === 'tokens' ? stat.totalTokens : stat.cost;
+                                                const selectedTotal = getMetricValue(totals, viewMode);
+                                                const selectedValue = getMetricValue(stat, viewMode);
                                                 const share = selectedTotal > 0 ? (selectedValue / selectedTotal) * 100 : 0;
 
                                                 return (
@@ -434,13 +495,13 @@ export default function StatisticsPanel() {
                                                                 </div>
                                                             </div>
                                                         </th>
-                                                        <td className="statistics-table-number">
+                                                        <td className={`statistics-table-number${viewMode === 'requests' ? ' is-active' : ''}`}>
                                                             {formatTokens(stat.recordCount)}回
                                                         </td>
-                                                        <td className="statistics-table-number">
+                                                        <td className={`statistics-table-number${viewMode === 'input' ? ' is-active' : ''}`}>
                                                             {formatTokens(stat.promptTokens)}
                                                         </td>
-                                                        <td className="statistics-table-number">
+                                                        <td className={`statistics-table-number${viewMode === 'output' ? ' is-active' : ''}`}>
                                                             {formatTokens(stat.completionTokens)}
                                                         </td>
                                                         <td className={`statistics-table-number${viewMode === 'tokens' ? ' is-active' : ''}`}>
@@ -456,9 +517,9 @@ export default function StatisticsPanel() {
                                         <tfoot>
                                             <tr>
                                                 <th scope="row">合計</th>
-                                                <td className="statistics-table-number">{formatTokens(totals.recordCount)}回</td>
-                                                <td className="statistics-table-number">{formatTokens(totals.promptTokens)}</td>
-                                                <td className="statistics-table-number">{formatTokens(totals.completionTokens)}</td>
+                                                <td className={`statistics-table-number${viewMode === 'requests' ? ' is-active' : ''}`}>{formatTokens(totals.recordCount)}回</td>
+                                                <td className={`statistics-table-number${viewMode === 'input' ? ' is-active' : ''}`}>{formatTokens(totals.promptTokens)}</td>
+                                                <td className={`statistics-table-number${viewMode === 'output' ? ' is-active' : ''}`}>{formatTokens(totals.completionTokens)}</td>
                                                 <td className={`statistics-table-number${viewMode === 'tokens' ? ' is-active' : ''}`}>
                                                     {formatTokens(totals.totalTokens)}
                                                 </td>

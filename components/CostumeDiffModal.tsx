@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, Loader2, Trash2, RefreshCw, Shirt, Sparkles, Upload } from 'lucide-react';
+import { X, Loader2, Plus, Trash2, RefreshCw, Shirt, Sparkles, Upload } from 'lucide-react';
 import type { Costume } from '@/lib/store';
 import type { VrmAvatar } from '@/lib/store/types';
 import { useStore } from '@/lib/store';
@@ -49,6 +49,8 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
     const fileInputRef = useRef<HTMLInputElement>(null);
     const uploadImgRef = useRef<HTMLImageElement>(null);
     const modalRef = useRef<HTMLDivElement>(null);
+    const addModalRef = useRef<HTMLDivElement>(null);
+    const [addOpen, setAddOpen] = useState(false);
     const [uploadImage, setUploadImage] = useState<string | null>(null);
     const [uploadNatural, setUploadNatural] = useState<{ w: number; h: number } | null>(null);
     const [uploadCrop, setUploadCrop] = useState<CropBox | null>(null);
@@ -59,7 +61,9 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
     const canGenerateDiffs = selectedKind === 'openrouter';
 
     useEffect(() => {
+        if (isOpen && costumes.length === 0) setAddOpen(true);
         if (!isOpen) {
+            setAddOpen(false);
             setNewName('');
             setEditingVrm(null);
             setVrmDraft(null);
@@ -259,10 +263,27 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
         setBusy(null);
     };
 
+    const closeAddModal = () => {
+        if (busy) return;
+        setAddOpen(false);
+        setNewName('');
+        setNewPromptDetail('');
+        setError(null);
+        clearUploadDraft();
+        setVrmDraft(null);
+    };
+
     useModalKeyboard({
         isOpen,
         containerRef: modalRef,
         onClose,
+        canClose: !busy,
+    });
+
+    useModalKeyboard({
+        isOpen: isOpen && addOpen,
+        containerRef: addModalRef,
+        onClose: closeAddModal,
         canClose: !busy,
         onEnter: addMode === 'generate' ? handleAdd : undefined,
     });
@@ -270,6 +291,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
     if (!isOpen) return null;
 
     return (
+        <>
         <div
             className="modal-overlay"
             onPointerDown={(e) => {
@@ -295,165 +317,20 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                 </div>
 
                 <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                    <div>
-                        <label style={labelStyle}>新しい衣装を追加</label>
-                        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                            <button
-                                type="button"
-                                className={addMode === 'generate' ? 'btn btn-primary' : 'btn btn-ghost'}
-                                onClick={() => {
-                                    setAddMode('generate');
-                                    clearUploadDraft();
-                                    setVrmDraft(null);
-                                }}
-                                disabled={!!busy || !canGenerateDiffs}
-                                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-                            >
-                                <Sparkles size={14} /> 2D生成
-                            </button>
-                            <button
-                                type="button"
-                                className={addMode === 'upload' ? 'btn btn-primary' : 'btn btn-ghost'}
-                                onClick={() => setAddMode('upload')}
-                                disabled={!!busy}
-                                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-                            >
-                                <Upload size={14} /> アップロード
-                            </button>
-                        </div>
-                        {addMode === 'generate' && (
-                            <div style={{ marginBottom: 8 }}>
-                                <label style={fieldLabelStyle}>モデル名</label>
-                                <ModelSelector
-                                    value={model}
-                                    onChange={setModel}
-                                    outputModality="image"
-                                    disabled={!!busy || !canGenerateDiffs}
-                                    placeholder={`例: ${defaultImageModel.model}`}
-                                />
-                            </div>
-                        )}
-                        <div style={{ marginBottom: 8 }}>
-                            <label style={fieldLabelStyle}>衣装名</label>
-                            <input
-                                type="text"
-                                className="input"
-                                value={newName}
-                                onChange={(e) => setNewName(e.target.value)}
-                                placeholder="例: casual, school_uniform, dress"
-                                disabled={!!busy}
-                                data-modal-enter-submit={addMode === 'generate' ? 'true' : undefined}
-                            />
-                        </div>
-                        {addMode === 'generate' && (
-                            <>
-                                <label style={fieldLabelStyle}>補足</label>
-                                <textarea
-                                    className="input"
-                                    value={newPromptDetail}
-                                    onChange={(e) => setNewPromptDetail(e.target.value)}
-                                    placeholder="例: 白いブラウス、紺のプリーツスカート、赤いリボン。髪型や体型は変えない"
-                                    disabled={!!busy}
-                                    rows={3}
-                                    style={{ width: '100%', resize: 'vertical' }}
-                                />
-                            </>
-                        )}
-                        {addMode === 'generate' ? (
-                            <p style={hintStyle}>
-                                {!canGenerateDiffs
-                                    ? '選択中の接続先では元画像を使う差分生成に対応していません。アップロードで追加してください。'
-                                    : baseImage
-                                    ? 'デフォルトの立ち絵をベースに、衣装だけを変更して生成します'
-                                    : '生成には「アバター画像」から立ち絵の登録が必要です。アップロードなら衣装差分を直接追加できます。'}
-                            </p>
-                        ) : addMode === 'upload' ? (
-                            <p style={hintStyle}>
-                                {vrmDraft
-                                    ? '3Dモデルの表示位置と表情の対応を調整して追加します'
-                                    : uploadImage
-                                    ? '切り取り範囲を調整してから追加します'
-                                    : '画像（2:3に切り取り）または .vrm の3Dモデルを選択できます'}
-                            </p>
-                        ) : null}
-                        {addMode === 'upload' && uploadImage && uploadNatural && uploadCrop && (
-                            <div style={{ marginTop: 8 }}>
-                                <CropArea
-                                    key={uploadImage}
-                                    imgRef={uploadImgRef}
-                                    src={uploadImage}
-                                    natural={uploadNatural}
-                                    crop={uploadCrop}
-                                    aspect={COSTUME_ASPECT}
-                                    hint="この範囲を 2:3 の衣装差分として保存します"
-                                    onChange={(next) => setUploadCrop(next)}
-                                />
-                            </div>
-                        )}
-                        <input
-                            ref={fileInputRef}
-                            type="file"
-                            accept="image/*,.vrm"
-                            onChange={handleFileUpload}
-                            style={{ display: 'none' }}
-                        />
-                    </div>
-
                     {error && <p style={{ color: 'var(--error)', fontSize: '0.8125rem' }}>{error}</p>}
 
-                    {addMode === 'upload' && vrmDraft && !editingVrm && <VrmCostumeEditor name={newName}
-                        initialAvatar={vrmDraft}
-                        existingNames={costumes.map((costume) => costume.name)} expressionNames={expressionNames}
-                        onSave={(costume) => { onUpsert(costume); setNewName(''); setVrmDraft(null); }}
-                        onCancel={() => setVrmDraft(null)} />}
-                    {editingVrm && <VrmCostumeEditor key={editingVrm.name} costume={editingVrm} name={editingVrm.name}
-                        existingNames={costumes.map((costume) => costume.name)} expressionNames={expressionNames}
-                        onSave={(costume) => { onUpsert(costume); setEditingVrm(null); }} onCancel={() => setEditingVrm(null)} />}
-
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
-                        {busy && busy !== UPLOAD_BUSY_KEY && (
-                            <button className="btn btn-ghost" onClick={handleCancelBusy}>
-                                生成をキャンセル
-                            </button>
-                        )}
-                        {addMode === 'generate' ? (
-                            <button
-                                className="btn btn-primary"
-                                onClick={handleAdd}
-                                disabled={!!busy || !canGenerateDiffs || !newName.trim() || !model.model.trim() || !baseImage}
-                                style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-                            >
-                                {busy === NEW_BUSY_KEY && <Loader2 size={16} className="animate-spin" />}
-                                {busy === NEW_BUSY_KEY ? '生成中...' : '生成'}
-                            </button>
-                        ) : addMode === 'upload' && !vrmDraft ? (
-                            <>
-                                {uploadImage && (
-                                    <button
-                                        type="button"
-                                        className="btn btn-ghost"
-                                        onClick={handleUploadClick}
-                                        disabled={!!busy || !newName.trim()}
-                                    >
-                                        選び直す
-                                    </button>
-                                )}
-                                <button
-                                    type="button"
-                                    className="btn btn-primary"
-                                    onClick={uploadImage ? () => { void handleConfirmUpload(); } : handleUploadClick}
-                                    disabled={!!busy || !newName.trim() || (!!uploadImage && !uploadCrop)}
-                                    style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-                                >
-                                    {busy === UPLOAD_BUSY_KEY && <Loader2 size={16} className="animate-spin" />}
-                                    {busy === UPLOAD_BUSY_KEY ? '処理中...' : uploadImage ? '追加' : '選択'}
-                                </button>
-                            </>
-                        ) : null}
-                    </div>
-
                     <div>
-                        <label style={labelStyle}>登録済み（{costumes.length}件）</label>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: '0.5rem' }}>
+                            <label style={{ ...labelStyle, marginBottom: 0 }}>登録済み（{costumes.length}件）</label>
+                            <button
+                                type="button"
+                                className="btn btn-primary"
+                                onClick={() => { setError(null); setAddOpen(true); }}
+                                style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', fontSize: '0.75rem' }}
+                            >
+                                <Plus size={14} /> 追加
+                            </button>
+                        </div>
                         {costumes.length === 0 && (
                             <p style={hintStyle}>まだ登録されていません。衣装を追加するとゲームモードで選択できるようになります。</p>
                         )}
@@ -550,6 +427,193 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
 
             </div>
         </div>
+
+        {addOpen && (
+            <div
+                className="modal-overlay"
+                onPointerDown={(e) => {
+                    if (e.target === e.currentTarget) closeAddModal();
+                }}
+            >
+                <div
+                    ref={addModalRef}
+                    className="modal-content settings-form-modal"
+                    onClick={(e) => e.stopPropagation()}
+                    style={{ maxWidth: 560 }}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="衣装を追加"
+                >
+                    <div className="settings-form-modal-actions" style={{ justifyContent: 'space-between' }}>
+                        <h2 style={{ margin: 0, paddingLeft: '0.25rem', fontSize: '0.9375rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <Shirt size={18} /> 衣装を追加
+                        </h2>
+                        <button className="btn btn-ghost" onClick={closeAddModal} disabled={!!busy} title="閉じる" aria-label="閉じる">
+                            <X size={20} />
+                        </button>
+                    </div>
+
+                    <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        <div>
+                            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                                <button
+                                    type="button"
+                                    className={addMode === 'generate' ? 'btn btn-primary' : 'btn btn-ghost'}
+                                    onClick={() => {
+                                        setAddMode('generate');
+                                        clearUploadDraft();
+                                        setVrmDraft(null);
+                                    }}
+                                    disabled={!!busy || !canGenerateDiffs}
+                                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                                >
+                                    <Sparkles size={14} /> 2D生成
+                                </button>
+                                <button
+                                    type="button"
+                                    className={addMode === 'upload' ? 'btn btn-primary' : 'btn btn-ghost'}
+                                    onClick={() => setAddMode('upload')}
+                                    disabled={!!busy}
+                                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                                >
+                                    <Upload size={14} /> アップロード
+                                </button>
+                            </div>
+                            {addMode === 'generate' && (
+                                <div style={{ marginBottom: 8 }}>
+                                    <label style={fieldLabelStyle}>モデル名</label>
+                                    <ModelSelector
+                                        value={model}
+                                        onChange={setModel}
+                                        outputModality="image"
+                                        disabled={!!busy || !canGenerateDiffs}
+                                        placeholder={`例: ${defaultImageModel.model}`}
+                                    />
+                                </div>
+                            )}
+                            <div style={{ marginBottom: 8 }}>
+                                <label style={fieldLabelStyle}>衣装名</label>
+                                <input
+                                    type="text"
+                                    className="input"
+                                    value={newName}
+                                    onChange={(e) => setNewName(e.target.value)}
+                                    placeholder="例: casual, school_uniform, dress"
+                                    disabled={!!busy}
+                                    data-modal-enter-submit={addMode === 'generate' ? 'true' : undefined}
+                                />
+                            </div>
+                            {addMode === 'generate' && (
+                                <>
+                                    <label style={fieldLabelStyle}>補足</label>
+                                    <textarea
+                                        className="input"
+                                        value={newPromptDetail}
+                                        onChange={(e) => setNewPromptDetail(e.target.value)}
+                                        placeholder="例: 白いブラウス、紺のプリーツスカート、赤いリボン。髪型や体型は変えない"
+                                        disabled={!!busy}
+                                        rows={3}
+                                        style={{ width: '100%', resize: 'vertical' }}
+                                    />
+                                </>
+                            )}
+                            {addMode === 'generate' ? (
+                                <p style={hintStyle}>
+                                    {!canGenerateDiffs
+                                        ? '選択中の接続先では元画像を使う差分生成に対応していません。アップロードで追加してください。'
+                                        : baseImage
+                                        ? 'デフォルトの立ち絵をベースに、衣装だけを変更して生成します'
+                                        : '生成には「アバター画像」から立ち絵の登録が必要です。アップロードなら衣装差分を直接追加できます。'}
+                                </p>
+                            ) : addMode === 'upload' ? (
+                                <p style={hintStyle}>
+                                    {vrmDraft
+                                        ? '3Dモデルの表示位置と表情の対応を調整して追加します'
+                                        : uploadImage
+                                        ? '切り取り範囲を調整してから追加します'
+                                        : '画像（2:3に切り取り）または .vrm の3Dモデルを選択できます'}
+                                </p>
+                            ) : null}
+                            {addMode === 'upload' && uploadImage && uploadNatural && uploadCrop && (
+                                <div style={{ marginTop: 8 }}>
+                                    <CropArea
+                                        key={uploadImage}
+                                        imgRef={uploadImgRef}
+                                        src={uploadImage}
+                                        natural={uploadNatural}
+                                        crop={uploadCrop}
+                                        aspect={COSTUME_ASPECT}
+                                        hint="この範囲を 2:3 の衣装差分として保存します"
+                                        onChange={(next) => setUploadCrop(next)}
+                                    />
+                                </div>
+                            )}
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept="image/*,.vrm"
+                                onChange={handleFileUpload}
+                                style={{ display: 'none' }}
+                            />
+                        </div>
+
+                        {error && <p style={{ color: 'var(--error)', fontSize: '0.8125rem' }}>{error}</p>}
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+                            {busy && busy !== UPLOAD_BUSY_KEY && (
+                                <button className="btn btn-ghost" onClick={handleCancelBusy}>
+                                    生成をキャンセル
+                                </button>
+                            )}
+                            {addMode === 'generate' ? (
+                                <button
+                                    className="btn btn-primary"
+                                    onClick={handleAdd}
+                                    disabled={!!busy || !canGenerateDiffs || !newName.trim() || !model.model.trim() || !baseImage}
+                                    style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                                >
+                                    {busy === NEW_BUSY_KEY && <Loader2 size={16} className="animate-spin" />}
+                                    {busy === NEW_BUSY_KEY ? '生成中...' : '生成'}
+                                </button>
+                            ) : addMode === 'upload' && !vrmDraft ? (
+                                <>
+                                    {uploadImage && (
+                                        <button
+                                            type="button"
+                                            className="btn btn-ghost"
+                                            onClick={handleUploadClick}
+                                            disabled={!!busy || !newName.trim()}
+                                        >
+                                            選び直す
+                                        </button>
+                                    )}
+                                    <button
+                                        type="button"
+                                        className="btn btn-primary"
+                                        onClick={uploadImage ? () => { void handleConfirmUpload(); } : handleUploadClick}
+                                        disabled={!!busy || !newName.trim() || (!!uploadImage && !uploadCrop)}
+                                        style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                                    >
+                                        {busy === UPLOAD_BUSY_KEY && <Loader2 size={16} className="animate-spin" />}
+                                        {busy === UPLOAD_BUSY_KEY ? '処理中...' : uploadImage ? '追加' : '選択'}
+                                    </button>
+                                </>
+                            ) : null}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {addOpen && addMode === 'upload' && vrmDraft && !editingVrm && <VrmCostumeEditor name={newName}
+            initialAvatar={vrmDraft}
+            existingNames={costumes.map((costume) => costume.name)} expressionNames={expressionNames}
+            onSave={(costume) => { onUpsert(costume); setNewName(''); setVrmDraft(null); }}
+            onCancel={() => setVrmDraft(null)} />}
+        {editingVrm && <VrmCostumeEditor key={editingVrm.name} costume={editingVrm} name={editingVrm.name}
+            existingNames={costumes.map((costume) => costume.name)} expressionNames={expressionNames}
+            onSave={(costume) => { onUpsert(costume); setEditingVrm(null); }} onCancel={() => setEditingVrm(null)} />}
+        </>
     );
 }
 

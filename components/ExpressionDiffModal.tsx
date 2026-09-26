@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Check, X, Loader2, Pencil, Trash2, RefreshCw, Smile, Sparkles, Upload } from 'lucide-react';
+import { Check, X, Loader2, Pencil, Plus, Trash2, RefreshCw, Smile, Sparkles, Upload } from 'lucide-react';
 import type { Costume, Expression } from '@/lib/store';
 import { useStore } from '@/lib/store';
 import { isAiConnectionKind } from '@/lib/aiApi';
@@ -73,6 +73,8 @@ export default function ExpressionDiffModal({
     const fileInputRef = useRef<HTMLInputElement>(null);
     const uploadImgRef = useRef<HTMLImageElement>(null);
     const modalRef = useRef<HTMLDivElement>(null);
+    const addModalRef = useRef<HTMLDivElement>(null);
+    const [addOpen, setAddOpen] = useState(false);
     const reservedDetectedNamesRef = useRef<Set<string>>(new Set());
     const [uploadImage, setUploadImage] = useState<string | null>(null);
     const [uploadNatural, setUploadNatural] = useState<{ w: number; h: number } | null>(null);
@@ -84,6 +86,7 @@ export default function ExpressionDiffModal({
 
     useEffect(() => {
         if (!isOpen) {
+            setAddOpen(false);
             setSelectedCostumeName(DEFAULT_COSTUME_NAME);
             setNewName('');
             setNewPromptDetail('');
@@ -140,6 +143,13 @@ export default function ExpressionDiffModal({
     const displayExpressions: Expression[] = selectedCostumeNeutral
         ? [selectedCostumeNeutral, ...selectedCostumeExpressions]
         : expressions;
+
+    useEffect(() => {
+        if (isOpen && !defaultIsVrm && displayExpressions.length === 0) {
+            setAddOpen(true);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen]);
 
     const clearUploadDraft = () => {
         setUploadImage(null);
@@ -410,10 +420,26 @@ export default function ExpressionDiffModal({
         setBusy(null);
     };
 
+    const closeAddModal = () => {
+        if (busy) return;
+        setAddOpen(false);
+        setNewName('');
+        setNewPromptDetail('');
+        clearUploadQueue();
+        setError(null);
+    };
+
     useModalKeyboard({
         isOpen,
         containerRef: modalRef,
         onClose,
+        canClose: !busy,
+    });
+
+    useModalKeyboard({
+        isOpen: isOpen && addOpen,
+        containerRef: addModalRef,
+        onClose: closeAddModal,
         canClose: !busy,
         onEnter: !defaultIsVrm && addMode === 'generate' ? handleAdd : undefined,
     });
@@ -421,6 +447,7 @@ export default function ExpressionDiffModal({
     if (!isOpen) return null;
 
     return (
+        <>
         <div
             className="modal-overlay"
             onPointerDown={(e) => {
@@ -485,195 +512,20 @@ export default function ExpressionDiffModal({
                         </p>
                     ) : (
                         <>
-                    <div>
-                        <label style={labelStyle}>新しい表情を追加</label>
-                        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                            <button
-                                type="button"
-                                className={addMode === 'generate' ? 'btn btn-primary' : 'btn btn-ghost'}
-                                onClick={() => {
-                                    setAddMode('generate');
-                                    clearUploadQueue();
-                                }}
-                                disabled={!!busy || !canGenerateDiffs}
-                                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-                            >
-                                <Sparkles size={14} /> 生成
-                            </button>
-                            <button
-                                type="button"
-                                className={addMode === 'upload' ? 'btn btn-primary' : 'btn btn-ghost'}
-                                onClick={() => setAddMode('upload')}
-                                disabled={!!busy}
-                                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-                            >
-                                <Upload size={14} /> アップロード
-                            </button>
-                        </div>
-                        {addMode === 'generate' && (
-                            <div style={{ marginBottom: 8 }}>
-                                <label style={fieldLabelStyle}>モデル名</label>
-                                <ModelSelector
-                                    value={model}
-                                    onChange={setModel}
-                                    outputModality="image"
-                                    disabled={!!busy || !canGenerateDiffs}
-                                    placeholder={`例: ${defaultImageModel.model}`}
-                                />
-                            </div>
-                        )}
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontSize: '0.8125rem', cursor: busy ? 'default' : 'pointer' }}>
-                            <input
-                                type="checkbox"
-                                checked={autoDetectName}
-                                onChange={(event) => {
-                                    setAutoDetectName(event.target.checked);
-                                    clearUploadQueue();
-                                    setError(null);
-                                }}
-                                disabled={!!busy}
-                            />
-                            表情名を自動判定
-                        </label>
-                        {autoDetectName ? (
-                            <p style={{ ...hintStyle, marginTop: 0, marginBottom: 8 }}>
-                                {neutral?.image
-                                    ? 'neutralと対象画像をAPIへ送り、表情の変化を比較して判定します。'
-                                    : '対象画像をAPIへ送り、表情を判定します。neutralを登録すると比較できます。'}
-                                機密情報が入った画像を選択しないでください
-                            </p>
-                        ) : (
-                            <div style={{ marginBottom: 8 }}>
-                                <label style={fieldLabelStyle}>表情</label>
-                                <input
-                                    type="text"
-                                    className="input"
-                                    value={newName}
-                                    onChange={(e) => setNewName(e.target.value)}
-                                    placeholder="例: smile, sad, angry"
-                                    disabled={!!busy}
-                                    data-modal-enter-submit={addMode === 'generate' ? 'true' : undefined}
-                                />
-                            </div>
-                        )}
-                        {addMode === 'generate' && (
-                            <>
-                                <label style={fieldLabelStyle}>画像の説明</label>
-                                <textarea
-                                    className="input"
-                                    value={newPromptDetail}
-                                    onChange={(e) => setNewPromptDetail(e.target.value)}
-                                    placeholder="例: このキャラクターは嬉しい時、大きく笑うより目元がやわらかくなり、口角だけ少し上がる"
-                                    disabled={!!busy}
-                                    rows={3}
-                                    style={{ width: '100%', resize: 'vertical' }}
-                                />
-                            </>
-                        )}
-                        {addMode === 'generate' ? (
-                            <p style={hintStyle}>
-                                {!canGenerateDiffs
-                                    ? '選択中の接続先では元画像を使う差分生成に対応していません。アップロードで追加してください。'
-                                    : neutral
-                                    ? autoDetectName
-                                        && '説明が空の場合は異なる表情をおまかせで生成します'
-                                    : '生成には「アバター画像」から立ち絵の登録が必要です。アップロードなら neutral(デフォルトの表情) や表情差分を直接追加できます。'}
-                            </p>
-                        ) : (
-                            <p style={hintStyle}>
-                                {uploadImage
-                                    && uploadFiles.length > 1
-                                        ? '切り取り範囲を調整して追加すると、次の画像に進みます'
-                                        : '切り取り範囲を調整してください'
-                                    }
-                            </p>
-                        )}
-                        {addMode === 'upload' && uploadImage && uploadNatural && uploadCrop && (
-                            <div style={{ marginTop: 8 }}>
-                                {autoDetectName && uploadFiles.length > 0 && (
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 8, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={uploadFiles[uploadIndex]?.name}>
-                                            {uploadFiles[uploadIndex]?.name}
-                                        </span>
-                                        <span style={{ flexShrink: 0 }}>{uploadIndex + 1} / {uploadFiles.length}</span>
-                                    </div>
-                                )}
-                                <CropArea
-                                    key={uploadImage}
-                                    imgRef={uploadImgRef}
-                                    src={uploadImage}
-                                    natural={uploadNatural}
-                                    crop={uploadCrop}
-                                    aspect={EXPRESSION_ASPECT}
-                                    hint="この範囲を 2:3 の表情差分として保存します"
-                                    onChange={(next) => setUploadCrop(next)}
-                                />
-                            </div>
-                        )}
-                        <input
-                            ref={fileInputRef}
-                            type="file"
-                            accept="image/*"
-                            multiple={autoDetectName}
-                            onChange={handleFileUpload}
-                            style={{ display: 'none' }}
-                        />
-                    </div>
-
                     {error && <p style={{ color: 'var(--error)', fontSize: '0.8125rem' }}>{error}</p>}
 
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
-                        {busy && busy !== UPLOAD_BUSY_KEY && (
-                            <button className="btn btn-ghost" onClick={handleCancelBusy}>
-                                生成をキャンセル
-                            </button>
-                        )}
-                        {addMode === 'generate' ? (
-                            <button
-                                className="btn btn-primary"
-                                onClick={handleAdd}
-                                disabled={!!busy || !canGenerateDiffs || (!autoDetectName && !newName.trim()) || !model.model.trim() || !neutral}
-                                style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-                            >
-                                {busy === NEW_BUSY_KEY && <Loader2 size={16} className="animate-spin" />}
-                                {busy === NEW_BUSY_KEY ? (autoDetectName ? '生成・判定中...' : '生成中...') : '生成'}
-                            </button>
-                        ) : (
-                            <>
-                                {uploadImage && (
-                                    <button
-                                        type="button"
-                                        className="btn btn-ghost"
-                                        onClick={handleUploadClick}
-                                        disabled={!!busy || (!autoDetectName && !newName.trim())}
-                                    >
-                                        選び直す
-                                    </button>
-                                )}
-                                <button
-                                    type="button"
-                                    className="btn btn-primary"
-                                    onClick={uploadImage ? () => { void handleConfirmUpload(); } : handleUploadClick}
-                                    disabled={!!busy || (!autoDetectName && !newName.trim()) || (!!uploadImage && !uploadCrop)}
-                                    style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-                                >
-                                    {busy === UPLOAD_BUSY_KEY && <Loader2 size={16} className="animate-spin" />}
-                                    {busy === UPLOAD_BUSY_KEY
-                                        ? autoDetectName && uploadFiles.length > 1
-                                            ? `処理・判定中... (${uploadIndex + 1}/${uploadFiles.length})`
-                                            : autoDetectName ? '処理・判定中...' : '処理中...'
-                                        : uploadImage && autoDetectName && uploadIndex + 1 < uploadFiles.length
-                                            ? `追加して次へ (${uploadIndex + 1}/${uploadFiles.length})`
-                                            : uploadImage && autoDetectName && uploadFiles.length > 1
-                                                ? `追加 (${uploadIndex + 1}/${uploadFiles.length})`
-                                                : uploadImage ? '追加' : '選択'}
-                                </button>
-                            </>
-                        )}
-                    </div>
-
                     <div>
-                        <label style={labelStyle}>登録済み（{displayExpressions.length}件）</label>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: '0.5rem' }}>
+                            <label style={{ ...labelStyle, marginBottom: 0 }}>登録済み（{displayExpressions.length}件）</label>
+                            <button
+                                type="button"
+                                className="btn btn-primary"
+                                onClick={() => { setError(null); setAddOpen(true); }}
+                                style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', fontSize: '0.75rem' }}
+                            >
+                                <Plus size={14} /> 追加
+                            </button>
+                        </div>
                         {displayExpressions.length === 0 && (
                             <p style={hintStyle}>まだ登録されていません。画像生成またはアップロードでデフォルトの立ち絵を追加できます。</p>
                         )}
@@ -833,6 +685,223 @@ export default function ExpressionDiffModal({
 
             </div>
         </div>
+
+        {addOpen && (
+            <div
+                className="modal-overlay"
+                onPointerDown={(e) => {
+                    if (e.target === e.currentTarget) closeAddModal();
+                }}
+            >
+                <div
+                    ref={addModalRef}
+                    className="modal-content settings-form-modal"
+                    onClick={(e) => e.stopPropagation()}
+                    style={{ maxWidth: 560 }}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="表情を追加"
+                >
+                    <div className="settings-form-modal-actions" style={{ justifyContent: 'space-between' }}>
+                        <h2 style={{ margin: 0, paddingLeft: '0.25rem', fontSize: '0.9375rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <Smile size={18} /> 表情を追加{selectedCostume ? `（${selectedCostume.name}）` : ''}
+                        </h2>
+                        <button className="btn btn-ghost" onClick={closeAddModal} disabled={!!busy} title="閉じる" aria-label="閉じる">
+                            <X size={20} />
+                        </button>
+                    </div>
+
+                    <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        <div>
+                            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                                <button
+                                    type="button"
+                                    className={addMode === 'generate' ? 'btn btn-primary' : 'btn btn-ghost'}
+                                    onClick={() => {
+                                        setAddMode('generate');
+                                        clearUploadQueue();
+                                    }}
+                                    disabled={!!busy || !canGenerateDiffs}
+                                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                                >
+                                    <Sparkles size={14} /> 生成
+                                </button>
+                                <button
+                                    type="button"
+                                    className={addMode === 'upload' ? 'btn btn-primary' : 'btn btn-ghost'}
+                                    onClick={() => setAddMode('upload')}
+                                    disabled={!!busy}
+                                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                                >
+                                    <Upload size={14} /> アップロード
+                                </button>
+                            </div>
+                            {addMode === 'generate' && (
+                                <div style={{ marginBottom: 8 }}>
+                                    <label style={fieldLabelStyle}>モデル名</label>
+                                    <ModelSelector
+                                        value={model}
+                                        onChange={setModel}
+                                        outputModality="image"
+                                        disabled={!!busy || !canGenerateDiffs}
+                                        placeholder={`例: ${defaultImageModel.model}`}
+                                    />
+                                </div>
+                            )}
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontSize: '0.8125rem', cursor: busy ? 'default' : 'pointer' }}>
+                                <input
+                                    type="checkbox"
+                                    checked={autoDetectName}
+                                    onChange={(event) => {
+                                        setAutoDetectName(event.target.checked);
+                                        clearUploadQueue();
+                                        setError(null);
+                                    }}
+                                    disabled={!!busy}
+                                />
+                                表情名を自動判定
+                            </label>
+                            {autoDetectName ? (
+                                <p style={{ ...hintStyle, marginTop: 0, marginBottom: 8 }}>
+                                    {neutral?.image
+                                        ? 'neutralと対象画像をAPIへ送り、表情の変化を比較して判定します。'
+                                        : '対象画像をAPIへ送り、表情を判定します。neutralを登録すると比較できます。'}
+                                    機密情報が入った画像を選択しないでください
+                                </p>
+                            ) : (
+                                <div style={{ marginBottom: 8 }}>
+                                    <label style={fieldLabelStyle}>表情</label>
+                                    <input
+                                        type="text"
+                                        className="input"
+                                        value={newName}
+                                        onChange={(e) => setNewName(e.target.value)}
+                                        placeholder="例: smile, sad, angry"
+                                        disabled={!!busy}
+                                        data-modal-enter-submit={addMode === 'generate' ? 'true' : undefined}
+                                    />
+                                </div>
+                            )}
+                            {addMode === 'generate' && (
+                                <>
+                                    <label style={fieldLabelStyle}>画像の説明</label>
+                                    <textarea
+                                        className="input"
+                                        value={newPromptDetail}
+                                        onChange={(e) => setNewPromptDetail(e.target.value)}
+                                        placeholder="例: このキャラクターは嬉しい時、大きく笑うより目元がやわらかくなり、口角だけ少し上がる"
+                                        disabled={!!busy}
+                                        rows={3}
+                                        style={{ width: '100%', resize: 'vertical' }}
+                                    />
+                                </>
+                            )}
+                            {addMode === 'generate' ? (
+                                <p style={hintStyle}>
+                                    {!canGenerateDiffs
+                                        ? '選択中の接続先では元画像を使う差分生成に対応していません。アップロードで追加してください。'
+                                        : neutral
+                                        ? autoDetectName
+                                            && '説明が空の場合は異なる表情をおまかせで生成します'
+                                        : '生成には「アバター画像」から立ち絵の登録が必要です。アップロードなら neutral(デフォルトの表情) や表情差分を直接追加できます。'}
+                                </p>
+                            ) : (
+                                <p style={hintStyle}>
+                                    {uploadImage
+                                        && uploadFiles.length > 1
+                                            ? '切り取り範囲を調整して追加すると、次の画像に進みます'
+                                            : '切り取り範囲を調整してください'
+                                        }
+                                </p>
+                            )}
+                            {addMode === 'upload' && uploadImage && uploadNatural && uploadCrop && (
+                                <div style={{ marginTop: 8 }}>
+                                    {autoDetectName && uploadFiles.length > 0 && (
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 8, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={uploadFiles[uploadIndex]?.name}>
+                                                {uploadFiles[uploadIndex]?.name}
+                                            </span>
+                                            <span style={{ flexShrink: 0 }}>{uploadIndex + 1} / {uploadFiles.length}</span>
+                                        </div>
+                                    )}
+                                    <CropArea
+                                        key={uploadImage}
+                                        imgRef={uploadImgRef}
+                                        src={uploadImage}
+                                        natural={uploadNatural}
+                                        crop={uploadCrop}
+                                        aspect={EXPRESSION_ASPECT}
+                                        hint="この範囲を 2:3 の表情差分として保存します"
+                                        onChange={(next) => setUploadCrop(next)}
+                                    />
+                                </div>
+                            )}
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept="image/*"
+                                multiple={autoDetectName}
+                                onChange={handleFileUpload}
+                                style={{ display: 'none' }}
+                            />
+                        </div>
+
+                        {error && <p style={{ color: 'var(--error)', fontSize: '0.8125rem' }}>{error}</p>}
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+                            {busy && busy !== UPLOAD_BUSY_KEY && (
+                                <button className="btn btn-ghost" onClick={handleCancelBusy}>
+                                    生成をキャンセル
+                                </button>
+                            )}
+                            {addMode === 'generate' ? (
+                                <button
+                                    className="btn btn-primary"
+                                    onClick={handleAdd}
+                                    disabled={!!busy || !canGenerateDiffs || (!autoDetectName && !newName.trim()) || !model.model.trim() || !neutral}
+                                    style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                                >
+                                    {busy === NEW_BUSY_KEY && <Loader2 size={16} className="animate-spin" />}
+                                    {busy === NEW_BUSY_KEY ? (autoDetectName ? '生成・判定中...' : '生成中...') : '生成'}
+                                </button>
+                            ) : (
+                                <>
+                                    {uploadImage && (
+                                        <button
+                                            type="button"
+                                            className="btn btn-ghost"
+                                            onClick={handleUploadClick}
+                                            disabled={!!busy || (!autoDetectName && !newName.trim())}
+                                        >
+                                            選び直す
+                                        </button>
+                                    )}
+                                    <button
+                                        type="button"
+                                        className="btn btn-primary"
+                                        onClick={uploadImage ? () => { void handleConfirmUpload(); } : handleUploadClick}
+                                        disabled={!!busy || (!autoDetectName && !newName.trim()) || (!!uploadImage && !uploadCrop)}
+                                        style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                                    >
+                                        {busy === UPLOAD_BUSY_KEY && <Loader2 size={16} className="animate-spin" />}
+                                        {busy === UPLOAD_BUSY_KEY
+                                            ? autoDetectName && uploadFiles.length > 1
+                                                ? `処理・判定中... (${uploadIndex + 1}/${uploadFiles.length})`
+                                                : autoDetectName ? '処理・判定中...' : '処理中...'
+                                            : uploadImage && autoDetectName && uploadIndex + 1 < uploadFiles.length
+                                                ? `追加して次へ (${uploadIndex + 1}/${uploadFiles.length})`
+                                                : uploadImage && autoDetectName && uploadFiles.length > 1
+                                                    ? `追加 (${uploadIndex + 1}/${uploadFiles.length})`
+                                                    : uploadImage ? '追加' : '選択'}
+                                    </button>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        )}
+        </>
     );
 }
 

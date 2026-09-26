@@ -83,6 +83,8 @@ export default function ExpressionDiffModal({
     const [uploadIndex, setUploadIndex] = useState(0);
     const [editingName, setEditingName] = useState<string | null>(null);
     const [editingNameValue, setEditingNameValue] = useState('');
+    const [draftImage, setDraftImage] = useState<string | null>(null);
+    const [draftName, setDraftName] = useState('');
 
     useEffect(() => {
         if (!isOpen) {
@@ -103,6 +105,8 @@ export default function ExpressionDiffModal({
             reservedDetectedNamesRef.current.clear();
             setEditingName(null);
             setEditingNameValue('');
+            setDraftImage(null);
+            setDraftName('');
             abortRef.current?.abort();
             abortRef.current = null;
         }
@@ -250,53 +254,48 @@ export default function ExpressionDiffModal({
         ].filter(Boolean).join('\n');
     };
 
-    const generate = async (
-        name: string,
-        busyKey: string,
-        promptDetail?: string,
-        shouldDetectName = false,
-    ) => {
-        if (!canGenerateDiffs) {
-            setError('選択中の接続先では元画像を使う表情差分生成に対応していません。アップロードを使ってください。');
-            return;
+    const requestImage = async (name: string, promptDetail: string | undefined, signal: AbortSignal) => {
+        const prompt = buildPrompt(name, promptDetail);
+        const res = await fetch('/api/generate-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                prompt,
+                model: serializeModelRef(model),
+                ...buildBaseImageRequest((neutral as Expression).image),
+                aspectRatio: EXPRESSION_ASPECT_RATIO,
+                aiApiConfig: { ...getAiApiConfig(), connectionId: model.connectionId },
+            }),
+            signal,
+        });
+        if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data?.error || `生成に失敗しました (${res.status})`);
         }
+        const data = await res.json();
+        return resizeToMaxEdge(data.image, MAX_EDGE);
+    };
+
+    const generateDraft = async () => {
+        if (busy || !model.model.trim() || !canGenerateDiffs) return;
+        const name = autoDetectName ? '' : validateManualName();
+        if (!autoDetectName && !name) return;
         if (!neutral) {
             setError('生成には「アバター画像」から立ち絵の登録が必要です。');
             return;
         }
         setError(null);
-        setBusy(busyKey);
+        setBusy(NEW_BUSY_KEY);
         const controller = new AbortController();
         abortRef.current = controller;
         try {
-            const normalizedPromptDetail = promptDetail?.trim() || undefined;
-            const prompt = buildPrompt(name, normalizedPromptDetail);
-            const res = await fetch('/api/generate-image', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    prompt,
-                    model: serializeModelRef(model),
-                    ...buildBaseImageRequest(neutral.image),
-                    aspectRatio: EXPRESSION_ASPECT_RATIO,
-                    aiApiConfig: { ...getAiApiConfig(), connectionId: model.connectionId },
-                }),
-                signal: controller.signal,
-            });
-            if (!res.ok) {
-                const data = await res.json().catch(() => ({}));
-                throw new Error(data?.error || `生成に失敗しました (${res.status})`);
-            }
-            const data = await res.json();
-            const resized = await resizeToMaxEdge(data.image, MAX_EDGE);
-            const resolvedName = shouldDetectName
+            const normalizedPromptDetail = newPromptDetail.trim() || undefined;
+            const resized = await requestImage(name ?? '', normalizedPromptDetail, controller.signal);
+            const resolvedName = autoDetectName
                 ? await detectExpressionName(resized, controller.signal)
-                : name;
-            onUpsert({ name: resolvedName, promptDetail: normalizedPromptDetail, image: resized }, selectedCostume?.name);
-            if (busyKey === NEW_BUSY_KEY) {
-                setNewName('');
-                setNewPromptDetail('');
-            }
+                : name!;
+            setDraftName(resolvedName);
+            setDraftImage(resized);
         } catch (e) {
             if (e instanceof Error && e.name !== 'AbortError') {
                 setError(e.message);
@@ -307,11 +306,33 @@ export default function ExpressionDiffModal({
         }
     };
 
+    const confirmDraft = () => {
+        if (!draftImage || busy) return;
+        const name = autoDetectName ? draftName : validateManualName();
+        if (!name) return;
+        if (nameExists(name)) {
+            setError(`「${name}」は既に存在します。`);
+            return;
+        }
+        onUpsert({
+            name,
+            promptDetail: newPromptDetail.trim() || undefined,
+            image: draftImage,
+        }, selectedCostume?.name);
+        setNewName('');
+        setNewPromptDetail('');
+        setDraftImage(null);
+        setDraftName('');
+        setError(null);
+    };
+
     const handleAdd = () => {
         if (busy || !model.model.trim() || !canGenerateDiffs) return;
-        const name = autoDetectName ? '' : validateManualName();
-        if (!autoDetectName && !name) return;
-        void generate(name ?? '', NEW_BUSY_KEY, newPromptDetail, autoDetectName);
+        if (draftImage) {
+            confirmDraft();
+        } else {
+            void generateDraft();
+        }
     };
 
     const handleUploadClick = () => {
@@ -426,6 +447,8 @@ export default function ExpressionDiffModal({
         setNewName('');
         setNewPromptDetail('');
         clearUploadQueue();
+        setDraftImage(null);
+        setDraftName('');
         setError(null);
     };
 
@@ -483,6 +506,8 @@ export default function ExpressionDiffModal({
                                     clearUploadQueue();
                                     setEditingName(null);
                                     setEditingNameValue('');
+                                    setDraftImage(null);
+                                    setDraftName('');
                                     setError(null);
                                 }}
                                 disabled={!!busy}
@@ -546,15 +571,6 @@ export default function ExpressionDiffModal({
                                             alt={exp.name}
                                             style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                                         />
-                                        {busy === exp.name && (
-                                            <div style={{
-                                                position: 'absolute', inset: 0, display: 'flex',
-                                                alignItems: 'center', justifyContent: 'center',
-                                                background: 'rgba(0,0,0,0.5)', color: 'white',
-                                            }}>
-                                                <Loader2 size={20} className="animate-spin" />
-                                            </div>
-                                        )}
                                     </div>
                                     <div style={{ padding: '8px 10px' }}>
                                         {editingName === exp.name ? (
@@ -629,38 +645,8 @@ export default function ExpressionDiffModal({
                                                 )}
                                             </div>
                                         )}
-                                        {exp.name !== NEUTRAL_NAME && (
-                                            <textarea
-                                                className="input"
-                                                value={exp.promptDetail ?? ''}
-                                                onChange={(e) => {
-                                                    const promptDetail = e.target.value || undefined;
-                                                    onUpsert({ ...exp, promptDetail }, selectedCostume?.name);
-                                                }}
-                                                placeholder="この表情でのキャラクターらしさ"
-                                                disabled={!!busy}
-                                                rows={3}
-                                                style={{
-                                                    width: '100%',
-                                                    resize: 'vertical',
-                                                    fontSize: '0.75rem',
-                                                    marginBottom: 6,
-                                                }}
-                                            />
-                                        )}
-                                        <div style={{ display: 'flex', gap: 4 }}>
-                                            {exp.name !== NEUTRAL_NAME && (
-                                                <button
-                                                    className="btn btn-ghost"
-                                                    title="再生成"
-                                                    disabled={!!busy || !canGenerateDiffs || !neutral}
-                                                    onClick={() => generate(exp.name, exp.name, exp.promptDetail)}
-                                                    style={{ padding: '4px 8px' }}
-                                                >
-                                                    <RefreshCw size={14} />
-                                                </button>
-                                            )}
-                                            {!(selectedCostume && exp.name === NEUTRAL_NAME) && (
+                                        {!(selectedCostume && exp.name === NEUTRAL_NAME) && (
+                                            <div style={{ display: 'flex', gap: 4 }}>
                                                 <button
                                                     className="btn btn-ghost"
                                                     title="削除"
@@ -672,8 +658,8 @@ export default function ExpressionDiffModal({
                                                 >
                                                     <Trash2 size={14} />
                                                 </button>
-                                            )}
-                                        </div>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             ))}
@@ -729,7 +715,7 @@ export default function ExpressionDiffModal({
                                 <button
                                     type="button"
                                     className={addMode === 'upload' ? 'btn btn-primary' : 'btn btn-ghost'}
-                                    onClick={() => setAddMode('upload')}
+                                    onClick={() => { setAddMode('upload'); setDraftImage(null); setDraftName(''); }}
                                     disabled={!!busy}
                                     style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
                                 >
@@ -755,6 +741,8 @@ export default function ExpressionDiffModal({
                                     onChange={(event) => {
                                         setAutoDetectName(event.target.checked);
                                         clearUploadQueue();
+                                        setDraftImage(null);
+                                        setDraftName('');
                                         setError(null);
                                     }}
                                     disabled={!!busy}
@@ -802,7 +790,8 @@ export default function ExpressionDiffModal({
                                         ? '選択中の接続先では元画像を使う差分生成に対応していません。アップロードで追加してください。'
                                         : neutral
                                         ? autoDetectName
-                                            && '説明が空の場合は異なる表情をおまかせで生成します'
+                                            ? '説明が空の場合は異なる表情をおまかせで生成します。結果をプレビューしてから追加できます'
+                                            : '結果をプレビューしてから追加できます'
                                         : '生成には「アバター画像」から立ち絵の登録が必要です。アップロードなら neutral(デフォルトの表情) や表情差分を直接追加できます。'}
                                 </p>
                             ) : (
@@ -836,6 +825,40 @@ export default function ExpressionDiffModal({
                                     />
                                 </div>
                             )}
+                            {addMode === 'generate' && draftImage && (
+                                <div style={{ marginTop: 8 }}>
+                                    <div style={{
+                                        position: 'relative',
+                                        width: '100%',
+                                        maxWidth: 220,
+                                        margin: '0 auto',
+                                        aspectRatio: '2 / 3',
+                                        background: '#000',
+                                        borderRadius: 8,
+                                        overflow: 'hidden',
+                                        border: '1px solid var(--border-color)',
+                                    }}>
+                                        <StoredImage
+                                            src={draftImage}
+                                            alt="表情のプレビュー"
+                                            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                                        />
+                                        {busy === NEW_BUSY_KEY && (
+                                            <div style={{
+                                                position: 'absolute', inset: 0, display: 'flex',
+                                                alignItems: 'center', justifyContent: 'center',
+                                                background: 'rgba(0,0,0,0.5)', color: 'white',
+                                            }}>
+                                                <Loader2 size={20} className="animate-spin" />
+                                            </div>
+                                        )}
+                                    </div>
+                                    <p style={{ ...hintStyle, textAlign: 'center' }}>
+                                        {autoDetectName ? `判定結果: ${draftName}` : 'プレビュー'}
+                                        。説明を変えて「再生成」でやり直せます
+                                    </p>
+                                </div>
+                            )}
                             <input
                                 ref={fileInputRef}
                                 type="file"
@@ -855,15 +878,28 @@ export default function ExpressionDiffModal({
                                 </button>
                             )}
                             {addMode === 'generate' ? (
-                                <button
-                                    className="btn btn-primary"
-                                    onClick={handleAdd}
-                                    disabled={!!busy || !canGenerateDiffs || (!autoDetectName && !newName.trim()) || !model.model.trim() || !neutral}
-                                    style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-                                >
-                                    {busy === NEW_BUSY_KEY && <Loader2 size={16} className="animate-spin" />}
-                                    {busy === NEW_BUSY_KEY ? (autoDetectName ? '生成・判定中...' : '生成中...') : '生成'}
-                                </button>
+                                <>
+                                    {draftImage && (
+                                        <button
+                                            type="button"
+                                            className="btn btn-ghost"
+                                            onClick={() => { void generateDraft(); }}
+                                            disabled={!!busy || !canGenerateDiffs || (!autoDetectName && !newName.trim()) || !model.model.trim() || !neutral}
+                                            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                                        >
+                                            <RefreshCw size={14} /> 再生成
+                                        </button>
+                                    )}
+                                    <button
+                                        className="btn btn-primary"
+                                        onClick={handleAdd}
+                                        disabled={!!busy || !canGenerateDiffs || (!autoDetectName && !newName.trim()) || !model.model.trim() || !neutral}
+                                        style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                                    >
+                                        {busy === NEW_BUSY_KEY && <Loader2 size={16} className="animate-spin" />}
+                                        {busy === NEW_BUSY_KEY ? (autoDetectName ? '生成・判定中...' : '生成中...') : draftImage ? '追加' : '生成'}
+                                    </button>
+                                </>
                             ) : (
                                 <>
                                     {uploadImage && (

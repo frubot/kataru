@@ -54,6 +54,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
     const [uploadImage, setUploadImage] = useState<string | null>(null);
     const [uploadNatural, setUploadNatural] = useState<{ w: number; h: number } | null>(null);
     const [uploadCrop, setUploadCrop] = useState<CropBox | null>(null);
+    const [draftImage, setDraftImage] = useState<string | null>(null);
 
     const selectedConnection = connections.find((connection) => connection.id === model.connectionId) ?? null;
     const selectedKind = selectedConnection?.kind
@@ -75,6 +76,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
             setUploadImage(null);
             setUploadNatural(null);
             setUploadCrop(null);
+            setDraftImage(null);
             abortRef.current?.abort();
             abortRef.current = null;
         }
@@ -121,51 +123,42 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
         return name;
     };
 
-    const generate = async (name: string, busyKey: string, promptDetail?: string) => {
-        if (!canGenerateDiffs) {
-            setError('選択中の接続先では元画像を使う衣装差分生成に対応していません。アップロードを使ってください。');
-            return;
+    const requestImage = async (name: string, promptDetail: string | undefined, signal: AbortSignal) => {
+        const prompt = buildPrompt(name, promptDetail);
+        const res = await fetch('/api/generate-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                prompt,
+                model: serializeModelRef(model),
+                ...buildBaseImageRequest(baseImage as string),
+                aspectRatio: COSTUME_ASPECT_RATIO,
+                aiApiConfig: { ...getAiApiConfig(), connectionId: model.connectionId },
+            }),
+            signal,
+        });
+        if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data?.error || `生成に失敗しました (${res.status})`);
         }
+        const data = await res.json();
+        return resizeToMaxEdge(data.image, MAX_EDGE);
+    };
+
+    const generateDraft = async () => {
+        const name = validateName();
+        if (!name || busy || !model.model.trim() || !canGenerateDiffs) return;
         if (!baseImage) {
             setError('生成には「アバター画像」から立ち絵の登録が必要です。');
             return;
         }
         setError(null);
-        setBusy(busyKey);
+        setBusy(NEW_BUSY_KEY);
         const controller = new AbortController();
         abortRef.current = controller;
         try {
-            const normalizedPromptDetail = promptDetail?.trim() || undefined;
-            const prompt = buildPrompt(name, normalizedPromptDetail);
-            const res = await fetch('/api/generate-image', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    prompt,
-                    model: serializeModelRef(model),
-                    ...buildBaseImageRequest(baseImage),
-                    aspectRatio: COSTUME_ASPECT_RATIO,
-                    aiApiConfig: { ...getAiApiConfig(), connectionId: model.connectionId },
-                }),
-                signal: controller.signal,
-            });
-            if (!res.ok) {
-                const data = await res.json().catch(() => ({}));
-                throw new Error(data?.error || `生成に失敗しました (${res.status})`);
-            }
-            const data = await res.json();
-            const resized = await resizeToMaxEdge(data.image, MAX_EDGE);
-            const existing = costumes.find((c) => c.name === name);
-            onUpsert({
-                ...existing,
-                name,
-                promptDetail: normalizedPromptDetail,
-                image: resized,
-            });
-            if (busyKey === NEW_BUSY_KEY) {
-                setNewName('');
-                setNewPromptDetail('');
-            }
+            const resized = await requestImage(name, newPromptDetail.trim() || undefined, controller.signal);
+            setDraftImage(resized);
         } catch (e) {
             if (e instanceof Error && e.name !== 'AbortError') {
                 setError(e.message);
@@ -176,10 +169,26 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
         }
     };
 
-    const handleAdd = () => {
+    const confirmDraft = () => {
         const name = validateName();
-        if (!name || busy || !model.model.trim() || !canGenerateDiffs) return;
-        generate(name, NEW_BUSY_KEY, newPromptDetail);
+        if (!name || !draftImage || busy) return;
+        onUpsert({
+            name,
+            promptDetail: newPromptDetail.trim() || undefined,
+            image: draftImage,
+        });
+        setNewName('');
+        setNewPromptDetail('');
+        setDraftImage(null);
+        setError(null);
+    };
+
+    const handleAdd = () => {
+        if (draftImage) {
+            confirmDraft();
+        } else {
+            void generateDraft();
+        }
     };
 
     const handleUploadClick = () => {
@@ -270,6 +279,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
         setNewPromptDetail('');
         setError(null);
         clearUploadDraft();
+        setDraftImage(null);
         setVrmDraft(null);
     };
 
@@ -353,37 +363,11 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                                 alt={costume.name}
                                                 style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                                             />
-                                            {busy === costume.name && (
-                                                <div style={{
-                                                    position: 'absolute', inset: 0, display: 'flex',
-                                                    alignItems: 'center', justifyContent: 'center',
-                                                    background: 'rgba(0,0,0,0.5)', color: 'white',
-                                                }}>
-                                                    <Loader2 size={20} className="animate-spin" />
-                                                </div>
-                                            )}
                                         </div>
                                         <div style={{ padding: '8px 10px' }}>
                                             <div style={{ fontSize: '0.8125rem', fontWeight: 500, marginBottom: 6, wordBreak: 'break-all' }}>
                                                 {costume.name} <small>{costume.kind === 'vrm' ? '3D' : '2D'}</small>
                                             </div>
-                                            <textarea
-                                                className="input"
-                                                value={costume.promptDetail ?? ''}
-                                                onChange={(e) => {
-                                                    const promptDetail = e.target.value || undefined;
-                                                    onUpsert({ ...costume, promptDetail });
-                                                }}
-                                                placeholder={isDefault ? 'アバター変更で更新される基準衣装' : 'この衣装の特徴'}
-                                                disabled={!!busy || isDefault}
-                                                rows={3}
-                                                style={{
-                                                    width: '100%',
-                                                    resize: 'vertical',
-                                                    fontSize: '0.75rem',
-                                                    marginBottom: 6,
-                                                }}
-                                            />
                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
                                                 <span style={{ fontSize: '0.6875rem', color: 'var(--text-muted)' }}>
                                                     {isDefault ? '基準衣装' : costume.kind === 'vrm' ? 'VRMアバター' : `表情 ${costume.expressions?.length ?? 0}件`}
@@ -394,15 +378,17 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                                     </span>
                                                 ) : (
                                                     <div style={{ display: 'flex', gap: 4 }}>
-                                                        <button
-                                                            className="btn btn-ghost"
-                                                            title={costume.kind === 'vrm' ? '3D表示・表情を調整' : '再生成'}
-                                                            disabled={!!busy || (costume.kind !== 'vrm' && (!canGenerateDiffs || !baseImage))}
-                                                            onClick={() => costume.kind === 'vrm' ? setEditingVrm(costume) : generate(costume.name, costume.name, costume.promptDetail)}
-                                                            style={{ padding: '4px 8px' }}
-                                                        >
-                                                            {costume.kind === 'vrm' ? '調整' : <RefreshCw size={14} />}
-                                                        </button>
+                                                        {costume.kind === 'vrm' && (
+                                                            <button
+                                                                className="btn btn-ghost"
+                                                                title="3D表示・表情を調整"
+                                                                disabled={!!busy}
+                                                                onClick={() => setEditingVrm(costume)}
+                                                                style={{ padding: '4px 8px' }}
+                                                            >
+                                                                調整
+                                                            </button>
+                                                        )}
                                                         <button
                                                             className="btn btn-ghost"
                                                             title="削除"
@@ -472,7 +458,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                 <button
                                     type="button"
                                     className={addMode === 'upload' ? 'btn btn-primary' : 'btn btn-ghost'}
-                                    onClick={() => setAddMode('upload')}
+                                    onClick={() => { setAddMode('upload'); setDraftImage(null); }}
                                     disabled={!!busy}
                                     style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
                                 >
@@ -522,7 +508,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                     {!canGenerateDiffs
                                         ? '選択中の接続先では元画像を使う差分生成に対応していません。アップロードで追加してください。'
                                         : baseImage
-                                        ? 'デフォルトの立ち絵をベースに、衣装だけを変更して生成します'
+                                        ? 'デフォルトの立ち絵をベースに、衣装だけを変更して生成します。結果をプレビューしてから追加できます'
                                         : '生成には「アバター画像」から立ち絵の登録が必要です。アップロードなら衣装差分を直接追加できます。'}
                                 </p>
                             ) : addMode === 'upload' ? (
@@ -548,6 +534,39 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                     />
                                 </div>
                             )}
+                            {addMode === 'generate' && draftImage && (
+                                <div style={{ marginTop: 8 }}>
+                                    <div style={{
+                                        position: 'relative',
+                                        width: '100%',
+                                        maxWidth: 220,
+                                        margin: '0 auto',
+                                        aspectRatio: '2 / 3',
+                                        background: '#000',
+                                        borderRadius: 8,
+                                        overflow: 'hidden',
+                                        border: '1px solid var(--border-color)',
+                                    }}>
+                                        <StoredImage
+                                            src={draftImage}
+                                            alt="衣装のプレビュー"
+                                            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                                        />
+                                        {busy === NEW_BUSY_KEY && (
+                                            <div style={{
+                                                position: 'absolute', inset: 0, display: 'flex',
+                                                alignItems: 'center', justifyContent: 'center',
+                                                background: 'rgba(0,0,0,0.5)', color: 'white',
+                                            }}>
+                                                <Loader2 size={20} className="animate-spin" />
+                                            </div>
+                                        )}
+                                    </div>
+                                    <p style={{ ...hintStyle, textAlign: 'center' }}>
+                                        プレビュー。補足を変えて「再生成」でやり直せます
+                                    </p>
+                                </div>
+                            )}
                             <input
                                 ref={fileInputRef}
                                 type="file"
@@ -566,15 +585,28 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                 </button>
                             )}
                             {addMode === 'generate' ? (
-                                <button
-                                    className="btn btn-primary"
-                                    onClick={handleAdd}
-                                    disabled={!!busy || !canGenerateDiffs || !newName.trim() || !model.model.trim() || !baseImage}
-                                    style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-                                >
-                                    {busy === NEW_BUSY_KEY && <Loader2 size={16} className="animate-spin" />}
-                                    {busy === NEW_BUSY_KEY ? '生成中...' : '生成'}
-                                </button>
+                                <>
+                                    {draftImage && (
+                                        <button
+                                            type="button"
+                                            className="btn btn-ghost"
+                                            onClick={() => { void generateDraft(); }}
+                                            disabled={!!busy || !canGenerateDiffs || !newName.trim() || !model.model.trim() || !baseImage}
+                                            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                                        >
+                                            <RefreshCw size={14} /> 再生成
+                                        </button>
+                                    )}
+                                    <button
+                                        className="btn btn-primary"
+                                        onClick={handleAdd}
+                                        disabled={!!busy || !canGenerateDiffs || !newName.trim() || !model.model.trim() || !baseImage}
+                                        style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                                    >
+                                        {busy === NEW_BUSY_KEY && <Loader2 size={16} className="animate-spin" />}
+                                        {busy === NEW_BUSY_KEY ? '生成中...' : draftImage ? '追加' : '生成'}
+                                    </button>
+                                </>
                             ) : addMode === 'upload' && !vrmDraft ? (
                                 <>
                                     {uploadImage && (

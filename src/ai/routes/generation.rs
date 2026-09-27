@@ -19,7 +19,7 @@ use super::{
     structured::{extract_message_text, plain_completion, structured_completion},
 };
 
-const MAX_INLINE_EXPRESSION_IMAGE_LENGTH: usize = 4 * 1024 * 1024;
+const MAX_INLINE_DETECTION_IMAGE_LENGTH: usize = 4 * 1024 * 1024;
 
 pub async fn summarize(
     State(state): State<AppState>,
@@ -122,7 +122,7 @@ fn parse_json_object_text(content: &str) -> Option<Value> {
         .filter(Value::is_object)
 }
 
-fn normalize_expression_identifier(value: &str) -> Option<String> {
+fn normalize_identifier(value: &str, fallback_prefix: &str) -> Option<String> {
     let words = value
         .split(|character: char| !character.is_ascii_alphanumeric())
         .filter(|word| !word.is_empty())
@@ -133,7 +133,7 @@ fn normalize_expression_identifier(value: &str) -> Option<String> {
         return None;
     }
     if identifier.starts_with(|character: char| character.is_ascii_digit()) {
-        identifier.insert_str(0, "expression_");
+        identifier.insert_str(0, fallback_prefix);
     }
     identifier.truncate(identifier.len().min(64));
     while identifier.ends_with('_') {
@@ -163,11 +163,11 @@ fn expression_identifier_schema() -> Value {
     })
 }
 
-fn expression_detection_image(input: &Value, field: &str) -> AppResult<String> {
+fn detection_image(input: &Value, field: &str, label: &str) -> AppResult<String> {
     let image = required_string(input, field, &format!("{field} は必須です。"))?;
-    if image.len() > MAX_INLINE_EXPRESSION_IMAGE_LENGTH {
+    if image.len() > MAX_INLINE_DETECTION_IMAGE_LENGTH {
         return Err(AppError::BadRequest(format!(
-            "表情判定に使用する画像（{field}）が大きすぎます。"
+            "{label}判定に使用する画像（{field}）が大きすぎます。"
         )));
     }
     if !image.starts_with("data:image/jpeg;base64,") {
@@ -179,11 +179,11 @@ fn expression_detection_image(input: &Value, field: &str) -> AppResult<String> {
 }
 
 fn expression_detection_messages(input: &Value) -> AppResult<Value> {
-    let image = expression_detection_image(input, "image")?;
+    let image = detection_image(input, "image", "表情")?;
     let neutral_image = input
         .get("neutralImage")
         .filter(|value| !value.is_null())
-        .map(|_| expression_detection_image(input, "neutralImage"))
+        .map(|_| detection_image(input, "neutralImage", "表情"))
         .transpose()?;
     let system_prompt = r#"You assign short identifiers to facial expressions in character images.
 Analyze the target image's facial expression. Ignore clothing, background, art style, and the character's fixed facial features.
@@ -238,11 +238,107 @@ pub async fn detect_expression_name(
             ["name", "expression", "identifier"]
                 .into_iter()
                 .find_map(|key| value.get(key).and_then(Value::as_str))
-                .and_then(normalize_expression_identifier)
+                .and_then(|name| normalize_identifier(name, "expression_"))
         })
         .ok_or_else(|| {
             AppError::Upstream(
                 "表情の自動判定結果の形式が不正でした。".to_owned(),
+                StatusCode::BAD_GATEWAY,
+            )
+        })?;
+    Ok(Json(json!({
+        "name": name,
+        "usage": data.get("usage").cloned().unwrap_or(Value::Null)
+    }))
+    .into_response())
+}
+
+fn costume_identifier_schema() -> Value {
+    json!({
+        "name": "costume_identifier",
+        "strict": true,
+        "schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name"],
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "A concise English snake_case identifier for the visible outfit or costume",
+                    "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$",
+                    "minLength": 1,
+                    "maxLength": 64
+                }
+            }
+        }
+    })
+}
+
+fn costume_detection_messages(input: &Value) -> AppResult<Value> {
+    let image = detection_image(input, "image", "衣装")?;
+    let reference_image = input
+        .get("referenceImage")
+        .filter(|value| !value.is_null())
+        .map(|_| detection_image(input, "referenceImage", "衣装"))
+        .transpose()?;
+    let system_prompt = r#"You assign short identifiers to outfits and costumes in character images.
+Analyze the target image's clothing, accessories, and overall outfit style. Ignore the face, hairstyle, pose, background, and art style.
+When a reference image is provided, treat it as this character's baseline outfit. Compare the target against that reference and name the target outfit based on the differences. If there is no meaningful outfit change, name the visible outfit itself.
+Without a reference image, choose the most visually apparent outfit description.
+Use concise English snake_case identifiers such as school_uniform, casual_wear, or swimsuit. Output JSON only."#;
+    let mut content = Vec::new();
+    if let Some(reference_image) = reference_image {
+        content.extend([
+            json!({ "type": "text", "text": "Reference image (baseline outfit):" }),
+            json!({
+                "type": "image_url",
+                "image_url": { "url": reference_image, "detail": "low" }
+            }),
+        ]);
+    }
+    content.extend([
+        json!({ "type": "text", "text": "Target image (classify this outfit):" }),
+        json!({
+            "type": "image_url",
+            "image_url": { "url": image, "detail": "low" }
+        }),
+    ]);
+    Ok(json!([
+        { "role": "system", "content": system_prompt },
+        { "role": "user", "content": content }
+    ]))
+}
+
+pub async fn detect_costume_name(
+    State(state): State<AppState>,
+    Json(input): Json<Value>,
+) -> AppResult<Response> {
+    let selection = resolve_role_selection(&input, "model", "expressionDetectionModel")?;
+    let api_client = ai_api_client_for_selection(&state, &input, &selection)?;
+    let messages = costume_detection_messages(&input)?;
+    let model = selection.model;
+    let mut request = json!({
+        "model": model,
+        "messages": messages,
+        "temperature": 0.0,
+        "max_tokens": 64
+    });
+    if api_client.is_openrouter() {
+        request["reasoning"] = json!({ "effort": "none" });
+    }
+    let data =
+        structured_completion(&api_client, request, costume_identifier_schema(), 60).await?;
+    let content = extract_message_text(&data);
+    let name = parse_json_object_text(&content)
+        .and_then(|value| {
+            ["name", "costume", "outfit", "identifier"]
+                .into_iter()
+                .find_map(|key| value.get(key).and_then(Value::as_str))
+                .and_then(|name| normalize_identifier(name, "costume_"))
+        })
+        .ok_or_else(|| {
+            AppError::Upstream(
+                "衣装の自動判定結果の形式が不正でした。".to_owned(),
                 StatusCode::BAD_GATEWAY,
             )
         })?;
@@ -1029,7 +1125,7 @@ mod tests {
         let valid = "data:image/jpeg;base64,aW1hZ2U=";
         let oversized = format!(
             "data:image/jpeg;base64,{}",
-            "a".repeat(MAX_INLINE_EXPRESSION_IMAGE_LENGTH)
+            "a".repeat(MAX_INLINE_DETECTION_IMAGE_LENGTH)
         );
         for field in ["image", "neutralImage"] {
             for invalid in [
@@ -1048,15 +1144,19 @@ mod tests {
     }
 
     #[test]
-    fn expression_identifiers_are_normalized_to_ascii_snake_case() {
+    fn detection_identifiers_are_normalized_to_ascii_snake_case() {
         assert_eq!(
-            normalize_expression_identifier(" Gentle Smile! ").as_deref(),
+            normalize_identifier(" Gentle Smile! ", "expression_").as_deref(),
             Some("gentle_smile")
         );
         assert_eq!(
-            normalize_expression_identifier("3/4 grin").as_deref(),
+            normalize_identifier("3/4 grin", "expression_").as_deref(),
             Some("expression_3_4_grin")
         );
-        assert_eq!(normalize_expression_identifier("笑顔"), None);
+        assert_eq!(
+            normalize_identifier("2way dress", "costume_").as_deref(),
+            Some("costume_2way_dress")
+        );
+        assert_eq!(normalize_identifier("笑顔", "expression_"), None);
     }
 }

@@ -5,8 +5,8 @@ pub mod typesafe;
 
 pub use api_client::{AiApiClient, AiApiConfig, ai_api_config_value};
 pub use routes::{
-    ModelCatalogCache, chat, connection_status, detect_expression_name, embeddings,
-    extract_memories, generate_character, generate_image, generate_reply_suggestions,
+    ModelCatalogCache, chat, connection_status, detect_costume_name, detect_expression_name,
+    embeddings, extract_memories, generate_character, generate_image, generate_reply_suggestions,
     generate_situation_description, generate_title, list_tts_speakers, models, providers,
     run_models_cli_command_if_requested, summarize, synthesize_speech,
 };

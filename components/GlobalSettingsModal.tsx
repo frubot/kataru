@@ -1112,7 +1112,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                 />
                                 <RoleModelField
                                     role="expressionDetectionModel"
-                                    label="表情の自動判定"
+                                    label="表情・衣装名の自動判定"
                                     inputId="expression-detection-model-input"
                                     value={expressionDetectionModel}
                                     onChange={setExpressionDetectionModel}

@@ -14,7 +14,7 @@ pub use catalog::{
 pub use chat::chat;
 pub use embeddings::embeddings;
 pub use generation::{
-    detect_expression_name, generate_character, generate_reply_suggestions,
+    detect_costume_name, detect_expression_name, generate_character, generate_reply_suggestions,
     generate_situation_description, generate_title, summarize,
 };
 pub use image::generate_image;

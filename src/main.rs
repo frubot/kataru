@@ -47,8 +47,8 @@ use crate::{
 const STORAGE_REQUEST_BODY_LIMIT: usize = 512 * 1024 * 1024;
 // 長い会話履歴を許容しつつ、画像data URLの誤送信などによる過剰なメモリ消費は制限する。
 const CONVERSATION_REQUEST_BODY_LIMIT: usize = 64 * 1024 * 1024;
-// 判定用の縮小JPEGをneutral・対象画像の最大2枚受け付ける（各4MiBとJSONの余裕）。
-const EXPRESSION_DETECTION_REQUEST_BODY_LIMIT: usize = 9 * 1024 * 1024;
+// 判定用の縮小JPEGを参照・対象画像の最大2枚受け付ける（各4MiBとJSONの余裕）。
+const DETECTION_REQUEST_BODY_LIMIT: usize = 9 * 1024 * 1024;
 // .kataruパッケージは圧縮済みZIPをそのまま受け取る（展開後の実体は256MiBまで検証する）。
 const CHARACTER_PACKAGE_REQUEST_BODY_LIMIT: usize = 300 * 1024 * 1024;
 
@@ -235,9 +235,13 @@ fn api_router() -> Router<AppState> {
         .route("/generate-title", post(ai::generate_title))
         .route(
             "/detect-expression-name",
-            post(ai::detect_expression_name).layer(DefaultBodyLimit::max(
-                EXPRESSION_DETECTION_REQUEST_BODY_LIMIT,
-            )),
+            post(ai::detect_expression_name)
+                .layer(DefaultBodyLimit::max(DETECTION_REQUEST_BODY_LIMIT)),
+        )
+        .route(
+            "/detect-costume-name",
+            post(ai::detect_costume_name)
+                .layer(DefaultBodyLimit::max(DETECTION_REQUEST_BODY_LIMIT)),
         )
         .route(
             "/generate-reply-suggestions",

@@ -482,7 +482,7 @@ fn character_schema() -> Value {
                     "type": "string",
                     "description": "職業、学生の場合は立場や所属",
                     "minLength": 1,
-                    "maxLength": 15,
+                    "maxLength": 20,
                 },
                 "personality": {
                     "type": "string",
@@ -539,7 +539,7 @@ pub async fn generate_character(
     let system_prompt = r#"
 あなたは魅力的なオリジナルキャラクター設定を作成するAIです。
 JSON形式で出力してください。
-キャラクターのフルネームに、フリガナは不要です。
+キャラクターのフルネーム、主人公への呼び方に、フリガナは不要です。
 もし主人公の名前がプロンプト内で示されていない場合、主人公の名を"○○"と仮定して表記してください。
 キャラクター本人が実際に発する具体的なセリフを3つ作成してください。
 traits には外観、経歴、振る舞い、嗜好、周りからの印象などの可能な限り詳細な特徴を記述してください。

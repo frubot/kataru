@@ -26,7 +26,7 @@ use super::{
 };
 
 const MODEL_CACHE_FILE_NAME: &str = "model-cache.json";
-const MODEL_CACHE_VERSION: u32 = 2;
+const MODEL_CACHE_VERSION: u32 = 3;
 const VOICEVOX_MODEL_ID: &str = "voicevox";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -65,9 +65,14 @@ impl ModelOutputModality {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct AvailableModel {
     id: String,
     name: String,
+    /// Whether the model accepts a native transparent-background request
+    /// (`background: "transparent"`), when known.
+    #[serde(default)]
+    supports_transparent_background: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -297,6 +302,7 @@ fn normalize_models_response(input: &Value) -> Vec<AvailableModel> {
                 } else {
                     name.to_owned()
                 },
+                supports_transparent_background: false,
             })
         })
         .collect::<Vec<_>>();
@@ -330,6 +336,7 @@ async fn fetch_models(
             vec![AvailableModel {
                 id: VOICEVOX_MODEL_ID.to_owned(),
                 name: "VOICEVOX".to_owned(),
+                supports_transparent_background: false,
             }]
         } else {
             Vec::new()
@@ -370,7 +377,81 @@ async fn fetch_models(
         return Err(upstream_error(response).await);
     }
     let data = response.json::<Value>().await.map_err(map_request_error)?;
-    Ok(normalize_models_response(&data))
+    let mut models = normalize_models_response(&data);
+    if output_modality == ModelOutputModality::Image {
+        apply_transparent_background_flags(api_client, &mut models).await;
+    }
+    Ok(models)
+}
+
+/// Flags image models that accept a native transparent-background request
+/// (`background: "transparent"`). The capability lookup is best-effort: a
+/// failed lookup leaves all flags off, in which case callers fall back to
+/// chroma-key transparency.
+async fn apply_transparent_background_flags(
+    api_client: &AiApiClient,
+    models: &mut [AvailableModel],
+) {
+    if api_client.is_openrouter() {
+        if let Ok(supported) = fetch_openrouter_transparent_background_models(api_client).await {
+            for model in models.iter_mut() {
+                model.supports_transparent_background = supported.contains(&model.id);
+            }
+        }
+    } else if api_client.is_openai_compatible() {
+        for model in models.iter_mut() {
+            model.supports_transparent_background =
+                model_id_supports_transparent_background(&model.id);
+        }
+    }
+}
+
+/// OpenRouter's dedicated image API publishes per-model parameter support:
+/// `background: "transparent"` is advertised in
+/// `supported_parameters.background.values`.
+async fn fetch_openrouter_transparent_background_models(
+    api_client: &AiApiClient,
+) -> AppResult<HashSet<String>> {
+    let response = api_client
+        .send_get("images/models", Duration::from_secs(15))
+        .await?;
+    if !response.status().is_success() {
+        return Err(upstream_error(response).await);
+    }
+    let data = response.json::<Value>().await.map_err(map_request_error)?;
+    Ok(transparent_background_model_ids(&data))
+}
+
+fn transparent_background_model_ids(data: &Value) -> HashSet<String> {
+    data.get("data")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|entry| {
+            entry
+                .pointer("/supported_parameters/background/values")
+                .and_then(Value::as_array)
+                .is_some_and(|values| {
+                    values.iter().any(|value| value.as_str() == Some("transparent"))
+                })
+        })
+        .filter_map(|entry| {
+            entry
+                .get("id")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+        .collect()
+}
+
+/// Name-based fallback for OpenAI-compatible endpoints, which expose no
+/// capability discovery: only the gpt-image generations documented to accept
+/// `background: "transparent"` are flagged.
+fn model_id_supports_transparent_background(model_id: &str) -> bool {
+    let id = model_id.to_ascii_lowercase();
+    ["gpt-image-1", "gpt-5-image", "gpt-image-2.5"]
+        .iter()
+        .any(|needle| id.contains(needle))
 }
 
 async fn refresh_models(
@@ -621,15 +702,18 @@ mod tests {
             vec![
                 AvailableModel {
                     id: "claude-sonnet-4-6".to_owned(),
-                    name: "Claude Sonnet 4.6".to_owned()
+                    name: "Claude Sonnet 4.6".to_owned(),
+                    supports_transparent_background: false,
                 },
                 AvailableModel {
                     id: "openai/gpt-5".to_owned(),
-                    name: "GPT-5".to_owned()
+                    name: "GPT-5".to_owned(),
+                    supports_transparent_background: false,
                 },
                 AvailableModel {
                     id: "plain-model".to_owned(),
-                    name: "plain-model".to_owned()
+                    name: "plain-model".to_owned(),
+                    supports_transparent_background: false,
                 },
             ]
         );
@@ -653,11 +737,13 @@ mod tests {
             vec![
                 AvailableModel {
                     id: "jev-latest".to_owned(),
-                    name: "jev-latest".to_owned()
+                    name: "jev-latest".to_owned(),
+                    supports_transparent_background: false,
                 },
                 AvailableModel {
                     id: "jev-preview".to_owned(),
-                    name: "jev-preview".to_owned()
+                    name: "jev-preview".to_owned(),
+                    supports_transparent_background: false,
                 },
             ]
         );
@@ -674,8 +760,54 @@ mod tests {
             vec![AvailableModel {
                 id: "model-b".to_owned(),
                 name: "model-b".to_owned(),
+                supports_transparent_background: false,
             }]
         );
+    }
+
+    #[test]
+    fn transparent_background_model_ids_read_supported_parameters() {
+        let supported = transparent_background_model_ids(&json!({
+            "data": [
+                {
+                    "id": "openai/gpt-image-1",
+                    "supported_parameters": {
+                        "background": { "type": "enum", "values": ["auto", "transparent", "opaque"] }
+                    }
+                },
+                {
+                    "id": "openai/gpt-image-2",
+                    "supported_parameters": {
+                        "background": { "type": "enum", "values": ["auto", "opaque"] }
+                    }
+                },
+                {
+                    "id": "bytedance-seed/seedream-4.5",
+                    "supported_parameters": {
+                        "resolution": { "type": "enum", "values": ["1K", "2K", "4K"] }
+                    }
+                },
+                { "id": "no-capabilities" }
+            ]
+        }));
+
+        assert_eq!(supported, HashSet::from(["openai/gpt-image-1".to_owned()]));
+    }
+
+    #[test]
+    fn openai_compatible_transparent_background_uses_known_model_names() {
+        for id in [
+            "gpt-image-1",
+            "gpt-image-1-mini",
+            "gpt-image-1.5",
+            "gpt-5-image",
+            "azure-gpt-image-1-deploy",
+        ] {
+            assert!(model_id_supports_transparent_background(id), "{id}");
+        }
+        for id in ["dall-e-3", "gpt-image-2", "flux.2-pro", "gpt-5"] {
+            assert!(!model_id_supports_transparent_background(id), "{id}");
+        }
     }
 
     #[test]
@@ -781,6 +913,7 @@ mod tests {
             vec![AvailableModel {
                 id: VOICEVOX_MODEL_ID.to_owned(),
                 name: "VOICEVOX".to_owned(),
+                supports_transparent_background: false,
             }]
         );
     }
@@ -803,6 +936,7 @@ mod tests {
                 data: vec![AvailableModel {
                     id: "model-a".to_owned(),
                     name: "Model A".to_owned(),
+                    supports_transparent_background: false,
                 }],
             })
             .unwrap();

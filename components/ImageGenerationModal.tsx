@@ -2,9 +2,11 @@ import { useState, useEffect, useRef } from 'react';
 import { X, Sparkles, Loader2, Upload } from 'lucide-react';
 import { resizeToMaxEdge, cropSquareToJpeg, cropSquareToPng, cropRectToPng, loadImage } from '@/lib/imageUtils';
 import {
+    buildNativeTransparentFullBodyPrompt,
     buildTransparentFullBodyPrompt,
     removeAvatarChromaKeyBackground,
 } from '@/lib/avatarImageGeneration';
+import { useTransparentImageBackground } from '@/lib/useTransparentImageBackground';
 import { CropArea, createInitialCrop, type CropBox } from './ImageCropArea';
 import { useStore } from '@/lib/store';
 import { isAiConnectionKind } from '@/lib/aiApi';
@@ -70,6 +72,8 @@ export default function ImageGenerationModal({
         ?? (isAiConnectionKind(model.connectionId) ? model.connectionId : null);
     const canGenerateImages = selectedKind === 'openrouter'
         || (selectedKind === 'openai-compatible' && selectedConnection?.imageGenerationEnabled === true);
+    const transparentImageSupport = useTransparentImageBackground(model);
+    const useNativeTransparentBackground = transparentFullBody && transparentImageSupport.supported;
     const providerImageGenerationHint = selectedKind === 'anthropic'
         ? 'Anthropic互換APIでは画像生成を利用できません。ファイルからアップロードしてください。'
         : selectedKind === 'openai-compatible'
@@ -79,7 +83,9 @@ export default function ImageGenerationModal({
         : null;
     const imageGenerationHint = providerImageGenerationHint
         ?? (transparentFullBody
-            ? `全身の立ち絵を生成します。背景は自動で透過されます。`
+            ? useNativeTransparentBackground
+                ? '全身の立ち絵を生成します。モデルの背景透過機能を利用します。'
+                : '全身の立ち絵を生成します。背景は自動で透過されます。'
             : '例: full body portrait of a smiling young woman with long brown hair, 2:3 vertical composition, neutral expression');
 
     useEffect(() => {
@@ -128,10 +134,13 @@ export default function ImageGenerationModal({
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     prompt: transparentFullBody
-                        ? buildTransparentFullBodyPrompt(prompt)
+                        ? useNativeTransparentBackground
+                            ? buildNativeTransparentFullBodyPrompt(prompt)
+                            : buildTransparentFullBodyPrompt(prompt)
                         : prompt.trim(),
                     model: serializeModelRef(model),
                     aspectRatio: IMAGE_ASPECT_RATIO,
+                    transparentBackground: useNativeTransparentBackground,
                     aiApiConfig: { ...getAiApiConfig(), connectionId: model.connectionId },
                 }),
                 signal: controller.signal,
@@ -143,7 +152,9 @@ export default function ImageGenerationModal({
             const data = await res.json();
             const resized = await resizeToMaxEdge(data.image, MAX_EDGE);
             const processed = transparentFullBody
-                ? (await removeAvatarChromaKeyBackground(resized)).dataUrl
+                ? useNativeTransparentBackground
+                    ? resized
+                    : (await removeAvatarChromaKeyBackground(resized)).dataUrl
                 : resized;
             const img = await loadImage(processed);
             setFullBody(processed);
@@ -295,6 +306,17 @@ export default function ImageGenerationModal({
                                         />
                                     </div>
                                 </div>
+                                {selectedKind === 'openai-compatible' && (
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8125rem', cursor: generating || !model.model.trim() ? 'default' : 'pointer' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={transparentImageSupport.marked}
+                                            onChange={(event) => transparentImageSupport.setMarked(event.target.checked)}
+                                            disabled={generating || !model.model.trim()}
+                                        />
+                                        このモデルは画像透過に対応しています
+                                    </label>
+                                )}
                                 <div className="image-generation-model-actions">
                                     {generating && (
                                         <button className="btn btn-ghost" onClick={handleCancel}>

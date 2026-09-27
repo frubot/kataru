@@ -21,6 +21,7 @@ import StoredImage from './StoredImage';
 import ModelSelector from './ModelSelector';
 import OptionSelector from './OptionSelector';
 import { useModalKeyboard } from './useModalKeyboard';
+import { useTransparentImageBackground } from '@/lib/useTransparentImageBackground';
 
 const NEUTRAL_NAME = 'neutral';
 const DEFAULT_COSTUME_NAME = 'default';
@@ -68,6 +69,7 @@ export default function ExpressionDiffModal({
         ?? (isAiConnectionKind(model.connectionId) ? model.connectionId : null);
     const canGenerateDiffs = selectedKind === 'openrouter'
         || (selectedKind === 'openai-compatible' && selectedConnection?.imageGenerationEnabled === true);
+    const transparentImageSupport = useTransparentImageBackground(model);
     const [busy, setBusy] = useState<string | null>(null); // expression name being generated, or internal busy key
     const [error, setError] = useState<string | null>(null);
     const abortRef = useRef<AbortController | null>(null);
@@ -265,6 +267,7 @@ export default function ExpressionDiffModal({
                 model: serializeModelRef(model),
                 ...buildBaseImageRequest((neutral as Expression).image),
                 aspectRatio: EXPRESSION_ASPECT_RATIO,
+                transparentBackground: transparentImageSupport.supported,
                 aiApiConfig: { ...getAiApiConfig(), connectionId: model.connectionId },
             }),
             signal,
@@ -756,6 +759,17 @@ export default function ExpressionDiffModal({
                                 />
                                 表情名を自動判定
                             </label>
+                            {addMode === 'generate' && selectedKind === 'openai-compatible' && (
+                                <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontSize: '0.8125rem', cursor: busy || !model.model.trim() ? 'default' : 'pointer' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={transparentImageSupport.marked}
+                                        onChange={(event) => transparentImageSupport.setMarked(event.target.checked)}
+                                        disabled={!!busy || !model.model.trim()}
+                                    />
+                                    このモデルは画像透過に対応しています
+                                </label>
+                            )}
                             {!autoDetectName && (
                                 <div style={{ marginBottom: 8 }}>
                                     <label style={fieldLabelStyle}>表情名</label>

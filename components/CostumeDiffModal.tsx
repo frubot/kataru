@@ -14,6 +14,7 @@ import { CropArea, createInitialCrop, type CropBox } from './ImageCropArea';
 import StoredImage from './StoredImage';
 import ModelSelector from './ModelSelector';
 import { useModalKeyboard } from './useModalKeyboard';
+import { useTransparentImageBackground } from '@/lib/useTransparentImageBackground';
 import VrmCostumeEditor from './VrmCostumeEditor';
 
 const MAX_EDGE = 1536;
@@ -69,6 +70,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
         ?? (isAiConnectionKind(model.connectionId) ? model.connectionId : null);
     const canGenerateDiffs = selectedKind === 'openrouter'
         || (selectedKind === 'openai-compatible' && selectedConnection?.imageGenerationEnabled === true);
+    const transparentImageSupport = useTransparentImageBackground(model);
 
     useEffect(() => {
         if (isOpen && costumes.length === 0) setAddOpen(true);
@@ -216,6 +218,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                 model: serializeModelRef(model),
                 ...buildBaseImageRequest(baseImage as string),
                 aspectRatio: COSTUME_ASPECT_RATIO,
+                transparentBackground: transparentImageSupport.supported,
                 aiApiConfig: { ...getAiApiConfig(), connectionId: model.connectionId },
             }),
             signal,
@@ -617,6 +620,17 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                 />
                                 衣装名を自動判定
                             </label>
+                            {addMode === 'generate' && selectedKind === 'openai-compatible' && (
+                                <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontSize: '0.8125rem', cursor: busy || !model.model.trim() ? 'default' : 'pointer' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={transparentImageSupport.marked}
+                                        onChange={(event) => transparentImageSupport.setMarked(event.target.checked)}
+                                        disabled={!!busy || !model.model.trim()}
+                                    />
+                                    このモデルは画像透過に対応しています
+                                </label>
+                            )}
                             {!autoDetectName && (
                                 <div style={{ marginBottom: 8 }}>
                                     <label style={fieldLabelStyle}>衣装名</label>

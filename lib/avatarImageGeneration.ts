@@ -17,13 +17,28 @@ export interface ChromaKeyStats {
     featheredPixels: number;
 }
 
+const FULL_BODY_COMPOSITION_LINES = [
+    '- Draw exactly one character as a full-body standing illustration, centered and facing the viewer.',
+    '- Show the complete character from the top of the head through both feet. Do not crop hair, clothing, hands, legs, or feet.',
+    '- Leave a clear margin around the entire silhouette. Use a simple neutral standing pose.',
+] as const;
+
+/** Prompt used when the model produces a transparent background natively
+ * (`background: "transparent"`); no chroma-key instructions are needed. */
+export function buildNativeTransparentFullBodyPrompt(characterDescription: string): string {
+    return [
+        characterDescription.trim(),
+        'Mandatory composition and background requirements:',
+        ...FULL_BODY_COMPOSITION_LINES,
+        '- Keep the background completely empty. It must contain no scenery, floor, horizon, shadow, gradient, texture, pattern, border, text, or props.',
+    ].join('\n');
+}
+
 export function buildTransparentFullBodyPrompt(characterDescription: string): string {
     return [
         characterDescription.trim(),
         'Mandatory composition and background requirements:',
-        '- Draw exactly one character as a full-body standing illustration, centered and facing the viewer.',
-        '- Show the complete character from the top of the head through both feet. Do not crop hair, clothing, hands, legs, or feet.',
-        '- Leave a clear margin around the entire silhouette. Use a simple neutral standing pose.',
+        ...FULL_BODY_COMPOSITION_LINES,
         `- Fill the entire background edge-to-edge with one perfectly flat, uniform chroma-key green: ${AVATAR_CHROMA_KEY_HEX}.`,
         '- The background must contain no scenery, floor, horizon, shadow, gradient, texture, pattern, border, text, or props.',
         `- Do not use ${AVATAR_CHROMA_KEY_HEX} or a matching chroma-key green anywhere on the character, clothing, accessories, eyes, or effects.`,

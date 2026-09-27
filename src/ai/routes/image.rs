@@ -90,6 +90,10 @@ pub async fn generate_image(
         inline_base_image
     };
     let aspect_ratio = input.get("aspectRatio").and_then(Value::as_str);
+    let transparent_background = input
+        .get("transparentBackground")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
 
     if !api_client.is_openrouter() {
         if !api_client.image_generation_enabled() {
@@ -108,26 +112,29 @@ pub async fn generate_image(
                 .map_err(|_| {
                     AppError::BadRequest("baseImage の MIME タイプが不正です。".to_owned())
                 })?;
-            let form = Form::new()
+            let mut form = Form::new()
                 .part("image", image_part)
                 .part("model", Part::text(model))
                 .part("prompt", Part::text(prompt))
                 .part("size", Part::text(image_size(aspect_ratio)))
                 .part("n", Part::text("1"));
+            if transparent_background {
+                form = form.part("background", Part::text("transparent"));
+            }
             api_client.send_multipart("images/edits", form, 180).await?
         } else {
+            let mut body = json!({
+                "model": model,
+                "prompt": prompt,
+                "size": image_size(aspect_ratio),
+                "response_format": "b64_json",
+                "n": 1
+            });
+            if transparent_background {
+                body["background"] = json!("transparent");
+            }
             api_client
-                .send_json(
-                    "images/generations",
-                    &json!({
-                        "model": model,
-                        "prompt": prompt,
-                        "size": image_size(aspect_ratio),
-                        "response_format": "b64_json",
-                        "n": 1
-                    }),
-                    180,
-                )
+                .send_json("images/generations", &body, 180)
                 .await?
         };
         let data = read_upstream_json(&api_client, upstream).await?;
@@ -140,6 +147,62 @@ pub async fn generate_image(
                     base64.to_owned()
                 } else {
                     format!("data:image/png;base64,{base64}")
+                }
+            })
+            .or_else(|| {
+                item.and_then(|value| value.get("url"))
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned)
+            })
+            .ok_or_else(|| {
+                AppError::Upstream(
+                    "画像が生成されませんでした。".to_owned(),
+                    StatusCode::BAD_GATEWAY,
+                )
+            })?;
+        return Ok(Json(json!({
+            "image": image,
+            "usage": data.get("usage").cloned().unwrap_or(Value::Null)
+        }))
+        .into_response());
+    }
+
+    // Models advertising `background: "transparent"` are served by
+    // OpenRouter's dedicated image API; chat completions has no such knob.
+    if transparent_background {
+        let mut body = json!({
+            "model": model,
+            "prompt": prompt,
+            "background": "transparent",
+        });
+        if let Some(aspect_ratio) = aspect_ratio {
+            body["aspect_ratio"] = json!(aspect_ratio);
+        }
+        if let Some(base_image) = base_image {
+            body["input_references"] = json!([{
+                "type": "image_url",
+                "image_url": { "url": base_image },
+            }]);
+        }
+        let data = read_upstream_json(
+            &api_client,
+            api_client.send_json("images", &body, 180).await?,
+        )
+        .await?;
+        let item = data.pointer("/data/0");
+        let image = item
+            .and_then(|value| value.get("b64_json"))
+            .and_then(Value::as_str)
+            .map(|base64| {
+                if base64.starts_with("data:image") {
+                    base64.to_owned()
+                } else {
+                    let media_type = item
+                        .and_then(|value| value.get("media_type"))
+                        .and_then(Value::as_str)
+                        .filter(|value| !value.trim().is_empty())
+                        .unwrap_or("image/png");
+                    format!("data:{media_type};base64,{base64}")
                 }
             })
             .or_else(|| {

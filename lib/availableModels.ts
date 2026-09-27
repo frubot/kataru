@@ -3,6 +3,9 @@ import type { AiConnectionStatus } from './aiConnections';
 export interface AvailableModel {
     id: string;
     name: string;
+    /** Whether the model accepts a native transparent-background request
+     * (`background: "transparent"`), when known. */
+    supportsTransparentBackground?: boolean;
 }
 
 export type ModelOutputModality = 'text' | 'image' | 'embeddings' | 'decisions' | 'speech';

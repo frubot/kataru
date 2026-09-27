@@ -89,6 +89,8 @@ export interface Message {
     usedMemoryIds?: string[];
     timestamp: number;
     archived?: boolean;
+    /** 「続きを生成」の先頭メッセージ。表示側で直前の同一キャラ返答に連結する。 */
+    continuesPrevious?: boolean;
 }
 
 export type MemoryScope = 'character' | 'relationship' | 'world';
@@ -477,7 +479,7 @@ export interface AppState {
     setRoomReplySuggestions: (id: string, replySuggestions?: RoomReplySuggestions) => void;
     setRoomSecretMode: (id: string, enabled: boolean) => void;
 
-    addMessage: (roomId: string, role: 'user' | 'assistant', content: string, characterId?: string, meta?: Pick<Message, 'expression' | 'motion' | 'memories' | 'toCharacterIds'>) => string;
+    addMessage: (roomId: string, role: 'user' | 'assistant', content: string, characterId?: string, meta?: Pick<Message, 'expression' | 'motion' | 'memories' | 'toCharacterIds' | 'continuesPrevious'>) => string;
     deleteLastMessage: (roomId: string) => void;
     deleteMessagesFrom: (roomId: string, fromIndex: number) => Promise<MemoryRecord[]>;
     restoreMessagesAt: (roomId: string, fromIndex: number, messages: Message[], memories?: MemoryRecord[]) => Promise<void>;

@@ -20,6 +20,8 @@ export type ChatStreamingPreview = {
     motion?: string;
     turns?: ConversationJobPreviewTurn[];
     generationBaselineMessageIds?: string[];
+    /** 「続きを生成」時に連結対象となる直前アシスタントメッセージのid。 */
+    continuationOfMessageId?: string;
 };
 
 export type PriorMessagePresentation = {
@@ -39,6 +41,10 @@ export type ChatMessagePresentation = Message & {
     showMemoryIndicator: boolean;
     msgCharacterIcon?: string;
     msgCharacterName?: string;
+    /** 続き生成の先頭で直前のバブルに表示上連結されたメッセージ。描画対象外。 */
+    mergedIntoPrevious: boolean;
+    /** 分岐ボタンが指すメッセージid。連結バブルでは表示末尾の連結メッセージを指す。 */
+    branchMessageId: string;
 };
 
 export function buildChatCharacterMap(
@@ -85,7 +91,11 @@ export function buildChatMessagePresentations({
     typedContent,
 }: BuildChatMessagePresentationsOptions): ChatMessagePresentation[] {
     if (!room) return [];
-    return room.messages.map((message, index) => {
+    const presentations: ChatMessagePresentation[] = [];
+    // Index of the visible presentation currently absorbing 「続きを生成」
+    // continuations. Chained continuations always join the tail bubble.
+    let mergeTargetIndex = -1;
+    room.messages.forEach((message, index) => {
         const isArchived = !!message.archived;
         const showArchiveDivider = isArchived && (index === 0 || !room.messages[index - 1].archived)
             ? false
@@ -110,8 +120,11 @@ export function buildChatMessagePresentations({
         const messageCharacter = message.characterId && characterMap
             ? characterMap.get(message.characterId)
             : null;
-
-        return {
+        const mergesIntoPrevious = message.continuesPrevious === true
+            && isAssistantContinuation
+            && !isArchived
+            && mergeTargetIndex >= 0;
+        const presentation: ChatMessagePresentation = {
             ...message,
             displayContent,
             emotion: message.expression,
@@ -123,8 +136,23 @@ export function buildChatMessagePresentations({
             showMemoryIndicator: memories.length > 0,
             msgCharacterIcon: messageCharacter?.icon ?? (isGroupRoom ? undefined : character?.icon),
             msgCharacterName: messageCharacter?.name ?? (isGroupRoom ? undefined : character?.name),
+            mergedIntoPrevious: mergesIntoPrevious,
+            branchMessageId: message.id,
         };
+        if (mergesIntoPrevious) {
+            const owner = presentations[mergeTargetIndex];
+            owner.displayContent = `${owner.displayContent}\n\n${displayContent}`;
+            owner.showAssistantActions = presentation.showAssistantActions;
+            owner.showBranchAction = presentation.showBranchAction;
+            owner.branchMessageId = presentation.id;
+            owner.showMemoryIndicator = owner.showMemoryIndicator || presentation.showMemoryIndicator;
+            owner.emotion = presentation.emotion ?? owner.emotion;
+        } else {
+            mergeTargetIndex = index;
+        }
+        presentations.push(presentation);
     });
+    return presentations;
 }
 
 export type ChatStreamingPreviewBubble = {
@@ -183,12 +211,43 @@ export function resolveChatStreamingPresentation({
     const resolveBubbleCharacter = (characterId?: string) => (
         characterId && characterMap ? characterMap.get(characterId) : character
     );
+    const resolveCharacterKey = (characterId?: string) => (
+        characterId ?? (!characterMap ? character?.id : undefined)
+    );
+    const continuationBase = (() => {
+        const baseId = previewForRoom?.continuationOfMessageId;
+        if (!baseId || !room) return undefined;
+        const base = room.messages.find((message) => message.id === baseId);
+        // A user turn posted after the base ends the merge window: the
+        // continuation then renders as its own bubbles, matching persistence.
+        const latest = room.messages.findLast((message) => !message.archived);
+        return base && base.role === 'assistant' && !base.archived && latest?.id === base.id
+            ? base
+            : undefined;
+    })();
+    const continuationBaseKey = continuationBase
+        ? resolveCharacterKey(continuationBase.characterId)
+        : undefined;
+    // The first bubble of a 「続きを生成」job joins the previous reply instead of
+    // opening a new bubble. Its text is appended to that bubble while streaming.
+    // `continuationAppendKey` is the key that segment would have used, so views
+    // rendering the raw preview (e.g. the VN log) can skip the duplicate.
+    let continuationAppend: string | undefined;
+    let continuationAppendKey: string | undefined;
+    const appendsToContinuationBase = (characterId?: string) => (
+        continuationAppend === undefined
+        && continuationBaseKey !== undefined
+        && resolveCharacterKey(characterId) === continuationBaseKey
+    );
     const allBubbles: ChatStreamingPreviewBubble[] = [];
     const pushBubble = (bubble: Omit<ChatStreamingPreviewBubble, 'continuation'>) => {
         const previous = allBubbles.at(-1);
         allBubbles.push({
             ...bubble,
-            continuation: !!previous && previous.characterId === bubble.characterId,
+            continuation: previous
+                ? previous.characterId === bubble.characterId
+                : continuationAppend !== undefined
+                    && resolveCharacterKey(bubble.characterId) === continuationBaseKey,
         });
     };
     if (previewForRoom?.turns?.length) {
@@ -199,14 +258,25 @@ export function resolveChatStreamingPresentation({
             const characterId = turn.characterId ?? previewForRoom.characterId;
             if (contents.length === 0 || persisted(contents, characterId)) continue;
             const bubbleCharacter = resolveBubbleCharacter(characterId);
-            contents.forEach((content, index) => pushBubble({
-                key: `${previewForRoom.jobId}:${turn.turnIndex}:${index}`,
-                content,
-                characterId,
-                characterName: turn.characterName ?? previewForRoom.characterName,
-                character: bubbleCharacter,
-                streaming: !turn.complete,
-            }));
+            contents.forEach((content, index) => {
+                if (
+                    turn.turnIndex === 0
+                    && index === 0
+                    && appendsToContinuationBase(characterId)
+                ) {
+                    continuationAppend = content;
+                    continuationAppendKey = `${previewForRoom.jobId}:${turn.turnIndex}:${index}`;
+                    return;
+                }
+                pushBubble({
+                    key: `${previewForRoom.jobId}:${turn.turnIndex}:${index}`,
+                    content,
+                    characterId,
+                    characterName: turn.characterName ?? previewForRoom.characterName,
+                    character: bubbleCharacter,
+                    streaming: !turn.complete,
+                });
+            });
         }
     } else if (previewForRoom) {
         const contents = (
@@ -216,17 +286,27 @@ export function resolveChatStreamingPresentation({
         ).filter((content) => content.trim());
         if (contents.length > 0 && !persisted(contents, previewForRoom.characterId)) {
             const bubbleCharacter = resolveBubbleCharacter(previewForRoom.characterId);
-            contents.forEach((content, index) => pushBubble({
-                key: `${previewForRoom.jobId}:${index}`,
-                content,
-                characterId: previewForRoom.characterId,
-                characterName: previewForRoom.characterName,
-                character: bubbleCharacter,
-                streaming: true,
-            }));
+            contents.forEach((content, index) => {
+                if (
+                    index === 0
+                    && appendsToContinuationBase(previewForRoom.characterId)
+                ) {
+                    continuationAppend = content;
+                    continuationAppendKey = `${previewForRoom.jobId}:${index}`;
+                    return;
+                }
+                pushBubble({
+                    key: `${previewForRoom.jobId}:${index}`,
+                    content,
+                    characterId: previewForRoom.characterId,
+                    characterName: previewForRoom.characterName,
+                    character: bubbleCharacter,
+                    streaming: true,
+                });
+            });
         }
     }
-    const activePreview = previewForRoom && isLoading && allBubbles.length > 0
+    const activePreview = previewForRoom && isLoading && (allBubbles.length > 0 || continuationAppend != null)
         ? previewForRoom
         : null;
     const previewCharacter = activePreview?.characterId && characterMap
@@ -238,5 +318,7 @@ export function resolveChatStreamingPresentation({
         previewCharacter,
         formattedMessages: activePreview ? availableFormattedMessages : [],
         bubbles: activePreview ? allBubbles : [],
+        continuationAppend: isLoading ? continuationAppend : undefined,
+        continuationAppendKey: isLoading ? continuationAppendKey : undefined,
     };
 }

@@ -18,6 +18,8 @@ type VisualNovelLogViewProps = {
     activeStreamingPreview: ChatStreamingPreview | null;
     streamingPreviewCharacter: Character | null | undefined;
     formattedStreamingPreviewMessages: string[];
+    /** 直前バブルへ連結されたプレビューセグメントのキー。ログ側では重複なので除外する。 */
+    continuationAppendPreviewKey?: string;
     isLoading: boolean;
     isSummarizing: boolean;
     onClose: () => void;
@@ -78,6 +80,7 @@ export default function VisualNovelLogView({
     activeStreamingPreview,
     streamingPreviewCharacter,
     formattedStreamingPreviewMessages,
+    continuationAppendPreviewKey,
     isLoading,
     isSummarizing,
     onClose,
@@ -97,7 +100,7 @@ export default function VisualNovelLogView({
                 ? priorCharacter?.icon ?? character?.icon
                 : undefined,
         }));
-        const roomEntries = messages.map((message) => ({
+        const roomEntries = messages.filter((message) => !message.mergedIntoPrevious).map((message) => ({
             id: message.id,
             role: message.role,
             content: message.displayContent,
@@ -108,6 +111,9 @@ export default function VisualNovelLogView({
                 ? message.msgCharacterIcon ?? character?.icon
                 : undefined,
         }));
+        const appendedEntryId = continuationAppendPreviewKey
+            ? `preview:${continuationAppendPreviewKey}`
+            : undefined;
         const previewTurns = activeStreamingPreview?.turns;
         const streamingEntries = previewTurns && previewTurns.length > 0
             ? previewTurns.flatMap((turn) => {
@@ -146,10 +152,15 @@ export default function VisualNovelLogView({
                 }))
                 : [];
 
-        return [...priorEntries, ...roomEntries, ...streamingEntries];
+        return [
+            ...priorEntries,
+            ...roomEntries,
+            ...streamingEntries.filter((entry) => entry.id !== appendedEntryId),
+        ];
     }, [
         activeStreamingPreview,
         character,
+        continuationAppendPreviewKey,
         formattedStreamingPreviewMessages,
         messages,
         priorMessages,

@@ -81,6 +81,53 @@ describe('conversation result application', () => {
         expect(operations.refreshConversationRoom).not.toHaveBeenCalled();
     });
 
+    test('passes the continuation marker through secret-mode application', async () => {
+        const operations = createOperations(sourceRoom);
+        operations.addMessage
+            .mockReturnValueOnce('local-1')
+            .mockReturnValueOnce('local-2');
+
+        await applyConversationResult(
+            {
+                data: {
+                    messages: [
+                        {
+                            id: 'server-1',
+                            role: 'assistant',
+                            content: '続きの先頭',
+                            characterId: 'character-1',
+                            timestamp: 1,
+                            continuesPrevious: true,
+                        },
+                        { id: 'server-2', role: 'assistant', content: '二つ目', characterId: 'character-1', timestamp: 2 },
+                    ],
+                },
+                sourceRoom,
+                jobId: 'job-1',
+                isSecretMode: true,
+                debugEnabled: false,
+            },
+            operations,
+        );
+
+        expect(operations.addMessage).toHaveBeenNthCalledWith(
+            1,
+            'room-1',
+            'assistant',
+            '続きの先頭',
+            'character-1',
+            expect.objectContaining({ continuesPrevious: true }),
+        );
+        expect(operations.addMessage).toHaveBeenNthCalledWith(
+            2,
+            'room-1',
+            'assistant',
+            '二つ目',
+            'character-1',
+            expect.not.objectContaining({ continuesPrevious: true }),
+        );
+    });
+
     test('records debug logs before refreshing the persisted room', async () => {
         const operations = createOperations(sourceRoom);
         operations.refreshConversationRoom.mockRejectedValueOnce(new Error('refresh failed'));

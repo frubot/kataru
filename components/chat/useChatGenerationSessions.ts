@@ -10,6 +10,8 @@ export type ChatGenerationSession = {
     detached: boolean;
     controller: AbortController | null;
     generationBaselineMessageIds?: string[];
+    /** 「続きを生成」時に連結対象となる直前アシスタントメッセージのid。 */
+    continuationBaseMessageId?: string;
 };
 
 type CancelledConversationJob = {

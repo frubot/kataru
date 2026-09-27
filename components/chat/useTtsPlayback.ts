@@ -16,6 +16,8 @@ type TtsPlaybackMessage = {
     id: string;
     role: 'user' | 'assistant';
     content: string;
+    /** 表示上マージされた本文。手動再生は表示内容に合わせる。 */
+    displayContent?: string;
     characterId?: string;
     archived?: boolean;
 };
@@ -217,7 +219,7 @@ export function useTtsPlayback({
         const message = messagesRef.current.find((candidate) => candidate.id === messageId);
         if (!message) return;
         seenIdsRef.current.add(message.id);
-        play(message.id, message.content, message.characterId);
+        play(message.id, message.displayContent ?? message.content, message.characterId);
     }, [play]);
 
     const playVisualNovelItem = useCallback((item: VisualNovelTtsItem) => {

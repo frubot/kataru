@@ -472,6 +472,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         situationId: situation?.id,
         messages: room?.messages ?? EMPTY_MESSAGES,
         priorMessages: situationPriorMessages,
+        fallbackCharacterId: isGroupRoom ? undefined : character?.id,
         streamingPreview,
         isLoading,
         isTypewriterActive,
@@ -636,6 +637,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     motion: job.preview.motion,
                     turns: job.preview.turns,
                     generationBaselineMessageIds: session.generationBaselineMessageIds,
+                    continuationOfMessageId: session.continuationBaseMessageId,
                 });
             }
             if (job.status !== 'running') return job;
@@ -673,6 +675,9 @@ export default function ChatWindow({ room, character, situation, groupName, grou
 
         const session = startGenerationSession(job.roomId, job.jobId);
         session.generationBaselineMessageIds = sourceRoom?.messages.map((message) => message.id);
+        session.continuationBaseMessageId = job.generationMode === 'continue'
+            ? getLatestActiveChatMessage(sourceRoom?.messages ?? [])?.id
+            : undefined;
         const controller = new AbortController();
         if (!attachGenerationController(session, controller)) {
             resumedJobsRef.current.delete(job.jobId);
@@ -898,6 +903,8 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         previewCharacter: streamingPreviewCharacter,
         formattedMessages: formattedStreamingPreviewMessages,
         bubbles: streamingPreviewBubbles,
+        continuationAppend,
+        continuationAppendKey,
     } = useMemo(
         () => resolveChatStreamingPresentation({
             streamingPreview,
@@ -908,6 +915,28 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         }),
         [character, characterMap, isLoading, room, streamingPreview],
     );
+    // A 「続きを生成」bubble that continues the same character renders as an
+    // extension of the previous bubble rather than a separate one.
+    const displayMessages = useMemo(() => {
+        if (!continuationAppend) return processedMessages;
+        const baseId = streamingPreview?.continuationOfMessageId;
+        let targetIndex = baseId
+            ? processedMessages.findLastIndex(
+                (message) => message.id === baseId && !message.mergedIntoPrevious,
+            )
+            : -1;
+        if (targetIndex < 0) {
+            targetIndex = processedMessages.findLastIndex(
+                (message) => message.role === 'assistant' && !message.isArchived && !message.mergedIntoPrevious,
+            );
+        }
+        if (targetIndex < 0) return processedMessages;
+        return processedMessages.map((message, index) => (
+            index === targetIndex
+                ? { ...message, displayContent: `${message.displayContent}\n\n${continuationAppend}` }
+                : message
+        ));
+    }, [continuationAppend, processedMessages, streamingPreview?.continuationOfMessageId]);
 
     const handleStop = () => {
         if (stopTypewriter(true)) {
@@ -933,6 +962,9 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         });
         if (!isGenerationSessionActive(session)) return abortedResult();
         session.generationBaselineMessageIds = sourceRoom.messages.map((message) => message.id);
+        session.continuationBaseMessageId = generationMode === 'continue'
+            ? getLatestActiveChatMessage(sourceRoom.messages)?.id
+            : undefined;
         let keepStreamingPreview = false;
         setStreamingPreview((current) => current?.roomId === sourceRoom.id ? null : current);
 
@@ -1436,7 +1468,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     }, [isVisualNovelMode, isVisualNovelLogOpen, situationVnNextItem]);
     const { playMessage: playTtsMessage, playVisualNovelItem: playTtsVisualNovelItem } = useTtsPlayback({
         roomId: currentRoomId,
-        messages: room?.messages ?? EMPTY_MESSAGES,
+        messages: displayMessages,
         isLoading,
         isRoomHistoryLoading: loadingRoomHistoryId === currentRoomId,
         notify: showChatNotice,
@@ -1838,10 +1870,11 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 <VisualNovelLogView
                     character={character}
                     priorMessages={priorMessagesForDisplay}
-                    messages={processedMessages}
+                    messages={displayMessages}
                     activeStreamingPreview={activeStreamingPreview}
                     streamingPreviewCharacter={streamingPreviewCharacter}
                     formattedStreamingPreviewMessages={formattedStreamingPreviewMessages}
+                    continuationAppendPreviewKey={continuationAppendKey}
                     isLoading={isLoading}
                     isSummarizing={isSummarizing}
                     onClose={closeVisualNovelLog}
@@ -1918,7 +1951,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 <ChatMessagesView
                     key={room.id}
                     priorMessages={priorMessagesForDisplay}
-                    messages={processedMessages}
+                    messages={displayMessages}
                     isSecretMode={isSecretMode}
                     isMessageMode={isMessageMode}
                     isGroupRoom={isGroupRoom}

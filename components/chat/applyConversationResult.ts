@@ -22,7 +22,7 @@ type ApplyConversationResultOperations = {
         role: 'user' | 'assistant',
         content: string,
         characterId?: string,
-        meta?: Pick<Message, 'expression' | 'motion' | 'memories' | 'toCharacterIds'>,
+        meta?: Pick<Message, 'expression' | 'motion' | 'memories' | 'toCharacterIds' | 'continuesPrevious'>,
     ) => string;
     rememberStreamedFinalMessageIds: (messageIds: string[]) => void;
     refreshConversationRoom: (roomId: string) => Promise<void>;
@@ -123,6 +123,7 @@ export function applySecretConversationMessages(
                 expression: message.expression,
                 motion: message.motion,
                 toCharacterIds: message.toCharacterIds ?? [],
+                ...(message.continuesPrevious ? { continuesPrevious: true } : {}),
             },
         );
         messageIds.push(messageId);

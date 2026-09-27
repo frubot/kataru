@@ -568,6 +568,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
                 ...(meta?.expression ? { expression: meta.expression } : {}),
                 ...(meta?.motion ? { motion: meta.motion } : {}),
                 ...(memories && memories.length > 0 ? { memories } : {}),
+                ...(meta?.continuesPrevious ? { continuesPrevious: true } : {}),
                 timestamp: now,
             };
             let updatedRoom: Room | undefined;

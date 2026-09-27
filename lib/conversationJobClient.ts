@@ -16,6 +16,7 @@ export type ConversationJobStatus<TResult> = {
     jobId: string;
     roomId: string;
     status: 'running' | 'completed' | 'failed' | 'cancelled';
+    generationMode?: 'reply' | 'continue';
     result?: TResult;
     partialResult?: TResult;
     error?: string;

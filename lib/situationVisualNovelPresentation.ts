@@ -24,6 +24,8 @@ export type SituationVisualNovelItem = {
     bufferedContent?: string;
     pageCount?: number;
     pagination?: StreamingVisualNovelPagination;
+    /** 連結で末尾ページが膨らんだとき、表示済みの境界ページをこのページで差し替える。 */
+    replacesBoundaryPage?: boolean;
 };
 
 export type SituationVisualNovelPresentationState = {
@@ -108,43 +110,94 @@ export function buildSituationVisualNovelRoomItems(
     messages: Message[],
     previewItems: SituationVisualNovelItem[] = [],
     responseMessages: Message[] = messages,
+    fallbackCharacterId?: string,
 ): SituationVisualNovelItem[] {
     const responseIds = responseMessages.filter((message) => message.role === 'assistant' && !message.archived)
         .map((message) => message.id);
     const previewByMessageId = new Map(previewItems.map((item) => [
         responseIds[item.previewTurnIndex ?? 0], item,
     ]));
-    return messages
-        .filter((message) => (
-            message.role === 'assistant'
-            && !message.archived
-            && message.content.trim()
-        ))
-        .flatMap((message) => {
-            const item: SituationVisualNovelItem = {
-                key: `room:${message.id}`,
-                id: message.id,
-                source: 'room' as const,
-                role: message.role,
-                content: message.content,
-                characterId: message.characterId,
-                expression: message.expression,
-                motion: message.motion,
-            };
-            const preview = previewByMessageId.get(message.id);
-            item.utteranceKey = preview?.utteranceKey;
-            const previous = preview?.pagination;
-            if (!previous) return paginateSituationVisualNovelItem(item);
-            const pagination = updateStreamingVisualNovelPagination(message.content, true, previous);
-            return pagination.pages.map((page, pageIndex) => ({
+    const items: SituationVisualNovelItem[] = [];
+    // Tracks the visible message whose pagination a 「続きを生成」continuation
+    // extends. Re-paginating the joined text keeps the previous pages intact and
+    // lets the boundary page grow until the next natural break.
+    let previous: {
+        characterId?: string;
+        mergedContent: string;
+        pageCount: number;
+        tail: string;
+    } | null = null;
+    for (const message of messages) {
+        if (message.role !== 'assistant' || message.archived || !message.content.trim()) {
+            previous = null;
+            continue;
+        }
+        const characterId = message.characterId ?? fallbackCharacterId;
+        const item: SituationVisualNovelItem = {
+            key: `room:${message.id}`,
+            id: message.id,
+            source: 'room' as const,
+            role: message.role,
+            content: message.content,
+            characterId: message.characterId,
+            expression: message.expression,
+            motion: message.motion,
+        };
+        const preview = previewByMessageId.get(message.id);
+        item.utteranceKey = preview?.utteranceKey;
+        if (
+            message.continuesPrevious === true
+            && previous !== null
+            && previous.characterId === characterId
+        ) {
+            const mergedContent: string = `${previous.mergedContent}\n\n${message.content}`;
+            const pagination = updateStreamingVisualNovelPagination(mergedContent, true);
+            const boundaryIndex = previous.pageCount - 1;
+            // When the boundary page absorbs new text it replaces the page shown
+            // before, so the stale copy is removed. When the seam lands on a
+            // break the boundary page repeats exactly and only later pages emit.
+            const boundaryGrew = pagination.pages[boundaryIndex]?.content !== previous.tail;
+            if (boundaryGrew) items.pop();
+            const continuationPages = pagination.pages.slice(boundaryGrew ? boundaryIndex : boundaryIndex + 1);
+            items.push(...continuationPages.map((page, pageIndex) => ({
                 ...item,
                 key: pageIndex === 0 ? item.key : `${item.key}:page:${pageIndex}`,
                 content: page.content,
                 pageIndex,
-                pageCount: pagination.pages.length,
+                pageCount: continuationPages.length,
                 pagination,
-            }));
-        });
+            })));
+            previous = {
+                characterId,
+                mergedContent,
+                pageCount: pagination.pages.length,
+                tail: pagination.pages.at(-1)?.content ?? previous.tail,
+            };
+            continue;
+        }
+        const previousPagination = preview?.pagination;
+        const paginated = previousPagination
+            ? (() => {
+                const pagination = updateStreamingVisualNovelPagination(message.content, true, previousPagination);
+                return pagination.pages.map((page, pageIndex) => ({
+                    ...item,
+                    key: pageIndex === 0 ? item.key : `${item.key}:page:${pageIndex}`,
+                    content: page.content,
+                    pageIndex,
+                    pageCount: pagination.pages.length,
+                    pagination,
+                }));
+            })()
+            : paginateSituationVisualNovelItem(item);
+        items.push(...paginated);
+        previous = {
+            characterId,
+            mergedContent: message.content,
+            pageCount: paginated.length,
+            tail: paginated.at(-1)?.content ?? '',
+        };
+    }
+    return items;
 }
 
 export function getSituationVisualNovelResponseMessages(
@@ -167,6 +220,8 @@ export function buildSituationVisualNovelPreviewItems(
     jobId: string | undefined,
     turns: ConversationJobPreviewTurn[] | undefined,
     previousItems: SituationVisualNovelItem[] = [],
+    continuationBase?: { tail: string; characterId?: string },
+    fallbackCharacterId?: string,
 ): SituationVisualNovelItem[] {
     if (!jobId || !turns) return [];
     return turns
@@ -174,11 +229,31 @@ export function buildSituationVisualNovelPreviewItems(
         .flatMap((turn) => {
             const id = `${jobId}:${turn.turnIndex}`;
             const previous = previousItems.find((item) => item.id === id)?.pagination;
-            const pagination = updateStreamingVisualNovelPagination(turn.content, turn.complete, previous);
-            const pages = pagination.pages.length > 0
-                ? pagination.pages
-                : [{ content: '', complete: false }];
-            return pages.map((page, pageIndex) => ({
+            // The first continuation turn paginates the previous reply's final
+            // page plus the streamed text, matching the persisted merge.
+            const mergeable = continuationBase !== undefined
+                && turn.turnIndex === 0
+                && (turn.characterId ?? fallbackCharacterId) === continuationBase.characterId;
+            const mergedInput = mergeable
+                ? `${continuationBase.tail}\n\n${turn.content}`
+                : turn.content;
+            const pagination = updateStreamingVisualNovelPagination(mergedInput, turn.complete, previous);
+            // When the seam lands on a break the boundary page repeats the tail
+            // already on screen, so it is dropped from the emitted items. When
+            // the boundary page grew, the emitted page takes over that slot via
+            // `replacesBoundaryPage` instead of queueing a copy behind it. The
+            // item pagination keeps the full page list so confirmed boundaries
+            // stay anchored for the next streaming update.
+            const boundaryGrew = mergeable
+                && pagination.pages.length > 0
+                && pagination.pages[0].content !== continuationBase.tail;
+            const pages = mergeable && !boundaryGrew
+                ? pagination.pages.slice(1)
+                : pagination.pages;
+            const emitted = pages.length > 0
+                ? pages
+                : [{ content: '', complete: false, end: mergedInput.trim().length }];
+            return emitted.map((page, pageIndex) => ({
                 key: `preview:${jobId}:${turn.turnIndex}${pageIndex === 0 ? '' : `:page:${pageIndex}`}`,
                 id,
                 source: 'preview' as const,
@@ -193,8 +268,9 @@ export function buildSituationVisualNovelPreviewItems(
                 previewTurnIndex: turn.turnIndex,
                 streamingComplete: page.complete,
                 pageIndex,
-                pageCount: pagination.pages.length,
+                pageCount: emitted.length,
                 pagination,
+                ...(boundaryGrew && pageIndex === 0 ? { replacesBoundaryPage: true } : {}),
             }));
         });
 }
@@ -312,18 +388,20 @@ export function syncSituationVisualNovelPreviewItems(
     const current = state.current ? update(state.current) : null;
     const pending = state.pending.map(update);
     if (state.waitingForNextPage && pending[0]?.content.trim()) {
-        return showItem({ ...state, pending: pending.slice(1) }, pending[0], true);
+        return applyBoundaryPageReplacement(
+            showItem({ ...state, pending: pending.slice(1) }, pending[0], true),
+        );
     }
     if (!current || current.source !== 'preview') {
-        return { ...state, current, pending };
+        return applyBoundaryPageReplacement({ ...state, current, pending });
     }
-    return {
+    return applyBoundaryPageReplacement({
         ...state,
         current,
         pending,
         ...syncCurrentTyping(state, current),
         ...sceneForVisibleItem(state, current),
-    };
+    });
 }
 
 export function finishSituationVisualNovelPreviewItems(
@@ -335,16 +413,18 @@ export function finishSituationVisualNovelPreviewItems(
     const current = state.current ? finish(state.current) : null;
     const pending = state.pending.map(finish);
     if (state.waitingForNextPage && pending[0]?.content.trim()) {
-        return showItem({ ...state, pending: pending.slice(1) }, pending[0], true);
+        return applyBoundaryPageReplacement(
+            showItem({ ...state, pending: pending.slice(1) }, pending[0], true),
+        );
     }
-    return {
+    return applyBoundaryPageReplacement({
         ...state,
         current,
         pending,
         ...(current?.source === 'preview' ? syncCurrentTyping(state, current) : {}),
         ...(current ? sceneForVisibleItem(state, current) : {}),
         waitingForNextPage: false,
-    };
+    });
 }
 
 export function reconcileSituationVisualNovelPreviewItems(
@@ -413,6 +493,35 @@ export function createSituationVisualNovelPresentationState({
     };
 }
 
+// A continuation page that grew the previous reply's tail stands in for the
+// persisted page already emitted — the last matching room item in display
+// order — so the reader is not shown the same tail twice when paging forward.
+// Preview updates can mark an already queued item, so the pass runs wherever
+// preview items enter or change rather than only on append.
+function applyBoundaryPageReplacement(
+    state: SituationVisualNovelPresentationState,
+): SituationVisualNovelPresentationState {
+    const marked = state.current?.replacesBoundaryPage
+        ? state.current
+        : state.pending.find((item) => item.replacesBoundaryPage);
+    if (!marked) return state;
+    const covered = (existing: SituationVisualNovelItem | null | undefined) => (
+        existing?.source === 'room'
+        && (marked.bufferedContent ?? marked.content).startsWith(existing.content)
+    );
+    for (let index = state.pending.length - 1; index >= 0; index--) {
+        if (!covered(state.pending[index])) continue;
+        const pending = [...state.pending];
+        pending.splice(index, 1);
+        return { ...state, pending };
+    }
+    if (covered(state.current) && marked.content.trim()) {
+        const pending = state.pending.filter((item) => item !== marked);
+        return showItem({ ...state, pending }, marked, true);
+    }
+    return state;
+}
+
 export function appendSituationVisualNovelItems(
     state: SituationVisualNovelPresentationState,
     items: SituationVisualNovelItem[],
@@ -425,20 +534,22 @@ export function appendSituationVisualNovelItems(
     };
     if (state.waitingForNextPage && state.pending.length === 0 && items[0].content.trim()) {
         const [current, ...pending] = items;
-        return showItem({ ...nextState, pending: [...state.pending, ...pending] }, current, true);
+        return applyBoundaryPageReplacement(
+            showItem({ ...nextState, pending: [...state.pending, ...pending] }, current, true),
+        );
     }
     if (state.current && state.locked) {
-        return {
+        return applyBoundaryPageReplacement({
             ...nextState,
             pending: [...state.pending, ...items],
-        };
+        });
     }
 
     const [current, ...pending] = items;
-    return showItem({
+    return applyBoundaryPageReplacement(showItem({
         ...nextState,
         pending: [...state.pending, ...pending],
-    }, current, true);
+    }, current, true));
 }
 
 export function beginSituationVisualNovelResponse(

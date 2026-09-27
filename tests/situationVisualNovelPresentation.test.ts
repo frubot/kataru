@@ -81,6 +81,200 @@ describe('situation visual novel presentation', () => {
         ])).sceneExpression).toBeUndefined();
     });
 
+    test('extends the previous pagination for a flagged continuation', () => {
+        const head = `${'あ'.repeat(100)}。`;
+        const tail = `${'い'.repeat(80)}。`;
+        const items = buildSituationVisualNovelRoomItems([
+            roomMessage('user-1', 'user', 'こんにちは'),
+            roomMessage('assistant-1', 'assistant', `${head}${tail}`, 'actor-a'),
+            {
+                ...roomMessage('assistant-2', 'assistant', `${'う'.repeat(100)}。`, 'actor-a'),
+                continuesPrevious: true,
+            },
+        ]);
+
+        expect(items.map((item) => [item.key, item.content])).toEqual([
+            ['room:assistant-1', head],
+            ['room:assistant-1:page:1', tail],
+            ['room:assistant-2', `${'う'.repeat(100)}。`],
+        ]);
+    });
+
+    test('replaces the boundary page when the continuation grows it', () => {
+        const prev = `${'あ'.repeat(50)}。`;
+        const next = `${'う'.repeat(60)}。`;
+        const items = buildSituationVisualNovelRoomItems([
+            roomMessage('assistant-1', 'assistant', prev, 'actor-a'),
+            { ...roomMessage('assistant-2', 'assistant', next, 'actor-a'), continuesPrevious: true },
+        ]);
+
+        // The merged text paginates exactly like a single response: the old
+        // tail page is replaced by its grown continuation-owned version.
+        expect(items.map((item) => [item.key, item.content])).toEqual([
+            ['room:assistant-2', `${prev}\n\n${next}`],
+        ]);
+    });
+
+    test('keeps earlier pages while a grown boundary page moves to the continuation', () => {
+        const head = `${'あ'.repeat(120)}。`;
+        const tail = `${'い'.repeat(50)}。`;
+        const next = `${'う'.repeat(30)}。`;
+        const items = buildSituationVisualNovelRoomItems([
+            roomMessage('assistant-1', 'assistant', `${head}${tail}`, 'actor-a'),
+            { ...roomMessage('assistant-2', 'assistant', next, 'actor-a'), continuesPrevious: true },
+        ]);
+
+        expect(items.map((item) => [item.key, item.content])).toEqual([
+            ['room:assistant-1', head],
+            ['room:assistant-2', `${tail}\n\n${next}`],
+        ]);
+    });
+
+    test('does not merge a flagged continuation across a user message', () => {
+        const items = buildSituationVisualNovelRoomItems([
+            roomMessage('assistant-1', 'assistant', '以前の返答', 'actor-a'),
+            roomMessage('user-1', 'user', '割り込み'),
+            { ...roomMessage('assistant-2', 'assistant', '続き', 'actor-a'), continuesPrevious: true },
+        ]);
+
+        expect(items.map((item) => [item.key, item.content])).toEqual([
+            ['room:assistant-1', '以前の返答'],
+            ['room:assistant-2', '続き'],
+        ]);
+    });
+
+    test('keeps a flagged continuation separate when a different actor speaks', () => {
+        const items = buildSituationVisualNovelRoomItems([
+            roomMessage('assistant-1', 'assistant', '以前の返答', 'actor-a'),
+            { ...roomMessage('assistant-2', 'assistant', '別の発言', 'actor-b'), continuesPrevious: true },
+        ]);
+
+        expect(items.map((item) => [item.key, item.content])).toEqual([
+            ['room:assistant-1', '以前の返答'],
+            ['room:assistant-2', '別の発言'],
+        ]);
+    });
+
+    test('paginates a continuation preview onto the previous reply tail', () => {
+        const tail = `${'あ'.repeat(50)}。`;
+        const items = buildSituationVisualNovelPreviewItems('job', [{
+            turnIndex: 0,
+            content: `${'う'.repeat(60)}。`,
+            characterId: 'actor-a',
+            complete: true,
+        }], [], { tail, characterId: 'actor-a' });
+
+        expect(items.map((item) => item.content)).toEqual([`${tail}\n\n${'う'.repeat(60)}。`]);
+    });
+
+    test('drops the repeated tail page when the preview seam lands on a break', () => {
+        const tail = `${'あ'.repeat(120)}。`;
+        const items = buildSituationVisualNovelPreviewItems('job', [{
+            turnIndex: 0,
+            content: '続きだよ。',
+            characterId: 'actor-a',
+            complete: true,
+        }], [], { tail, characterId: 'actor-a' });
+
+        expect(items.map((item) => item.content)).toEqual(['続きだよ。']);
+        expect(items[0].replacesBoundaryPage).toBeFalsy();
+    });
+
+    test('replaces the displayed tail page when a continuation preview grows it', () => {
+        const tail = `${'あ'.repeat(50)}。`;
+        let state = createSituationVisualNovelPresentationState({
+            hasRoomHistory: true,
+            priorItems: [],
+            roomItems: buildSituationVisualNovelRoomItems([
+                roomMessage('assistant-1', 'assistant', tail, 'actor-a'),
+            ]),
+            isLoading: true,
+        });
+        state = completeSituationVisualNovelItem(state, state.current!.key);
+        state = advanceSituationVisualNovelPresentation(state, true);
+        expect(state.current?.key).toBe('room:assistant-1');
+        expect(state.waitingForNextPage).toBe(true);
+
+        const items = buildSituationVisualNovelPreviewItems('job', [{
+            turnIndex: 0,
+            content: '続きだよ。',
+            characterId: 'actor-a',
+            complete: false,
+        }], [], { tail, characterId: 'actor-a' });
+        expect(items[0].replacesBoundaryPage).toBe(true);
+
+        state = appendSituationVisualNovelItems(state, items);
+        expect(state.waitingForNextPage).toBe(false);
+        expect(state.current).toMatchObject({ key: 'preview:job:0', source: 'preview' });
+        expect(state.pending).toEqual([]);
+    });
+
+    test('replaces a queued tail page instead of queueing the grown copy', () => {
+        const head = `${'あ'.repeat(120)}。`;
+        const tail = `${'い'.repeat(50)}。`;
+        let state = createSituationVisualNovelPresentationState({
+            hasRoomHistory: false,
+            priorItems: [],
+            roomItems: [],
+            isLoading: true,
+        });
+        state = appendSituationVisualNovelItems(state, buildSituationVisualNovelRoomItems([
+            roomMessage('assistant-1', 'assistant', `${head}${tail}`, 'actor-a'),
+        ]));
+        expect(state.current?.content).toBe(head);
+        expect(state.pending.map((item) => [item.key, item.content])).toEqual([
+            ['room:assistant-1:page:1', tail],
+        ]);
+
+        const items = buildSituationVisualNovelPreviewItems('job', [{
+            turnIndex: 0,
+            content: '続きだよ。',
+            characterId: 'actor-a',
+            complete: true,
+        }], [], { tail, characterId: 'actor-a' });
+
+        state = appendSituationVisualNovelItems(state, items);
+        expect(state.pending.map((item) => [item.key, item.content, item.source])).toEqual([
+            ['preview:job:0', `${tail}\n\n続きだよ。`, 'preview'],
+        ]);
+        expect(state.current?.key).toBe('room:assistant-1');
+    });
+
+    test('takes over the tail page when a queued placeholder grows it later', () => {
+        const tail = `${'あ'.repeat(50)}。`;
+        let state = createSituationVisualNovelPresentationState({
+            hasRoomHistory: true,
+            priorItems: [],
+            roomItems: buildSituationVisualNovelRoomItems([
+                roomMessage('assistant-1', 'assistant', tail, 'actor-a'),
+            ]),
+            isLoading: true,
+        });
+
+        const placeholder = buildSituationVisualNovelPreviewItems('job', [{
+            turnIndex: 0,
+            content: '',
+            expression: 'happy',
+            characterId: 'actor-a',
+            complete: false,
+        }], [], { tail, characterId: 'actor-a' });
+        expect(placeholder[0].replacesBoundaryPage).toBeFalsy();
+        state = appendSituationVisualNovelItems(state, placeholder);
+        expect(state.current?.key).toBe('room:assistant-1');
+        expect(state.pending.map((item) => item.key)).toEqual(['preview:job:0']);
+
+        const grown = buildSituationVisualNovelPreviewItems('job', [{
+            turnIndex: 0,
+            content: '続きだよ。',
+            characterId: 'actor-a',
+            complete: false,
+        }], [], { tail, characterId: 'actor-a' });
+        expect(grown[0].replacesBoundaryPage).toBe(true);
+        state = syncSituationVisualNovelPreviewItems(state, grown);
+        expect(state.current).toMatchObject({ key: 'preview:job:0', source: 'preview' });
+        expect(state.pending).toEqual([]);
+    });
+
     test('isolates a continuation response without requiring a new user message', () => {
         const messages = [
             roomMessage('user-1', 'user', '今日は寒いね'),

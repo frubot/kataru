@@ -10,6 +10,7 @@ export type ConversationAssistantMessage = {
     toCharacterIds?: string[];
     usedMemoryIds?: string[];
     timestamp: number;
+    continuesPrevious?: boolean;
 };
 
 export type RustTurnResponse = {

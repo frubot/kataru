@@ -236,6 +236,13 @@ export default function ChatMessagesView({
     const [measuredHeights, setMeasuredHeights] = useState<Map<string, number>>(() => new Map());
     const [viewport, setViewport] = useState({ scrollOffset: 0, viewportSize: 0 });
 
+    const lastVisibleMessageIndex = useMemo(() => {
+        let last = -1;
+        messages.forEach((message, index) => {
+            if (!message.mergedIntoPrevious) last = index;
+        });
+        return last;
+    }, [messages]);
     const historyItems = useMemo<HistoryItem[]>(() => [
         ...priorMessages.map((presentation, presentationIndex) => ({
             key: `prior-display:${presentation.message.id}`,
@@ -243,19 +250,22 @@ export default function ChatMessagesView({
             presentation,
             presentationIndex,
         })),
-        ...messages.map((presentation, messageIndex) => ({
-            key: presentation.id,
-            kind: 'message' as const,
-            presentation,
-            messageIndex,
-        })),
+        ...messages.flatMap((presentation, messageIndex) => (
+            presentation.mergedIntoPrevious ? [] : [{
+                key: presentation.id,
+                kind: 'message' as const,
+                presentation,
+                messageIndex,
+            }]
+        )),
     ], [messages, priorMessages]);
     const itemSizes = useMemo(() => {
         return historyItems.map((item) => {
             const measuredHeight = measuredHeights.get(item.key);
             if (measuredHeight != null) return measuredHeight;
             const message = item.kind === 'prior' ? item.presentation.message : item.presentation;
-            return estimateChatMessageHeight(message.content, message.role);
+            const content = item.kind === 'prior' ? message.content : item.presentation.displayContent;
+            return estimateChatMessageHeight(content, message.role);
         });
     }, [historyItems, measuredHeights]);
     const layout = useMemo(() => buildVirtualLayout(itemSizes), [itemSizes]);
@@ -408,7 +418,7 @@ export default function ChatMessagesView({
                 displayContent={message.displayContent}
                 index={index}
                 isArchived={message.isArchived}
-                isLastMessage={index === messages.length - 1}
+                isLastMessage={index === lastVisibleMessageIndex}
                 isLoading={interactionsDisabled}
                 isHovered={hoveredMessageId === message.id || touchedMessageId === message.id}
                 isCopied={copiedMessageId === message.id}
@@ -435,7 +445,7 @@ export default function ChatMessagesView({
                 onSubmitEdit={onSubmitEdit}
                 onCopy={onCopy}
                 onRegenerate={onRegenerate}
-                onBranch={() => onBranch(message.id)}
+                onBranch={() => onBranch(message.branchMessageId)}
                 onOpenMemoryList={onOpenMemoryList}
                 onRevealTypewriter={onRevealTypewriter}
                 onTtsToggle={onTtsPlay ? () => onTtsPlay(message.id) : undefined}

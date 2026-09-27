@@ -58,7 +58,7 @@ const MEMORY_LIMIT: usize = 8;
 const MEMORY_MIN_IMPORTANCE: f64 = 0.4;
 const MEMORY_MIN_CONFIDENCE: f64 = 0.7;
 const MEMORY_MAX_CANDIDATES: usize = 5;
-const CONTINATUION_TRIGGER: &str = "[内部指示] これは主人公の発言ではありません。主人公から新しい発言や行動はありません。直前の場面を繰り返さず、あなた自身が自発的に発言または行動して、自然な続きを作成してください。";
+const CONTINATUION_TRIGGER: &str = "[内部指示] これは主人公の発言ではありません。主人公から新しい発言や行動はありません。直前の場面を繰り返さず、自然な続きを作成してください。もし前回のレスポンスが途中で途切れている場合、その続きから作成してください。";
 
 const JEV_CONTINUE_THRESHOLD: f64 = 0.5;
 const JEV_PROTAGONIST_THRESHOLD: f64 = 0.6;
@@ -629,6 +629,8 @@ async fn run_turn_inner(
             });
         }
     }
+
+    mark_continuation_start(&mut generated, generation_mode.is_continue());
 
     let memory = match extraction_context.filter(|_| !secret_mode) {
         Some(context) => {
@@ -2342,6 +2344,17 @@ fn slice_by_user_history(messages: &[Value], limit: usize) -> Vec<Value> {
     messages[cut..].to_vec()
 }
 
+// The presenter folds this first reply into the previous assistant message
+// when the same character keeps speaking, so the boundary is persisted.
+fn mark_continuation_start(messages: &mut [Value], enabled: bool) {
+    if !enabled {
+        return;
+    }
+    if let Some(object) = messages.first_mut().and_then(Value::as_object_mut) {
+        object.insert("continuesPrevious".to_owned(), Value::Bool(true));
+    }
+}
+
 fn with_continuation_trigger(mut messages: Vec<Value>, enabled: bool) -> Vec<Value> {
     if enabled {
         messages.push(json!({
@@ -2877,6 +2890,28 @@ mod tests {
         let history = vec![json!({"role":"user","content":"こんにちは"})];
 
         assert_eq!(with_continuation_trigger(history.clone(), false), history);
+    }
+
+    #[test]
+    fn continuation_marks_only_the_first_generated_message() {
+        let mut generated = vec![
+            json!({"role": "assistant", "content": "続き1"}),
+            json!({"role": "assistant", "content": "続き2"}),
+        ];
+
+        mark_continuation_start(&mut generated, true);
+
+        assert_eq!(generated[0]["continuesPrevious"], true);
+        assert!(generated[1].get("continuesPrevious").is_none());
+    }
+
+    #[test]
+    fn reply_generation_does_not_mark_continuation() {
+        let mut generated = vec![json!({"role": "assistant", "content": "返答"})];
+
+        mark_continuation_start(&mut generated, false);
+
+        assert!(generated[0].get("continuesPrevious").is_none());
     }
 
     #[test]

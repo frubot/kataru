@@ -36,6 +36,13 @@ impl GenerationMode {
     pub(crate) fn is_continue(self) -> bool {
         self == Self::Continue
     }
+
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Reply => "reply",
+            Self::Continue => "continue",
+        }
+    }
 }
 
 #[cfg(test)]

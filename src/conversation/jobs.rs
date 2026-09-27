@@ -95,6 +95,7 @@ struct ConversationJob {
     created_at: u64,
     updated_at: u64,
     recoverable: bool,
+    generation_mode: GenerationMode,
     cancel_token: JobCancellation,
     join_handle: Option<JoinHandle<()>>,
     /// `true` once the spawned task finished every write — including the
@@ -137,6 +138,10 @@ impl ConversationJob {
                 "status".to_owned(),
                 Value::String(self.status.as_str().to_owned()),
             ),
+            (
+                "generationMode".to_owned(),
+                Value::String(self.generation_mode.as_str().to_owned()),
+            ),
             ("createdAt".to_owned(), Value::from(self.created_at)),
             ("updatedAt".to_owned(), Value::from(self.updated_at)),
         ]);
@@ -162,6 +167,7 @@ impl ConversationJobs {
         job_id: String,
         room_id: String,
         recoverable: bool,
+        generation_mode: GenerationMode,
     ) -> AppResult<(Value, bool)> {
         let mut jobs = self.inner.lock().await;
         prune_jobs(&mut jobs);
@@ -188,6 +194,7 @@ impl ConversationJobs {
             created_at: now,
             updated_at: now,
             recoverable,
+            generation_mode,
             cancel_token: JobCancellation::default(),
             join_handle: None,
             task_settled: false,
@@ -490,6 +497,7 @@ impl ConversationJobs {
                 created_at: now,
                 updated_at: now,
                 recoverable: false,
+                generation_mode: GenerationMode::Reply,
                 cancel_token: {
                     let token = JobCancellation::default();
                     token.cancel();
@@ -567,7 +575,12 @@ pub async fn start(
 
     let (snapshot, inserted) = state
         .conversation_jobs
-        .insert(job_id.clone(), room_id.clone(), !secret_mode)
+        .insert(
+            job_id.clone(),
+            room_id.clone(),
+            !secret_mode,
+            generation_mode,
+        )
         .await?;
     if !inserted {
         tracing::debug!(
@@ -1072,7 +1085,12 @@ mod tests {
         assert_eq!(cancelled["status"], "cancelled");
 
         let (snapshot, inserted) = jobs
-            .insert(job_id.to_owned(), "room-1".to_owned(), true)
+            .insert(
+                job_id.to_owned(),
+                "room-1".to_owned(),
+                true,
+                GenerationMode::Reply,
+            )
             .await
             .expect("read cancellation tombstone");
         assert!(!inserted);
@@ -1087,11 +1105,17 @@ mod tests {
                 "job-recoverable".to_owned(),
                 "room-recoverable".to_owned(),
                 true,
+                GenerationMode::Reply,
             )
             .await
             .expect("insert recoverable job");
         let (secret, _) = jobs
-            .insert("job-secret".to_owned(), "room-secret".to_owned(), false)
+            .insert(
+                "job-secret".to_owned(),
+                "room-secret".to_owned(),
+                false,
+                GenerationMode::Reply,
+            )
             .await
             .expect("insert secret job");
         assert_eq!(recoverable["status"], "running");
@@ -1112,9 +1136,14 @@ mod tests {
     async fn cancelled_job_reads_wait_for_the_task_to_settle() {
         let jobs = ConversationJobs::default();
         let job_id = "job-settle-wait";
-        jobs.insert(job_id.to_owned(), "room-1".to_owned(), true)
-            .await
-            .expect("insert job");
+        jobs.insert(
+            job_id.to_owned(),
+            "room-1".to_owned(),
+            true,
+            GenerationMode::Reply,
+        )
+        .await
+        .expect("insert job");
         jobs.cancel(job_id).await;
 
         let reader = tokio::spawn({
@@ -1141,9 +1170,14 @@ mod tests {
     async fn recoverable_listing_waits_for_settling_cancelled_jobs() {
         let jobs = ConversationJobs::default();
         let job_id = "job-list-settle-wait";
-        jobs.insert(job_id.to_owned(), "room-1".to_owned(), true)
-            .await
-            .expect("insert job");
+        jobs.insert(
+            job_id.to_owned(),
+            "room-1".to_owned(),
+            true,
+            GenerationMode::Reply,
+        )
+        .await
+        .expect("insert job");
         jobs.cancel(job_id).await;
 
         let lister = tokio::spawn({
@@ -1171,9 +1205,14 @@ mod tests {
     async fn failed_jobs_expose_all_collected_debug_logs() {
         let jobs = ConversationJobs::default();
         let job_id = "job-failed-with-debug-logs";
-        jobs.insert(job_id.to_owned(), "room-1".to_owned(), true)
-            .await
-            .expect("insert job");
+        jobs.insert(
+            job_id.to_owned(),
+            "room-1".to_owned(),
+            true,
+            GenerationMode::Reply,
+        )
+        .await
+        .expect("insert job");
         let logs = vec![
             json!({
                 "status": "success",
@@ -1195,7 +1234,12 @@ mod tests {
         assert_eq!(snapshot["partialResult"]["fullJsonLogs"], json!(logs));
 
         let (duplicate, inserted) = jobs
-            .insert(job_id.to_owned(), "room-1".to_owned(), true)
+            .insert(
+                job_id.to_owned(),
+                "room-1".to_owned(),
+                true,
+                GenerationMode::Reply,
+            )
             .await
             .expect("read existing failed job");
         assert!(!inserted);
@@ -1216,9 +1260,14 @@ mod tests {
     async fn completed_jobs_expose_results_when_listed_for_recovery() {
         let jobs = ConversationJobs::default();
         let job_id = "job-completed-with-debug-logs";
-        jobs.insert(job_id.to_owned(), "room-1".to_owned(), true)
-            .await
-            .expect("insert job");
+        jobs.insert(
+            job_id.to_owned(),
+            "room-1".to_owned(),
+            true,
+            GenerationMode::Reply,
+        )
+        .await
+        .expect("insert job");
         jobs.complete(
             job_id,
             json!({
@@ -1243,12 +1292,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn insert_snapshot_reports_the_requested_generation_mode() {
+        let jobs = ConversationJobs::default();
+        let (snapshot, inserted) = jobs
+            .insert(
+                "job-continue".to_owned(),
+                "room-1".to_owned(),
+                true,
+                GenerationMode::Continue,
+            )
+            .await
+            .expect("insert continuation job");
+        assert!(inserted);
+        assert_eq!(snapshot["generationMode"], "continue");
+    }
+
+    #[tokio::test]
     async fn streaming_preview_keeps_completed_actor_turns_in_order() {
         let jobs = ConversationJobs::default();
         let job_id = "job-streaming-turns";
-        jobs.insert(job_id.to_owned(), "room-1".to_owned(), true)
-            .await
-            .expect("insert streaming job");
+        jobs.insert(
+            job_id.to_owned(),
+            "room-1".to_owned(),
+            true,
+            GenerationMode::Reply,
+        )
+        .await
+        .expect("insert streaming job");
 
         jobs.update_preview(job_id, "", "actor-a", "A", Some("happy"), None);
         let snapshot = jobs.get(job_id).await.expect("expression-only preview");

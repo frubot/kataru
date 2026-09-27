@@ -20,6 +20,7 @@ import {
     syncSituationVisualNovelRoomItems,
     unlockSituationVisualNovelPresentation,
 } from '@/lib/situationVisualNovelPresentation';
+import { splitStreamingVisualNovelMessage } from '@/lib/visualNovelPresentation';
 import { useTypewriterAdvance } from './useChatKeyboard';
 
 type UseSituationVisualNovelPresentationOptions = {
@@ -28,6 +29,8 @@ type UseSituationVisualNovelPresentationOptions = {
     situationId?: string;
     messages: Message[];
     priorMessages: SituationPriorMessage[];
+    /** ソロルームで発言者idが無いメッセージに適用するキャラクターid。 */
+    fallbackCharacterId?: string;
     streamingPreview: ChatStreamingPreview | null;
     isLoading: boolean;
     isTypewriterActive: boolean;
@@ -61,6 +64,7 @@ export function useSituationVisualNovelPresentation({
     situationId,
     messages,
     priorMessages,
+    fallbackCharacterId,
     streamingPreview,
     isLoading,
     isTypewriterActive,
@@ -78,6 +82,37 @@ export function useSituationVisualNovelPresentation({
     const [cachedPreview, setCachedPreview] = useState<PreviewPaginationCache>(() => ({
         active, roomId, isLoading, input: null, items: [],
     }));
+    const continuationBase = useMemo(() => {
+        const baseId = activeStreamingPreview?.continuationOfMessageId;
+        if (!baseId) return undefined;
+        const baseIndex = messages.findIndex((message) => message.id === baseId);
+        const base = baseIndex >= 0 ? messages[baseIndex] : undefined;
+        const latestIndex = messages.findLastIndex((message) => !message.archived);
+        if (!base || base.role !== 'assistant' || base.archived || baseIndex !== latestIndex) {
+            return undefined;
+        }
+        // Walk back over already-merged continuations so the tail is the page
+        // actually on screen, not the last page of the base message alone.
+        let start = baseIndex;
+        let mergedContent = base.content;
+        while (start > 0) {
+            const current = messages[start];
+            const earlier = messages[start - 1];
+            if (
+                current.continuesPrevious === true
+                && earlier.role === 'assistant'
+                && !earlier.archived
+                && (earlier.characterId ?? fallbackCharacterId) === (current.characterId ?? fallbackCharacterId)
+            ) {
+                start--;
+                mergedContent = `${earlier.content}\n\n${mergedContent}`;
+            } else {
+                break;
+            }
+        }
+        const tail = splitStreamingVisualNovelMessage(mergedContent, true).at(-1)?.content;
+        return tail ? { tail, characterId: base.characterId ?? fallbackCharacterId } : undefined;
+    }, [activeStreamingPreview?.continuationOfMessageId, fallbackCharacterId, messages]);
     let paginationCache = cachedPreview;
     if (
         cachedPreview.active !== active || cachedPreview.roomId !== roomId
@@ -98,6 +133,8 @@ export function useSituationVisualNovelPresentation({
                     activeStreamingPreview.jobId,
                     activeStreamingPreview.turns?.map((turn) => ({ ...turn, complete: turn.complete || !isLoading })),
                     previousItems,
+                    continuationBase,
+                    fallbackCharacterId,
                 )
                 : previousItems,
         };
@@ -112,8 +149,8 @@ export function useSituationVisualNovelPresentation({
         [generationBaseline, messages],
     );
     const roomItems = useMemo(
-        () => buildSituationVisualNovelRoomItems(messages, retainedPreviewItems, responseMessages),
-        [messages, retainedPreviewItems, responseMessages],
+        () => buildSituationVisualNovelRoomItems(messages, retainedPreviewItems, responseMessages, fallbackCharacterId),
+        [messages, retainedPreviewItems, responseMessages, fallbackCharacterId],
     );
     const currentRoundAssistantItems = useMemo(() => {
         const responseIds = new Set(responseMessages.map((message) => message.id));

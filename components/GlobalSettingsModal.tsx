@@ -998,9 +998,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                             設定されていません
                                         </span>
                                     )}
-                                    <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                                        チャット画面の背景として表示されます。ゲームモードではシチュエーションの背景が優先されます。
-                                    </p>
                                 </div>
                             </div>
                         </div>

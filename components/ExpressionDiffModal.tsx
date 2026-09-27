@@ -868,14 +868,13 @@ export default function ExpressionDiffModal({
                         {error && <p style={{ color: 'var(--error)', fontSize: '0.8125rem' }}>{error}</p>}
 
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
-                            {busy && busy !== UPLOAD_BUSY_KEY && (
-                                <button className="btn btn-ghost" onClick={handleCancelBusy}>
-                                    生成をキャンセル
-                                </button>
-                            )}
                             {addMode === 'generate' ? (
                                 <>
-                                    {draftImage && (
+                                    {busy && busy !== UPLOAD_BUSY_KEY ? (
+                                        <button className="btn btn-ghost" onClick={handleCancelBusy}>
+                                            生成をキャンセル
+                                        </button>
+                                    ) : draftImage && (
                                         <button
                                             type="button"
                                             className="btn btn-ghost"
@@ -892,8 +891,8 @@ export default function ExpressionDiffModal({
                                         disabled={!!busy || !canGenerateDiffs || (!autoDetectName && !newName.trim()) || !model.model.trim() || !neutral}
                                         style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                                     >
-                                        {busy === NEW_BUSY_KEY && <Loader2 size={16} className="animate-spin" />}
-                                        {busy === NEW_BUSY_KEY ? (autoDetectName ? '生成・判定中...' : '生成中...') : draftImage ? '追加' : '生成'}
+                                        {busy === NEW_BUSY_KEY && !draftImage && <Loader2 size={16} className="animate-spin" />}
+                                        {busy === NEW_BUSY_KEY && !draftImage ? (autoDetectName ? '生成・判定中...' : '生成中...') : draftImage ? '追加' : '生成'}
                                     </button>
                                     {draftImage && (
                                         <button

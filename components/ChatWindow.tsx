@@ -1627,16 +1627,15 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             return {
                 id: participant.id,
                 name: participant.name,
-                icon: participant.icon,
                 image: vrm
-                    ? costume?.image ?? participant.icon ?? null
+                    ? costume?.image ?? null
                     : resolveVisualNovelExpressionImage(participant, expression, costumeName),
                 expression,
                 motion: sceneMotion?.characterId === participant.id
                     ? { name: sceneMotion.name, nonce: sceneMotion.nonce }
                     : undefined,
                 vrm,
-                vrmFallbackImage: costume?.image ?? participant.icon ?? null,
+                vrmFallbackImage: costume?.image ?? null,
                 active: vnActiveSpriteId != null && participant.id === vnActiveSpriteId,
                 bounce: vnBounceActive && participant.id === vnActiveSpriteId,
             };

@@ -18,7 +18,6 @@ const VrmAvatarView = lazy(() => import('../VrmAvatarView'));
 export type VisualNovelStageSprite = {
     id: string;
     name: string;
-    icon?: string;
     image: string | null;
     expression?: string | null;
     /** One-shot VRM motion to play; a changed nonce retriggers it. */
@@ -226,15 +225,7 @@ export default function VisualNovelView({
                                         </Suspense>
                                     ) : sprite.image ? (
                                         <SpriteImage src={sprite.image} alt={sprite.name} />
-                                    ) : (
-                                        <div className="vn-character-placeholder">
-                                            {sprite.icon ? (
-                                                <StoredImage src={sprite.icon} alt={sprite.name} />
-                                            ) : (
-                                                <span>{sprite.name.charAt(0) || '?'}</span>
-                                            )}
-                                        </div>
-                                    )}
+                                    ) : null}
                                 </div>
                             </div>
                         ))}
@@ -245,15 +236,7 @@ export default function VisualNovelView({
                             <VrmAvatarView avatar={vrmAvatar} expression={expression} motion={motion} name={character.name} fallbackImage={selectedCostume?.image} interactive lipSync />
                         </Suspense> : expressionImage ? (
                             <SpriteImage src={expressionImage} alt={character.name} />
-                        ) : (
-                            <div className="vn-character-placeholder">
-                                {character.icon ? (
-                                    <StoredImage src={character.icon} alt={character.name} />
-                                ) : (
-                                    <span>{character.name.charAt(0) || '?'}</span>
-                                )}
-                            </div>
-                        )}
+                        ) : null}
                     </div>
                 ) : castCharacters && castCharacters.length > 0 ? (
                     <div className="vn-cast" aria-label="参加キャラクター">

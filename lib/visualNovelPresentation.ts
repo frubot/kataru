@@ -81,7 +81,7 @@ export function resolveVisualNovelExpressionImage(
         const requested = emotion && emotion.toLowerCase() !== NEUTRAL_EXPRESSION_NAME
             ? costumeExpressions.find((expression) => expression.name.toLowerCase() === emotion.toLowerCase())
             : undefined;
-        return requested?.image ?? selectedCostume.image ?? character.icon ?? null;
+        return requested?.image ?? selectedCostume.image ?? null;
     }
 
     const expressions = character.expressions ?? [];
@@ -90,7 +90,7 @@ export function resolveVisualNovelExpressionImage(
     );
     const requested = emotion ? findExpression(emotion) : undefined;
     const neutral = findExpression(NEUTRAL_EXPRESSION_NAME);
-    return requested?.image ?? neutral?.image ?? expressions[0]?.image ?? character.icon ?? null;
+    return requested?.image ?? neutral?.image ?? expressions[0]?.image ?? null;
 }
 
 export function getVisualNovelCostumeOptions(
@@ -194,7 +194,6 @@ export function getVisualNovelPreloadCandidates(
         add(selectedCostume.image);
     } else {
         for (const expression of character.expressions ?? []) add(expression.image);
-        add(character.icon);
     }
 
     // Costume changes are user-driven and can happen before the next response, so warm each

@@ -59,6 +59,13 @@ describe('visual novel costume and expression presentation', () => {
         expect(resolveVisualNovelExpressionImage(character, 'missing')).toBe('neutral.png');
     });
 
+    test('returns null instead of the icon when no standing image is configured', () => {
+        const bare: Character = { ...character, expressions: [], costumes: [] };
+        expect(resolveVisualNovelExpressionImage(bare, null)).toBeNull();
+        expect(resolveVisualNovelExpressionImage(bare, 'happy')).toBeNull();
+        expect(resolveVisualNovelExpressionImage(bare, 'happy', 'uniform')).toBeNull();
+    });
+
     test('builds a default option alongside non-default costumes', () => {
         expect(getVisualNovelCostumeOptions(character)).toEqual([
             { name: 'default', image: 'neutral.png', expressionCount: 2 },
@@ -84,7 +91,6 @@ describe('visual novel costume and expression presentation', () => {
         ]);
         expect(getVisualNovelPreloadCandidates(character, 'default', 'neutral.png')).toEqual([
             'happy.png',
-            'icon.png',
             'uniform.png',
         ]);
     });

@@ -462,7 +462,7 @@ fn character_schema() -> Value {
             "properties": {
                 "name": {
                     "type": "string",
-                    "description": "フルネーム(例: 山田 太郎)",
+                    "description": "キャラクターのフルネーム（例: 山田 太郎）。",
                     "maxLength": 15,
                     "minLength": 1
                 },
@@ -474,19 +474,35 @@ fn character_schema() -> Value {
                 },
                 "firstPerson": {
                     "type": "string",
-                    "description": "一人称",
+                    "description": "キャラクターの一人称",
                     "maxLength": 5,
                     "minLength": 1
                 },
+                "occupation": {
+                    "type": "string",
+                    "description": "職業、学生の場合は立場や所属",
+                    "minLength": 1,
+                    "maxLength": 15,
+                },
+                "personality": {
+                    "type": "string",
+                    "description": "性格",
+                    "minLength": 50
+                },
+                "traits": {
+                    "type": "string",
+                    "description": "詳細な特徴",
+                    "minLength": 50
+                },
                 "protagonistAddress": {
                     "type": "string",
-                    "description": "主人公に対する呼び名（例: ○○くん)",
+                    "description": "主人公に対する呼び名（例: ○○くん）",
                     "maxLength": 5,
                     "minLength": 1
                 },
                 "relationship": {
                     "type": "string",
-                    "description": "キャラクターとの関係性（主人公目線）",
+                    "description": "キャラクターとの関係性",
                     "maxLength": 50,
                     "minLength": 5
                 },
@@ -495,12 +511,6 @@ fn character_schema() -> Value {
                     "description": "主人公に対して抱いている印象や感情",
                     "maxLength": 50,
                     "minLength": 10
-                },
-                "occupation": {
-                    "type": "string",
-                    "description": "職業、学生の場合は立場や所属",
-                    "minLength": 1,
-                    "maxLength": 15,
                 },
                 "speechExamples": {
                     "type": "array",
@@ -512,18 +522,6 @@ fn character_schema() -> Value {
                         "minLength": 1,
                         "maxLength": 100
                     }
-                },
-                "personality": {
-                    "type": "string",
-                    "description": "性格",
-                    "maxLength": 100,
-                    "minLength": 20
-                },
-                "traits": {
-                    "type": "string",
-                    "description": "外観、経歴、振る舞い、嗜好などの詳細な特徴",
-                    "maxLength": 150,
-                    "minLength": 50
                 }
             }
         }
@@ -541,8 +539,11 @@ pub async fn generate_character(
     let system_prompt = r#"
 あなたは魅力的なオリジナルキャラクター設定を作成するAIです。
 JSON形式で出力してください。
-主人公の名前が提示されていない場合は、主人公の呼び名を"○○"と仮定して表記してください。
+キャラクターのフルネームに、フリガナは不要です。
+もし主人公の名前がプロンプト内で示されていない場合、主人公の名を"○○"と仮定して表記してください。
 キャラクター本人が実際に発する具体的なセリフを3つ作成してください。
+traits には外観、経歴、振る舞い、嗜好、周りからの印象などの可能な限り詳細な特徴を記述してください。
+relationship では主人公視点でキャラクターとの関係性について簡潔に記述してください。
 他項目と重複した内容は記述しないでください。"#;
     let user_prompt = if direction.is_empty() {
         "完全におまかせで、ロールプレイに使いやすい特徴的なキャラクターを1人作成してください。"

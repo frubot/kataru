@@ -432,15 +432,12 @@ fn transparent_background_model_ids(data: &Value) -> HashSet<String> {
                 .pointer("/supported_parameters/background/values")
                 .and_then(Value::as_array)
                 .is_some_and(|values| {
-                    values.iter().any(|value| value.as_str() == Some("transparent"))
+                    values
+                        .iter()
+                        .any(|value| value.as_str() == Some("transparent"))
                 })
         })
-        .filter_map(|entry| {
-            entry
-                .get("id")
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-        })
+        .filter_map(|entry| entry.get("id").and_then(Value::as_str).map(str::to_owned))
         .collect()
 }
 

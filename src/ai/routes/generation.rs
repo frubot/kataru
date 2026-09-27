@@ -326,8 +326,7 @@ pub async fn detect_costume_name(
     if api_client.is_openrouter() {
         request["reasoning"] = json!({ "effort": "none" });
     }
-    let data =
-        structured_completion(&api_client, request, costume_identifier_schema(), 60).await?;
+    let data = structured_completion(&api_client, request, costume_identifier_schema(), 60).await?;
     let content = extract_message_text(&data);
     let name = parse_json_object_text(&content)
         .and_then(|value| {

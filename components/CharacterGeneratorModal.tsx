@@ -93,10 +93,14 @@ export default function CharacterGeneratorModal({ isOpen, onClose, onApply }: Pr
         }
     };
 
+    const handleAbort = () => {
+        abortRef.current?.abort();
+        setGenerating(false);
+    };
+
     const handleCancel = () => {
         if (generating) {
-            abortRef.current?.abort();
-            setGenerating(false);
+            handleAbort();
             return;
         }
         onClose();
@@ -195,26 +199,23 @@ export default function CharacterGeneratorModal({ isOpen, onClose, onApply }: Pr
                 </div>
 
                 <div className="modal-footer generation-modal-footer">
-                    <button className="btn btn-ghost" onClick={handleCancel}>
-                        {generating ? '中止' : 'キャンセル'}
-                    </button>
                     {generated && (
                         <button
                             className={`btn btn-secondary generation-modal-regenerate${isRegenerating ? ' is-loading' : ''}`}
-                            onClick={handleGenerate}
-                            disabled={generating || !model.model.trim()}
+                            onClick={isRegenerating ? handleAbort : handleGenerate}
+                            disabled={!isRegenerating && !model.model.trim()}
                         >
                             {isRegenerating && <Loader2 size={16} className="animate-spin" />}
-                            再生成
+                            {isRegenerating ? '中止' : '再生成'}
                         </button>
                     )}
                     <button
                         className="btn btn-primary"
-                        onClick={generated ? handleApply : handleGenerate}
-                        disabled={generating || !model.model.trim()}
+                        onClick={isInitialGenerating ? handleAbort : generated ? handleApply : handleGenerate}
+                        disabled={!isInitialGenerating && (generating || !model.model.trim())}
                     >
                         {isInitialGenerating && <Loader2 size={16} className="animate-spin" />}
-                        {generated ? '設定に反映' : direction.trim() ? '生成' : 'おまかせ生成'}
+                        {isInitialGenerating ? '中止' : generated ? '設定に反映' : direction.trim() ? '生成' : 'おまかせ生成'}
                     </button>
                 </div>
             </div>

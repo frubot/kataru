@@ -443,6 +443,17 @@ export default function ExpressionDiffModal({
         setError(null);
     };
 
+    const cardEditDirty = () => editingName !== null && editingNameValue.trim() !== editingName;
+
+    const requestClose = () => {
+        if (busy) return;
+        if (cardEditDirty()
+            && !window.confirm('編集内容はまだ保存されていません。保存せずに閉じますか？')) {
+            return;
+        }
+        onClose();
+    };
+
     const handleCancelBusy = () => {
         abortRef.current?.abort();
         setBusy(null);
@@ -472,7 +483,7 @@ export default function ExpressionDiffModal({
     useModalKeyboard({
         isOpen,
         containerRef: modalRef,
-        onClose,
+        onClose: requestClose,
         canClose: !busy,
     });
 
@@ -491,7 +502,7 @@ export default function ExpressionDiffModal({
         <div
             className="modal-overlay"
             onPointerDown={(e) => {
-                if (e.target === e.currentTarget && !busy) onClose();
+                if (e.target === e.currentTarget) requestClose();
             }}
         >
             <div
@@ -507,7 +518,7 @@ export default function ExpressionDiffModal({
                     <h2 style={{ margin: 0, paddingLeft: '0.25rem', fontSize: '0.9375rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
                         <Smile size={18} /> 表情差分
                     </h2>
-                    <button className="btn btn-ghost" onClick={() => !busy && onClose()} disabled={!!busy} title="閉じる" aria-label="閉じる">
+                    <button className="btn btn-ghost" onClick={requestClose} disabled={!!busy} title="閉じる" aria-label="閉じる">
                         <X size={20} />
                     </button>
                 </div>

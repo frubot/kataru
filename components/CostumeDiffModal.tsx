@@ -484,11 +484,11 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                 style={{ maxWidth: 640 }}
                 role="dialog"
                 aria-modal="true"
-                aria-label="衣装・アバター"
+                aria-label="衣装差分"
             >
                 <div className="settings-form-modal-actions" style={{ justifyContent: 'space-between' }}>
                     <h2 style={{ margin: 0, paddingLeft: '0.25rem', fontSize: '0.9375rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <Shirt size={18} /> 衣装・アバター
+                        <Shirt size={18} /> 衣装差分
                     </h2>
                     <button className="btn btn-ghost" onClick={() => !busy && onClose()} disabled={!!busy} title="閉じる" aria-label="閉じる">
                         <X size={20} />

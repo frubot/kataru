@@ -581,7 +581,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                                                 disabled={!!busy}
                                                                 autoFocus
                                                                 aria-label={`${costume.name}の衣装名`}
-                                                                style={{ minWidth: 0, fontSize: '0.75rem' }}
+                                                                style={{ minWidth: 0, fontSize: '0.75rem', padding: '4px 8px', borderRadius: 6 }}
                                                             />
                                                         )}
                                                         <button
@@ -621,7 +621,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                                         disabled={!!busy}
                                                         rows={2}
                                                         aria-label={`${costume.name}の衣装の説明`}
-                                                        style={{ width: '100%', resize: 'vertical', fontSize: '0.75rem' }}
+                                                        style={{ width: '100%', resize: 'vertical', fontSize: '0.75rem', padding: '4px 8px', borderRadius: 6 }}
                                                     />
                                                 </div>
                                             ) : (

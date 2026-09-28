@@ -603,7 +603,7 @@ export default function ExpressionDiffModal({
                                                     disabled={!!busy}
                                                     autoFocus
                                                     aria-label={`${exp.name}の表情名`}
-                                                    style={{ minWidth: 0, fontSize: '0.75rem' }}
+                                                    style={{ minWidth: 0, fontSize: '0.75rem', padding: '4px 8px', borderRadius: 6 }}
                                                 />
                                                 <button
                                                     type="button"

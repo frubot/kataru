@@ -584,7 +584,7 @@ export default function ExpressionDiffModal({
                                     </div>
                                     <div style={{ padding: '8px 10px' }}>
                                         {editingName === exp.name ? (
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                                                 <input
                                                     type="text"
                                                     className="input"
@@ -632,42 +632,42 @@ export default function ExpressionDiffModal({
                                                 </button>
                                             </div>
                                         ) : (
-                                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4, marginBottom: 6 }}>
+                                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4 }}>
                                                 <div style={{ flex: 1, minWidth: 0, fontSize: '0.8125rem', fontWeight: 500, wordBreak: 'break-all' }}>
                                                     {exp.name}
                                                 </div>
                                                 {!(selectedCostume && exp.name === NEUTRAL_NAME) && (
-                                                    <button
-                                                        type="button"
-                                                        className="btn btn-ghost"
-                                                        title="表情名を変更"
-                                                        aria-label={`${exp.name}の表情名を変更`}
-                                                        disabled={!!busy}
-                                                        onClick={() => {
-                                                            setEditingName(exp.name);
-                                                            setEditingNameValue(exp.name);
-                                                            setError(null);
-                                                        }}
-                                                        style={{ padding: '3px 5px', flexShrink: 0 }}
-                                                    >
-                                                        <Pencil size={13} />
-                                                    </button>
+                                                    <>
+                                                        <button
+                                                            type="button"
+                                                            className="btn btn-ghost"
+                                                            title="表情名を変更"
+                                                            aria-label={`${exp.name}の表情名を変更`}
+                                                            disabled={!!busy}
+                                                            onClick={() => {
+                                                                setEditingName(exp.name);
+                                                                setEditingNameValue(exp.name);
+                                                                setError(null);
+                                                            }}
+                                                            style={{ padding: '3px 5px', flexShrink: 0 }}
+                                                        >
+                                                            <Pencil size={13} />
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            className="btn btn-ghost"
+                                                            title="削除"
+                                                            aria-label={`${exp.name}を削除`}
+                                                            disabled={!!busy}
+                                                            onClick={() => {
+                                                                if (confirm(`「${exp.name}」を削除しますか？`)) onRemove(exp.name, selectedCostume?.name);
+                                                            }}
+                                                            style={{ padding: '3px 5px', color: 'var(--error)', flexShrink: 0 }}
+                                                        >
+                                                            <Trash2 size={13} />
+                                                        </button>
+                                                    </>
                                                 )}
-                                            </div>
-                                        )}
-                                        {!(selectedCostume && exp.name === NEUTRAL_NAME) && (
-                                            <div style={{ display: 'flex', gap: 4 }}>
-                                                <button
-                                                    className="btn btn-ghost"
-                                                    title="削除"
-                                                    disabled={!!busy}
-                                                    onClick={() => {
-                                                        if (confirm(`「${exp.name}」を削除しますか？`)) onRemove(exp.name, selectedCostume?.name);
-                                                    }}
-                                                    style={{ padding: '4px 8px', color: 'var(--error)' }}
-                                                >
-                                                    <Trash2 size={14} />
-                                                </button>
                                             </div>
                                         )}
                                     </div>

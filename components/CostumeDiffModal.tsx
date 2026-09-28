@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, Loader2, Plus, Trash2, RefreshCw, Shirt, Sparkles, Upload } from 'lucide-react';
+import { Check, X, Loader2, Pencil, Plus, Trash2, RefreshCw, Shirt, Sparkles, Upload } from 'lucide-react';
 import type { Costume } from '@/lib/store';
 import type { VrmAvatar } from '@/lib/store/types';
 import { useStore } from '@/lib/store';
@@ -35,10 +35,11 @@ interface Props {
     costumes: Costume[];
     expressionNames?: string[];
     onUpsert: (costume: Costume) => void;
+    onRename: (currentName: string, nextName: string) => void;
     onRemove: (name: string) => void;
 }
 
-export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes, expressionNames, onUpsert, onRemove }: Props) {
+export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes, expressionNames, onUpsert, onRename, onRemove }: Props) {
     const { defaultImageModel, getAiApiConfig } = useStore();
     const { connections } = useAiConnections();
     const [newName, setNewName] = useState('');
@@ -62,6 +63,8 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
     const [uploadCrop, setUploadCrop] = useState<CropBox | null>(null);
     const [uploadFiles, setUploadFiles] = useState<File[]>([]);
     const [uploadIndex, setUploadIndex] = useState(0);
+    const [editingName, setEditingName] = useState<string | null>(null);
+    const [editingNameValue, setEditingNameValue] = useState('');
     const [draftImage, setDraftImage] = useState<string | null>(null);
     const [draftName, setDraftName] = useState('');
 
@@ -91,6 +94,8 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
             setUploadFiles([]);
             setUploadIndex(0);
             reservedDetectedNamesRef.current.clear();
+            setEditingName(null);
+            setEditingNameValue('');
             setDraftImage(null);
             setDraftName('');
             abortRef.current?.abort();
@@ -393,6 +398,33 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
         }
     };
 
+    const costumeNameExists = (name: string, currentName?: string) => costumes.some((costume) => (
+        costume.name !== currentName
+        && costume.name.toLowerCase() === name.toLowerCase()
+    ));
+
+    const saveCostumeName = (currentName: string) => {
+        const nextName = editingNameValue.trim();
+        if (!nextName) {
+            setError('衣装名を入力してください。');
+            return;
+        }
+        if (nextName.toLowerCase() === DEFAULT_COSTUME_NAME) {
+            setError('「default」は予約名です。別の衣装名を使ってください。');
+            return;
+        }
+        if (costumeNameExists(nextName, currentName)) {
+            setError(`「${nextName}」は既に存在します。`);
+            return;
+        }
+        if (nextName !== currentName) {
+            onRename(currentName, nextName);
+        }
+        setEditingName(null);
+        setEditingNameValue('');
+        setError(null);
+    };
+
     const handleCancelBusy = () => {
         abortRef.current?.abort();
         setBusy(null);
@@ -502,33 +534,104 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                             />
                                         </div>
                                         <div style={{ padding: '8px 10px' }}>
-                                            <div style={{ fontSize: '0.8125rem', fontWeight: 500, marginBottom: 6, wordBreak: 'break-all' }}>
-                                                {costume.name} <small>{costume.kind === 'vrm' ? '3D' : '2D'}</small>
-                                            </div>
-                                            {!isDefault && (
-                                                <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
-                                                    {costume.kind === 'vrm' && (
-                                                        <button
-                                                            className="btn btn-ghost"
-                                                            title="3D表示・表情を調整"
-                                                            disabled={!!busy}
-                                                            onClick={() => setEditingVrm(costume)}
-                                                            style={{ padding: '4px 8px' }}
-                                                        >
-                                                            調整
-                                                        </button>
-                                                    )}
+                                            {editingName === costume.name ? (
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                                    <input
+                                                        type="text"
+                                                        className="input"
+                                                        value={editingNameValue}
+                                                        onChange={(event) => setEditingNameValue(event.target.value)}
+                                                        onKeyDown={(event) => {
+                                                            if (event.key === 'Enter') {
+                                                                event.preventDefault();
+                                                                saveCostumeName(costume.name);
+                                                            } else if (event.key === 'Escape') {
+                                                                event.preventDefault();
+                                                                setEditingName(null);
+                                                                setEditingNameValue('');
+                                                            }
+                                                        }}
+                                                        disabled={!!busy}
+                                                        autoFocus
+                                                        aria-label={`${costume.name}の衣装名`}
+                                                        style={{ minWidth: 0, fontSize: '0.75rem' }}
+                                                    />
                                                     <button
+                                                        type="button"
                                                         className="btn btn-ghost"
-                                                        title="削除"
+                                                        title="変更を保存"
+                                                        aria-label="変更を保存"
+                                                        disabled={!!busy || !editingNameValue.trim()}
+                                                        onClick={() => saveCostumeName(costume.name)}
+                                                        style={{ padding: '4px 6px' }}
+                                                    >
+                                                        <Check size={14} />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        className="btn btn-ghost"
+                                                        title="変更をキャンセル"
+                                                        aria-label="変更をキャンセル"
                                                         disabled={!!busy}
                                                         onClick={() => {
-                                                            if (confirm(`「${costume.name}」を削除しますか？`)) onRemove(costume.name);
+                                                            setEditingName(null);
+                                                            setEditingNameValue('');
                                                         }}
-                                                        style={{ padding: '4px 8px', color: 'var(--error)' }}
+                                                        style={{ padding: '4px 6px' }}
                                                     >
-                                                        <Trash2 size={14} />
+                                                        <X size={14} />
                                                     </button>
+                                                </div>
+                                            ) : (
+                                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4 }}>
+                                                    <div style={{ flex: 1, minWidth: 0, fontSize: '0.8125rem', fontWeight: 500, wordBreak: 'break-all' }}>
+                                                        {costume.name} <small>{costume.kind === 'vrm' ? '3D' : '2D'}</small>
+                                                    </div>
+                                                    {!isDefault && (
+                                                        <>
+                                                            {costume.kind === 'vrm' && (
+                                                                <button
+                                                                    type="button"
+                                                                    className="btn btn-ghost"
+                                                                    title="3D表示・表情を調整"
+                                                                    aria-label={`${costume.name}の3D表示・表情を調整`}
+                                                                    disabled={!!busy}
+                                                                    onClick={() => setEditingVrm(costume)}
+                                                                    style={{ padding: '3px 8px', flexShrink: 0 }}
+                                                                >
+                                                                    調整
+                                                                </button>
+                                                            )}
+                                                            <button
+                                                                type="button"
+                                                                className="btn btn-ghost"
+                                                                title="衣装名を変更"
+                                                                aria-label={`${costume.name}の衣装名を変更`}
+                                                                disabled={!!busy}
+                                                                onClick={() => {
+                                                                    setEditingName(costume.name);
+                                                                    setEditingNameValue(costume.name);
+                                                                    setError(null);
+                                                                }}
+                                                                style={{ padding: '3px 5px', flexShrink: 0 }}
+                                                            >
+                                                                <Pencil size={13} />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                className="btn btn-ghost"
+                                                                title="削除"
+                                                                aria-label={`${costume.name}を削除`}
+                                                                disabled={!!busy}
+                                                                onClick={() => {
+                                                                    if (confirm(`「${costume.name}」を削除しますか？`)) onRemove(costume.name);
+                                                                }}
+                                                                style={{ padding: '3px 5px', color: 'var(--error)', flexShrink: 0 }}
+                                                            >
+                                                                <Trash2 size={13} />
+                                                            </button>
+                                                        </>
+                                                    )}
                                                 </div>
                                             )}
                                         </div>

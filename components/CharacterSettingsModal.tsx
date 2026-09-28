@@ -1410,6 +1410,13 @@ function CharacterSettingsModalContent({
                     }
                     return [...prev, costume];
                 })}
+                onRename={(currentName, nextName) => {
+                    setCostumes((prev) => prev.map((costume) => (
+                        costume.name === currentName
+                            ? { ...costume, name: nextName }
+                            : costume
+                    )));
+                }}
                 onRemove={(name) => setCostumes((prev) => prev.filter((c) => {
                     if (c.name.toLowerCase() === DEFAULT_COSTUME_NAME) return true;
                     return c.name !== name;

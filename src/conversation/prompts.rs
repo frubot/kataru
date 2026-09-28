@@ -913,7 +913,7 @@ mod tests {
         );
 
         assert!(prompt.contains("# 現在の衣装"));
-        assert!(prompt.contains("葵は現在「uniform」を着用しています。"));
+        assert!(prompt.contains("あなたの現在の外観は次のとおりです: 「uniform」"));
         assert!(prompt.contains("紺のブレザーと赤いリボン"));
     }
 

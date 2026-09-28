@@ -17,6 +17,8 @@ export interface Costume {
     name: string;
     kind?: 'image' | 'vrm';
     promptDetail?: string;
+    /** 会話でキャラクターへコンテキストとして渡される衣装の説明。 */
+    description?: string;
     image: string;
     expressions?: Expression[];
     vrm?: VrmAvatar;

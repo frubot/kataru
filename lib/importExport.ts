@@ -318,6 +318,7 @@ function isValidCostume(value: unknown): boolean {
         && typeof value.name === 'string'
         && value.name.trim().length > 0
         && isOptionalString(value.promptDetail)
+        && isOptionalString(value.description)
         && isNonEmptyString(value.image)
         && (value.kind === undefined || value.kind === 'image' || value.kind === 'vrm')
         && (value.kind === 'vrm' ? isValidVrmAvatar(value.vrm) : value.vrm === undefined)

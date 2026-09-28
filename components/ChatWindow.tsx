@@ -124,6 +124,7 @@ type ConversationCharacter = {
     motions?: { name: string }[];
     costumes?: {
         name: string;
+        description?: string;
         expressions?: { name: string }[];
         motions?: { name: string }[];
     }[];
@@ -161,6 +162,7 @@ function toConversationCharacter(character: Character | null): ConversationChara
         motions: getVisualNovelMotionNames(character).map((name) => ({ name })),
         costumes: character.costumes?.map((costume) => ({
             name: costume.name,
+            description: costume.description,
             expressions: getVisualNovelExpressionNames(character, costume.name).map((name) => ({ name })),
             motions: getVisualNovelMotionNames(character, costume.name).map((name) => ({ name })),
         })),

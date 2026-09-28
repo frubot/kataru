@@ -20,7 +20,7 @@ export default function VrmCostumeEditor({ costume, initialAvatar, name, existin
         const trimmed = name.trim();
         if (!trimmed || trimmed.toLowerCase() === 'default') throw new Error('default以外の衣装名を入力してください。');
         if (!costume && existingNames.some((entry) => entry.toLowerCase() === trimmed.toLowerCase())) throw new Error('同じ衣装名が既にあります。');
-        onSave({ name: trimmed, kind: 'vrm', image: preview.capture(), vrm: next, promptDetail: costume?.promptDetail });
+        onSave({ name: trimmed, kind: 'vrm', image: preview.capture(), vrm: next, promptDetail: costume?.promptDetail, description: costume?.description });
     };
     return <VrmEditorModal
         avatar={avatar}

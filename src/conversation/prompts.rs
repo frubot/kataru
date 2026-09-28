@@ -97,6 +97,7 @@ pub fn character_system_prompt(
     relevant_memories: &[String],
     situation: Option<&Value>,
     participants: &[Value],
+    active_costume: Option<&Value>,
 ) -> String {
     let character_name = string(character, "name");
     let mut prompt = String::from("# 指示");
@@ -167,6 +168,15 @@ pub fn character_system_prompt(
     let setting = character_setting(character);
     if !setting.is_empty() {
         prompt.push_str(&format!("\n\n# {}の設定\n{setting}", character_name));
+    }
+    if let Some(costume) = active_costume {
+        let description = string(costume, "description");
+        if !description.is_empty() {
+            prompt.push_str(&format!(
+                "\n\n# 現在の衣装\nあなたの現在の外観は次のとおりです: 「{}」\n{description}",
+                string(costume, "name"),
+            ));
+        }
     }
     prompt
 }
@@ -615,6 +625,7 @@ mod tests {
             &[],
             Some(&situation),
             &participants,
+            None,
         );
 
         assert!(!prompt.contains("複数人が参加しています"));
@@ -646,6 +657,7 @@ mod tests {
             &["重要なメモリ".into()],
             None,
             &[],
+            None,
         );
 
         let setting_heading = prompt
@@ -698,6 +710,7 @@ mod tests {
             &[],
             Some(&situation),
             &participants,
+            None,
         );
 
         assert!(prompt.contains("複数人が参加しています"));
@@ -721,6 +734,7 @@ mod tests {
             &[],
             Some(&situation),
             &[json!({"name": "葵"})],
+            None,
         );
 
         let situation_index = prompt
@@ -745,6 +759,7 @@ mod tests {
             &[],
             Some(&json!({"situationPrompt": "放課後の教室"})),
             &[json!({"name": "葵"})],
+            None,
         );
 
         assert!(!prompt.contains("キャラクターの共通ルール"));
@@ -850,6 +865,7 @@ mod tests {
             &[],
             None,
             &[],
+            None,
         );
 
         let expression_index = prompt
@@ -874,9 +890,53 @@ mod tests {
             &[],
             None,
             &[],
+            None,
         );
 
         assert!(!prompt.contains("JSONの motion"));
+    }
+
+    #[test]
+    fn character_prompt_includes_active_costume_description() {
+        let costume = json!({"name": "uniform", "description": "紺のブレザーと赤いリボン"});
+
+        let prompt = character_system_prompt(
+            &json!({"name": "葵"}),
+            false,
+            &[],
+            &[],
+            None,
+            &[],
+            None,
+            &[],
+            Some(&costume),
+        );
+
+        assert!(prompt.contains("# 現在の衣装"));
+        assert!(prompt.contains("葵は現在「uniform」を着用しています。"));
+        assert!(prompt.contains("紺のブレザーと赤いリボン"));
+    }
+
+    #[test]
+    fn character_prompt_omits_costume_section_without_description() {
+        for costume in [
+            json!({"name": "uniform"}),
+            json!({"name": "uniform", "description": "  "}),
+        ] {
+            let prompt = character_system_prompt(
+                &json!({"name": "葵"}),
+                false,
+                &[],
+                &[],
+                None,
+                &[],
+                None,
+                &[],
+                Some(&costume),
+            );
+
+            assert!(!prompt.contains("現在の衣装"));
+        }
     }
 
     #[test]

@@ -1004,12 +1004,16 @@ function TemporaryActorSettingsModal({
                             (expression) => expression.name !== NEUTRAL_EXPRESSION_NAME,
                         );
                         expressions.unshift({ name: NEUTRAL_EXPRESSION_NAME, image: fullBody });
+                        const existingDefault = current.costumes.find(
+                            (costume) => costume.name.toLowerCase() === DEFAULT_COSTUME_NAME,
+                        );
                         const costumes = current.costumes.filter(
                             (costume) => costume.name.toLowerCase() !== DEFAULT_COSTUME_NAME,
                         );
                         costumes.unshift({
                             name: DEFAULT_COSTUME_NAME,
                             ...(vrm ? { kind: 'vrm' as const, vrm } : {}),
+                            description: existingDefault?.description,
                             image: fullBody,
                         });
                         return { ...current, icon: avatar, expressions, costumes };

@@ -1325,6 +1325,7 @@ function CharacterSettingsModalContent({
                             name: DEFAULT_COSTUME_NAME,
                             ...(vrm ? { kind: 'vrm' as const, vrm } : {}),
                             promptDetail: existingDefault?.promptDetail,
+                            description: existingDefault?.description,
                             image: fullBody,
                         });
                         return next;

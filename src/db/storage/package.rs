@@ -147,7 +147,7 @@ fn downgrade_vrm_costumes(shared: &mut Map<String, Value>) {
             replacement.insert("name".to_owned(), name.clone());
         }
         replacement.insert("kind".to_owned(), Value::String("image".to_owned()));
-        for key in ["image", "promptDetail"] {
+        for key in ["image", "promptDetail", "description"] {
             if let Some(value) = costume.get(key) {
                 replacement.insert(key.to_owned(), value.clone());
             }
@@ -356,6 +356,7 @@ fn valid_costume(value: &Value) -> bool {
         .is_some_and(|name| !name.trim().is_empty())
         && costume.get("image").is_some_and(valid_image_source)
         && costume.get("promptDetail").is_none_or(Value::is_string)
+        && costume.get("description").is_none_or(Value::is_string)
         && costume
             .get("kind")
             .is_none_or(|kind| matches!(kind.as_str(), Some("image" | "vrm")))

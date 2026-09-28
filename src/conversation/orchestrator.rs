@@ -828,6 +828,7 @@ async fn generate_for_character(
             .collect::<Vec<_>>(),
         situation,
         participants,
+        selected_costume(character, room),
     );
     let mut request_messages = vec![json!({
         "role": "system",
@@ -2143,6 +2144,27 @@ fn with_speaker_names(
             value
         })
         .collect()
+}
+
+/// 会話中にキャラクターが着用している衣装。costumeSelections の選択を優先し、
+/// 未選択・不明な名前のときは default 衣装にフォールバックする。
+fn selected_costume<'a>(character: &'a Value, room: &Value) -> Option<&'a Value> {
+    let costumes = character.get("costumes").and_then(Value::as_array)?;
+    if let Some(costume_name) = room
+        .get("costumeSelections")
+        .and_then(Value::as_object)
+        .and_then(|selections| selections.get(&string(character, "id")))
+        .and_then(Value::as_str)
+        .filter(|name| !name.eq_ignore_ascii_case("default"))
+        && let Some(costume) = costumes
+            .iter()
+            .find(|costume| string(costume, "name") == costume_name)
+    {
+        return Some(costume);
+    }
+    costumes
+        .iter()
+        .find(|costume| string(costume, "name").eq_ignore_ascii_case("default"))
 }
 
 fn expression_names(character: &Value, room: &Value, visual_novel_mode: bool) -> Vec<String> {

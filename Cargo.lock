@@ -1203,7 +1203,7 @@ dependencies = [
 
 [[package]]
 name = "kataru"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "axum",
  "base64",

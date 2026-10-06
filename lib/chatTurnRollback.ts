@@ -27,9 +27,11 @@ export async function rollbackRestorableMessages<TMessage, TMemory>(
 ): Promise<boolean> {
     const currentRoom = operations.getCurrentRoom();
     const isCurrentRoomActive = currentRoom?.id === rollback.roomId;
-    if (isCurrentRoomActive && currentRoom.messages.length > rollback.fromIndex) {
-        await operations.deleteMessagesFrom(rollback.roomId, rollback.fromIndex);
-    }
+    // 別の部屋を開いていても削除は必ず行う。未ロードの部屋はメモリ上の
+    // メッセージが空なので、ここを飛ばすと新規分がストレージに残り、
+    // 復元した旧メッセージと混在してしまう。deleteMessagesFrom は
+    // 永続化済みの末尾も突合して消すので未ロードでも安全。
+    await operations.deleteMessagesFrom(rollback.roomId, rollback.fromIndex);
     await operations.restoreMessagesAt(
         rollback.roomId,
         rollback.fromIndex,

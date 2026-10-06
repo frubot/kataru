@@ -42,7 +42,7 @@ describe('chat turn rollback', () => {
         );
     });
 
-    test('restores persisted history without deleting another active room', async () => {
+    test('deletes the stored tail before restoring an inactive room', async () => {
         const deleteMessagesFrom = vi.fn(async () => []);
         const restoreMessagesAt = vi.fn(async () => undefined);
 
@@ -56,7 +56,9 @@ describe('chat turn rollback', () => {
         );
 
         expect(active).toBe(false);
-        expect(deleteMessagesFrom).not.toHaveBeenCalled();
+        // 非アクティブでもストレージ側の削除は必ず行う。飛ばすと新規分が
+        // 残ったまま旧メッセージが復元され、部屋を開き直したとき新旧が混在する。
+        expect(deleteMessagesFrom).toHaveBeenCalledWith('room-1', 1);
         expect(restoreMessagesAt).toHaveBeenCalledOnce();
     });
 

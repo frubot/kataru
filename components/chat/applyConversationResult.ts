@@ -157,7 +157,20 @@ export async function applyConversationResult(
         );
     } else {
         operations.rememberStreamedFinalMessageIds(assistantMessageIds);
-        await operations.refreshConversationRoom(sourceRoom.id);
+        // サーバー側では既に保存が完了しているため、ここで履歴読込が失敗
+        // しても生成失敗として扱わない。ロールバックすると永続化済みの新しい
+        // 応答が残ったまま旧メッセージが復元され、新旧が混在してしまう。
+        // 読込は一度だけやり直し、駄目なら次の同期に委ねる。
+        try {
+            await operations.refreshConversationRoom(sourceRoom.id);
+        } catch (error) {
+            console.warn('Conversation room refresh failed, retrying once:', error);
+            try {
+                await operations.refreshConversationRoom(sourceRoom.id);
+            } catch (retryError) {
+                console.warn('Conversation room refresh failed:', retryError);
+            }
+        }
     }
     operations.clearStreamingPreview(jobId);
 

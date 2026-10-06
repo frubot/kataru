@@ -128,11 +128,14 @@ describe('conversation result application', () => {
         );
     });
 
-    test('records debug logs before refreshing the persisted room', async () => {
+    test('records debug logs and still resolves when the persisted room refresh fails', async () => {
         const operations = createOperations(sourceRoom);
-        operations.refreshConversationRoom.mockRejectedValueOnce(new Error('refresh failed'));
+        operations.refreshConversationRoom.mockRejectedValue(new Error('refresh failed'));
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
-        await expect(applyConversationResult(
+        // サーバー側では保存済みなので、履歴読込の失敗で失敗扱いにしない。
+        // 失敗扱いにするとロールバックが走り、DBに新旧の応答が混在する。
+        const result = await applyConversationResult(
             {
                 data: {
                     messages: [{
@@ -159,8 +162,11 @@ describe('conversation result application', () => {
                 debugEnabled: true,
             },
             operations,
-        )).rejects.toThrow('refresh failed');
+        );
 
+        expect(result.message).toBe('保存済みの返答');
+        expect(result.assistantMessageIds).toEqual(['server-message']);
+        expect(operations.refreshConversationRoom).toHaveBeenCalledTimes(2);
         expect(operations.addFullJsonDebugLog).toHaveBeenCalledWith(expect.objectContaining({
             roomId: 'room-1',
             characterId: 'character-1',
@@ -170,6 +176,38 @@ describe('conversation result application', () => {
         }));
         expect(operations.addFullJsonDebugLog.mock.invocationCallOrder[0])
             .toBeLessThan(operations.refreshConversationRoom.mock.invocationCallOrder[0]);
+        warn.mockRestore();
+    });
+
+    test('resolves normally when the room refresh only fails once', async () => {
+        const operations = createOperations(sourceRoom);
+        operations.refreshConversationRoom
+            .mockRejectedValueOnce(new Error('transient'))
+            .mockResolvedValueOnce(undefined);
+        vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+        const result = await applyConversationResult(
+            {
+                data: {
+                    messages: [{
+                        id: 'server-message',
+                        role: 'assistant',
+                        content: '再読込で回復',
+                        characterId: 'character-1',
+                        timestamp: 1,
+                    }],
+                },
+                sourceRoom,
+                jobId: 'job-1',
+                isSecretMode: false,
+                debugEnabled: false,
+            },
+            operations,
+        );
+
+        expect(result.message).toBe('再読込で回復');
+        expect(operations.refreshConversationRoom).toHaveBeenCalledTimes(2);
+        vi.restoreAllMocks();
     });
 
     test('stringifies structured json payloads instead of crashing', async () => {

@@ -62,3 +62,18 @@ export function nextRoomLoadSequence(): number {
 export function getRoomLoadSequence(): number {
     return currentRoomLoadSequence;
 }
+
+// 部屋ごとのメッセージ書込スタンプ。非同期の履歴読込が、読み始めた後に
+// 起きた削除・復元・追加を古いスナップショットで上書きしないよう、
+// 読込側は開始時のスタンプと比較して書込有無を判定する。
+const roomWriteStamps = new Map<string, number>();
+
+export function nextRoomWriteStamp(roomId: string): number {
+    const next = (roomWriteStamps.get(roomId) ?? 0) + 1;
+    roomWriteStamps.set(roomId, next);
+    return next;
+}
+
+export function getRoomWriteStamp(roomId: string): number {
+    return roomWriteStamps.get(roomId) ?? 0;
+}

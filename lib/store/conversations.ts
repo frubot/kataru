@@ -5,11 +5,17 @@ import {
 } from '../conversationCompressionRewind';
 import { buildConversationBranch } from '../conversationBranch';
 import { generateId } from '../id';
+import {
+    clearAllPendingTurnRestores,
+    clearPendingTurnRestore,
+} from '../pendingTurnRestore';
 import { normalizeMemoryContent } from './memories';
 import {
     fire,
     getRoomLoadSequence,
+    getRoomWriteStamp,
     nextRoomLoadSequence,
+    nextRoomWriteStamp,
     persistGroup,
     shouldPersistRoom,
     shouldShowRoomInHistory,
@@ -309,6 +315,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
                 currentRoomId: nextCurrent,
             });
             fire(db.deleteRoom(id));
+            fire(clearPendingTurnRestore(id));
             if (shouldDeleteGroup) fire(db.deleteGroup(roomToDelete!.groupId!));
             if (nextCurrent !== state.currentRoomId) {
                 fire(db.setMeta('currentRoomId', nextCurrent));
@@ -325,7 +332,10 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
                 currentRoomId: nextCurrent,
             });
             fire(db.deleteGroup(id));
-            for (const roomId of roomIds) fire(db.deleteRoom(roomId));
+            for (const roomId of roomIds) {
+                fire(db.deleteRoom(roomId));
+                fire(clearPendingTurnRestore(roomId));
+            }
             if (nextCurrent !== state.currentRoomId) {
                 fire(db.setMeta('currentRoomId', nextCurrent));
             }
@@ -383,8 +393,14 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
             if (!id || !get().rooms.some((r) => r.id === id)) return;
 
             try {
-                const msgs = await db.getMessagesByRoom(id);
+                const loadWriteStamp = getRoomWriteStamp(id);
+                let msgs = await db.getMessagesByRoom(id);
                 if (loadSeq !== getRoomLoadSequence() || get().currentRoomId !== id) return;
+                if (loadWriteStamp !== getRoomWriteStamp(id)) {
+                    // 読込中に削除・復元・追加があったので読み直す。
+                    msgs = await db.getMessagesByRoom(id);
+                    if (loadSeq !== getRoomLoadSequence() || get().currentRoomId !== id) return;
+                }
 
                 // Publish history and readiness together so restored messages are never
                 // treated as newly generated dialogue by the presentation.
@@ -552,6 +568,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
         },
 
         addMessage: (roomId, role, content, characterId, meta) => {
+            nextRoomWriteStamp(roomId);
             const now = Date.now();
             const memories = meta?.memories
                 ?.map((memory) => memory.trim())
@@ -598,6 +615,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
         },
 
         deleteLastMessage: (roomId) => {
+            nextRoomWriteStamp(roomId);
             let removedId: string | undefined;
             let updatedRoom: Room | undefined;
             set((state) => ({
@@ -628,6 +646,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
         },
 
         deleteMessagesFrom: async (roomId, fromIndex) => {
+            nextRoomWriteStamp(roomId);
             let removedIds: string[] = [];
             let removedMessages: Message[] = [];
             let updatedRoom: Room | undefined;
@@ -652,6 +671,22 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
                 }),
             }));
             if (shouldPersistRoom(updatedRoom)) {
+                // メモリ上の履歴は表示中の部屋しか持たないため、別の部屋を
+                // 開いている間や画面への反映に失敗した分はストレージだけに
+                // 残っている。末尾以降の永続化済みメッセージも対象に含めて、
+                // 削除後のメモリとストレージを一致させる。
+                try {
+                    const persistedTail = (await db.getMessagesByRoom(roomId)).slice(fromIndex);
+                    const seenIds = new Set(removedIds);
+                    for (const message of persistedTail) {
+                        if (seenIds.has(message.id)) continue;
+                        seenIds.add(message.id);
+                        removedIds.push(message.id);
+                        removedMessages.push(message);
+                    }
+                } catch (error) {
+                    console.warn('[db] persisted tail reconciliation failed:', error);
+                }
                 const sourceMemories = removedIds.length > 0
                     ? await db.getMemoriesBySourceMessageIds(removedIds)
                     : [];
@@ -690,6 +725,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
         },
 
         restoreMessagesAt: async (roomId, fromIndex, messages, memories = []) => {
+            nextRoomWriteStamp(roomId);
             let updatedRoom: Room | undefined;
             set((state) => ({
                 rooms: state.rooms.map((r) => {
@@ -719,6 +755,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
         },
 
         rewindRoomCompression: async (roomId) => {
+            nextRoomWriteStamp(roomId);
             let snapshot = null;
             let changedMessages: Message[] = [];
             let updatedRoom: Room | undefined;
@@ -742,6 +779,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
         },
 
         restoreRoomCompression: async (roomId, snapshot) => {
+            nextRoomWriteStamp(roomId);
             let changedMessages: Message[] = [];
             let updatedRoom: Room | undefined;
             set((state) => ({
@@ -766,6 +804,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
         },
 
         attachMemoriesToMessage: (roomId, messageId, memoriesToAttach) => {
+            nextRoomWriteStamp(roomId);
             const normalizedMemories = [...new Set(
                 memoriesToAttach.map((memory) => normalizeMemoryContent(memory)).filter(Boolean)
             )];
@@ -792,6 +831,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
         },
 
         updateLastAssistantMessage: (roomId, content, meta) => {
+            nextRoomWriteStamp(roomId);
             set((state) => ({
                 rooms: state.rooms.map((r) => {
                     if (r.id !== roomId) return r;
@@ -822,6 +862,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
         },
 
         flushLastAssistantMessage: (roomId) => {
+            nextRoomWriteStamp(roomId);
             let updatedRoom: Room | undefined;
             let lastMessage: Message | undefined;
             set((state) => ({
@@ -850,12 +891,24 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
 
         refreshConversationRoom: async (roomId) => {
             const loadSeq = getRoomLoadSequence();
-            const [storedRooms, messages, usageRecords] = await Promise.all([
+            const read = () => Promise.all([
                 db.getAllRooms(),
                 db.getMessagesByRoom(roomId),
                 db.getAllUsageRecords(),
             ]);
-            if (loadSeq !== getRoomLoadSequence()) return;
+            let writeStamp = getRoomWriteStamp(roomId);
+            let storedRooms: db.StoredRoom[] = [];
+            let messages: Message[] = [];
+            let usageRecords: Awaited<ReturnType<typeof db.getAllUsageRecords>> = [];
+            // 読込中に削除・復元・追加があった場合、そのスナップショットは
+            // 古いので一度だけ読み直す。それでも更新が続くなら次の同期に任せる。
+            for (let attempt = 0; attempt < 2; attempt += 1) {
+                [storedRooms, messages, usageRecords] = await read();
+                if (loadSeq !== getRoomLoadSequence()) return;
+                if (writeStamp === getRoomWriteStamp(roomId)) break;
+                writeStamp = getRoomWriteStamp(roomId);
+            }
+            if (writeStamp !== getRoomWriteStamp(roomId)) return;
             const storedRoom = storedRooms.find((room) => room.id === roomId);
             if (!storedRoom) return;
             set((state) => ({
@@ -873,6 +926,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
         },
 
         clearRoomMessages: (roomId) => {
+            nextRoomWriteStamp(roomId);
             let updatedRoom: Room | undefined;
             set((state) => ({
                 rooms: state.rooms.map((r) => {
@@ -900,6 +954,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
         clearAllHistory: async () => {
             nextRoomLoadSequence();
             await db.clearAllConversationHistory();
+            await clearAllPendingTurnRestores();
             nextRoomLoadSequence();
             set({
                 rooms: [],
@@ -933,6 +988,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
         },
 
         compressRoomHistory: (roomId, keepCount) => {
+            nextRoomWriteStamp(roomId);
             const changedMessages: Message[] = [];
             let updatedRoom: Room | undefined;
             set((state) => ({

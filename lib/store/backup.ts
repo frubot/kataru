@@ -1,6 +1,7 @@
 import { isAiConnectionKind, type ModelRef } from '../aiApi';
 import { createAiConnection, getAiConnections } from '../aiConnections';
 import * as db from '../db';
+import { clearAllPendingTurnRestores } from '../pendingTurnRestore';
 import { normalizeCharacters } from './characters';
 import { nextRoomLoadSequence, toStoredRoom } from './persistence';
 import { normalizeGroupData } from './situations';
@@ -194,6 +195,7 @@ export function createBackupSlice(set: StoreSet, get: StoreGet): BackupSlice {
                 usageRecords: normalizedData.usageRecords,
                 currentRoomId: nextCurrentRoomId,
             });
+            await clearAllPendingTurnRestores();
             nextRoomLoadSequence();
             const storedCharacters = new Map(stored.characters.map((c) => [c.id, c]));
             const storedSituations = new Map(stored.groups.map((g) => [g.id, g]));

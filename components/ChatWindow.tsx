@@ -21,6 +21,13 @@ import {
 import { getChatRegenerationCutIndex } from '@/lib/chatRegeneration';
 import { removeSubmittedUserMessage, rollbackRestorableMessages } from '@/lib/chatTurnRollback';
 import {
+    clearPendingTurnRestore,
+    getPendingTurnRestore,
+    getPendingTurnRestores,
+    hasDeliveredPendingTurnRestore,
+    savePendingTurnRestore,
+} from '@/lib/pendingTurnRestore';
+import {
     buildChatCharacterMap,
     buildChatMessagePresentations,
     buildPriorMessagePresentations,
@@ -386,6 +393,9 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const resumedJobsRef = useRef<Set<string>>(new Set());
     const cancelledJobResultsRef = useRef<Map<string, RustTurnResponse | undefined>>(new Map());
+    // ユーザー停止で走るキャンセル適用を部屋単位で追跡する。ロールバックは
+    // この適用が終わるまで待たないと、古い履歴読込が復元結果を上書きする。
+    const pendingCancelledAppliesRef = useRef<Map<string, Promise<void>>>(new Map());
     const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const retrySubmissionRef = useRef<ChatRetryRequest | null>(null);
     const chatNoticeActionRunningRef = useRef(false);
@@ -456,12 +466,20 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         onCancelled: (roomId, job) => {
             const targetRoom = useStore.getState().rooms.find((candidate) => candidate.id === roomId);
             if (!targetRoom) return;
-            void handleCancelledJobResult(
+            const applied = handleCancelledJobResult(
                 job.jobId,
                 job.partialResult as RustTurnResponse | undefined,
                 targetRoom,
             ).catch((error) => {
                 console.warn('Cancelled conversation result handling failed:', error);
+            });
+            const previous = pendingCancelledAppliesRef.current.get(roomId) ?? Promise.resolve();
+            const tracked = previous.then(() => applied);
+            pendingCancelledAppliesRef.current.set(roomId, tracked);
+            void tracked.finally(() => {
+                if (pendingCancelledAppliesRef.current.get(roomId) === tracked) {
+                    pendingCancelledAppliesRef.current.delete(roomId);
+                }
             });
         },
     });
@@ -579,6 +597,39 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         });
     }, []);
 
+    // 編集・再生成が保存した復元スナップショットを適用する。リロードで
+    // 実行中の関数が消えても、永続化しておいたデータから削除前の状態へ
+    // 戻せる。スナップショットが無い部屋では何もしない。
+    const restorePendingTurnForRoom = useCallback(async (roomId: string, expectedJobId?: string) => {
+        const pending = await getPendingTurnRestore(roomId);
+        if (!pending) return;
+        // 同じ部屋で別の生成が始まっている場合、そのスナップショットは
+        // 新しいジョブのもの。古いジョブの完了で巻き戻さない。
+        if (expectedJobId !== undefined && pending.jobId !== expectedJobId) return;
+        await rollbackRestorableMessages(
+            {
+                roomId,
+                fromIndex: pending.fromIndex,
+                messages: pending.messages,
+                memories: pending.memories,
+            },
+            { getCurrentRoom, deleteMessagesFrom, restoreMessagesAt },
+        );
+        if (pending.compressionSnapshot) {
+            await restoreRoomCompression(roomId, pending.compressionSnapshot);
+        }
+        await clearPendingTurnRestore(roomId);
+        await refreshConversationRoom(roomId).catch((error) => {
+            console.warn('Pending turn restore refresh failed:', error);
+        });
+    }, [
+        deleteMessagesFrom,
+        getCurrentRoom,
+        refreshConversationRoom,
+        restoreMessagesAt,
+        restoreRoomCompression,
+    ]);
+
     const handleCancelledJobResult = useCallback(async (
         jobId: string,
         partialResult: RustTurnResponse | undefined,
@@ -608,12 +659,22 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             return;
         }
         await refreshConversationRoom(sourceRoom.id);
+        // キャンセル時に残ったターンはそのまま採用する。1件も残らなかった
+        // 場合だけ、編集・再生成が消した直前のメッセージを復元する。
+        if (hasRetainedCancelledMessages(partialResult)) {
+            await clearPendingTurnRestore(sourceRoom.id, jobId).catch((error) => {
+                console.warn('Pending turn restore cleanup failed:', error);
+            });
+        } else {
+            await restorePendingTurnForRoom(sourceRoom.id, jobId);
+        }
     }, [
         addMessage,
         compressRoomHistory,
         recordJobDebugLogs,
         refreshConversationRoom,
         rememberStreamedFinalMessageIds,
+        restorePendingTurnForRoom,
         updateRoomSummary,
     ]);
 
@@ -657,6 +718,13 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             try {
                 recordJobDebugLogs(job.result, sourceRoom);
                 await refreshConversationRoom(job.roomId);
+                if (hasRetainedCancelledMessages(job.result)) {
+                    await clearPendingTurnRestore(job.roomId, job.jobId).catch((error) => {
+                        console.warn('Pending turn restore cleanup failed:', error);
+                    });
+                } else {
+                    await restorePendingTurnForRoom(job.roomId, job.jobId);
+                }
             } catch (error) {
                 resumedJobsRef.current.delete(job.jobId);
                 throw error;
@@ -665,6 +733,12 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         }
         if (job.status === 'failed') {
             recordJobDebugLogs(job.partialResult, sourceRoom);
+            try {
+                await restorePendingTurnForRoom(job.roomId, job.jobId);
+            } catch (error) {
+                resumedJobsRef.current.delete(job.jobId);
+                throw error;
+            }
             return;
         }
         if (job.status === 'cancelled') {
@@ -697,6 +771,13 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     ?? [],
                 );
                 await refreshConversationRoom(job.roomId);
+                if (hasRetainedCancelledMessages(completed.result)) {
+                    await clearPendingTurnRestore(job.roomId, job.jobId).catch((error) => {
+                        console.warn('Pending turn restore cleanup failed:', error);
+                    });
+                } else {
+                    await restorePendingTurnForRoom(job.roomId, job.jobId);
+                }
                 keepStreamingPreview = isVisualNovelMode
                     && (completed.result?.messages?.length ?? 0) > 0;
             } else if (completed.status === 'cancelled') {
@@ -711,6 +792,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 });
             } else if (completed.status === 'failed') {
                 recordJobDebugLogs(completed.partialResult, sourceRoom);
+                await restorePendingTurnForRoom(job.roomId, job.jobId);
                 if (getCurrentRoom()?.id === job.roomId) {
                     const error = completed.error || 'バックグラウンド生成に失敗しました。';
                     logChatError('Conversation job failed:', error);
@@ -744,6 +826,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         recordJobDebugLogs,
         refreshConversationRoom,
         rememberStreamedFinalMessageIds,
+        restorePendingTurnForRoom,
         showChatErrorNotice,
         startGenerationSession,
     ]);
@@ -760,8 +843,29 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 }
             }
             void listConversationJobs<RustTurnResponse>()
-                .then((jobs) => {
+                .then(async (jobs) => {
                     if (disposed) return;
+                    // 一覧に残っていないジョブの復元データは、サーバー再起動や
+                    // 保持期限切れで行方不明になった分。ジョブ由来のメッセージが
+                    // 永続化済みなら破棄し、無ければ削除前の状態へ戻す。
+                    const listedJobIds = new Set(jobs.map((job) => job.jobId));
+                    const pendingRestores = await getPendingTurnRestores().catch((error) => {
+                        console.warn('Pending turn restore discovery failed:', error);
+                        return [];
+                    });
+                    for (const pending of pendingRestores) {
+                        if (disposed || listedJobIds.has(pending.jobId)) continue;
+                        const delivered = await hasDeliveredPendingTurnRestore(pending).catch(() => undefined);
+                        if (delivered === true) {
+                            await clearPendingTurnRestore(pending.roomId).catch((error) => {
+                                console.warn('Pending turn restore cleanup failed:', error);
+                            });
+                        } else if (delivered === false) {
+                            await restorePendingTurnForRoom(pending.roomId).catch((error) => {
+                                console.warn('Pending turn restore failed:', error);
+                            });
+                        }
+                    }
                     for (const job of jobs) {
                         void resumeConversationJob(job).catch((error) => {
                             console.warn('Conversation job synchronization failed:', error);
@@ -789,7 +893,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             window.removeEventListener('online', handlePageShow);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
-    }, [refreshConversationRoom, resumeConversationJob]);
+    }, [refreshConversationRoom, restorePendingTurnForRoom, resumeConversationJob]);
 
     useEffect(() => {
         dismissChatNotice();
@@ -962,7 +1066,14 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 cancelledJobResultsRef.current.get(session.jobId),
             ),
         });
-        if (!isGenerationSessionActive(session)) return abortedResult();
+        // ユーザー停止では、キャンセルされたジョブが保持したターンの適用が
+        // 裏で進んでいる。完了前にロールバックすると古い履歴読込が復元結果を
+        // 上書きするので、先に適用の終了を待つ。
+        const finalizeAbortedResult = async (): Promise<ChatGenerationResult> => {
+            await pendingCancelledAppliesRef.current.get(session.roomId);
+            return abortedResult();
+        };
+        if (!isGenerationSessionActive(session)) return finalizeAbortedResult();
         session.generationBaselineMessageIds = sourceRoom.messages.map((message) => message.id);
         session.continuationBaseMessageId = generationMode === 'continue'
             ? getLatestActiveChatMessage(sourceRoom.messages)?.id
@@ -972,7 +1083,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
 
         const controller = new AbortController();
         if (!attachGenerationController(session, controller)) {
-            return abortedResult();
+            return finalizeAbortedResult();
         }
 
         try {
@@ -1008,7 +1119,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                         console.warn('Cancelled conversation result handling failed:', error);
                     });
                 }
-                return abortedResult();
+                return finalizeAbortedResult();
             }
             if (job.status === 'failed') {
                 recordJobDebugLogs(job.partialResult, sourceRoom, isSecretMode);
@@ -1049,6 +1160,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 message: appliedResult.message,
             };
         } catch (error) {
+            await pendingCancelledAppliesRef.current.get(session.roomId);
             if (error instanceof Error && error.name === 'AbortError') {
                 return session.detached
                     ? { status: 'detached' }
@@ -1152,100 +1264,139 @@ export default function ChatWindow({ room, character, situation, groupName, grou
 
         dismissChatNotice();
         setReplySuggestionState(null);
-        if (editDraft) {
-            if (editTargetsCompressedHistory) {
-                editCompressionSnapshot = await rewindRoomCompression(room.id);
-            }
-            editDeletedMemories = await deleteMessagesFrom(room.id, editCutIndex);
-            setEditingMessage(null);
-        } else {
-            setInput('');
-        }
         const session = startGenerationSession(room.id);
-
-        const userMessageId = addMessage(room.id, 'user', userMessage);
-
-        const roomAfterUserMessage = getCurrentRoom();
-        if (!roomAfterUserMessage) {
-            finishGenerationSession(session);
-            return;
-        }
-
-        const rollbackSubmittedTurn = async () => {
-            if (editDraft && editCutIndex >= 0) {
-                const isCurrentRoomActive = await rollbackRestorableMessages(
-                    {
+        const canRestoreTurn = room.secretMode !== true && room.isDraft !== true;
+        // 生成が完了・中断・失敗として確定したときだけスナップショットを捨てる。
+        // detached（コンポーネントのアンマウント）や予期しない例外ではジョブが
+        // 継続しているので、再開・掃討処理が使えるよう残しておく。
+        let turnSettled = false;
+        try {
+            if (editDraft) {
+                if (editTargetsCompressedHistory) {
+                    editCompressionSnapshot = await rewindRoomCompression(room.id);
+                }
+                // 生成完了前にリロードされると実行中の関数ごと復元データが
+                // 消えるので、削除前にスナップショットを永続化しておく。
+                if (canRestoreTurn) {
+                    await savePendingTurnRestore({
+                        jobId: session.jobId,
+                        roomId: room.id,
+                        fromIndex: editCutIndex,
+                        messages: editDeletedMessages,
+                        memories: [],
+                        compressionSnapshot: editCompressionSnapshot,
+                        createdAt: Date.now(),
+                    }).catch((error) => {
+                        console.warn('Pending turn restore save failed:', error);
+                    });
+                }
+                editDeletedMemories = await deleteMessagesFrom(room.id, editCutIndex);
+                if (canRestoreTurn) {
+                    await savePendingTurnRestore({
+                        jobId: session.jobId,
                         roomId: room.id,
                         fromIndex: editCutIndex,
                         messages: editDeletedMessages,
                         memories: editDeletedMemories,
-                    },
-                    { getCurrentRoom, deleteMessagesFrom, restoreMessagesAt },
+                        compressionSnapshot: editCompressionSnapshot,
+                        createdAt: Date.now(),
+                    }).catch((error) => {
+                        console.warn('Pending turn restore save failed:', error);
+                    });
+                }
+                setEditingMessage(null);
+            } else {
+                setInput('');
+            }
+
+            const userMessageId = addMessage(room.id, 'user', userMessage);
+
+            const roomAfterUserMessage = getCurrentRoom();
+            if (!roomAfterUserMessage) return;
+
+            const rollbackSubmittedTurn = async () => {
+                if (editDraft && editCutIndex >= 0) {
+                    const isCurrentRoomActive = await rollbackRestorableMessages(
+                        {
+                            roomId: room.id,
+                            fromIndex: editCutIndex,
+                            messages: editDeletedMessages,
+                            memories: editDeletedMemories,
+                        },
+                        { getCurrentRoom, deleteMessagesFrom, restoreMessagesAt },
+                    );
+                    if (isCurrentRoomActive) {
+                        setEditingMessage({ ...editDraft, content: submittedInput });
+                    }
+                    if (editCompressionSnapshot) {
+                        await restoreRoomCompression(room.id, editCompressionSnapshot);
+                    }
+                    return;
+                }
+
+                const isCurrentRoomActive = await removeSubmittedUserMessage(
+                    { roomId: room.id, messageId: userMessageId },
+                    { getCurrentRoom, deleteMessagesFrom },
                 );
                 if (isCurrentRoomActive) {
-                    setEditingMessage({ ...editDraft, content: submittedInput });
+                    setInput(submittedInput);
+                    if (suggestedReply && previousReplySuggestionState?.roomId === room.id) {
+                        setInput('');
+                        setReplySuggestionState(previousReplySuggestionState);
+                    }
                 }
-                if (editCompressionSnapshot) {
-                    await restoreRoomCompression(room.id, editCompressionSnapshot);
+            };
+
+            const generationResult = await generateRustTurn(session, roomAfterUserMessage);
+
+            // A stopped turn keeps whatever the job retained: the submitted user
+            // message and any applied replies stay instead of being rolled back.
+            if (generationResult.status === 'aborted') {
+                turnSettled = true;
+                if (!editDraft) {
+                    setTimeout(() => textareaRef.current?.focus(), 50);
                 }
                 return;
             }
 
-            const isCurrentRoomActive = await removeSubmittedUserMessage(
-                { roomId: room.id, messageId: userMessageId },
-                { getCurrentRoom, deleteMessagesFrom },
-            );
-            if (isCurrentRoomActive) {
-                setInput(submittedInput);
-                if (suggestedReply && previousReplySuggestionState?.roomId === room.id) {
-                    setInput('');
-                    setReplySuggestionState(previousReplySuggestionState);
+            if (generationResult.status === 'error') {
+                await rollbackSubmittedTurn();
+                turnSettled = true;
+                if (!editDraft) {
+                    setTimeout(() => textareaRef.current?.focus(), 50);
+                }
+
+                if (generationResult.error && getCurrentRoom()?.id === room.id) {
+                    if (isRetryableGenerationError(generationResult.error)) {
+                        retrySubmissionRef.current = {
+                            kind: 'submit',
+                            roomId: room.id,
+                            input: userMessage,
+                            editDraft: editDraft ? { ...editDraft, content: submittedInput } : undefined,
+                            suggestedReply,
+                        };
+                        showChatErrorNotice(generationResult.error, { type: 'retry', label: '再試行' });
+                    } else {
+                        showChatErrorNotice(generationResult.error);
+                    }
+                }
+                return;
+            }
+            if (generationResult.status === 'success') {
+                turnSettled = true;
+                if (shouldGenerateTitleAfterFirstReply) {
+                    void generateInitialRoomTitle(room.id, originalRoomName);
                 }
             }
-        };
-
-        const generationResult = await generateRustTurn(session, roomAfterUserMessage);
-
-        // A stopped turn keeps whatever the job retained: the submitted user
-        // message and any applied replies stay instead of being rolled back.
-        if (generationResult.status === 'aborted') {
+        } finally {
             finishGenerationSession(session);
             setIsSummarizing(false);
-            if (!editDraft) {
-                setTimeout(() => textareaRef.current?.focus(), 50);
+            if (turnSettled) {
+                void clearPendingTurnRestore(room.id, session.jobId).catch((error) => {
+                    console.warn('Pending turn restore cleanup failed:', error);
+                });
             }
-            return;
         }
-
-        if (generationResult.status === 'error') {
-            await rollbackSubmittedTurn();
-            if (!editDraft) {
-                setTimeout(() => textareaRef.current?.focus(), 50);
-            }
-
-            finishGenerationSession(session);
-            setIsSummarizing(false);
-
-            if (generationResult.error && getCurrentRoom()?.id === room.id) {
-                if (isRetryableGenerationError(generationResult.error)) {
-                    retrySubmissionRef.current = {
-                        kind: 'submit',
-                        roomId: room.id,
-                        input: userMessage,
-                        editDraft: editDraft ? { ...editDraft, content: submittedInput } : undefined,
-                        suggestedReply,
-                    };
-                    showChatErrorNotice(generationResult.error, { type: 'retry', label: '再試行' });
-                } else {
-                    showChatErrorNotice(generationResult.error);
-                }
-            }
-            return;
-        } else if (generationResult.status === 'success' && shouldGenerateTitleAfterFirstReply) {
-            void generateInitialRoomTitle(room.id, originalRoomName);
-        }
-        finishGenerationSession(session);
-        setIsSummarizing(false);
     };
 
     const handleChatNoticeAction = () => {
@@ -1292,12 +1443,45 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         const messagesToDelete = room.messages.slice(cutFrom);
 
         const session = startGenerationSession(room.id);
+        const canRestoreTurn = room.secretMode !== true && room.isDraft !== true;
+        let turnSettled = false;
         try {
+            // 生成完了前にリロードされると実行中の関数ごと復元データが消える
+            // ので、削除前にスナップショットを永続化しておく。
+            if (canRestoreTurn) {
+                await savePendingTurnRestore({
+                    jobId: session.jobId,
+                    roomId: room.id,
+                    fromIndex: cutFrom,
+                    messages: messagesToDelete,
+                    memories: [],
+                    compressionSnapshot: null,
+                    createdAt: Date.now(),
+                }).catch((error) => {
+                    console.warn('Pending turn restore save failed:', error);
+                });
+            }
             const removedMemoryRecords = await deleteMessagesFrom(room.id, cutFrom);
-            const latestRoom = getCurrentRoom();
-            const result: ChatGenerationResult = latestRoom
-                ? await generateRustTurn(session, latestRoom)
-                : { status: 'aborted' };
+            if (canRestoreTurn) {
+                await savePendingTurnRestore({
+                    jobId: session.jobId,
+                    roomId: room.id,
+                    fromIndex: cutFrom,
+                    messages: messagesToDelete,
+                    memories: removedMemoryRecords,
+                    compressionSnapshot: null,
+                    createdAt: Date.now(),
+                }).catch((error) => {
+                    console.warn('Pending turn restore save failed:', error);
+                });
+            }
+            // 削除の待機中に表示中の部屋が変わっていても、生成は必ず開始時の
+            // 部屋を対象にする。別の部屋へ生成するとその部屋を壊した上に、
+            // 元の部屋の応答は消えたまま残ってしまう。
+            const result: ChatGenerationResult = await generateRustTurn(session, {
+                ...room,
+                messages: room.messages.slice(0, cutFrom),
+            });
             // Keep turns the cancelled job retained; only a bare abort (or a
             // failure) rolls the pre-regeneration messages back in.
             const shouldRollBack = result.status === 'error'
@@ -1316,9 +1500,17 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     showChatErrorNotice(result.error);
                 }
             }
+            // detached はジョブが継続中なので、復元スナップショットは
+            // 再開・掃討処理が使えるよう残しておく。
+            turnSettled = result.status !== 'detached';
         } finally {
             finishGenerationSession(session);
             setIsSummarizing(false);
+            if (turnSettled) {
+                void clearPendingTurnRestore(room.id, session.jobId).catch((error) => {
+                    console.warn('Pending turn restore cleanup failed:', error);
+                });
+            }
         }
     };
 

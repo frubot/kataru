@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Check, ChevronDown, RefreshCw, ExternalLink, Plus, type LucideIcon } from 'lucide-react';
-import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, RoomViewMode, VOICEVOX_TTS_MODEL, getDefaultModelDefaults, TTS_CHUNK_MIN_CHARS_MAX, TTS_CHUNK_MIN_CHARS_MIN, TTS_FIRST_CHUNK_MIN_CHARS_MAX, TTS_FIRST_CHUNK_MIN_CHARS_MIN } from '@/lib/store';
+import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, RoomViewMode, ReasoningEffort, VOICEVOX_TTS_MODEL, getDefaultModelDefaults, REASONING_EFFORT_OPTIONS, TTS_CHUNK_MIN_CHARS_MAX, TTS_CHUNK_MIN_CHARS_MIN, TTS_FIRST_CHUNK_MIN_CHARS_MAX, TTS_FIRST_CHUNK_MIN_CHARS_MIN } from '@/lib/store';
 import { AI_CONNECTION_KIND_LABELS, isAiConnectionKind, type AiConnectionKind } from '@/lib/aiApi';
 import { useAiConnections, type AiConnectionStatus } from '@/lib/aiConnections';
 import { MODEL_DEFAULT_FIELDS, modelRefsEqual, type ModelRef, type ModelRoleKey } from '@/lib/modelDefaults';
@@ -406,6 +406,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         themeMode, themePalette, chatWallpaper, defaultViewMode, vnTypingSpeed,
         summaryModel, setSummaryModel,
         defaultChatModel, setDefaultChatModel,
+        defaultReasoningEffort, setDefaultReasoningEffort,
         defaultDirectorModel, setDefaultDirectorModel,
         defaultAutoGenerationModel, setDefaultAutoGenerationModel,
         titleGenerationModel, setTitleGenerationModel,
@@ -1140,6 +1141,26 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     outputModality="embeddings"
                                     capability="embeddings"
                                 />
+                                <div className="global-settings-selector-row">
+                                    <label
+                                        htmlFor="default-reasoning-effort-input"
+                                        style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
+                                    >
+                                        思考レベル
+                                    </label>
+                                    <div className="global-settings-selector-control global-settings-model-selector-control">
+                                        <OptionSelector
+                                            id="default-reasoning-effort-input"
+                                            ariaLabel="思考レベル"
+                                            value={defaultReasoningEffort}
+                                            onChange={(id) => setDefaultReasoningEffort(id as ReasoningEffort)}
+                                            options={REASONING_EFFORT_OPTIONS.map((option) => ({
+                                                value: option.id,
+                                                label: option.label,
+                                            }))}
+                                        />
+                                    </div>
+                                </div>
                             </div>
                         </div>
 

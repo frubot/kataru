@@ -119,6 +119,7 @@ type ConversationCharacter = {
     presencePenalty?: number;
     repetitionPenalty?: number;
     enableThinking?: boolean;
+    reasoningEffort?: string;
     enableMemory?: boolean;
     expressions?: { name: string }[];
     motions?: { name: string }[];
@@ -156,6 +157,7 @@ function toConversationCharacter(character: Character | null): ConversationChara
         presencePenalty: character.presencePenalty,
         repetitionPenalty: character.repetitionPenalty,
         enableThinking: character.enableThinking,
+        reasoningEffort: character.reasoningEffort ?? useStore.getState().defaultReasoningEffort,
         enableMemory: character.enableMemory,
         // Resolved through the default costume so a VRM avatar exposes its mapped names.
         expressions: getVisualNovelExpressionNames(character).map((name) => ({ name })),

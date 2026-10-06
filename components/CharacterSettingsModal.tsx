@@ -14,6 +14,8 @@ import {
     DEFAULT_CHARACTER_FREQUENCY_PENALTY,
     DEFAULT_CHARACTER_PRESENCE_PENALTY,
     DEFAULT_CHARACTER_REPETITION_PENALTY,
+    REASONING_EFFORT_OPTIONS,
+    type ReasoningEffort,
 } from '@/lib/store';
 import { modelRefsEqual, type ModelRef } from '@/lib/modelDefaults';
 import ImageGenerationModal from './ImageGenerationModal';
@@ -22,6 +24,7 @@ import CostumeDiffModal from './CostumeDiffModal';
 import PromptSectionEditor from './PromptSectionEditor';
 import StoredImage from './StoredImage';
 import ModelSelector from './ModelSelector';
+import OptionSelector from './OptionSelector';
 import TtsVoiceField from './TtsVoiceField';
 import TtsSpeedSlider, { formatTtsSpeed } from './TtsSpeedSlider';
 import TtsVolumeSlider, { formatTtsVolume } from './TtsVolumeSlider';
@@ -62,6 +65,7 @@ function buildInitialCharacterDraft(
         userConstraints: character?.userConstraints ?? '',
         model: character?.model.model.trim() ? character.model : defaultChatModel,
         enableThinking: character?.enableThinking ?? false,
+        reasoningEffort: character?.reasoningEffort,
         enableMemory: character?.enableMemory ?? true,
         maxCharacters: character?.maxCharacters != null ? String(character.maxCharacters) : '',
         maxHistory: character?.maxHistory != null ? String(character.maxHistory) : '',
@@ -356,6 +360,7 @@ function CharacterSettingsModalContent({
 
     // Thinking settings
     const [enableThinking, setEnableThinking] = useState(initialDraft.enableThinking);
+    const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | undefined>(initialDraft.reasoningEffort);
 
     // Memory settings
     const [enableMemory, setEnableMemory] = useState(initialDraft.enableMemory);
@@ -409,6 +414,7 @@ function CharacterSettingsModalContent({
             userConstraints,
             model,
             enableThinking,
+            reasoningEffort,
             enableMemory,
             maxCharacters,
             maxHistory,
@@ -447,6 +453,7 @@ function CharacterSettingsModalContent({
             userConstraints: userConstraints.trim() ? userConstraints : undefined,
             model: resolvedModel,
             enableThinking,
+            reasoningEffort,
             enableMemory,
             maxCharacters: maxCharacters ? Math.max(1, Math.round(Number(maxCharacters))) : undefined,
             maxHistory: maxHistory ? Math.min(100, Math.max(1, Number(maxHistory))) : undefined,
@@ -470,7 +477,7 @@ function CharacterSettingsModalContent({
             updateCharacter(character.id, updates);
         }
         onClose();
-    }, [character, costumes, createCharacter, defaultChatModel, enableMemory, enableThinking, expressions, frequencyPenalty, icon, initialDraft, isNew, maxCharacters, maxHistory, model, name, onClose, presencePenalty, protagonistPrompt, repetitionPenalty, speechStyle, systemPrompt, temperature, topK, topP, ttsSpeed, ttsVoice, ttsVolume, updateCharacter, userConstraints]);
+    }, [character, costumes, createCharacter, defaultChatModel, enableMemory, enableThinking, reasoningEffort, expressions, frequencyPenalty, icon, initialDraft, isNew, maxCharacters, maxHistory, model, name, onClose, presencePenalty, protagonistPrompt, repetitionPenalty, speechStyle, systemPrompt, temperature, topK, topP, ttsSpeed, ttsVoice, ttsVolume, updateCharacter, userConstraints]);
 
     const attemptClose = useCallback(() => {
         const currentDraft = {
@@ -481,6 +488,7 @@ function CharacterSettingsModalContent({
             userConstraints,
             model,
             enableThinking,
+            reasoningEffort,
             enableMemory,
             maxCharacters,
             maxHistory,
@@ -507,7 +515,7 @@ function CharacterSettingsModalContent({
         }
 
         onClose();
-    }, [character, costumes, defaultChatModel, enableMemory, enableThinking, expressions, frequencyPenalty, icon, isNew, maxCharacters, maxHistory, model, name, onClose, presencePenalty, protagonistPrompt, repetitionPenalty, speechStyle, systemPrompt, temperature, topK, topP, ttsSpeed, ttsVoice, ttsVolume, userConstraints]);
+    }, [character, costumes, defaultChatModel, enableMemory, enableThinking, reasoningEffort, expressions, frequencyPenalty, icon, isNew, maxCharacters, maxHistory, model, name, onClose, presencePenalty, protagonistPrompt, repetitionPenalty, speechStyle, systemPrompt, temperature, topK, topP, ttsSpeed, ttsVoice, ttsVolume, userConstraints]);
 
     const childModalOpen = imageGenOpen || expressionsOpen || costumesOpen;
     useModalKeyboard({
@@ -583,6 +591,7 @@ function CharacterSettingsModalContent({
     const hasCustomParams = (model.model.trim() !== '' && !modelRefsEqual(model, defaultChatModel))
         || maxCharacters || maxHistory || temperature !== null || topP !== null || topK !== null
         || frequencyPenalty !== null || presencePenalty !== null || repetitionPenalty !== null
+        || reasoningEffort !== undefined
         || (ttsEnabled && (ttsVoice.trim() !== '' || ttsSpeed != null || ttsVolume != null));
     const promptSectionsStyle: React.CSSProperties = {
         display: 'flex',
@@ -957,6 +966,28 @@ function CharacterSettingsModalContent({
                                             onChange={setModel}
                                             outputModality="text"
                                             placeholder={`例: ${defaultChatModel.model}`}
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* 思考レベル */}
+                                <div className="global-settings-selector-row">
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                                        <label style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>思考レベル</label>
+                                        <InfoButton text="返答時の推論の深さです。OpenRouterの対応モデルでのみ有効で、未設定では全体設定を使用します。" />
+                                    </div>
+                                    <div className="global-settings-selector-control">
+                                        <OptionSelector
+                                            ariaLabel="思考レベル"
+                                            value={reasoningEffort ?? ''}
+                                            onChange={(value) => setReasoningEffort(value === '' ? undefined : value as ReasoningEffort)}
+                                            options={[
+                                                { value: '', label: '全体設定' },
+                                                ...REASONING_EFFORT_OPTIONS.map((option) => ({
+                                                    value: option.id,
+                                                    label: option.label,
+                                                })),
+                                            ]}
                                         />
                                     </div>
                                 </div>

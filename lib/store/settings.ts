@@ -19,6 +19,7 @@ import { clearAllTts, setTtsPlaybackVolume } from '../ttsPlayer';
 import { fire } from './persistence';
 import type {
     AppState,
+    ReasoningEffort,
     StoreGet,
     StoreSet,
     ThemeMode,
@@ -40,6 +41,7 @@ export const DEFAULT_CHARACTER_TOP_K = 0;
 export const DEFAULT_CHARACTER_FREQUENCY_PENALTY = 0;
 export const DEFAULT_CHARACTER_PRESENCE_PENALTY = 0;
 export const DEFAULT_CHARACTER_REPETITION_PENALTY = 1;
+export const DEFAULT_REASONING_EFFORT: ReasoningEffort = 'none';
 export const DEFAULT_CONVERSATION_COMPRESSION_ENABLED = true;
 export const DEFAULT_MEMORY_GATE_ENABLED = true;
 export const DEFAULT_TTS_ENABLED = true;
@@ -99,6 +101,17 @@ export function isVnTypingSpeed(value: unknown): value is VnTypingSpeed {
 
 export function isRoomViewMode(value: unknown): value is RoomViewMode {
     return value === 'chat' || value === 'message' || value === 'vn';
+}
+
+export const REASONING_EFFORT_OPTIONS = [
+    { id: 'none', label: 'なし' },
+    { id: 'low', label: '低' },
+    { id: 'medium', label: '中' },
+    { id: 'high', label: '高' },
+] as const satisfies readonly { id: ReasoningEffort; label: string }[];
+
+export function isReasoningEffort(value: unknown): value is ReasoningEffort {
+    return value === 'none' || value === 'low' || value === 'medium' || value === 'high';
 }
 
 export function normalizeTtsSpeed(value: unknown): number {
@@ -219,6 +232,7 @@ type SettingsSlice = Pick<
     | 'keyboardShortcuts'
     | 'summaryModel'
     | 'defaultChatModel'
+    | 'defaultReasoningEffort'
     | 'defaultDirectorModel'
     | 'defaultAutoGenerationModel'
     | 'titleGenerationModel'
@@ -264,6 +278,7 @@ type SettingsSlice = Pick<
     | 'resetModelDefaults'
     | 'setSummaryModel'
     | 'setDefaultChatModel'
+    | 'setDefaultReasoningEffort'
     | 'setDefaultDirectorModel'
     | 'setDefaultAutoGenerationModel'
     | 'setTitleGenerationModel'
@@ -309,6 +324,7 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         vnTypingSpeed: DEFAULT_VN_TYPING_SPEED,
         keyboardShortcuts: createDefaultKeyboardShortcuts(),
         ...getDefaultModelDefaults(),
+        defaultReasoningEffort: DEFAULT_REASONING_EFFORT,
         memoryGateEnabled: DEFAULT_MEMORY_GATE_ENABLED,
         memoryGateShadowMode: false,
         conversationCompressionEnabled: DEFAULT_CONVERSATION_COMPRESSION_ENABLED,
@@ -395,6 +411,11 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         },
         setDefaultChatModel: (defaultChatModel) => {
             updateModelDefault(set, get, 'defaultChatModel', defaultChatModel);
+        },
+        setDefaultReasoningEffort: (effort) => {
+            const defaultReasoningEffort = isReasoningEffort(effort) ? effort : DEFAULT_REASONING_EFFORT;
+            set({ defaultReasoningEffort });
+            fire(db.setMeta('defaultReasoningEffort', defaultReasoningEffort));
         },
         setDefaultDirectorModel: (defaultDirectorModel) => {
             updateModelDefault(set, get, 'defaultDirectorModel', defaultDirectorModel);

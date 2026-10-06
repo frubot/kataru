@@ -4,6 +4,7 @@ import { generateId } from '../id';
 import { normalizeCharactersForCostumeDiffs } from '../visualDiffMigration';
 import { duplicateDedicatedMemories } from './memories';
 import { fire, persistGroup, shouldPersistRoom, toStoredRoom } from './persistence';
+import { isReasoningEffort } from './settings';
 import { getSituationActorIds, normalizeSituationActor } from './situations';
 import type {
     AppState,
@@ -55,7 +56,10 @@ export function normalizeCharacterModel(character: Character, fallbackModel: Mod
     delete normalized.maxTokens;
     delete normalized.enableSummary;
     delete normalized.aiApiType;
-    return modelUnchanged && !hadLegacyThinkMode && !hadLegacyMaxTokens && !hadLegacyEnableSummary && !hadAiApiType
+    const hadInvalidReasoningEffort = normalized.reasoningEffort !== undefined
+        && !isReasoningEffort(normalized.reasoningEffort);
+    if (hadInvalidReasoningEffort) delete normalized.reasoningEffort;
+    return modelUnchanged && !hadLegacyThinkMode && !hadLegacyMaxTokens && !hadLegacyEnableSummary && !hadAiApiType && !hadInvalidReasoningEffort
         ? character
         : { ...normalized, model };
 }

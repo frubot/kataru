@@ -784,6 +784,15 @@ fn character_completion_body(character: &Value, messages: Vec<Value>) -> Value {
             body[parameter] = value.clone();
         }
     }
+    // structured_attempt が reasoningEffort を reasoning.effort に変換する
+    // （対応しない接続先では捨てられる）。
+    if let Some(effort) = character
+        .get("reasoningEffort")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+    {
+        body["reasoningEffort"] = json!(effort);
+    }
     body
 }
 

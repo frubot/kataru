@@ -63,6 +63,8 @@ export interface Character {
     presencePenalty?: number;
     repetitionPenalty?: number;
     enableThinking?: boolean;
+    /** 推論の深さ（reasoning effort）。未指定では全体設定を使う。 */
+    reasoningEffort?: ReasoningEffort;
     enableMemory?: boolean;
     tts?: {
         connectionId?: string;
@@ -327,6 +329,7 @@ export interface FullJsonDebugLog {
 export type ThemeMode = 'light' | 'dark';
 export type ThemePalette = 'indigo' | 'sakura' | 'sage' | 'sky' | 'amber' | 'mono';
 export type VnTypingSpeed = 'slow' | 'default' | 'fast';
+export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high';
 export type RoomViewMode = 'chat' | 'message' | 'vn';
 
 export type ThemeSelection = {
@@ -347,6 +350,8 @@ export interface AppState {
     keyboardShortcuts: KeyboardShortcutSettings;
     summaryModel: ModelRef;
     defaultChatModel: ModelRef;
+    /** 会話生成の既定の推論レベル。キャラクター個別設定で上書きできる。 */
+    defaultReasoningEffort: ReasoningEffort;
     defaultDirectorModel: ModelRef;
     defaultAutoGenerationModel: ModelRef;
     titleGenerationModel: ModelRef;
@@ -411,6 +416,7 @@ export interface AppState {
     resetModelDefaults: () => void;
     setSummaryModel: (model: ModelRef) => void;
     setDefaultChatModel: (model: ModelRef) => void;
+    setDefaultReasoningEffort: (effort: ReasoningEffort) => void;
     setDefaultDirectorModel: (model: ModelRef) => void;
     setDefaultAutoGenerationModel: (model: ModelRef) => void;
     setTitleGenerationModel: (model: ModelRef) => void;
@@ -445,7 +451,7 @@ export interface AppState {
     setSummaryInspectorEnabled: (enabled: boolean) => void;
 
     createCharacter: (name: string, systemPrompt?: string, model?: ModelRef, extras?: CharacterExtras) => string;
-    updateCharacter: (id: string, updates: Partial<Pick<Character, 'name' | 'systemPrompt' | 'favorite' | 'speechStyle' | 'protagonistPrompt' | 'userConstraints' | 'model' | 'icon' | 'maxCharacters' | 'maxHistory' | 'temperature' | 'topP' | 'topK' | 'frequencyPenalty' | 'presencePenalty' | 'repetitionPenalty' | 'enableThinking' | 'enableMemory' | 'tts' | 'expressions' | 'costumes'>>) => void;
+    updateCharacter: (id: string, updates: Partial<Pick<Character, 'name' | 'systemPrompt' | 'favorite' | 'speechStyle' | 'protagonistPrompt' | 'userConstraints' | 'model' | 'icon' | 'maxCharacters' | 'maxHistory' | 'temperature' | 'topP' | 'topK' | 'frequencyPenalty' | 'presencePenalty' | 'repetitionPenalty' | 'enableThinking' | 'reasoningEffort' | 'enableMemory' | 'tts' | 'expressions' | 'costumes'>>) => void;
     deleteCharacter: (id: string) => void;
     duplicateCharacter: (id: string) => string;
     addImportedCharacter: (character: Character) => void;

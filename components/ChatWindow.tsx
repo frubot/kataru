@@ -1951,6 +1951,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         const selectionStart = textarea?.selectionStart ?? chatInputValue.length;
         const selectionEnd = textarea?.selectionEnd ?? selectionStart;
         const nextValue = `${chatInputValue.slice(0, selectionStart)}*${chatInputValue.slice(selectionEnd)}`;
+        textarea?.focus();
         if (isInlineVnEditing) {
             handleEditMessageChange(nextValue);
         } else {
@@ -1961,7 +1962,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             const inputElement = textareaRef.current;
             if (!inputElement) return;
             const nextCursorPosition = selectionStart + 1;
-            inputElement.focus();
             inputElement.setSelectionRange(nextCursorPosition, nextCursorPosition);
         }, 0);
     };

@@ -589,6 +589,7 @@ function CharacterSettingsModalContent({
     const hasCustomParams = (model.model.trim() !== '' && !modelRefsEqual(model, defaultChatModel))
         || maxCharacters || maxHistory || temperature !== null || topP !== null || topK !== null
         || frequencyPenalty !== null || presencePenalty !== null || repetitionPenalty !== null
+        || reasoningEffort !== null
         || (ttsEnabled && (ttsVoice.trim() !== '' || ttsSpeed != null || ttsVolume != null));
     const promptSectionsStyle: React.CSSProperties = {
         display: 'flex',
@@ -833,23 +834,6 @@ function CharacterSettingsModalContent({
 
                     {/* トグル群 */}
                     <div className="character-profile-toggle-grid" style={sectionStyle}>
-                        {/* 推論レベル */}
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
-                            <div>
-                                {renderLabelWithInfo('推論レベル', '対応モデルで返答前の推論（Reasoning）を行います。OpenRouter接続の対応モデルのみ有効です。', {
-                                    marginBottom: 0,
-                                })}
-                            </div>
-                            <OptionSelector
-                                id="character-reasoning-effort-input"
-                                value={reasoningEffort ?? ''}
-                                onChange={(value) => setReasoningEffort(isReasoningEffort(value) ? value : null)}
-                                options={REASONING_EFFORT_SELECT_OPTIONS}
-                                ariaLabel="推論レベル"
-                                triggerStyle={{ minWidth: '9rem' }}
-                            />
-                        </div>
-
                         {/* 記憶機能トグル */}
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
                             <div>
@@ -935,12 +919,25 @@ function CharacterSettingsModalContent({
                                 {/* モデル */}
                                 <div className="global-settings-selector-row">
                                     <label style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>モデル</label>
-                                    <div className="global-settings-selector-control global-settings-model-selector-control">
+                                    <div
+                                        className="global-settings-selector-control global-settings-model-selector-control"
+                                        style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                                    >
                                         <ModelSelector
                                             value={model}
                                             onChange={setModel}
                                             outputModality="text"
                                             placeholder={`例: ${defaultChatModel.model}`}
+                                            style={{ flex: '0 1 auto', minWidth: 0 }}
+                                        />
+                                        <OptionSelector
+                                            id="character-reasoning-effort-input"
+                                            value={reasoningEffort ?? ''}
+                                            onChange={(value) => setReasoningEffort(isReasoningEffort(value) ? value : null)}
+                                            options={REASONING_EFFORT_SELECT_OPTIONS}
+                                            ariaLabel="推論レベル"
+                                            title="推論レベル: 対応モデルで返答前の推論（Reasoning）を行います。空欄では全体設定を使用します。"
+                                            style={{ flex: '0 1 auto', minWidth: 0 }}
                                         />
                                     </div>
                                 </div>

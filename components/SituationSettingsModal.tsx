@@ -830,13 +830,26 @@ function TemporaryActorSettingsModal({
 
                         <div style={sectionStyle}>
                             <label htmlFor={`temporary-actor-model-${actor.id}`} style={labelStyle}>モデル</label>
-                            <ModelSelector
-                                id={`temporary-actor-model-${actor.id}`}
-                                value={draft.model ?? { connectionId: DEFAULT_CONNECTION_ID, model: '' }}
-                                onChange={(model) => updateDraft({ model })}
-                                outputModality="text"
-                                placeholder={`例: ${defaultChatModel.model}`}
-                            />
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <ModelSelector
+                                    id={`temporary-actor-model-${actor.id}`}
+                                    value={draft.model ?? { connectionId: DEFAULT_CONNECTION_ID, model: '' }}
+                                    onChange={(model) => updateDraft({ model })}
+                                    outputModality="text"
+                                    placeholder={`例: ${defaultChatModel.model}`}
+                                    style={{ flex: '1 1 0', minWidth: 0 }}
+                                />
+                                <OptionSelector
+                                    id={`temporary-actor-reasoning-effort-${actor.id}`}
+                                    value={draft.reasoningEffort ?? ''}
+                                    onChange={(value) => updateDraft({ reasoningEffort: isReasoningEffort(value) ? value : null })}
+                                    options={REASONING_EFFORT_SELECT_OPTIONS}
+                                    ariaLabel="推論レベル"
+                                    title="推論レベル: 対応モデルで返答前の推論（Reasoning）を行います。空欄では全体設定を使用します。"
+                                    style={{ flex: '0 0 auto', width: 'fit-content' }}
+                                    menuStyle={{ right: 0, left: 'auto' }}
+                                />
+                            </div>
                         </div>
 
                         <div style={sectionStyle}>
@@ -875,17 +888,6 @@ function TemporaryActorSettingsModal({
                                 rows={4}
                                 placeholder="キャラクターに守らせたい制約を記述してください..."
                                 style={{ resize: 'vertical', minHeight: '6rem' }}
-                            />
-                        </div>
-
-                        <div style={sectionStyle}>
-                            <label htmlFor={`temporary-actor-reasoning-effort-${actor.id}`} style={labelStyle}>推論レベル</label>
-                            <OptionSelector
-                                id={`temporary-actor-reasoning-effort-${actor.id}`}
-                                value={draft.reasoningEffort ?? ''}
-                                onChange={(value) => updateDraft({ reasoningEffort: isReasoningEffort(value) ? value : null })}
-                                options={REASONING_EFFORT_SELECT_OPTIONS}
-                                ariaLabel="推論レベル"
                             />
                         </div>
 

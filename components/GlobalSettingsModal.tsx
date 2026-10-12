@@ -337,6 +337,8 @@ interface RoleModelFieldProps {
     onChange: (model: ModelRef) => void;
     outputModality?: ModelOutputModality | readonly ModelOutputModality[];
     capability?: 'embeddings' | 'imageGeneration';
+    /** モデルセレクタの隣に並べる追加コントロール。 */
+    trailing?: ReactNode;
 }
 
 /** 指揮役は通常のLLMとJev（decisions）の両方を取りうる。 */
@@ -366,6 +368,7 @@ function RoleModelField({
     onChange,
     outputModality = 'text',
     capability,
+    trailing,
 }: RoleModelFieldProps) {
     const { connections } = useAiConnections();
     const connection = connections.find((candidate) => candidate.id === value.connectionId) ?? null;
@@ -382,7 +385,10 @@ function RoleModelField({
             >
                 {label}
             </label>
-            <div className="global-settings-selector-control global-settings-model-selector-control">
+            <div
+                className="global-settings-selector-control global-settings-model-selector-control"
+                style={trailing ? { display: 'flex', alignItems: 'center', gap: '0.5rem' } : undefined}
+            >
                 {capabilitySupported ? (
                     <ModelSelector
                         id={inputId}
@@ -390,12 +396,14 @@ function RoleModelField({
                         onChange={onChange}
                         outputModality={outputModality}
                         placeholder={`例: ${getDefaultModelDefaults()[role].model}`}
+                        style={trailing ? { flex: '0 1 auto', minWidth: 0 } : undefined}
                     />
                 ) : (
                     <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
                         {kind ? AI_CONNECTION_KIND_LABELS[kind] : 'この接続先'} では{capability === 'embeddings' ? '埋め込み' : '画像生成'}を利用できません。
                     </p>
                 )}
+                {trailing}
             </div>
         </div>
     );
@@ -1062,25 +1070,18 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     inputId="default-chat-model-input"
                                     value={defaultChatModel}
                                     onChange={setDefaultChatModel}
-                                />
-                                <div className="global-settings-selector-row global-settings-selector-row-divider">
-                                    <label
-                                        htmlFor="reasoning-effort-input"
-                                        style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
-                                    >
-                                        会話の推論レベル
-                                    </label>
-                                    <div className="global-settings-selector-control global-settings-model-selector-control">
+                                    trailing={(
                                         <OptionSelector
                                             id="reasoning-effort-input"
                                             value={reasoningEffort}
                                             onChange={(value) => setReasoningEffort(isReasoningEffort(value) ? value : 'none')}
                                             options={REASONING_EFFORT_OPTIONS}
                                             ariaLabel="会話の推論レベル"
-                                            title="OpenRouterの対応モデルのみ有効です。キャラクターごとに上書きできます。"
+                                            title="推論レベル: OpenRouterの対応モデルのみ有効です。キャラクターごとに上書きできます。"
+                                            style={{ flex: '0 1 auto', minWidth: 0 }}
                                         />
-                                    </div>
-                                </div>
+                                    )}
+                                />
                                 <RoleModelField
                                     role="defaultDirectorModel"
                                     label="シチュエーション管理"

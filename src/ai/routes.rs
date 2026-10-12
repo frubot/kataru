@@ -29,5 +29,6 @@ pub(crate) use memory::{
     memory_extraction_guided_prompt, memory_extraction_prompt, memory_schema, parse_memory_updates,
 };
 pub(crate) use structured::{
-    extract_message_text, structured_completion, structured_completion_streaming,
+    extract_message_reasoning, extract_message_text, structured_completion,
+    structured_completion_streaming,
 };

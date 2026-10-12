@@ -215,6 +215,7 @@ struct StructuredStreamResult {
     id: String,
     model: String,
     content: String,
+    reasoning: String,
     usage: Option<Value>,
     finish_reason: Value,
     anthropic_input_tokens: u64,
@@ -278,6 +279,17 @@ impl StructuredStreamResult {
                             .and_then(Value::as_u64)
                             .unwrap_or(0);
                 }
+                Some("content_block_start")
+                    if value.pointer("/content_block/type").and_then(Value::as_str)
+                        == Some("thinking") =>
+                {
+                    if let Some(thinking) = value
+                        .pointer("/content_block/thinking")
+                        .and_then(Value::as_str)
+                    {
+                        self.reasoning.push_str(thinking);
+                    }
+                }
                 Some("content_block_delta")
                     if value.pointer("/delta/type").and_then(Value::as_str)
                         == Some("text_delta") =>
@@ -288,6 +300,16 @@ impl StructuredStreamResult {
                         .unwrap_or_default();
                     self.content.push_str(delta);
                     on_content(&self.content);
+                }
+                Some("content_block_delta")
+                    if value.pointer("/delta/type").and_then(Value::as_str)
+                        == Some("thinking_delta") =>
+                {
+                    let delta = value
+                        .pointer("/delta/thinking")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    self.reasoning.push_str(delta);
                 }
                 Some("message_delta") => {
                     let completion_tokens = value
@@ -343,17 +365,26 @@ impl StructuredStreamResult {
             self.content.push_str(&delta);
             on_content(&self.content);
         }
+        if let Some(reasoning) = extract_reasoning_delta(value.pointer("/choices/0/delta"))
+            .or_else(|| extract_reasoning_delta(value.pointer("/choices/0/message")))
+        {
+            self.reasoning.push_str(&reasoning);
+        }
         Ok(())
     }
 
     fn into_response(self) -> Value {
+        let mut message = json!({ "role": "assistant", "content": self.content });
+        if !self.reasoning.is_empty() {
+            message["reasoning"] = Value::String(self.reasoning);
+        }
         let mut response = json!({
             "id": self.id,
             "object": "chat.completion",
             "model": self.model,
             "choices": [{
                 "index": 0,
-                "message": { "role": "assistant", "content": self.content },
+                "message": message,
                 "finish_reason": self.finish_reason,
             }],
         });
@@ -481,6 +512,40 @@ pub(crate) fn extract_message_text(data: &Value) -> String {
         .unwrap_or_else(|| extract_content_text(data))
 }
 
+/// Reads the reasoning text carried on a single message or stream delta:
+/// `reasoning` / `reasoning_content` strings, falling back to the text and
+/// summary entries of `reasoning_details` (encrypted entries are skipped).
+fn extract_reasoning_delta(delta: Option<&Value>) -> Option<String> {
+    let delta = delta?;
+    for key in ["reasoning", "reasoning_content"] {
+        if let Some(text) = delta.get(key).and_then(Value::as_str)
+            && !text.is_empty()
+        {
+            return Some(text.to_owned());
+        }
+    }
+    let details = delta.get("reasoning_details")?.as_array()?;
+    let text = details
+        .iter()
+        .filter_map(|detail| {
+            detail
+                .get("text")
+                .or_else(|| detail.get("summary"))
+                .and_then(Value::as_str)
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    (!text.is_empty()).then_some(text)
+}
+
+/// Extracts the reasoning a model attached to a chat completion message so
+/// debug logs can show it separately from the visible output.
+pub(crate) fn extract_message_reasoning(data: &Value) -> Option<String> {
+    extract_reasoning_delta(data.pointer("/choices/0/message"))
+        .or_else(|| extract_reasoning_delta(Some(data)))
+        .filter(|text| !text.trim().is_empty())
+}
+
 pub(super) async fn plain_completion(
     api_client: &AiApiClient,
     body: Value,
@@ -562,5 +627,129 @@ mod tests {
         assert_eq!(response["usage"]["prompt_tokens"], 8);
         assert_eq!(response["usage"]["completion_tokens"], 3);
         assert_eq!(response["choices"][0]["finish_reason"], "stop");
+    }
+
+    #[test]
+    fn accumulates_openai_stream_reasoning_into_the_message() {
+        let mut result = StructuredStreamResult::default();
+        let mut capture = |_: &str| {};
+
+        result
+            .apply_event(
+                r#"{"choices":[{"delta":{"reasoning":"考え"},"finish_reason":null}]}"#,
+                false,
+                &mut capture,
+            )
+            .unwrap();
+        result
+            .apply_event(
+                r#"{"choices":[{"delta":{"reasoning":"中"},"finish_reason":null}]}"#,
+                false,
+                &mut capture,
+            )
+            .unwrap();
+        result
+            .apply_event(
+                r#"{"choices":[{"delta":{"content":"{\"message\":\"hi\"}"},"finish_reason":"stop"}]}"#,
+                false,
+                &mut capture,
+            )
+            .unwrap();
+
+        let response = result.into_response();
+        assert_eq!(extract_message_reasoning(&response), Some("考え中".to_owned()));
+        assert_eq!(
+            extract_message_text(&response),
+            r#"{"message":"hi"}"#
+        );
+    }
+
+    #[test]
+    fn accumulates_reasoning_details_and_reasoning_content() {
+        let mut result = StructuredStreamResult::default();
+        let mut capture = |_: &str| {};
+
+        result
+            .apply_event(
+                r#"{"choices":[{"delta":{"reasoning_content":"深い"},"finish_reason":null}]}"#,
+                false,
+                &mut capture,
+            )
+            .unwrap();
+        result
+            .apply_event(
+                r#"{"choices":[{"delta":{"reasoning_details":[{"type":"reasoning.text","text":"思考"}]},"finish_reason":null}]}"#,
+                false,
+                &mut capture,
+            )
+            .unwrap();
+
+        let response = result.into_response();
+        assert_eq!(
+            extract_message_reasoning(&response),
+            Some("深い思考".to_owned())
+        );
+    }
+
+    #[test]
+    fn accumulates_anthropic_thinking_blocks() {
+        let mut result = StructuredStreamResult::default();
+        let mut capture = |_: &str| {};
+
+        result
+            .apply_event(
+                r#"{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}"#,
+                true,
+                &mut capture,
+            )
+            .unwrap();
+        result
+            .apply_event(
+                r#"{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"考え中"}}"#,
+                true,
+                &mut capture,
+            )
+            .unwrap();
+        result
+            .apply_event(
+                r#"{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"{\"message\":\"hi\"}"}}"#,
+                true,
+                &mut capture,
+            )
+            .unwrap();
+
+        let response = result.into_response();
+        assert_eq!(
+            extract_message_reasoning(&response),
+            Some("考え中".to_owned())
+        );
+    }
+
+    #[test]
+    fn extracts_reasoning_from_non_streamed_messages() {
+        let with_string = json!({
+            "choices": [{"message": {"role": "assistant", "content": "hi", "reasoning": "考えた"}}]
+        });
+        let with_details = json!({
+            "choices": [{"message": {"role": "assistant", "content": "hi",
+                "reasoning_details": [
+                    {"type": "reasoning.text", "text": "一段目"},
+                    {"type": "reasoning.summary", "summary": "要約"},
+                    {"type": "reasoning.encrypted", "data": "opaque"}
+                ]}}]
+        });
+        let without = json!({
+            "choices": [{"message": {"role": "assistant", "content": "hi"}}]
+        });
+
+        assert_eq!(
+            extract_message_reasoning(&with_string),
+            Some("考えた".to_owned())
+        );
+        assert_eq!(
+            extract_message_reasoning(&with_details),
+            Some("一段目\n要約".to_owned())
+        );
+        assert_eq!(extract_message_reasoning(&without), None);
     }
 }

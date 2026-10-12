@@ -210,6 +210,21 @@ pub fn response_to_openai(input: Value) -> Value {
                 .collect::<String>()
         })
         .unwrap_or_default();
+    let thinking = input
+        .get("content")
+        .and_then(Value::as_array)
+        .map(|blocks| {
+            blocks
+                .iter()
+                .filter(|block| block.get("type").and_then(Value::as_str) == Some("thinking"))
+                .filter_map(|block| block.get("thinking").and_then(Value::as_str))
+                .collect::<String>()
+        })
+        .unwrap_or_default();
+    let mut message = json!({ "role": "assistant", "content": text });
+    if !thinking.is_empty() {
+        message["reasoning"] = Value::String(thinking);
+    }
     let usage = input.get("usage").cloned().unwrap_or_else(|| json!({}));
     let prompt_tokens = prompt_tokens(&usage);
     let completion_tokens = usage
@@ -223,7 +238,7 @@ pub fn response_to_openai(input: Value) -> Value {
         "model": input.get("model").and_then(Value::as_str).unwrap_or_default(),
         "choices": [{
             "index": 0,
-            "message": { "role": "assistant", "content": text },
+            "message": message,
             "finish_reason": finish_reason(input.get("stop_reason").and_then(Value::as_str)),
         }],
         "usage": {
@@ -483,6 +498,30 @@ mod tests {
         );
         assert_eq!(converted.pointer("/usage/prompt_tokens"), Some(&json!(14)));
         assert_eq!(converted.pointer("/usage/total_tokens"), Some(&json!(17)));
+    }
+
+    #[test]
+    fn converts_thinking_blocks_into_message_reasoning() {
+        let converted = response_to_openai(json!({
+            "id": "msg_123",
+            "model": "claude-sonnet-4-6",
+            "content": [
+                {"type": "thinking", "thinking": "考え", "signature": "sig"},
+                {"type": "thinking", "thinking": "中", "signature": "sig"},
+                {"type": "text", "text": "hello"}
+            ],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 10, "output_tokens": 3}
+        }));
+
+        assert_eq!(
+            converted.pointer("/choices/0/message/reasoning"),
+            Some(&json!("考え中"))
+        );
+        assert_eq!(
+            converted.pointer("/choices/0/message/content"),
+            Some(&json!("hello"))
+        );
     }
 
     #[test]

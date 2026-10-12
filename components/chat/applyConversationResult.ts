@@ -69,6 +69,7 @@ export function recordConversationDebugLogs(
             source: log.source,
             prompt: log.prompt,
             json,
+            reasoning: debugLogText(log.reasoning),
             secondJson: debugLogText(log.secondJson),
             httpStatus: log.httpStatus,
             elapsedMs: log.elapsedMs,

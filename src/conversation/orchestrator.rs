@@ -11,7 +11,7 @@ use crate::{
     ai::{
         AiApiClient, AiApiConfig, ai_api_config_value,
         routes::{
-            RoleSelection, entity_connection_id, extract_message_text,
+            RoleSelection, entity_connection_id, extract_message_reasoning, extract_message_text,
             memory_extraction_guided_prompt, memory_extraction_prompt, memory_schema, model_string,
             optional_role_selection, parse_memory_updates, resolve_role_selection, role_connection,
             role_default_selection, structured_completion, structured_completion_streaming,
@@ -742,6 +742,7 @@ fn push_error_debug_log(
     context: &GenerationDebugContext<'_>,
     source: &str,
     response_text: Option<&str>,
+    reasoning: Option<&str>,
     error: &AppError,
     elapsed_ms: u64,
 ) {
@@ -768,6 +769,9 @@ fn push_error_debug_log(
         "elapsedMs": elapsed_ms,
         "errorName": error.diagnostic_class(),
     });
+    if let Some(reasoning) = reasoning.filter(|value| !value.trim().is_empty()) {
+        log["reasoning"] = json!(reasoning);
+    }
     if let Some(status) = error_http_status(error) {
         log["httpStatus"] = json!(status);
     }
@@ -901,6 +905,7 @@ async fn generate_for_character(
                     &debug_context,
                     chat_error_source(&error),
                     Some(&partial_content),
+                    None,
                     &error,
                     now_ms().saturating_sub(started),
                 );
@@ -919,6 +924,7 @@ async fn generate_for_character(
                         &debug_context,
                         "chat-response-parse-error",
                         Some(&content),
+                        extract_message_reasoning(&raw).as_deref(),
                         &error,
                         now_ms().saturating_sub(started),
                     );
@@ -940,7 +946,7 @@ async fn generate_for_character(
     }
     if !secret_mode {
         push_usage(usages, &raw, character, "chat");
-        full_json_logs.push(json!({
+        let mut log = json!({
             "roomId": string(room, "id"),
             "roomName": string(room, "name"),
             "characterId": debug_context.character_id,
@@ -951,7 +957,11 @@ async fn generate_for_character(
             "prompt": prompt,
             "json": content,
             "elapsedMs": now_ms().saturating_sub(started),
-        }));
+        });
+        if let Some(reasoning) = extract_message_reasoning(&raw) {
+            log["reasoning"] = json!(reasoning);
+        }
+        full_json_logs.push(log);
     }
     Ok(envelope_to_messages(
         envelope,
@@ -1086,6 +1096,7 @@ async fn request_director(
                     &debug_context,
                     "director-error",
                     None,
+                    None,
                     &error,
                     now_ms().saturating_sub(started),
                 );
@@ -1103,6 +1114,7 @@ async fn request_director(
                     &debug_context,
                     "director-error",
                     Some(&content),
+                    extract_message_reasoning(&raw).as_deref(),
                     &error,
                     now_ms().saturating_sub(started),
                 );
@@ -1133,7 +1145,7 @@ async fn request_director(
             &selection.model,
             "director",
         );
-        full_json_logs.push(json!({
+        let mut log = json!({
             "roomId": string(room, "id"),
             "roomName": string(room, "name"),
             "characterId": debug_context.character_id,
@@ -1144,7 +1156,11 @@ async fn request_director(
             "prompt": prompt,
             "json": content,
             "elapsedMs": now_ms().saturating_sub(started),
-        }));
+        });
+        if let Some(reasoning) = extract_message_reasoning(&raw) {
+            log["reasoning"] = json!(reasoning);
+        }
+        full_json_logs.push(log);
     }
     Ok(decision)
 }
@@ -1225,6 +1241,7 @@ async fn request_director_typesafe(
                     &debug_context,
                     "director-error",
                     None,
+                    None,
                     &error,
                     now_ms().saturating_sub(started),
                 );
@@ -1240,6 +1257,7 @@ async fn request_director_typesafe(
                     full_json_logs,
                     &debug_context,
                     "director-error",
+                    None,
                     None,
                     &error,
                     now_ms().saturating_sub(started),
@@ -1289,6 +1307,7 @@ async fn request_director_typesafe(
                         &debug_context,
                         "director-error",
                         None,
+                        None,
                         &error,
                         now_ms().saturating_sub(started),
                     );
@@ -1315,6 +1334,7 @@ async fn request_director_typesafe(
                             &debug_context,
                             "director-error",
                             None,
+                            None,
                             &error,
                             now_ms().saturating_sub(started),
                         );
@@ -1330,6 +1350,7 @@ async fn request_director_typesafe(
                             full_json_logs,
                             &debug_context,
                             "director-error",
+                            None,
                             None,
                             &error,
                             now_ms().saturating_sub(started),
@@ -1348,6 +1369,7 @@ async fn request_director_typesafe(
                         full_json_logs,
                         &debug_context,
                         "director-error",
+                        None,
                         None,
                         &error,
                         now_ms().saturating_sub(started),
@@ -1368,6 +1390,7 @@ async fn request_director_typesafe(
                 full_json_logs,
                 &debug_context,
                 "director-error",
+                None,
                 None,
                 &error,
                 now_ms().saturating_sub(started),
@@ -1882,6 +1905,7 @@ async fn request_memory_gate(
                 full_json_logs,
                 &debug_context,
                 "memory-gate-error",
+                None,
                 None,
                 &error,
                 now_ms().saturating_sub(started),
@@ -2715,6 +2739,7 @@ mod tests {
             &mut logs,
             &context,
             chat_error_source(&error),
+            None,
             None,
             &error,
             123,

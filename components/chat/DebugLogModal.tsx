@@ -123,6 +123,24 @@ export default function DebugLogModal({ logs, onClose, onClear }: DebugLogModalP
                                             }}>{log.prompt}</pre>
                                         </div>
                                     )}
+                                    {log.reasoning && (
+                                        <div style={{ marginBottom: '0.75rem' }}>
+                                            <div style={{ marginBottom: '0.375rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+                                                推論
+                                            </div>
+                                            <pre style={{
+                                                margin: 0,
+                                                maxHeight: '420px',
+                                                overflow: 'auto',
+                                                whiteSpace: 'pre-wrap',
+                                                wordBreak: 'break-word',
+                                                fontFamily: 'ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace',
+                                                fontSize: '0.8125rem',
+                                                lineHeight: 1.55,
+                                                color: 'var(--text-secondary)',
+                                            }}>{log.reasoning}</pre>
+                                        </div>
+                                    )}
                                     <div style={{ marginBottom: '0.375rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>
                                         出力
                                     </div>

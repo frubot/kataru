@@ -30,6 +30,7 @@ export type RustTurnResponse = {
         source: string;
         prompt?: string;
         json: string;
+        reasoning?: string;
         secondJson?: string;
         httpStatus?: number;
         elapsedMs?: number;

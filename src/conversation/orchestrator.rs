@@ -189,6 +189,11 @@ fn character_max_characters(character: &Value) -> usize {
         .unwrap_or(usize::MAX)
 }
 
+/// OpenRouterの `reasoning.effort` として受理する値だけを通す。
+fn reasoning_effort_str(value: Option<&str>) -> Option<&str> {
+    value.filter(|effort| matches!(*effort, "none" | "low" | "medium" | "high"))
+}
+
 fn situation_max_turns(room: &Value, situation: &Value, participant_count: usize) -> usize {
     if participant_count <= 1 {
         return 1;
@@ -403,6 +408,9 @@ async fn run_turn_inner(
 
     let room_id = string(&room, "id");
     let use_message_mode = string(&room, "viewMode") == "message";
+    let default_reasoning_effort = reasoning_effort_str(
+        payload.get("reasoningEffort").and_then(Value::as_str),
+    );
     let preview_job_id = payload
         .get("streamingPreview")
         .and_then(Value::as_bool)
@@ -564,6 +572,7 @@ async fn run_turn_inner(
                     full_json_logs,
                     generated.len(),
                     streaming_preview,
+                    default_reasoning_effort,
                 ) => messages?,
             };
             generated.extend(generated_messages);
@@ -619,6 +628,7 @@ async fn run_turn_inner(
                 full_json_logs,
                 0,
                 streaming_preview,
+                default_reasoning_effort,
             ) => messages?,
         };
         if memory_allowed && !cancellation.is_cancelled() {
@@ -764,7 +774,11 @@ fn push_error_debug_log(
     logs.push(log);
 }
 
-fn character_completion_body(character: &Value, messages: Vec<Value>) -> Value {
+fn character_completion_body(
+    character: &Value,
+    messages: Vec<Value>,
+    default_reasoning_effort: Option<&str>,
+) -> Value {
     let mut body = json!({
         "model": model_string(character, "model"),
         "messages": messages,
@@ -783,6 +797,14 @@ fn character_completion_body(character: &Value, messages: Vec<Value>) -> Value {
         if let Some(value) = character.get(setting).filter(|value| value.is_number()) {
             body[parameter] = value.clone();
         }
+    }
+    // キャラクター個別の推論レベルが全体設定を上書きする。
+    if let Some(effort) = reasoning_effort_str(
+        character.get("reasoningEffort").and_then(Value::as_str),
+    )
+    .or(default_reasoning_effort)
+    {
+        body["reasoningEffort"] = json!(effort);
     }
     body
 }
@@ -803,6 +825,7 @@ async fn generate_for_character(
     full_json_logs: &mut Vec<Value>,
     id_offset: usize,
     streaming_preview: Option<(&ConversationJobs, &str)>,
+    default_reasoning_effort: Option<&str>,
 ) -> AppResult<Vec<Value>> {
     let api_client = clients.for_connection(entity_connection_id(character).as_deref())?;
     let visual_novel_mode = string(room, "viewMode") == "vn";
@@ -813,7 +836,6 @@ async fn generate_for_character(
         &expression_names,
         &motion_names,
         message_mode,
-        boolean(character, "enableThinking"),
         max_characters,
     );
     let system_prompt = character_system_prompt(
@@ -840,7 +862,7 @@ async fn generate_for_character(
             "content": history_content(message),
         })
     }));
-    let body = character_completion_body(character, request_messages);
+    let body = character_completion_body(character, request_messages, default_reasoning_effort);
     let prompt = serde_json::to_string_pretty(&body["messages"])
         .expect("completion messages must be serializable");
     let started = now_ms();
@@ -2605,6 +2627,7 @@ mod tests {
                 "repetitionPenalty": 1.15,
             }),
             Vec::new(),
+            None,
         );
         assert_eq!(body["frequency_penalty"], 0);
         assert_eq!(body["presence_penalty"], -0.5);
@@ -2619,7 +2642,7 @@ mod tests {
                 "repetitionPenalty": null,
             }),
         ] {
-            let body = character_completion_body(&character, Vec::new());
+            let body = character_completion_body(&character, Vec::new(), None);
             for key in [
                 "frequency_penalty",
                 "presence_penalty",
@@ -2628,6 +2651,38 @@ mod tests {
                 assert!(body.get(key).is_none(), "unset {key} must be omitted");
             }
         }
+    }
+
+    #[test]
+    fn character_completion_resolves_reasoning_effort_with_character_priority() {
+        let with_character_effort = character_completion_body(
+            &json!({"model": "test-model", "reasoningEffort": "high"}),
+            Vec::new(),
+            Some("low"),
+        );
+        assert_eq!(with_character_effort["reasoningEffort"], "high");
+
+        let with_default_effort = character_completion_body(
+            &json!({"model": "test-model"}),
+            Vec::new(),
+            Some("low"),
+        );
+        assert_eq!(with_default_effort["reasoningEffort"], "low");
+
+        // 無効なキャラクター値は全体設定へフォールバックする。
+        let with_invalid_effort = character_completion_body(
+            &json!({"model": "test-model", "reasoningEffort": "ultra"}),
+            Vec::new(),
+            Some("medium"),
+        );
+        assert_eq!(with_invalid_effort["reasoningEffort"], "medium");
+
+        let without_effort = character_completion_body(
+            &json!({"model": "test-model"}),
+            Vec::new(),
+            None,
+        );
+        assert!(without_effort.get("reasoningEffort").is_none());
     }
 
     #[test]

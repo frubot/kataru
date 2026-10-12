@@ -1,6 +1,6 @@
 import type { StoreApi } from 'zustand';
 
-import type { AiApiConfig, AiConnectionKind, ModelRef } from '../aiApi';
+import type { AiApiConfig, AiConnectionKind, ModelRef, ReasoningEffort } from '../aiApi';
 import type {
     KeyboardShortcut,
     KeyboardShortcutAction,
@@ -62,7 +62,8 @@ export interface Character {
     frequencyPenalty?: number;
     presencePenalty?: number;
     repetitionPenalty?: number;
-    enableThinking?: boolean;
+    /** 会話生成時の推論レベル。未設定なら全体設定の reasoningEffort に従う。 */
+    reasoningEffort?: ReasoningEffort;
     enableMemory?: boolean;
     tts?: {
         connectionId?: string;
@@ -181,7 +182,7 @@ export type SituationActor =
         frequencyPenalty?: number;
         presencePenalty?: number;
         repetitionPenalty?: number;
-        enableThinking?: boolean;
+        reasoningEffort?: ReasoningEffort;
         expressions?: Expression[];
         costumes?: Costume[];
     };
@@ -359,6 +360,8 @@ export interface AppState {
     memoryGateEnabled: boolean;
     memoryGateShadowMode: boolean;
     conversationCompressionEnabled: boolean;
+    /** 会話生成の既定の推論レベル（キャラクター側で上書き可能）。 */
+    reasoningEffort: ReasoningEffort;
     generateTitleOnFirstReply: boolean;
     replySuggestionsEnabled: boolean;
     /** 音声合成機能全体のオン・オフ。OFFでは読み上げ・試聴・自動再生を全て止める。 */
@@ -423,6 +426,7 @@ export interface AppState {
     setMemoryGateEnabled: (enabled: boolean) => void;
     setMemoryGateShadowMode: (enabled: boolean) => void;
     setConversationCompressionEnabled: (enabled: boolean) => void;
+    setReasoningEffort: (effort: ReasoningEffort) => void;
     setGenerateTitleOnFirstReply: (enabled: boolean) => void;
     setReplySuggestionsEnabled: (enabled: boolean) => void;
     setTtsEnabled: (enabled: boolean) => void;
@@ -445,7 +449,7 @@ export interface AppState {
     setSummaryInspectorEnabled: (enabled: boolean) => void;
 
     createCharacter: (name: string, systemPrompt?: string, model?: ModelRef, extras?: CharacterExtras) => string;
-    updateCharacter: (id: string, updates: Partial<Pick<Character, 'name' | 'systemPrompt' | 'favorite' | 'speechStyle' | 'protagonistPrompt' | 'userConstraints' | 'model' | 'icon' | 'maxCharacters' | 'maxHistory' | 'temperature' | 'topP' | 'topK' | 'frequencyPenalty' | 'presencePenalty' | 'repetitionPenalty' | 'enableThinking' | 'enableMemory' | 'tts' | 'expressions' | 'costumes'>>) => void;
+    updateCharacter: (id: string, updates: Partial<Pick<Character, 'name' | 'systemPrompt' | 'favorite' | 'speechStyle' | 'protagonistPrompt' | 'userConstraints' | 'model' | 'icon' | 'maxCharacters' | 'maxHistory' | 'temperature' | 'topP' | 'topK' | 'frequencyPenalty' | 'presencePenalty' | 'repetitionPenalty' | 'reasoningEffort' | 'enableMemory' | 'tts' | 'expressions' | 'costumes'>>) => void;
     deleteCharacter: (id: string) => void;
     duplicateCharacter: (id: string) => string;
     addImportedCharacter: (character: Character) => void;

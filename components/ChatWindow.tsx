@@ -9,7 +9,7 @@ import {
     RoomCompressionSnapshot,
 } from '@/lib/store';
 import type { MemoryRecord, SituationPriorMessage } from '@/lib/store';
-import { serializeModelRef, type ModelRef } from '@/lib/modelDefaults';
+import { serializeModelRef, type ModelRef, type ReasoningEffort } from '@/lib/modelDefaults';
 import {
     ChatGenerationJobError,
     getChatErrorDebugInfo,
@@ -125,7 +125,7 @@ type ConversationCharacter = {
     frequencyPenalty?: number;
     presencePenalty?: number;
     repetitionPenalty?: number;
-    enableThinking?: boolean;
+    reasoningEffort?: ReasoningEffort;
     enableMemory?: boolean;
     expressions?: { name: string }[];
     motions?: { name: string }[];
@@ -162,7 +162,7 @@ function toConversationCharacter(character: Character | null): ConversationChara
         frequencyPenalty: character.frequencyPenalty,
         presencePenalty: character.presencePenalty,
         repetitionPenalty: character.repetitionPenalty,
-        enableThinking: character.enableThinking,
+        reasoningEffort: character.reasoningEffort,
         enableMemory: character.enableMemory,
         // Resolved through the default costume so a VRM avatar exposes its mapped names.
         expressions: getVisualNovelExpressionNames(character).map((name) => ({ name })),
@@ -350,6 +350,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         memoryGateShadowMode,
         memoryExtractionModel,
         memoryEmbeddingModel,
+        reasoningEffort,
         generateTitleOnFirstReply,
         titleGenerationModel,
         replySuggestionsEnabled,
@@ -1102,6 +1103,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     memoryGateShadowMode,
                     memoryExtractionModel: serializeModelRef(memoryExtractionModel),
                     memoryEmbeddingModel: serializeModelRef(memoryEmbeddingModel),
+                    reasoningEffort,
                     aiApiConfig: getAiApiConfig(),
                     streamingPreview: true,
                     generationMode,

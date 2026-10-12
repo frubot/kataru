@@ -1,7 +1,10 @@
 import {
     DEFAULT_CONNECTION_ID,
+    DEFAULT_REASONING_EFFORT,
+    isReasoningEffort,
     normalizeModelRef,
     type AiApiConfig,
+    type ReasoningEffort,
 } from '../aiApi';
 import * as db from '../db';
 import { generateId } from '../id';
@@ -231,6 +234,7 @@ type SettingsSlice = Pick<
     | 'memoryGateEnabled'
     | 'memoryGateShadowMode'
     | 'conversationCompressionEnabled'
+    | 'reasoningEffort'
     | 'generateTitleOnFirstReply'
     | 'replySuggestionsEnabled'
     | 'ttsEnabled'
@@ -276,6 +280,7 @@ type SettingsSlice = Pick<
     | 'setMemoryGateEnabled'
     | 'setMemoryGateShadowMode'
     | 'setConversationCompressionEnabled'
+    | 'setReasoningEffort'
     | 'setGenerateTitleOnFirstReply'
     | 'setReplySuggestionsEnabled'
     | 'setTtsEnabled'
@@ -312,6 +317,7 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         memoryGateEnabled: DEFAULT_MEMORY_GATE_ENABLED,
         memoryGateShadowMode: false,
         conversationCompressionEnabled: DEFAULT_CONVERSATION_COMPRESSION_ENABLED,
+        reasoningEffort: DEFAULT_REASONING_EFFORT,
         generateTitleOnFirstReply: false,
         replySuggestionsEnabled: false,
         ttsEnabled: DEFAULT_TTS_ENABLED,
@@ -434,6 +440,11 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         setConversationCompressionEnabled: (conversationCompressionEnabled) => {
             set({ conversationCompressionEnabled });
             fire(db.setMeta('conversationCompressionEnabled', conversationCompressionEnabled));
+        },
+        setReasoningEffort: (effort) => {
+            const reasoningEffort: ReasoningEffort = isReasoningEffort(effort) ? effort : DEFAULT_REASONING_EFFORT;
+            set({ reasoningEffort });
+            fire(db.setMeta('reasoningEffort', reasoningEffort));
         },
         setGenerateTitleOnFirstReply: (generateTitleOnFirstReply) => {
             set({ generateTitleOnFirstReply });

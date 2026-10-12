@@ -6,6 +6,22 @@ export interface ModelRef {
     model: string;
 }
 
+/** OpenRouterの `reasoning.effort` に対応する推論レベル。'none' は推論なし。 */
+export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high';
+
+export const DEFAULT_REASONING_EFFORT: ReasoningEffort = 'none';
+
+export const REASONING_EFFORT_OPTIONS: readonly { value: ReasoningEffort; label: string }[] = [
+    { value: 'none', label: 'なし' },
+    { value: 'low', label: '低' },
+    { value: 'medium', label: '中' },
+    { value: 'high', label: '高' },
+];
+
+export function isReasoningEffort(value: unknown): value is ReasoningEffort {
+    return value === 'none' || value === 'low' || value === 'medium' || value === 'high';
+}
+
 /** The connection used when a stored value does not name one. */
 export const DEFAULT_CONNECTION_ID = 'openrouter';
 

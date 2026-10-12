@@ -58,6 +58,7 @@ fn build_chat_body(
 
     if api_client.is_openrouter() {
         let effort = match input.get("reasoningEffort").and_then(Value::as_str) {
+            Some("none") => "none",
             Some("low") => "low",
             Some("medium") => "medium",
             Some("high") => "high",

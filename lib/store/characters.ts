@@ -1,5 +1,5 @@
 import * as db from '../db';
-import { isAiConnectionKind, isModelRef, normalizeModelRef, type ModelRef } from '../aiApi';
+import { isAiConnectionKind, isModelRef, isReasoningEffort, normalizeModelRef, type ModelRef } from '../aiApi';
 import { generateId } from '../id';
 import { normalizeCharactersForCostumeDiffs } from '../visualDiffMigration';
 import { duplicateDedicatedMemories } from './memories';
@@ -43,11 +43,18 @@ export function normalizeCharacterModel(character: Character, fallbackModel: Mod
         thinkModeEnabled?: boolean;
         maxTokens?: number;
         enableSummary?: boolean;
+        enableThinking?: unknown;
+        reasoningEffort?: unknown;
     };
     const hadLegacyThinkMode = 'thinkModeEnabled' in normalized;
     const hadLegacyMaxTokens = 'maxTokens' in normalized;
     const hadLegacyEnableSummary = 'enableSummary' in normalized;
     const hadAiApiType = 'aiApiType' in normalized;
+    const hadEnableThinking = 'enableThinking' in normalized;
+    const hadInvalidReasoningEffort = 'reasoningEffort' in normalized && !isReasoningEffort(normalized.reasoningEffort);
+    // JSONのthoughtフィールドで考えていたキャラクターはネイティブ推論（low）へ移行する。
+    const migrateThinkingToReasoning = normalized.enableThinking === true
+        && !isReasoningEffort(normalized.reasoningEffort);
     const modelUnchanged = isModelRef(stored.model)
         && stored.model.model === model.model
         && stored.model.connectionId === model.connectionId;
@@ -55,9 +62,17 @@ export function normalizeCharacterModel(character: Character, fallbackModel: Mod
     delete normalized.maxTokens;
     delete normalized.enableSummary;
     delete normalized.aiApiType;
-    return modelUnchanged && !hadLegacyThinkMode && !hadLegacyMaxTokens && !hadLegacyEnableSummary && !hadAiApiType
+    delete normalized.enableThinking;
+    if (!isReasoningEffort(normalized.reasoningEffort)) {
+        delete normalized.reasoningEffort;
+    }
+    const next = { ...normalized, model };
+    if (migrateThinkingToReasoning) {
+        next.reasoningEffort = 'low';
+    }
+    return modelUnchanged && !hadLegacyThinkMode && !hadLegacyMaxTokens && !hadLegacyEnableSummary && !hadAiApiType && !hadEnableThinking && !hadInvalidReasoningEffort
         ? character
-        : { ...normalized, model };
+        : next;
 }
 
 export function normalizeCharacters(characters: Character[], fallbackModel: ModelRef): Character[] {

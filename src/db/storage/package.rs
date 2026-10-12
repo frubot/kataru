@@ -74,7 +74,7 @@ fn sha256_hex(data: &[u8]) -> String {
 }
 
 /// 共有キャラクターのうち `copySharedCharacter` が引き継ぐフィールドだけを抜き出す
-/// （model・id・favorite・createdAt・updatedAt・enableThinking は呼び出し側で扱う）。
+/// （model・id・favorite・createdAt・updatedAt・reasoningEffort は呼び出し側で扱う）。
 fn shared_character_fields(character: &Value) -> Map<String, Value> {
     let mut shared = Map::new();
     let Some(object) = character.as_object() else {
@@ -1038,7 +1038,7 @@ mod tests {
                 },
             ],
             "favorite": true,
-            "enableThinking": true,
+            "reasoningEffort": "low",
             "createdAt": 1,
             "updatedAt": 1,
         })
@@ -1073,7 +1073,7 @@ mod tests {
             &zip_entry(&package, "character.json").expect("read character entry"),
         )
         .expect("parse shared character");
-        for key in ["id", "createdAt", "updatedAt", "favorite", "enableThinking"] {
+        for key in ["id", "createdAt", "updatedAt", "favorite", "reasoningEffort"] {
             assert!(shared.get(key).is_none(), "shared must not contain {key}");
         }
         assert_eq!(
@@ -1148,7 +1148,7 @@ mod tests {
         let mut actual = get_character_with_images(&target_db, &imported_id)
             .expect("read target")
             .expect("imported character");
-        for key in ["id", "createdAt", "updatedAt", "favorite", "enableThinking"] {
+        for key in ["id", "createdAt", "updatedAt", "favorite", "reasoningEffort"] {
             expected.as_object_mut().expect("object").remove(key);
             actual.as_object_mut().expect("object").remove(key);
         }

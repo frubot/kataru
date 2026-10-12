@@ -1,5 +1,5 @@
 import { generateId } from '../id';
-import { isAiConnectionKind, isJevModelRef, normalizeModelRef, type ModelRef } from '../aiApi';
+import { isAiConnectionKind, isJevModelRef, isReasoningEffort, normalizeModelRef, type ModelRef } from '../aiApi';
 import { DEFAULT_MODEL_DEFAULTS } from '../modelDefaults';
 import type {
     Character,
@@ -142,9 +142,12 @@ export function normalizeSituationActor(
             ...(typeof rawActor.frequencyPenalty === 'number' ? { frequencyPenalty: rawActor.frequencyPenalty } : {}),
             ...(typeof rawActor.presencePenalty === 'number' ? { presencePenalty: rawActor.presencePenalty } : {}),
             ...(typeof rawActor.repetitionPenalty === 'number' ? { repetitionPenalty: rawActor.repetitionPenalty } : {}),
-            ...(typeof rawActor.enableThinking === 'boolean'
-                ? { enableThinking: rawActor.enableThinking }
-                : {}),
+            ...(isReasoningEffort(rawActor.reasoningEffort)
+                ? { reasoningEffort: rawActor.reasoningEffort }
+                // JSONのthoughtフィールドの「考える」はネイティブ推論（low）へ移行する。
+                : rawActor.enableThinking === true
+                    ? { reasoningEffort: 'low' as const }
+                    : {}),
             ...(Array.isArray(rawActor.expressions) ? { expressions: rawActor.expressions as Expression[] } : {}),
             ...(Array.isArray(rawActor.costumes) ? { costumes: rawActor.costumes as Costume[] } : {}),
         };
@@ -297,7 +300,7 @@ export function resolveSituationParticipants(
                 frequencyPenalty: actor.frequencyPenalty,
                 presencePenalty: actor.presencePenalty,
                 repetitionPenalty: actor.repetitionPenalty,
-                enableThinking: actor.enableThinking,
+                reasoningEffort: actor.reasoningEffort,
                 enableMemory: false,
                 expressions: actor.expressions,
                 costumes: actor.costumes,

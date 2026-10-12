@@ -9,14 +9,18 @@ import {
 export { DEFAULT_ANTHROPIC_TEXT_MODEL } from './modelDefaults';
 export {
     DEFAULT_CONNECTION_ID,
+    DEFAULT_REASONING_EFFORT,
     isJevModelRef,
     isModelRef,
+    isReasoningEffort,
     modelRefConnectionId,
     modelRefModel,
     modelRefsEqual,
     normalizeModelRef,
+    REASONING_EFFORT_OPTIONS,
     serializeModelRef,
     type ModelRef,
+    type ReasoningEffort,
 } from './modelDefaults';
 
 /** All connection kinds the server knows about. Built-in connections use the

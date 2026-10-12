@@ -185,23 +185,11 @@ pub fn assistant_schema(
     expression_names: &[String],
     motion_names: &[String],
     use_message_mode: bool,
-    include_thought: bool,
     max_characters: usize,
 ) -> Value {
     let max_characters = max_characters.max(1);
     let mut properties = serde_json::Map::new();
     let mut required = Vec::new();
-    if include_thought {
-        properties.insert(
-            "thought".into(),
-            json!({
-                "type": "string",
-                "description": "返答内容を考える",
-                "minLength": 100
-            }),
-        );
-        required.push("thought");
-    }
     if !expression_names.is_empty() {
         properties.insert(
             "expression".into(),
@@ -766,39 +754,37 @@ mod tests {
     }
 
     #[test]
-    fn assistant_schema_puts_thought_first_when_enabled() {
-        let schema = assistant_schema(&["neutral".into()], &[], false, true, 512);
+    fn assistant_schema_puts_expression_first() {
+        let schema = assistant_schema(&["neutral".into()], &[], false, 512);
         let properties = schema["json_schema"]["schema"]["properties"]
             .as_object()
             .expect("schema properties");
 
         assert_eq!(
             properties.keys().map(String::as_str).collect::<Vec<_>>(),
-            ["thought", "expression", "message"]
+            ["expression", "message"]
         );
         assert_eq!(
             schema["json_schema"]["schema"]["required"],
-            json!(["thought", "expression", "message"])
+            json!(["expression", "message"])
         );
         assert_eq!(
             schema["json_schema"]["schema"]["properties"]["message"]["maxLength"],
             512
         );
-        assert!(
-            schema["json_schema"]["schema"]["properties"]["thought"]
-                .get("maxLength")
-                .is_none()
-        );
     }
 
     #[test]
-    fn assistant_schema_omits_thought_when_disabled() {
-        let schema = assistant_schema(&[], &[], true, false, 256);
+    fn assistant_schema_message_mode_uses_messages_array() {
+        let schema = assistant_schema(&[], &[], true, 256);
         let properties = schema["json_schema"]["schema"]["properties"]
             .as_object()
             .expect("schema properties");
 
-        assert!(!properties.contains_key("thought"));
+        assert_eq!(
+            properties.keys().map(String::as_str).collect::<Vec<_>>(),
+            ["messages"]
+        );
         assert_eq!(
             schema["json_schema"]["schema"]["required"],
             json!(["messages"])
@@ -814,7 +800,6 @@ mod tests {
         let schema = assistant_schema(
             &["neutral".into()],
             &["wave".into(), "jump".into()],
-            false,
             false,
             512,
         );
@@ -842,7 +827,7 @@ mod tests {
 
     #[test]
     fn assistant_schema_omits_motion_when_no_motions_registered() {
-        let schema = assistant_schema(&["neutral".into()], &[], false, false, 512);
+        let schema = assistant_schema(&["neutral".into()], &[], false, 512);
         let properties = schema["json_schema"]["schema"]["properties"]
             .as_object()
             .expect("schema properties");

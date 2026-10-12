@@ -3,7 +3,7 @@ import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Check, ChevronDo
 import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, RoomViewMode, VOICEVOX_TTS_MODEL, getDefaultModelDefaults, TTS_CHUNK_MIN_CHARS_MAX, TTS_CHUNK_MIN_CHARS_MIN, TTS_FIRST_CHUNK_MIN_CHARS_MAX, TTS_FIRST_CHUNK_MIN_CHARS_MIN } from '@/lib/store';
 import { AI_CONNECTION_KIND_LABELS, isAiConnectionKind, type AiConnectionKind } from '@/lib/aiApi';
 import { useAiConnections, type AiConnectionStatus } from '@/lib/aiConnections';
-import { MODEL_DEFAULT_FIELDS, modelRefsEqual, type ModelRef, type ModelRoleKey } from '@/lib/modelDefaults';
+import { isReasoningEffort, MODEL_DEFAULT_FIELDS, modelRefsEqual, REASONING_EFFORT_OPTIONS, type ModelRef, type ModelRoleKey } from '@/lib/modelDefaults';
 import type { ModelOutputModality } from '@/lib/availableModels';
 import { createFullBackup, downloadJson, parseFullBackup, reassignIds, type ParsedBackup } from '@/lib/importExport';
 import { resizeToMaxEdgeAsJpeg } from '@/lib/imageUtils';
@@ -431,6 +431,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         ttsNarrationEnabled, setTtsNarrationEnabled,
         ttsNarratorVoice, setTtsNarratorVoice,
         resetModelDefaults,
+        reasoningEffort, setReasoningEffort,
         conversationCompressionEnabled, setConversationCompressionEnabled,
         generateTitleOnFirstReply, setGenerateTitleOnFirstReply,
         replySuggestionsEnabled, setReplySuggestionsEnabled,
@@ -1062,6 +1063,24 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     value={defaultChatModel}
                                     onChange={setDefaultChatModel}
                                 />
+                                <div className="global-settings-selector-row global-settings-selector-row-divider">
+                                    <label
+                                        htmlFor="reasoning-effort-input"
+                                        style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
+                                    >
+                                        会話の推論レベル
+                                    </label>
+                                    <div className="global-settings-selector-control global-settings-model-selector-control">
+                                        <OptionSelector
+                                            id="reasoning-effort-input"
+                                            value={reasoningEffort}
+                                            onChange={(value) => setReasoningEffort(isReasoningEffort(value) ? value : 'none')}
+                                            options={REASONING_EFFORT_OPTIONS}
+                                            ariaLabel="会話の推論レベル"
+                                            title="OpenRouterの対応モデルのみ有効です。キャラクターごとに上書きできます。"
+                                        />
+                                    </div>
+                                </div>
                                 <RoleModelField
                                     role="defaultDirectorModel"
                                     label="シチュエーション管理"

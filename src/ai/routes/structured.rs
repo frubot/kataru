@@ -85,6 +85,7 @@ async fn structured_attempt(
                 .and_then(Value::as_str)
                 == Some("memory_save_updates");
             let effort = match requested_effort.as_deref() {
+                Some("none") => "none",
                 Some("low") => "low",
                 Some("medium") => "medium",
                 Some("high") => "high",

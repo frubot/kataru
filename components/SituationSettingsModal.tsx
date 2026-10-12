@@ -19,7 +19,7 @@ import {
     SituationPriorMessage,
     useStore,
 } from '@/lib/store';
-import { DEFAULT_CONNECTION_ID, isJevModelRef, type ModelRef } from '@/lib/modelDefaults';
+import { DEFAULT_CONNECTION_ID, isJevModelRef, isReasoningEffort, REASONING_EFFORT_OPTIONS, type ModelRef, type ReasoningEffort } from '@/lib/modelDefaults';
 import { useAiConnections } from '@/lib/aiConnections';
 import { generateId } from '@/lib/id';
 import {
@@ -53,7 +53,7 @@ type TemporaryActorDraft = {
     frequencyPenalty: number | null;
     presencePenalty: number | null;
     repetitionPenalty: number | null;
-    enableThinking: boolean;
+    reasoningEffort: ReasoningEffort | null;
 };
 
 type CharacterActorMeta = {
@@ -116,6 +116,11 @@ const priorMessageSelectTriggerStyle: CSSProperties = {
 
 const NEUTRAL_EXPRESSION_NAME = 'neutral';
 
+const REASONING_EFFORT_SELECT_OPTIONS = [
+    { value: '', label: '全体設定に従う' },
+    ...REASONING_EFFORT_OPTIONS,
+];
+
 type TemporaryActorParamKey = 'temperature' | 'topP' | 'topK' | 'frequencyPenalty' | 'presencePenalty' | 'repetitionPenalty';
 
 interface TemporaryActorSliderParam {
@@ -163,7 +168,7 @@ function createTemporaryDraft(): TemporaryActorDraft {
         frequencyPenalty: null,
         presencePenalty: null,
         repetitionPenalty: null,
-        enableThinking: false,
+        reasoningEffort: null,
     };
 }
 
@@ -874,41 +879,14 @@ function TemporaryActorSettingsModal({
                         </div>
 
                         <div style={sectionStyle}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
-                                <div>
-                                    <div style={{ ...labelStyle, marginBottom: '0.25rem' }}>考える</div>
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={() => updateDraft({ enableThinking: !draft.enableThinking })}
-                                    style={{
-                                        position: 'relative',
-                                        width: '44px',
-                                        height: '24px',
-                                        borderRadius: '12px',
-                                        border: 'none',
-                                        cursor: 'pointer',
-                                        background: draft.enableThinking ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
-                                        transition: 'background 0.2s ease',
-                                        padding: 0,
-                                        flexShrink: 0,
-                                    }}
-                                    aria-label="考えるを有効化"
-                                    aria-pressed={draft.enableThinking}
-                                >
-                                    <span style={{
-                                        position: 'absolute',
-                                        top: '2px',
-                                        left: draft.enableThinking ? '22px' : '2px',
-                                        width: '20px',
-                                        height: '20px',
-                                        borderRadius: '50%',
-                                        background: '#fff',
-                                        transition: 'left 0.2s ease',
-                                        boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-                                    }} />
-                                </button>
-                            </div>
+                            <label htmlFor={`temporary-actor-reasoning-effort-${actor.id}`} style={labelStyle}>推論レベル</label>
+                            <OptionSelector
+                                id={`temporary-actor-reasoning-effort-${actor.id}`}
+                                value={draft.reasoningEffort ?? ''}
+                                onChange={(value) => updateDraft({ reasoningEffort: isReasoningEffort(value) ? value : null })}
+                                options={REASONING_EFFORT_SELECT_OPTIONS}
+                                ariaLabel="推論レベル"
+                            />
                         </div>
 
                         <div style={sectionStyle}>
@@ -1095,7 +1073,7 @@ function buildInitialState(
                 frequencyPenalty: actor.frequencyPenalty ?? null,
                 presencePenalty: actor.presencePenalty ?? null,
                 repetitionPenalty: actor.repetitionPenalty ?? null,
-                enableThinking: actor.enableThinking ?? false,
+                reasoningEffort: actor.reasoningEffort ?? null,
             });
         }
     }
@@ -1757,7 +1735,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
             ...(actor.frequencyPenalty !== null ? { frequencyPenalty: actor.frequencyPenalty } : {}),
             ...(actor.presencePenalty !== null ? { presencePenalty: actor.presencePenalty } : {}),
             ...(actor.repetitionPenalty !== null ? { repetitionPenalty: actor.repetitionPenalty } : {}),
-            enableThinking: actor.enableThinking,
+            ...(actor.reasoningEffort ? { reasoningEffort: actor.reasoningEffort } : {}),
         })),
     ], [characterActorMeta, defaultChatModel, selectedCharacterIds, validTemporaryActors]);
 

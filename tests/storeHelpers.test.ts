@@ -301,7 +301,7 @@ describe('store pure helpers', () => {
             type: 'temporary',
             name: '通行人',
             systemPrompt: '街角に立っている。',
-            enableThinking: true,
+            reasoningEffort: 'low',
             frequencyPenalty: 0,
             presencePenalty: -0.5,
             repetitionPenalty: 1.15,
@@ -309,7 +309,7 @@ describe('store pure helpers', () => {
 
         expect(actor).toMatchObject({
             type: 'temporary',
-            enableThinking: true,
+            reasoningEffort: 'low',
             frequencyPenalty: 0,
             presencePenalty: -0.5,
             repetitionPenalty: 1.15,
@@ -334,10 +334,36 @@ describe('store pure helpers', () => {
         expect(participants[0]).toMatchObject({
             actorId: 'actor-1',
             actorType: 'temporary',
-            enableThinking: true,
+            reasoningEffort: 'low',
             frequencyPenalty: 0,
             presencePenalty: -0.5,
             repetitionPenalty: 1.15,
         });
+    });
+
+    test('migrates the former thinking toggle to a low reasoning effort', () => {
+        const [character] = normalizeCharacters([{
+            id: 'character-1',
+            name: '葵',
+            systemPrompt: '',
+            model: TEST_MODEL,
+            enableThinking: true,
+            createdAt: 1,
+            updatedAt: 1,
+        } as Character & { enableThinking: boolean }], FALLBACK_MODEL);
+
+        expect(character).not.toHaveProperty('enableThinking');
+        expect(character.reasoningEffort).toBe('low');
+
+        const actor = normalizeSituationActor({
+            id: 'actor-1',
+            type: 'temporary',
+            name: '通行人',
+            systemPrompt: '街角に立っている。',
+            enableThinking: true,
+        }, new Set(), FALLBACK_MODEL);
+
+        expect(actor).toMatchObject({ reasoningEffort: 'low' });
+        expect(actor).not.toHaveProperty('enableThinking');
     });
 });

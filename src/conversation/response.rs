@@ -894,7 +894,7 @@ mod tests {
     fn previews_only_complete_registered_expressions() {
         let names = vec!["neutral".into(), "happy".into()];
         for partial in [
-            r#"{"thought":"hidden"#,
+            r#"{"note":"hidden"#,
             r#"{"expression":"hap"#,
             r#"{"expression":"unknown","message":"hi"#,
         ] {
@@ -914,7 +914,7 @@ mod tests {
     fn previews_only_complete_registered_motions() {
         let names = vec!["wave".into(), "jump".into()];
         for partial in [
-            r#"{"thought":"hidden"#,
+            r#"{"note":"hidden"#,
             r#"{"motion":"wa"#,
             r#"{"motion":"spin","message":"hi"#,
             r#"{"motion":"none","message":"hi"#,
@@ -932,17 +932,17 @@ mod tests {
     }
 
     #[test]
-    fn previews_incomplete_structured_reply_without_exposing_thought() {
+    fn previews_incomplete_structured_reply_without_exposing_other_fields() {
         assert_eq!(
             assistant_response_preview(
-                r#"{"thought":"hidden","expression":"happy","message":"こんにちは\n世"#,
+                r#"{"note":"hidden","expression":"happy","message":"こんにちは\n世"#,
                 false,
                 512,
             ),
             "こんにちは\n世"
         );
         assert_eq!(
-            assistant_response_preview(r#"{"thought":"still hidden"#, false, 512),
+            assistant_response_preview(r#"{"note":"still hidden"#, false, 512),
             ""
         );
     }

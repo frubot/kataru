@@ -15,13 +15,14 @@ import {
     DEFAULT_CHARACTER_PRESENCE_PENALTY,
     DEFAULT_CHARACTER_REPETITION_PENALTY,
 } from '@/lib/store';
-import { modelRefsEqual, type ModelRef } from '@/lib/modelDefaults';
+import { isReasoningEffort, modelRefsEqual, REASONING_EFFORT_OPTIONS, type ModelRef, type ReasoningEffort } from '@/lib/modelDefaults';
 import ImageGenerationModal from './ImageGenerationModal';
 import ExpressionDiffModal from './ExpressionDiffModal';
 import CostumeDiffModal from './CostumeDiffModal';
 import PromptSectionEditor from './PromptSectionEditor';
 import StoredImage from './StoredImage';
 import ModelSelector from './ModelSelector';
+import OptionSelector from './OptionSelector';
 import TtsVoiceField from './TtsVoiceField';
 import TtsSpeedSlider, { formatTtsSpeed } from './TtsSpeedSlider';
 import TtsVolumeSlider, { formatTtsVolume } from './TtsVolumeSlider';
@@ -39,6 +40,11 @@ const CHARACTER_PROMPT_SECTION_TITLE = 'プロフィール';
 const SPEECH_STYLE_SECTION_TITLE = '口調';
 const PROTAGONIST_PROMPT_SECTION_TITLE = '主人公について';
 const USER_CONSTRAINTS_SECTION_TITLE = '追加の制約';
+
+const REASONING_EFFORT_SELECT_OPTIONS = [
+    { value: '', label: '全体設定に従う' },
+    ...REASONING_EFFORT_OPTIONS,
+];
 
 interface CharacterSettingsModalProps {
     isOpen: boolean;
@@ -61,7 +67,7 @@ function buildInitialCharacterDraft(
         protagonistPrompt: generatedDraft?.protagonistPrompt ?? character?.protagonistPrompt ?? '',
         userConstraints: character?.userConstraints ?? '',
         model: character?.model.model.trim() ? character.model : defaultChatModel,
-        enableThinking: character?.enableThinking ?? false,
+        reasoningEffort: character?.reasoningEffort ?? null,
         enableMemory: character?.enableMemory ?? true,
         maxCharacters: character?.maxCharacters != null ? String(character.maxCharacters) : '',
         maxHistory: character?.maxHistory != null ? String(character.maxHistory) : '',
@@ -354,8 +360,8 @@ function CharacterSettingsModalContent({
     const [userConstraints, setUserConstraints] = useState(initialDraft.userConstraints);
     const [model, setModel] = useState<ModelRef>(initialDraft.model);
 
-    // Thinking settings
-    const [enableThinking, setEnableThinking] = useState(initialDraft.enableThinking);
+    // Reasoning settings (null = 全体設定に従う)
+    const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | null>(initialDraft.reasoningEffort);
 
     // Memory settings
     const [enableMemory, setEnableMemory] = useState(initialDraft.enableMemory);
@@ -408,7 +414,7 @@ function CharacterSettingsModalContent({
             protagonistPrompt,
             userConstraints,
             model,
-            enableThinking,
+            reasoningEffort,
             enableMemory,
             maxCharacters,
             maxHistory,
@@ -446,7 +452,7 @@ function CharacterSettingsModalContent({
             protagonistPrompt: protagonistPrompt.trim() ? protagonistPrompt : undefined,
             userConstraints: userConstraints.trim() ? userConstraints : undefined,
             model: resolvedModel,
-            enableThinking,
+            reasoningEffort: reasoningEffort ?? undefined,
             enableMemory,
             maxCharacters: maxCharacters ? Math.max(1, Math.round(Number(maxCharacters))) : undefined,
             maxHistory: maxHistory ? Math.min(100, Math.max(1, Number(maxHistory))) : undefined,
@@ -470,7 +476,7 @@ function CharacterSettingsModalContent({
             updateCharacter(character.id, updates);
         }
         onClose();
-    }, [character, costumes, createCharacter, defaultChatModel, enableMemory, enableThinking, expressions, frequencyPenalty, icon, initialDraft, isNew, maxCharacters, maxHistory, model, name, onClose, presencePenalty, protagonistPrompt, repetitionPenalty, speechStyle, systemPrompt, temperature, topK, topP, ttsSpeed, ttsVoice, ttsVolume, updateCharacter, userConstraints]);
+    }, [character, costumes, createCharacter, defaultChatModel, enableMemory, reasoningEffort, expressions, frequencyPenalty, icon, initialDraft, isNew, maxCharacters, maxHistory, model, name, onClose, presencePenalty, protagonistPrompt, repetitionPenalty, speechStyle, systemPrompt, temperature, topK, topP, ttsSpeed, ttsVoice, ttsVolume, updateCharacter, userConstraints]);
 
     const attemptClose = useCallback(() => {
         const currentDraft = {
@@ -480,7 +486,7 @@ function CharacterSettingsModalContent({
             protagonistPrompt,
             userConstraints,
             model,
-            enableThinking,
+            reasoningEffort,
             enableMemory,
             maxCharacters,
             maxHistory,
@@ -507,7 +513,7 @@ function CharacterSettingsModalContent({
         }
 
         onClose();
-    }, [character, costumes, defaultChatModel, enableMemory, enableThinking, expressions, frequencyPenalty, icon, isNew, maxCharacters, maxHistory, model, name, onClose, presencePenalty, protagonistPrompt, repetitionPenalty, speechStyle, systemPrompt, temperature, topK, topP, ttsSpeed, ttsVoice, ttsVolume, userConstraints]);
+    }, [character, costumes, defaultChatModel, enableMemory, reasoningEffort, expressions, frequencyPenalty, icon, isNew, maxCharacters, maxHistory, model, name, onClose, presencePenalty, protagonistPrompt, repetitionPenalty, speechStyle, systemPrompt, temperature, topK, topP, ttsSpeed, ttsVoice, ttsVolume, userConstraints]);
 
     const childModalOpen = imageGenOpen || expressionsOpen || costumesOpen;
     useModalKeyboard({
@@ -827,43 +833,21 @@ function CharacterSettingsModalContent({
 
                     {/* トグル群 */}
                     <div className="character-profile-toggle-grid" style={sectionStyle}>
-                        {/* 思考トグル */}
+                        {/* 推論レベル */}
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
                             <div>
-                                {renderLabelWithInfo('考える', '返答前の思考をJSONのthoughtフィールドに含めます。会話には表示されません。', {
+                                {renderLabelWithInfo('推論レベル', '対応モデルで返答前の推論（Reasoning）を行います。OpenRouter接続の対応モデルのみ有効です。', {
                                     marginBottom: 0,
                                 })}
                             </div>
-                            <button
-                                type="button"
-                                onClick={() => setEnableThinking(!enableThinking)}
-                                style={{
-                                    position: 'relative',
-                                    width: '44px',
-                                    height: '24px',
-                                    borderRadius: '12px',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    background: enableThinking ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
-                                    transition: 'background 0.2s ease',
-                                    padding: 0,
-                                    flexShrink: 0,
-                                }}
-                                aria-label="考えるを有効化"
-                                aria-pressed={enableThinking}
-                            >
-                                <span style={{
-                                    position: 'absolute',
-                                    top: '2px',
-                                    left: enableThinking ? '22px' : '2px',
-                                    width: '20px',
-                                    height: '20px',
-                                    borderRadius: '50%',
-                                    background: '#fff',
-                                    transition: 'left 0.2s ease',
-                                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-                                }} />
-                            </button>
+                            <OptionSelector
+                                id="character-reasoning-effort-input"
+                                value={reasoningEffort ?? ''}
+                                onChange={(value) => setReasoningEffort(isReasoningEffort(value) ? value : null)}
+                                options={REASONING_EFFORT_SELECT_OPTIONS}
+                                ariaLabel="推論レベル"
+                                triggerStyle={{ minWidth: '9rem' }}
+                            />
                         </div>
 
                         {/* 記憶機能トグル */}

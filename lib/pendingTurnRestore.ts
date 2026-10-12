@@ -73,3 +73,24 @@ export async function hasDeliveredPendingTurnRestore(restore: PendingTurnRestore
     const prefix = `${restore.jobId}-message-`;
     return persisted.some((message) => message.id.startsWith(prefix));
 }
+
+type PendingTurnRestoreRecoveryOperations = {
+    canRecover: () => boolean;
+    restore: (roomId: string, expectedJobId: string, canRestore: () => boolean) => Promise<void>;
+};
+
+export async function recoverOrphanedPendingTurnRestore(
+    pending: PendingTurnRestore,
+    { canRecover, restore }: PendingTurnRestoreRecoveryOperations,
+): Promise<void> {
+    if (!canRecover()) return;
+    const delivered = await hasDeliveredPendingTurnRestore(pending);
+    if (!canRecover()) return;
+    const current = await getPendingTurnRestore(pending.roomId);
+    if (!canRecover() || current?.jobId !== pending.jobId) return;
+    if (delivered) {
+        await clearPendingTurnRestore(pending.roomId, pending.jobId);
+    } else {
+        await restore(pending.roomId, pending.jobId, canRecover);
+    }
+}

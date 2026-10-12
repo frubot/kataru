@@ -24,7 +24,7 @@ import {
     clearPendingTurnRestore,
     getPendingTurnRestore,
     getPendingTurnRestores,
-    hasDeliveredPendingTurnRestore,
+    recoverOrphanedPendingTurnRestore,
     savePendingTurnRestore,
 } from '@/lib/pendingTurnRestore';
 import {
@@ -600,9 +600,13 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     // 編集・再生成が保存した復元スナップショットを適用する。リロードで
     // 実行中の関数が消えても、永続化しておいたデータから削除前の状態へ
     // 戻せる。スナップショットが無い部屋では何もしない。
-    const restorePendingTurnForRoom = useCallback(async (roomId: string, expectedJobId?: string) => {
+    const restorePendingTurnForRoom = useCallback(async (
+        roomId: string,
+        expectedJobId?: string,
+        canRestore?: () => boolean,
+    ) => {
         const pending = await getPendingTurnRestore(roomId);
-        if (!pending) return;
+        if (!pending || canRestore?.() === false) return;
         // 同じ部屋で別の生成が始まっている場合、そのスナップショットは
         // 新しいジョブのもの。古いジョブの完了で巻き戻さない。
         if (expectedJobId !== undefined && pending.jobId !== expectedJobId) return;
@@ -618,7 +622,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         if (pending.compressionSnapshot) {
             await restoreRoomCompression(roomId, pending.compressionSnapshot);
         }
-        await clearPendingTurnRestore(roomId);
+        await clearPendingTurnRestore(roomId, pending.jobId);
         await refreshConversationRoom(roomId).catch((error) => {
             console.warn('Pending turn restore refresh failed:', error);
         });
@@ -855,16 +859,12 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     });
                     for (const pending of pendingRestores) {
                         if (disposed || listedJobIds.has(pending.jobId)) continue;
-                        const delivered = await hasDeliveredPendingTurnRestore(pending).catch(() => undefined);
-                        if (delivered === true) {
-                            await clearPendingTurnRestore(pending.roomId).catch((error) => {
-                                console.warn('Pending turn restore cleanup failed:', error);
-                            });
-                        } else if (delivered === false) {
-                            await restorePendingTurnForRoom(pending.roomId).catch((error) => {
-                                console.warn('Pending turn restore failed:', error);
-                            });
-                        }
+                        await recoverOrphanedPendingTurnRestore(pending, {
+                            canRecover: () => !disposed && !hasGenerationSession(pending.roomId),
+                            restore: restorePendingTurnForRoom,
+                        }).catch((error) => {
+                            console.warn('Pending turn recovery failed:', error);
+                        });
                     }
                     for (const job of jobs) {
                         void resumeConversationJob(job).catch((error) => {
@@ -893,7 +893,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             window.removeEventListener('online', handlePageShow);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
-    }, [refreshConversationRoom, restorePendingTurnForRoom, resumeConversationJob]);
+    }, [hasGenerationSession, refreshConversationRoom, restorePendingTurnForRoom, resumeConversationJob]);
 
     useEffect(() => {
         dismissChatNotice();

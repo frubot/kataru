@@ -6,6 +6,10 @@ export type AssistantMarkdownSegment = {
     content: string;
 };
 
+function isWhitespace(char: string | undefined): boolean {
+    return char !== undefined && /\s/.test(char);
+}
+
 function isEscapedMarker(content: string, index: number): boolean {
     let slashCount = 0;
     for (let i = index - 1; i >= 0 && content[i] === '\\'; i--) {
@@ -37,6 +41,7 @@ function pushSegment(segments: AssistantMarkdownSegment[], type: AssistantMarkdo
 
 export function formatAssistantMarkdown(content: string): string {
     return content
+        .replace(/([^*\s])\*\s+\*(?!\s|\*)/g, '$1 ')
         .replace(ITALIC_ACTION_MARKDOWN_GLOBAL, '\n\n$&\n\n')
         .replace(/[ \t]+\n/g, '\n')
         .replace(/\n[ \t]+/g, '\n')
@@ -61,9 +66,23 @@ export function splitAssistantMarkdownActions(content: string): AssistantMarkdow
             continue;
         }
 
+        let actionContent = content.slice(i + 1, closing);
+        let end = closing + 1;
+        for (;;) {
+            let next = end;
+            while (isWhitespace(content[next])) {
+                next++;
+            }
+            if (next === end || !isSingleItalicMarker(content, next)) break;
+            const nextClosing = findClosingItalicMarker(content, next);
+            if (nextClosing <= next + 1) break;
+            actionContent += content.slice(end, next) + content.slice(next + 1, nextClosing);
+            end = nextClosing + 1;
+        }
+
         pushSegment(segments, 'text', content.slice(textStart, i));
-        pushSegment(segments, 'action', content.slice(i + 1, closing));
-        i = closing + 1;
+        pushSegment(segments, 'action', actionContent);
+        i = end;
         textStart = i;
     }
 

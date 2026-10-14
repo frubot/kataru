@@ -64,6 +64,10 @@ describe('store pure helpers', () => {
         expect(toPreview('[emotion:happy] こんにちは <memory>非表示の記憶</memory>   世界'))
             .toBe('こんにちは 世界');
         expect(toPreview('a'.repeat(60))).toHaveLength(50);
+        expect(toPreview('', [
+            { id: '1', kind: 'image', name: 'photo.png', mimeType: 'image/png', data: 'data:image/png;base64,AA' },
+            { id: '2', kind: 'file', name: 'memo.txt', mimeType: 'text/plain', data: 'hello' },
+        ])).toBe('photo.png, memo.txt');
     });
 
     test('clears a stale draft marker after the room is found in SQLite', () => {

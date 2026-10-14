@@ -29,6 +29,12 @@ describe('chat continuation', () => {
             messages,
             blocked: true,
         })).toBe(false);
+        expect(isChatContinuationAvailable({
+            input: '',
+            hasAttachments: true,
+            messages,
+            blocked: false,
+        })).toBe(false);
     });
 
     test('uses the latest non-archived message', () => {

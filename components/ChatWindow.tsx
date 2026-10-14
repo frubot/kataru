@@ -8,7 +8,8 @@ import {
     SituationParticipant,
     RoomCompressionSnapshot,
 } from '@/lib/store';
-import type { MemoryRecord, SituationPriorMessage } from '@/lib/store';
+import type { MemoryRecord, MessageAttachment, SituationPriorMessage } from '@/lib/store';
+import { capMessageAttachmentData, readChatAttachmentFiles } from '@/lib/chatAttachments';
 import { serializeModelRef, type ModelRef, type ReasoningEffort } from '@/lib/modelDefaults';
 import {
     ChatGenerationJobError,
@@ -108,6 +109,7 @@ type EditingMessageDraft = {
     roomId: string;
     messageId: string;
     content: string;
+    attachments?: MessageAttachment[];
 };
 type ConversationCharacter = {
     id: string;
@@ -280,6 +282,7 @@ type ChatRetryRequest =
         kind: 'submit';
         roomId: string;
         input: string;
+        attachments?: MessageAttachment[];
         editDraft?: EditingMessageDraft;
         suggestedReply?: string;
     }
@@ -370,6 +373,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const isGroupRoom = situation != null || (groupCharacters != null && groupCharacters.length > 1);
     const rawRoomViewMode = resolveRoomViewMode(room);
     const currentRoomViewMode = rawRoomViewMode;
+    const isBasicMode = currentRoomViewMode === 'chat';
     const isMessageMode = currentRoomViewMode === 'message';
     const isVisualNovelMode = currentRoomViewMode === 'vn';
     const isSituationVisualNovelMode = isVisualNovelMode && isGroupRoom;
@@ -378,6 +382,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const isSecretMode = room?.secretMode === true;
     const showHeaderMemoryButton = !isSecretMode && !isGroupRoom && character != null && character.enableMemory !== false;
     const [input, setInput] = useState('');
+    const [attachments, setAttachments] = useState<MessageAttachment[]>([]);
     const [isSummarizing, setIsSummarizing] = useState(false);
     const [isMobile, setIsMobile] = useState(false);
     const [hoveredMessageId, setHoveredMessageId] = useState<string | null>(null);
@@ -401,6 +406,9 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const retrySubmissionRef = useRef<ChatRetryRequest | null>(null);
     const chatNoticeActionRunningRef = useRef(false);
     const messagePointerDragRef = useRef(false);
+    // 添付の読み込み完了時に入力コンテキストが変わっていたら結果を捨てるための世代。
+    // ルーム切替・表示モード変更・送信でインクリメントする。
+    const attachmentReadSessionRef = useRef(0);
     const previousVnBounceSnapshotRef = useRef<VisualNovelBounceSnapshot | null>(null);
     const {
         bounceActive: vnBounceActive,
@@ -901,8 +909,17 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     }, [currentRoomId, dismissChatNotice]);
 
     useEffect(() => {
+        attachmentReadSessionRef.current += 1;
         setEditingMessage(null);
+        setAttachments([]);
     }, [currentRoomId]);
+
+    useEffect(() => {
+        if (!isBasicMode) {
+            attachmentReadSessionRef.current += 1;
+            setAttachments([]);
+        }
+    }, [isBasicMode]);
 
     useEffect(() => {
         setVnLogOpen(false);
@@ -1094,7 +1111,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     character: toConversationCharacter(character),
                     situation: toConversationSituation(situation),
                     groupCharacters: groupCharacters?.map(toConversationParticipant),
-                    messages: sourceRoom.messages,
+                    messages: capMessageAttachmentData(sourceRoom.messages),
                     secretMode: isSecretMode,
                     summaryModel: serializeModelRef(globalSummaryModel),
                     conversationCompressionEnabled,
@@ -1186,6 +1203,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             !latestRoom
             || !isChatContinuationAvailable({
                 input,
+                hasAttachments: isBasicMode && attachments.length > 0,
                 messages: latestRoom.messages,
                 blocked: continuationBlocked,
             })
@@ -1222,11 +1240,18 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         editDraft?: EditingMessageDraft,
         suggestedReply?: string,
         inputOverride?: string,
+        attachmentsOverride?: MessageAttachment[],
     ) => {
         e?.preventDefault();
         const submittedInput = suggestedReply ?? editDraft?.content ?? inputOverride ?? input;
+        const submittedAttachments = suggestedReply
+            ? []
+            : editDraft
+                ? (editDraft.attachments ?? [])
+                : (isBasicMode ? (attachmentsOverride ?? attachments) : []);
+        const hasSubmittedAttachments = submittedAttachments.length > 0;
         if (
-            !submittedInput.trim()
+            (!submittedInput.trim() && !hasSubmittedAttachments)
             || !room
             || isLoading
             || isSummarizing
@@ -1309,9 +1334,19 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 setEditingMessage(null);
             } else {
                 setInput('');
+                if (!suggestedReply) {
+                    attachmentReadSessionRef.current += 1;
+                    setAttachments([]);
+                }
             }
 
-            const userMessageId = addMessage(room.id, 'user', userMessage);
+            const userMessageId = addMessage(
+                room.id,
+                'user',
+                userMessage,
+                undefined,
+                hasSubmittedAttachments ? { attachments: submittedAttachments } : undefined,
+            );
 
             const roomAfterUserMessage = getCurrentRoom();
             if (!roomAfterUserMessage) return;
@@ -1342,6 +1377,9 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 );
                 if (isCurrentRoomActive) {
                     setInput(submittedInput);
+                    if (!suggestedReply && hasSubmittedAttachments) {
+                        setAttachments(submittedAttachments);
+                    }
                     if (suggestedReply && previousReplySuggestionState?.roomId === room.id) {
                         setInput('');
                         setReplySuggestionState(previousReplySuggestionState);
@@ -1374,6 +1412,9 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                             kind: 'submit',
                             roomId: room.id,
                             input: userMessage,
+                            attachments: !editDraft && !suggestedReply && hasSubmittedAttachments
+                                ? submittedAttachments
+                                : undefined,
                             editDraft: editDraft ? { ...editDraft, content: submittedInput } : undefined,
                             suggestedReply,
                         };
@@ -1420,7 +1461,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         dismissChatNotice();
         const retryPromise = retry.kind === 'continue'
             ? handleContinue()
-            : handleSubmit(undefined, retry.editDraft, retry.suggestedReply, retry.input);
+            : handleSubmit(undefined, retry.editDraft, retry.suggestedReply, retry.input, retry.attachments);
         void retryPromise
             .catch((error) => {
                 logChatError('Chat retry failed:', error);
@@ -1540,6 +1581,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             roomId: room.id,
             messageId,
             content: latestMessage?.content ?? messageContent,
+            attachments: latestMessage?.attachments,
         });
         closeMention();
         setTouchedMessageId(null);
@@ -1876,6 +1918,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             roomId: room.id,
             messageId: latestEditableUserMessage.id,
             content: latestEditableUserMessage.content,
+            attachments: latestEditableUserMessage.attachments,
         });
         closeMention();
         setTouchedMessageId(null);
@@ -1916,14 +1959,37 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         || isSummarizing
         || situationVnInputLocked
         || (isEditingMessage && !isInlineVnEditing);
+    const activeAttachments = isBasicMode && !isEditingMessage ? attachments : [];
+    const hasActiveAttachments = activeAttachments.length > 0;
     const canContinue = isChatContinuationAvailable({
         input,
+        hasAttachments: hasActiveAttachments,
         messages: room?.messages ?? EMPTY_MESSAGES,
         blocked: chatInputDisabled || isEditingMessage,
     });
     const chatInputSubmitDisabled = chatInputDisabled || (isInlineVnEditing
-        ? !editingMessage?.content.trim()
-        : (!input.trim() && !canContinue) || isEditingMessage);
+        ? !editingMessage?.content.trim() && !(editingMessage?.attachments?.length)
+        : (!input.trim() && !hasActiveAttachments && !canContinue) || isEditingMessage);
+
+    const handleSelectAttachmentFiles = useCallback(async (files: File[]) => {
+        if (!isBasicMode || chatInputDisabled) return;
+        const readSession = attachmentReadSessionRef.current;
+        const { attachments: added, errors } = await readChatAttachmentFiles(files, {
+            existing: attachments,
+        });
+        // 読み込み中にルーム・表示モードが変わったり送信された場合は結果を捨てる。
+        if (readSession !== attachmentReadSessionRef.current) return;
+        if (added.length > 0) {
+            setAttachments((current) => [...current, ...added]);
+        }
+        if (errors.length > 0) {
+            showChatNotice(errors[0]);
+        }
+    }, [attachments, chatInputDisabled, isBasicMode, showChatNotice]);
+
+    const handleRemoveAttachment = useCallback((attachmentId: string) => {
+        setAttachments((current) => current.filter((item) => item.id !== attachmentId));
+    }, []);
 
     useEffect(() => {
         const wasLocked = previousSituationVnInputLockedRef.current;
@@ -1939,6 +2005,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         && !isEditingMessage
         && !situationVnInputLocked
         && !input.trim()
+        && !hasActiveAttachments
         && (replySuggestionState.loading || replySuggestionState.suggestions.length === 3);
     const handleChatInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         if (isInlineVnEditing) {
@@ -2193,6 +2260,10 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     value={chatInputValue}
                     onChange={handleChatInputChange}
                     onInsertAsterisk={handleInsertAsterisk}
+                    showAttachmentButton={isBasicMode}
+                    attachments={activeAttachments}
+                    onSelectAttachmentFiles={handleSelectAttachmentFiles}
+                    onRemoveAttachment={handleRemoveAttachment}
                     placeholder={chatInputPlaceholder}
                     disabled={chatInputDisabled}
                     redirectDisabled={

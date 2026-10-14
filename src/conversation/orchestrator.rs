@@ -37,8 +37,9 @@ use super::{
         DIRECTOR_TRANSCRIPT_USER_HISTORY, JEV_CONVERSATION_COMPLETE_OPTION, JEV_END_OPTION,
         JEV_PROTAGONIST_OPTION, SUMMARY_RECENT_USER_TURNS_TO_KEEP, actor_id, assistant_schema,
         boolean, character_setting, character_system_prompt, director_jev_first_questions,
-        director_jev_safe_question, director_jev_state, director_prompts, director_schema, string,
-        summary_prompts, summary_schema,
+        director_jev_safe_question, director_jev_state, director_prompts, director_schema,
+        message_image_attachment_urls, message_text_with_attachments, string, summary_prompts,
+        summary_schema,
     },
     response::{
         AssistantEnvelope, DirectorDecision, assistant_expression_preview,
@@ -863,7 +864,7 @@ async fn generate_for_character(
     request_messages.extend(history.iter().map(|message| {
         json!({
             "role": string(message, "role"),
-            "content": history_content(message),
+            "content": history_message_content(message),
         })
     }));
     let body = character_completion_body(character, request_messages, default_reasoning_effort);
@@ -1610,11 +1611,11 @@ async fn search_memories(
         .iter()
         .rev()
         .find(|message| string(message, "role") == "user")
-        .map(|message| string(message, "content"))
+        .map(|message| message_text_with_attachments(message, true))
         .unwrap_or_else(|| {
             messages
                 .iter()
-                .map(|message| string(message, "content"))
+                .map(|message| message_text_with_attachments(message, true))
                 .collect::<Vec<_>>()
                 .join("\n")
         });
@@ -1998,6 +1999,13 @@ fn memory_extraction_request(
         .collect::<Vec<_>>();
     recent.reverse();
     recent.extend(generated.iter().cloned());
+    for message in &mut recent {
+        let text = message_text_with_attachments(message, true);
+        if let Some(object) = message.as_object_mut() {
+            object.insert("content".into(), Value::String(text));
+            object.remove("attachments");
+        }
+    }
     let mut input = json!({
         "targetCharacter": string(&context.character, "name"),
         "characterSystemPrompt": character_setting(&context.character),
@@ -2137,11 +2145,15 @@ fn group_history_for_actor(
                 }
                 "user"
             };
-            json!({
+            let mut converted = json!({
                 "id": message.get("id").cloned().unwrap_or(Value::Null),
                 "role": output_role,
                 "content": content,
-            })
+            });
+            if let Some(attachments) = message.get("attachments").filter(|value| value.is_array()) {
+                converted["attachments"] = attachments.clone();
+            }
+            converted
         })
         .collect::<Vec<_>>();
     slice_by_user_history(&converted, history_limit)
@@ -2155,14 +2167,14 @@ fn director_transcript(messages: &[Value], actors: &[Value]) -> String {
     messages
         .iter()
         .map(|message| {
+            let content = message_text_with_attachments(message, true);
             if string(message, "role") == "user" {
-                format!("主人公: {}", string(message, "content"))
+                format!("主人公: {content}")
             } else {
                 let id = string(message, "characterId");
                 format!(
-                    "{}: {}",
+                    "{}: {content}",
                     names.get(&id).map(String::as_str).unwrap_or("???"),
-                    string(message, "content")
                 )
             }
         })
@@ -2455,9 +2467,60 @@ fn summary_checkpoint_user_message_id(
 }
 
 fn history_content(message: &Value) -> String {
-    insert_space_after_italic_action(
+    let base = insert_space_after_italic_action(
         &sanitize_message_content(&string(message, "content")).replace(['\r', '\n'], ""),
-    )
+    );
+    let mut sections = Vec::new();
+    if !base.is_empty() {
+        sections.push(base);
+    }
+    if let Some(attachments) = message.get("attachments").and_then(Value::as_array) {
+        for attachment in attachments {
+            let kind = string(attachment, "kind");
+            let name = string(attachment, "name");
+            let data = attachment
+                .get("data")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim();
+            if kind == "file" {
+                let label = if name.is_empty() { "ファイル" } else { &name };
+                if data.is_empty() {
+                    sections.push(format!("[添付ファイル: {label}]"));
+                } else {
+                    sections.push(format!("[添付ファイル: {label}]\n{data}"));
+                }
+            } else if kind == "image" && data.is_empty() {
+                // data を持つ画像は image_url パーツで送られるため、data が
+                // 削られた画像だけ名前のマーカーを残す。
+                let label = if name.is_empty() { "画像" } else { &name };
+                sections.push(format!("[添付画像: {label}]"));
+            }
+        }
+    }
+    sections.join("\n\n")
+}
+
+fn history_message_content(message: &Value) -> Value {
+    let text = history_content(message);
+    let images = message_image_attachment_urls(message);
+    if images.is_empty() {
+        return Value::String(text);
+    }
+    let mut parts = Vec::with_capacity(images.len() + usize::from(!text.is_empty()));
+    if !text.is_empty() {
+        parts.push(json!({
+            "type": "text",
+            "text": text,
+        }));
+    }
+    for url in images {
+        parts.push(json!({
+            "type": "image_url",
+            "image_url": { "url": url },
+        }));
+    }
+    Value::Array(parts)
 }
 
 fn insert_space_after_italic_action(content: &str) -> String {
@@ -3505,6 +3568,122 @@ mod tests {
         assert_eq!(
             resolve_jev_effective_choice(&answer, &eligible, 0.5),
             "actor-a"
+        );
+    }
+
+    #[test]
+    fn history_message_content_formats_file_and_image_attachments() {
+        let file_only = json!({
+            "role": "user",
+            "content": "これ読んで",
+            "attachments": [{
+                "id": "att-1",
+                "kind": "file",
+                "name": "memo.txt",
+                "mimeType": "text/plain",
+                "data": "一行目\n二行目"
+            }]
+        });
+        assert_eq!(
+            history_message_content(&file_only),
+            json!("これ読んで\n\n[添付ファイル: memo.txt]\n一行目\n二行目")
+        );
+
+        let image_and_text = json!({
+            "role": "user",
+            "content": "これ何？",
+            "attachments": [{
+                "id": "att-2",
+                "kind": "image",
+                "name": "photo.png",
+                "mimeType": "image/png",
+                "data": "data:image/png;base64,AAAA"
+            }]
+        });
+        assert_eq!(
+            history_message_content(&image_and_text),
+            json!([
+                {"type": "text", "text": "これ何？"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}
+            ])
+        );
+
+        let image_only = json!({
+            "role": "user",
+            "content": "",
+            "attachments": [{
+                "id": "att-3",
+                "kind": "image",
+                "name": "photo.png",
+                "mimeType": "image/png",
+                "data": "data:image/png;base64,BBBB"
+            }]
+        });
+        assert_eq!(
+            history_message_content(&image_only),
+            json!([
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,BBBB"}}
+            ])
+        );
+    }
+
+    #[test]
+    fn history_message_content_keeps_name_only_markers_for_dataless_attachments() {
+        let message = json!({
+            "role": "user",
+            "content": "これ何？",
+            "attachments": [
+                {
+                    "id": "att-img",
+                    "kind": "image",
+                    "name": "old.png",
+                    "mimeType": "image/png",
+                    "data": ""
+                },
+                {
+                    "id": "att-file",
+                    "kind": "file",
+                    "name": "old.txt",
+                    "mimeType": "text/plain",
+                    "data": ""
+                }
+            ]
+        });
+        assert_eq!(
+            history_message_content(&message),
+            json!("これ何？\n\n[添付画像: old.png]\n\n[添付ファイル: old.txt]")
+        );
+    }
+
+    #[test]
+    fn memory_extraction_request_replaces_image_attachments_with_text_placeholders() {
+        let mut context = extraction_context();
+        context.recent_history = vec![json!({
+            "role": "user",
+            "content": "",
+            "attachments": [
+                {
+                    "id": "att-img",
+                    "kind": "image",
+                    "name": "cat.png",
+                    "mimeType": "image/png",
+                    "data": "data:image/png;base64,SECRET_BASE64"
+                },
+                {
+                    "id": "att-file",
+                    "kind": "file",
+                    "name": "profile.txt",
+                    "mimeType": "text/plain",
+                    "data": "猫が大好き"
+                }
+            ]
+        })];
+        let (_system, input) = memory_extraction_request(&context, None, &[]);
+        let first_message = &input["recentMessages"][0];
+        assert!(first_message.get("attachments").is_none());
+        assert_eq!(
+            first_message["content"],
+            "[添付画像: cat.png]\n\n[添付ファイル: profile.txt]\n猫が大好き"
         );
     }
 }

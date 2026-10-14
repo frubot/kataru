@@ -5,7 +5,7 @@ use crate::{
     error::AppResult,
 };
 
-use super::prompts::{character_setting, string};
+use super::prompts::{character_setting, message_text_with_attachments, string};
 
 pub(super) const MEMORY_GATE_TIMEOUT_SECS: u64 = 15;
 const REASON_THRESHOLD: f64 = 0.5;
@@ -107,7 +107,7 @@ pub(super) fn memory_gate_state(turn: &MemoryGateTurn<'_>) -> Value {
                 } else {
                     character_name.as_str()
                 },
-                "text": truncate(&string(message, "content"), MESSAGE_MAX_CHARS),
+                "text": truncate(&message_text_with_attachments(message, true), MESSAGE_MAX_CHARS),
             })
         })
         .collect::<Vec<_>>();
@@ -237,7 +237,7 @@ fn new_probability(answer: &ChoiceAnswer) -> f64 {
 fn split_latest_turn(history: &[Value], continuation: bool) -> (&[Value], Option<String>) {
     match history.split_last() {
         Some((last, previous)) if !continuation && string(last, "role") == "user" => {
-            (previous, Some(string(last, "content")))
+            (previous, Some(message_text_with_attachments(last, true)))
         }
         _ => (history, None),
     }

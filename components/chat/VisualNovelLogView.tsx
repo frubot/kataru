@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { History, UserRound, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import type { Character } from '@/lib/store';
+import { formatMessageTextWithAttachments } from '@/lib/chatAttachments';
 import type {
     ChatMessagePresentation,
     ChatStreamingPreview,
@@ -103,7 +104,9 @@ export default function VisualNovelLogView({
         const roomEntries = messages.filter((message) => !message.mergedIntoPrevious).map((message) => ({
             id: message.id,
             role: message.role,
-            content: message.displayContent,
+            content: message.displayContent.trim()
+                ? message.displayContent
+                : formatMessageTextWithAttachments(message.displayContent, message.attachments),
             speakerName: message.role === 'user'
                 ? 'あなた'
                 : message.msgCharacterName ?? character?.name ?? 'Character',

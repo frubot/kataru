@@ -1,7 +1,9 @@
 import { memo, useEffect, useRef } from 'react';
-import { ArrowUp, Brain, Pencil, Copy, Check, GitBranch, Loader2, RefreshCw, Square, Volume2, X } from 'lucide-react';
+import { ArrowUp, Brain, Pencil, Copy, Check, FileText, GitBranch, Loader2, RefreshCw, Square, Volume2, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import { formatMessageTextWithAttachments } from '@/lib/chatAttachments';
 import { formatAssistantMarkdown, splitAssistantMarkdownActions } from '@/lib/markdownUtils';
+import type { MessageAttachment } from '@/lib/store';
 import { stopTtsPlayback, useTtsEntry } from '@/lib/ttsPlayer';
 import StoredImage from './StoredImage';
 
@@ -10,6 +12,7 @@ interface MessageBubbleProps {
     role: 'user' | 'assistant';
     content: string;
     displayContent: string;
+    attachments?: MessageAttachment[];
     index: number;
     isArchived: boolean;
     isLastMessage: boolean;
@@ -50,6 +53,7 @@ export default memo(function MessageBubble({
     role,
     content,
     displayContent,
+    attachments,
     index,
     isArchived,
     isLastMessage,
@@ -91,7 +95,13 @@ export default memo(function MessageBubble({
 
     const assistantContent = displayContent || '...';
     const assistantSegments = splitAssistantMarkdownActions(assistantContent);
-    const userSegments = splitAssistantMarkdownActions(content);
+    const hasAttachments = (attachments?.length ?? 0) > 0;
+    const userSegments = content.trim() || !hasAttachments
+        ? splitAssistantMarkdownActions(content)
+        : [];
+    const userCopyText = content.trim()
+        ? content
+        : formatMessageTextWithAttachments(content, attachments);
     const formatAssistantSegment = (segmentContent: string) => (
         formatAssistantActions ? formatAssistantMarkdown(segmentContent) : segmentContent
     );
@@ -156,6 +166,30 @@ export default memo(function MessageBubble({
                         onTouchStart(messageId);
                     }}
                 >
+                    {hasAttachments && (
+                        <div className="user-message-attachments animate-slide-up">
+                            {attachments!.map((attachment) => (
+                                attachment.kind === 'image' ? (
+                                    <div key={attachment.id} className="message-attachment-image-card">
+                                        <StoredImage
+                                            src={attachment.data}
+                                            alt={attachment.name}
+                                            className="message-attachment-image"
+                                        />
+                                    </div>
+                                ) : (
+                                    <div
+                                        key={attachment.id}
+                                        className="message-attachment-file-card"
+                                        title={attachment.name}
+                                    >
+                                        <FileText size={16} className="message-attachment-file-icon" />
+                                        <span className="message-attachment-file-name">{attachment.name}</span>
+                                    </div>
+                                )
+                            ))}
+                        </div>
+                    )}
                     {isEditing ? (
                         <form
                             className="inline-message-editor"
@@ -185,7 +219,7 @@ export default memo(function MessageBubble({
                                 <button
                                     type="submit"
                                     className="btn btn-primary"
-                                    disabled={isLoading || !editContent.trim()}
+                                    disabled={isLoading || (!editContent.trim() && !hasAttachments)}
                                 >
                                     <ArrowUp size={14} />
                                     送信
@@ -227,7 +261,7 @@ export default memo(function MessageBubble({
                         <button
                             type="button"
                             className="btn btn-ghost edit-btn message-action-button"
-                            onClick={() => onCopy(messageId, content)}
+                            onClick={() => onCopy(messageId, userCopyText)}
                             style={{
                                 color: isCopied ? 'var(--accent-primary)' : 'var(--text-muted)',
                                 transition: 'color 0.15s ease',

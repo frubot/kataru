@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import type {
     ChangeEvent,
     Dispatch,
@@ -7,7 +7,9 @@ import type {
     RefObject,
     SetStateAction,
 } from 'react';
-import { ArrowUp, ChevronsDown, Play, Square, X } from 'lucide-react';
+import { ArrowUp, ChevronsDown, FileText, Play, Plus, Square, X } from 'lucide-react';
+import { CHAT_ATTACHMENT_ACCEPT } from '@/lib/chatAttachments';
+import type { MessageAttachment } from '@/lib/store';
 import StoredImage from '../StoredImage';
 import ChatNoticeBanner from './ChatNoticeBanner';
 import type { ChatNotice } from './useChatNotice';
@@ -25,6 +27,10 @@ type ChatComposerProps<TMention extends MentionCandidate> = {
     value: string;
     onChange: (event: ChangeEvent<HTMLTextAreaElement>) => void;
     onInsertAsterisk: () => void;
+    showAttachmentButton?: boolean;
+    attachments?: MessageAttachment[];
+    onSelectAttachmentFiles?: (files: File[]) => void;
+    onRemoveAttachment?: (attachmentId: string) => void;
     placeholder: string;
     disabled: boolean;
     redirectDisabled: boolean;
@@ -60,6 +66,10 @@ export default function ChatComposer<TMention extends MentionCandidate>({
     value,
     onChange,
     onInsertAsterisk,
+    showAttachmentButton = false,
+    attachments = [],
+    onSelectAttachmentFiles,
+    onRemoveAttachment,
     placeholder,
     disabled,
     redirectDisabled,
@@ -88,6 +98,7 @@ export default function ChatComposer<TMention extends MentionCandidate>({
     onApplyMention,
     onCloseMention,
 }: ChatComposerProps<TMention>) {
+    const fileInputRef = useRef<HTMLInputElement>(null);
     useChatInputRedirect({
         inputRef,
         disabled: redirectDisabled,
@@ -190,7 +201,75 @@ export default function ChatComposer<TMention extends MentionCandidate>({
                     ))}
                 </div>
             )}
-            <form onSubmit={handleSubmit} className={`chat-input-wrapper ${isInlineEditing ? 'editing' : ''}`}>
+            {showAttachmentButton && attachments.length > 0 && (
+                <div className="chat-attachment-preview-list" aria-label="添付ファイル一覧">
+                    {attachments.map((attachment) => (
+                        <div
+                            key={attachment.id}
+                            className={`chat-attachment-preview-item ${attachment.kind === 'image' ? 'image' : 'file'}`}
+                            title={attachment.name}
+                        >
+                            {attachment.kind === 'image' ? (
+                                <img
+                                    src={attachment.data}
+                                    alt={attachment.name}
+                                    className="chat-attachment-preview-thumb"
+                                />
+                            ) : (
+                                <div className="chat-attachment-preview-file">
+                                    <FileText size={16} className="chat-attachment-preview-file-icon" />
+                                    <span className="chat-attachment-preview-file-name">{attachment.name}</span>
+                                </div>
+                            )}
+                            <button
+                                type="button"
+                                className="chat-attachment-preview-remove"
+                                onClick={() => onRemoveAttachment?.(attachment.id)}
+                                disabled={disabled}
+                                title={`${attachment.name} を削除`}
+                                aria-label={`${attachment.name} を削除`}
+                            >
+                                <X size={12} />
+                            </button>
+                        </div>
+                    ))}
+                </div>
+            )}
+            <form
+                onSubmit={handleSubmit}
+                className={`chat-input-wrapper ${isInlineEditing ? 'editing' : ''} ${showAttachmentButton ? 'with-attach' : ''}`}
+            >
+                {showAttachmentButton && (
+                    <>
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            multiple
+                            accept={CHAT_ATTACHMENT_ACCEPT}
+                            onChange={(event) => {
+                                const files = event.target.files;
+                                if (files && files.length > 0) {
+                                    onSelectAttachmentFiles?.(Array.from(files));
+                                }
+                                event.target.value = '';
+                            }}
+                            style={{ display: 'none' }}
+                            tabIndex={-1}
+                            aria-hidden="true"
+                        />
+                        <button
+                            type="button"
+                            className="btn btn-ghost chat-input-attach"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={disabled}
+                            title="画像やファイルを添付"
+                            aria-label="画像やファイルを添付"
+                        >
+                            <Plus size={18} />
+                        </button>
+                    </>
+                )}
                 <textarea
                     ref={inputRef}
                     className="input chat-input"

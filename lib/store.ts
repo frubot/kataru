@@ -72,6 +72,7 @@ export type {
     MemoryScope,
     MemorySearchParams,
     Message,
+    MessageAttachment,
     Room,
     RoomViewMode,
     RoomCompressionSnapshot,

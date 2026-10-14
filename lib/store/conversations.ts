@@ -280,7 +280,8 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
             );
             const id = branchedRoom.id;
             const messages = branchedRoom.messages;
-            branchedRoom.lastMessagePreview = toPreview(messages[messages.length - 1].content);
+            const lastBranched = messages[messages.length - 1];
+            branchedRoom.lastMessagePreview = toPreview(lastBranched.content, lastBranched.attachments);
 
             await db.bulkWrite({
                 rooms: [toStoredRoom(branchedRoom)],
@@ -576,10 +577,14 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
             const toCharacterIds = meta?.toCharacterIds
                 ?.map((id) => id.trim())
                 .filter(Boolean);
+            const attachments = meta?.attachments?.filter(
+                (attachment) => attachment.data.trim().length > 0,
+            );
             const message: Message = {
                 id: generateId(),
                 role,
                 content,
+                ...(attachments && attachments.length > 0 ? { attachments } : {}),
                 ...(characterId ? { characterId } : {}),
                 ...(toCharacterIds && toCharacterIds.length > 0 ? { toCharacterIds } : {}),
                 ...(meta?.expression ? { expression: meta.expression } : {}),
@@ -599,7 +604,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
                         messages: [...r.messages, message],
                         replySuggestions: undefined,
                         ...(isSecret ? {} : {
-                            lastMessagePreview: toPreview(content),
+                            lastMessagePreview: toPreview(content, message.attachments),
                             lastMessageAt: now,
                             updatedAt: now,
                         }),
@@ -631,7 +636,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
                             ...r,
                             messages,
                             replySuggestions: undefined,
-                            lastMessagePreview: newLast ? toPreview(newLast.content) : undefined,
+                            lastMessagePreview: newLast ? toPreview(newLast.content, newLast.attachments) : undefined,
                             lastMessageAt: newLast?.timestamp,
                             updatedAt: Date.now(),
                         };
@@ -663,7 +668,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
                             ...r,
                             messages,
                             replySuggestions: undefined,
-                            lastMessagePreview: newLast ? toPreview(newLast.content) : undefined,
+                            lastMessagePreview: newLast ? toPreview(newLast.content, newLast.attachments) : undefined,
                             lastMessageAt: newLast?.timestamp,
                             updatedAt: Date.now(),
                         };
@@ -738,7 +743,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
                             ...r,
                             messages: restored,
                             replySuggestions: undefined,
-                            lastMessagePreview: newLast ? toPreview(newLast.content) : undefined,
+                            lastMessagePreview: newLast ? toPreview(newLast.content, newLast.attachments) : undefined,
                             lastMessageAt: newLast?.timestamp,
                             updatedAt: Date.now(),
                         };

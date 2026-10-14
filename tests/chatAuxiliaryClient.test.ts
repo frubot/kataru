@@ -27,6 +27,40 @@ describe('auxiliary chat prompt messages', () => {
             { role: 'assistant', content: '回答', name: 'アリス' },
         ]);
     });
+
+    test('includes attachment-only messages with readable placeholders and file contents', () => {
+        const messages = [
+            {
+                id: 'u1',
+                role: 'user',
+                content: '',
+                attachments: [
+                    {
+                        id: 'att-1',
+                        kind: 'image',
+                        name: 'photo.png',
+                        mimeType: 'image/png',
+                        data: 'data:image/png;base64,AAAA',
+                    },
+                    {
+                        id: 'att-2',
+                        kind: 'file',
+                        name: 'note.txt',
+                        mimeType: 'text/plain',
+                        data: 'メモの内容',
+                    },
+                ],
+                timestamp: 1,
+            },
+        ] as Message[];
+
+        expect(buildPromptRequestMessages(messages)).toEqual([
+            {
+                role: 'user',
+                content: '[添付画像: photo.png]\n\n[添付ファイル: note.txt]\nメモの内容',
+            },
+        ]);
+    });
 });
 
 describe('room title generation', () => {

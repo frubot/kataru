@@ -276,7 +276,7 @@ pub fn summary_prompts(
     transcript.push_str("Please summarize the following conversation history:\n\n");
     for message in messages {
         let role = string(message, "role");
-        let content = string(message, "content");
+        let content = message_text_with_attachments(message, true);
         if role == "user" {
             transcript.push_str(&format!("User: {content}\n\n"));
         } else {
@@ -582,6 +582,52 @@ pub fn string(value: &Value, key: &str) -> String {
 
 pub fn boolean(value: &Value, key: &str) -> bool {
     value.get(key).and_then(Value::as_bool).unwrap_or(false)
+}
+
+pub fn message_text_with_attachments(message: &Value, include_image_placeholders: bool) -> String {
+    let mut sections = Vec::new();
+    let content = string(message, "content");
+    if !content.is_empty() {
+        sections.push(content);
+    }
+    if let Some(attachments) = message.get("attachments").and_then(Value::as_array) {
+        for attachment in attachments {
+            let kind = string(attachment, "kind");
+            let name = string(attachment, "name");
+            let data = attachment
+                .get("data")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim();
+            if kind == "file" {
+                let label = if name.is_empty() { "ファイル" } else { &name };
+                // data を削られた添付は内容なしのマーカーだけ残す。
+                if data.is_empty() {
+                    sections.push(format!("[添付ファイル: {label}]"));
+                } else {
+                    sections.push(format!("[添付ファイル: {label}]\n{data}"));
+                }
+            } else if include_image_placeholders && kind == "image" {
+                let label = if name.is_empty() { "画像" } else { &name };
+                sections.push(format!("[添付画像: {label}]"));
+            }
+        }
+    }
+    sections.join("\n\n")
+}
+
+pub fn message_image_attachment_urls(message: &Value) -> Vec<String> {
+    message
+        .get("attachments")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|attachment| string(attachment, "kind") == "image")
+        .filter_map(|attachment| attachment.get("data").and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|data| !data.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 fn truncate(value: &str, max_chars: usize) -> String {

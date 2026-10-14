@@ -416,6 +416,7 @@ export default function ChatMessagesView({
                 role={message.role}
                 content={message.content}
                 displayContent={message.displayContent}
+                attachments={message.attachments}
                 index={index}
                 isArchived={message.isArchived}
                 isLastMessage={index === lastVisibleMessageIndex}

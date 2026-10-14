@@ -1,5 +1,5 @@
 import * as db from '../db';
-import type { Room, Situation, StoreGet, StoreSet } from './types';
+import type { MessageAttachment, Room, Situation, StoreGet, StoreSet } from './types';
 
 export function fire(promise: Promise<unknown>): void {
     promise.catch((error) => console.error('[db]', error));
@@ -43,13 +43,20 @@ const PREVIEW_MAX = 50;
 const MEMORY_TAG_REGEX = /<memory>[\s\S]*?<\/memory>/gi;
 const EMOTION_TAG_REGEX = /^\s*\[emotion:[^\]\n]+\]\s*/i;
 
-export function toPreview(content: string): string {
+export function toPreview(content: string, attachments?: readonly MessageAttachment[]): string {
     const stripped = content
         .replace(MEMORY_TAG_REGEX, '')
         .replace(EMOTION_TAG_REGEX, '')
         .replace(/\s+/g, ' ')
         .trim();
-    return stripped.length > PREVIEW_MAX ? stripped.slice(0, PREVIEW_MAX) : stripped;
+    if (stripped) {
+        return stripped.length > PREVIEW_MAX ? stripped.slice(0, PREVIEW_MAX) : stripped;
+    }
+    const attachmentLabel = (attachments ?? [])
+        .map((attachment) => attachment.name.trim() || (attachment.kind === 'image' ? '画像' : 'ファイル'))
+        .filter(Boolean)
+        .join(', ');
+    return attachmentLabel.length > PREVIEW_MAX ? attachmentLabel.slice(0, PREVIEW_MAX) : attachmentLabel;
 }
 
 let currentRoomLoadSequence = 0;

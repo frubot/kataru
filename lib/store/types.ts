@@ -78,10 +78,23 @@ export interface Character {
     updatedAt: number;
 }
 
+export interface MessageAttachment {
+    id: string;
+    kind: 'image' | 'file';
+    name: string;
+    mimeType: string;
+    /**
+     * kind === 'image' の場合は画像の data URL ('data:image/...;base64,...')。
+     * kind === 'file' の場合はテキスト内容。
+     */
+    data: string;
+}
+
 export interface Message {
     id: string;
     role: 'user' | 'assistant';
     content: string;
+    attachments?: MessageAttachment[];
     characterId?: string;
     toCharacterIds?: string[];
     expression?: string;
@@ -486,7 +499,7 @@ export interface AppState {
     setRoomReplySuggestions: (id: string, replySuggestions?: RoomReplySuggestions) => void;
     setRoomSecretMode: (id: string, enabled: boolean) => void;
 
-    addMessage: (roomId: string, role: 'user' | 'assistant', content: string, characterId?: string, meta?: Pick<Message, 'expression' | 'motion' | 'memories' | 'toCharacterIds' | 'continuesPrevious'>) => string;
+    addMessage: (roomId: string, role: 'user' | 'assistant', content: string, characterId?: string, meta?: Pick<Message, 'expression' | 'motion' | 'memories' | 'toCharacterIds' | 'continuesPrevious' | 'attachments'>) => string;
     deleteLastMessage: (roomId: string) => void;
     deleteMessagesFrom: (roomId: string, fromIndex: number) => Promise<MemoryRecord[]>;
     restoreMessagesAt: (roomId: string, fromIndex: number, messages: Message[], memories?: MemoryRecord[]) => Promise<void>;

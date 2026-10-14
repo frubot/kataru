@@ -1,4 +1,5 @@
 import { serializeModelRef, type AiApiConfig, type ModelRef } from './aiApi';
+import { formatMessageTextWithAttachments } from './chatAttachments';
 import type { Message, SituationParticipant } from './store/types';
 
 export type PromptRequestMessage = {
@@ -13,16 +14,18 @@ export function buildPromptRequestMessages(
 ): PromptRequestMessage[] {
     const nameById = new Map((groupCharacters ?? []).map((participant) => [participant.id, participant.name]));
     return messages
-        .filter((message) => !message.archived && message.content.trim())
-        .map((message) => {
+        .filter((message) => !message.archived)
+        .flatMap((message) => {
+            const content = formatMessageTextWithAttachments(message.content, message.attachments);
+            if (!content) return [];
             const name = message.role === 'assistant' && message.characterId
                 ? nameById.get(message.characterId)
                 : undefined;
-            return {
+            return [{
                 role: message.role,
-                content: message.content,
+                content,
                 ...(name ? { name } : {}),
-            };
+            }];
         });
 }
 

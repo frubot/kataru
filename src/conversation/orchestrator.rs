@@ -776,7 +776,68 @@ fn push_error_debug_log(
     if let Some(status) = error_http_status(error) {
         log["httpStatus"] = json!(status);
     }
+    push_debug_log(logs, log);
+}
+
+// 添付画像の data URL が入るとログ1件が数十MBになるため、表示・保持用の
+// 文字列フィールドにある base64 ペイロードだけをプレースホルダーに置き換える。
+const DEBUG_LOG_REDACTED_KEYS: [&str; 4] = ["prompt", "json", "reasoning", "secondJson"];
+
+fn push_debug_log(logs: &mut Vec<Value>, mut log: Value) {
+    if let Some(object) = log.as_object_mut() {
+        for key in DEBUG_LOG_REDACTED_KEYS {
+            let Some(text) = object.get(key).and_then(Value::as_str) else {
+                continue;
+            };
+            let redacted = redact_base64_data_urls(text);
+            if redacted != text {
+                object.insert(key.to_owned(), Value::String(redacted));
+            }
+        }
+    }
     logs.push(log);
+}
+
+/// `data:<mediatype>;base64,<payload>` のペイロード部分を `[base64省略:Nchars]`
+/// に置き換える。JSON文字列内では `"`・`\`・空白が必ず区切りになる。
+fn redact_base64_data_urls(text: &str) -> String {
+    if !text.contains(";base64,") {
+        return text.to_owned();
+    }
+    let mut result = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(scheme_at) = rest.find("data:") {
+        let head_end = scheme_at + "data:".len();
+        let segment_end = rest[head_end..]
+            .find(|c: char| matches!(c, '"' | '\'' | '\\') || c.is_whitespace())
+            .map(|offset| head_end + offset)
+            .unwrap_or(rest.len());
+        let comma_at = rest[head_end..segment_end]
+            .find(',')
+            .map(|offset| head_end + offset);
+        let base64_meta = comma_at.is_some_and(|comma_at| {
+            rest[head_end..comma_at].rsplit(';').next() == Some("base64")
+        });
+        if !base64_meta {
+            result.push_str(&rest[..head_end]);
+            rest = &rest[head_end..];
+            continue;
+        }
+        let payload_start = comma_at.expect("checked above") + 1;
+        let payload_len = rest[payload_start..]
+            .find(|c: char| !c.is_ascii_alphanumeric() && !matches!(c, '+' | '/' | '='))
+            .unwrap_or(rest.len() - payload_start);
+        if payload_len == 0 {
+            result.push_str(&rest[..payload_start]);
+            rest = &rest[payload_start..];
+            continue;
+        }
+        result.push_str(&rest[..payload_start]);
+        result.push_str(&format!("[base64省略:{payload_len}chars]"));
+        rest = &rest[payload_start + payload_len..];
+    }
+    result.push_str(rest);
+    result
 }
 
 fn character_completion_body(
@@ -962,7 +1023,7 @@ async fn generate_for_character(
         if let Some(reasoning) = extract_message_reasoning(&raw) {
             log["reasoning"] = json!(reasoning);
         }
-        full_json_logs.push(log);
+        push_debug_log(full_json_logs, log);
     }
     Ok(envelope_to_messages(
         envelope,
@@ -1161,7 +1222,7 @@ async fn request_director(
         if let Some(reasoning) = extract_message_reasoning(&raw) {
             log["reasoning"] = json!(reasoning);
         }
-        full_json_logs.push(log);
+        push_debug_log(full_json_logs, log);
     }
     Ok(decision)
 }
@@ -1443,7 +1504,7 @@ async fn request_director_typesafe(
                 serde_json::to_string_pretty(second).expect("Jev response must be serializable"),
             );
         }
-        full_json_logs.push(log);
+        push_debug_log(full_json_logs, log);
     }
 
     Ok(DirectorDecision {
@@ -1879,7 +1940,7 @@ async fn request_memory_gate(
                 &debug_context.model,
                 "memory-gate",
             );
-            full_json_logs.push(json!({
+            push_debug_log(full_json_logs, json!({
                 "roomId": string(room, "id"),
                 "roomName": string(room, "name"),
                 "characterId": debug_context.character_id,
@@ -3684,6 +3745,68 @@ mod tests {
         assert_eq!(
             first_message["content"],
             "[添付画像: cat.png]\n\n[添付ファイル: profile.txt]\n猫が大好き"
+        );
+    }
+
+    #[test]
+    fn debug_logs_omit_base64_image_payloads() {
+        let prompt = serde_json::to_string_pretty(&json!([
+            {"role": "user", "content": [
+                {"type": "text", "text": "これ何？"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,QUJDREVGRw=="}},
+            ]},
+        ]))
+        .expect("serializable");
+        let mut logs = Vec::new();
+
+        push_debug_log(
+            &mut logs,
+            json!({
+                "prompt": prompt,
+                "json": "{\"message\": \"ok\"}",
+                "reasoning": "data:image/png;base64,UkVBU09O",
+                "secondJson": "data:;base64,U0VDT05E",
+            }),
+        );
+
+        let prompt = logs[0]["prompt"].as_str().expect("prompt string");
+        assert!(prompt.contains("data:image/png;base64,[base64省略:12chars]"));
+        assert!(!prompt.contains("QUJDREVGRw=="));
+        assert_eq!(logs[0]["json"], "{\"message\": \"ok\"}");
+        assert_eq!(
+            logs[0]["reasoning"],
+            "data:image/png;base64,[base64省略:8chars]"
+        );
+        assert_eq!(logs[0]["secondJson"], "data:;base64,[base64省略:8chars]");
+    }
+
+    #[test]
+    fn base64_redaction_keeps_non_data_url_text() {
+        assert_eq!(
+            redact_base64_data_urls("base64の話;base64,ではない"),
+            "base64の話;base64,ではない"
+        );
+        assert_eq!(
+            redact_base64_data_urls("data:text/plain,hello"),
+            "data:text/plain,hello"
+        );
+        assert_eq!(
+            redact_base64_data_urls("data:image/png;base64,"),
+            "data:image/png;base64,"
+        );
+        // `data:` 以降に引用符がある場合は別用途の文字列として残す。
+        assert_eq!(
+            redact_base64_data_urls("key: \"data:\" value"),
+            "key: \"data:\" value"
+        );
+    }
+
+    #[test]
+    fn base64_redaction_handles_multiple_urls_and_text() {
+        let text = "前 data:image/png;base64,QUJD 中 \"data:image/jpeg;base64,QUJDREU=\" 後";
+        assert_eq!(
+            redact_base64_data_urls(text),
+            "前 data:image/png;base64,[base64省略:4chars] 中 \"data:image/jpeg;base64,[base64省略:8chars]\" 後"
         );
     }
 }

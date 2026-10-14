@@ -1,0 +1,38 @@
+name: Audit
+
+# 週次の依存関係監査。advisoryはいつでも降ってくるため、PRチェックに
+# 入れると無関係なPRが赤くなる。ここではスケジュール実行だけに限定し、
+# PR/push時の挙動は変えない。
+on:
+  schedule:
+    # 毎週月曜 15:00 UTC（日本時間 月曜 24:00）
+    - cron: "0 15 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # package-lock.jsonがあれば監査できるため、npm installは不要。
+      - name: npm audit (fail on high or critical)
+        run: npm audit --audit-level=high
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      - name: cargo audit
+        run: cargo audit

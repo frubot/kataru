@@ -11,6 +11,8 @@ cargo test
 cargo clippy --all-targets -- -D warnings
 npm run build:binary
 npm run smoke:binary
+npm audit            # 依存関係の脆弱性監査（high以上でfail）
+cargo audit          # 依存関係の脆弱性監査（CIは週次、.github/workflows/audit.yml）
 ```
 
 ## 構成

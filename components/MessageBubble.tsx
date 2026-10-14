@@ -46,6 +46,7 @@ interface MessageBubbleProps {
     onOpenMemoryList: (characterId?: string) => void;
     onRevealTypewriter?: () => void;
     onTtsToggle?: () => void;
+    onPreviewImage?: (src: string, name: string) => void;
 }
 
 export default memo(function MessageBubble({
@@ -87,6 +88,7 @@ export default memo(function MessageBubble({
     onOpenMemoryList,
     onRevealTypewriter,
     onTtsToggle,
+    onPreviewImage,
 }: MessageBubbleProps) {
     const editTextareaRef = useRef<HTMLTextAreaElement>(null);
     const { status: ttsStatus } = useTtsEntry(messageId);
@@ -170,13 +172,30 @@ export default memo(function MessageBubble({
                         <div className="user-message-attachments animate-slide-up">
                             {attachments!.map((attachment) => (
                                 attachment.kind === 'image' ? (
-                                    <div key={attachment.id} className="message-attachment-image-card">
-                                        <StoredImage
-                                            src={attachment.data}
-                                            alt={attachment.name}
-                                            className="message-attachment-image"
-                                        />
-                                    </div>
+                                    attachment.data && onPreviewImage ? (
+                                        <button
+                                            key={attachment.id}
+                                            type="button"
+                                            className="message-attachment-image-card message-attachment-image-button"
+                                            onClick={() => onPreviewImage(attachment.data, attachment.name)}
+                                            title={`${attachment.name} を拡大表示`}
+                                            aria-label={`${attachment.name} を拡大表示`}
+                                        >
+                                            <StoredImage
+                                                src={attachment.data}
+                                                alt={attachment.name}
+                                                className="message-attachment-image"
+                                            />
+                                        </button>
+                                    ) : (
+                                        <div key={attachment.id} className="message-attachment-image-card">
+                                            <StoredImage
+                                                src={attachment.data}
+                                                alt={attachment.name}
+                                                className="message-attachment-image"
+                                            />
+                                        </div>
+                                    )
                                 ) : (
                                     <div
                                         key={attachment.id}

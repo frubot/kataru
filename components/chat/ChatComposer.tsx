@@ -31,6 +31,7 @@ type ChatComposerProps<TMention extends MentionCandidate> = {
     attachments?: MessageAttachment[];
     onSelectAttachmentFiles?: (files: File[]) => void;
     onRemoveAttachment?: (attachmentId: string) => void;
+    onPreviewAttachmentImage?: (src: string, name: string) => void;
     placeholder: string;
     disabled: boolean;
     redirectDisabled: boolean;
@@ -70,6 +71,7 @@ export default function ChatComposer<TMention extends MentionCandidate>({
     attachments = [],
     onSelectAttachmentFiles,
     onRemoveAttachment,
+    onPreviewAttachmentImage,
     placeholder,
     disabled,
     redirectDisabled,
@@ -210,11 +212,27 @@ export default function ChatComposer<TMention extends MentionCandidate>({
                             title={attachment.name}
                         >
                             {attachment.kind === 'image' ? (
-                                <img
-                                    src={attachment.data}
-                                    alt={attachment.name}
-                                    className="chat-attachment-preview-thumb"
-                                />
+                                onPreviewAttachmentImage && attachment.data ? (
+                                    <button
+                                        type="button"
+                                        className="chat-attachment-preview-thumb-button"
+                                        onClick={() => onPreviewAttachmentImage(attachment.data, attachment.name)}
+                                        title={`${attachment.name} を拡大表示`}
+                                        aria-label={`${attachment.name} を拡大表示`}
+                                    >
+                                        <img
+                                            src={attachment.data}
+                                            alt={attachment.name}
+                                            className="chat-attachment-preview-thumb"
+                                        />
+                                    </button>
+                                ) : (
+                                    <img
+                                        src={attachment.data}
+                                        alt={attachment.name}
+                                        className="chat-attachment-preview-thumb"
+                                    />
+                                )
                             ) : (
                                 <div className="chat-attachment-preview-file">
                                     <FileText size={16} className="chat-attachment-preview-file-icon" />

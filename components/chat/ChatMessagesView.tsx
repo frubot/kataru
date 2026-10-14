@@ -174,6 +174,7 @@ type ChatMessagesViewProps = {
     onOpenMemoryList: (characterId?: string) => void;
     onRevealTypewriter: () => void;
     onTtsPlay?: (messageId: string) => void;
+    onPreviewImage?: (src: string, name: string) => void;
 };
 
 function Avatar({ character, name }: { character?: Character | null; name?: string }) {
@@ -226,6 +227,7 @@ export default function ChatMessagesView({
     onOpenMemoryList,
     onRevealTypewriter,
     onTtsPlay,
+    onPreviewImage,
 }: ChatMessagesViewProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const virtualListRef = useRef<HTMLDivElement>(null);
@@ -450,6 +452,7 @@ export default function ChatMessagesView({
                 onOpenMemoryList={onOpenMemoryList}
                 onRevealTypewriter={onRevealTypewriter}
                 onTtsToggle={onTtsPlay ? () => onTtsPlay(message.id) : undefined}
+                onPreviewImage={onPreviewImage}
             />
         );
     };

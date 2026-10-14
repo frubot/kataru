@@ -63,6 +63,7 @@ import {
     shouldTriggerVisualNovelBounce,
 } from '@/lib/visualNovelPresentation';
 import type { VisualNovelBounceSnapshot } from '@/lib/visualNovelPresentation';
+import AttachmentImageModal, { type PreviewedAttachmentImage } from './chat/AttachmentImageModal';
 import ChatComposer from './chat/ChatComposer';
 import ChatHeader from './chat/ChatHeader';
 import ChatMessagesView from './chat/ChatMessagesView';
@@ -394,6 +395,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const [developerInspectorOpen, setDeveloperInspectorOpen] = useState(false);
     const [vnLogOpen, setVnLogOpen] = useState(false);
     const [vnAutoPlay, setVnAutoPlay] = useState(false);
+    const [previewAttachmentImage, setPreviewAttachmentImage] = useState<PreviewedAttachmentImage | null>(null);
     const [streamingPreview, setStreamingPreview] = useState<ChatStreamingPreview | null>(null);
     const [streamedFinalMessageIds, setStreamedFinalMessageIds] = useState<Set<string>>(() => new Set());
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -923,6 +925,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
 
     useEffect(() => {
         setVnLogOpen(false);
+        setPreviewAttachmentImage(null);
     }, [currentRoomId, currentRoomViewMode]);
 
     useEffect(() => {
@@ -1991,6 +1994,11 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         setAttachments((current) => current.filter((item) => item.id !== attachmentId));
     }, []);
 
+    const handlePreviewAttachmentImage = useCallback((src: string, name: string) => {
+        if (!src) return;
+        setPreviewAttachmentImage({ src, name });
+    }, []);
+
     useEffect(() => {
         const wasLocked = previousSituationVnInputLockedRef.current;
         previousSituationVnInputLockedRef.current = situationVnInputLocked;
@@ -2250,6 +2258,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     onOpenMemoryList={handleOpenMessageMemoryList}
                     onRevealTypewriter={() => stopTypewriter(true)}
                     onTtsPlay={ttsEnabled ? playTtsMessage : undefined}
+                    onPreviewImage={handlePreviewAttachmentImage}
                 />
             )}
 
@@ -2264,6 +2273,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     attachments={activeAttachments}
                     onSelectAttachmentFiles={handleSelectAttachmentFiles}
                     onRemoveAttachment={handleRemoveAttachment}
+                    onPreviewAttachmentImage={handlePreviewAttachmentImage}
                     placeholder={chatInputPlaceholder}
                     disabled={chatInputDisabled}
                     redirectDisabled={
@@ -2320,6 +2330,12 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     memoryEnabled={memoryInspectorEnabled}
                     summaryEnabled={summaryInspectorEnabled}
                     onClose={() => setDeveloperInspectorOpen(false)}
+                />
+            )}
+            {previewAttachmentImage && (
+                <AttachmentImageModal
+                    image={previewAttachmentImage}
+                    onClose={() => setPreviewAttachmentImage(null)}
                 />
             )}
         </div>

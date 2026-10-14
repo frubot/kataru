@@ -1,14 +1,19 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type {
     ChangeEvent,
     Dispatch,
+    DragEvent,
     FormEvent,
     ReactNode,
     RefObject,
     SetStateAction,
 } from 'react';
 import { ArrowUp, ChevronsDown, FileText, Play, Plus, Square, X } from 'lucide-react';
-import { CHAT_ATTACHMENT_ACCEPT } from '@/lib/chatAttachments';
+import {
+    CHAT_ATTACHMENT_ACCEPT,
+    extractDroppedAttachmentFiles,
+    hasDraggedAttachmentFiles,
+} from '@/lib/chatAttachments';
 import type { MessageAttachment } from '@/lib/store';
 import StoredImage from '../StoredImage';
 import ChatNoticeBanner from './ChatNoticeBanner';
@@ -101,6 +106,9 @@ export default function ChatComposer<TMention extends MentionCandidate>({
     onCloseMention,
 }: ChatComposerProps<TMention>) {
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+    const canDropAttachments = showAttachmentButton && !disabled && Boolean(onSelectAttachmentFiles);
+    const isFileDropActive = canDropAttachments && isDraggingFiles;
     useChatInputRedirect({
         inputRef,
         disabled: redirectDisabled,
@@ -138,6 +146,56 @@ export default function ChatComposer<TMention extends MentionCandidate>({
             onSubmitEdit();
         } else {
             onSubmit();
+        }
+    };
+
+    const handleDragEnter = (event: DragEvent<HTMLFormElement>) => {
+        if (!showAttachmentButton || !hasDraggedAttachmentFiles(event.dataTransfer)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (!canDropAttachments) {
+            event.dataTransfer.dropEffect = 'none';
+            setIsDraggingFiles(false);
+            return;
+        }
+        event.dataTransfer.dropEffect = 'copy';
+        setIsDraggingFiles(true);
+    };
+
+    const handleDragOver = (event: DragEvent<HTMLFormElement>) => {
+        if (!showAttachmentButton || !hasDraggedAttachmentFiles(event.dataTransfer)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (!canDropAttachments) {
+            event.dataTransfer.dropEffect = 'none';
+            if (isDraggingFiles) setIsDraggingFiles(false);
+            return;
+        }
+        event.dataTransfer.dropEffect = 'copy';
+        if (!isDraggingFiles) setIsDraggingFiles(true);
+    };
+
+    const handleDragLeave = (event: DragEvent<HTMLFormElement>) => {
+        if (!showAttachmentButton) return;
+        const relatedTarget = event.relatedTarget;
+        if (relatedTarget instanceof Node && event.currentTarget.contains(relatedTarget)) {
+            return;
+        }
+        setIsDraggingFiles(false);
+    };
+
+    const handleDrop = (event: DragEvent<HTMLFormElement>) => {
+        if (!showAttachmentButton || !hasDraggedAttachmentFiles(event.dataTransfer)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setIsDraggingFiles(false);
+        if (!canDropAttachments) return;
+        const files = extractDroppedAttachmentFiles(event.dataTransfer);
+        if (files.length > 0) {
+            onSelectAttachmentFiles?.(files);
+            if (!isMobile) {
+                inputRef.current?.focus();
+            }
         }
     };
 
@@ -255,7 +313,11 @@ export default function ChatComposer<TMention extends MentionCandidate>({
             )}
             <form
                 onSubmit={handleSubmit}
-                className={`chat-input-wrapper ${isInlineEditing ? 'editing' : ''} ${showAttachmentButton ? 'with-attach' : ''}`}
+                onDragEnter={handleDragEnter}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                className={`chat-input-wrapper ${isInlineEditing ? 'editing' : ''} ${showAttachmentButton ? 'with-attach' : ''} ${isFileDropActive ? 'file-drop-active' : ''}`}
             >
                 {showAttachmentButton && (
                     <>

@@ -4,6 +4,8 @@ import {
     MAX_TOTAL_ATTACHMENT_DATA_BYTES,
     capMessageAttachmentData,
     chatAttachmentDataBytes,
+    extractDroppedAttachmentFiles,
+    hasDraggedAttachmentFiles,
     readChatAttachmentFiles,
 } from '../lib/chatAttachments';
 import type { Message, MessageAttachment } from '../lib/store';
@@ -179,5 +181,22 @@ describe('capMessageAttachmentData', () => {
         expect(result[2].attachments?.[0].data).toBe(big('N'));
         expect(result[1].attachments?.[0].data).toBe('');
         expect(result[0].attachments?.[0].data).toBe('小さいファイル');
+    });
+});
+
+describe('dragged attachment file helpers', () => {
+    test('detects dragged files from DataTransfer types or files list', () => {
+        expect(hasDraggedAttachmentFiles(null)).toBe(false);
+        expect(hasDraggedAttachmentFiles({ types: ['text/plain'] })).toBe(false);
+        expect(hasDraggedAttachmentFiles({ types: ['text/plain', 'Files'] })).toBe(true);
+        const file = new File(['hello'], 'note.txt', { type: 'text/plain' });
+        expect(hasDraggedAttachmentFiles({ types: [], files: [file] })).toBe(true);
+    });
+
+    test('extracts dropped files as an array', () => {
+        expect(extractDroppedAttachmentFiles(null)).toEqual([]);
+        const fileA = new File(['a'], 'a.txt', { type: 'text/plain' });
+        const fileB = new File(['b'], 'b.txt', { type: 'text/plain' });
+        expect(extractDroppedAttachmentFiles({ files: [fileA, fileB] })).toEqual([fileA, fileB]);
     });
 });

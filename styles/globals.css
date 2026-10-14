@@ -4227,6 +4227,11 @@ body {
   box-shadow: 0 0 0 2px rgba(var(--accent-primary-rgb), 0.12);
 }
 
+.chat-input-wrapper.file-drop-active .chat-input {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(var(--accent-primary-rgb), 0.24);
+}
+
 .chat-input-wrapper.editing .chat-input {
   padding-right: 136px;
 }

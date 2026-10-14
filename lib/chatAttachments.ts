@@ -177,6 +177,23 @@ export function isKnownTextFile(file: Pick<File, 'name' | 'type'>): boolean {
     return SUPPORTED_TEXT_EXTENSIONS.has(getLowerExtension(file.name));
 }
 
+export function hasDraggedAttachmentFiles(
+    dataTransfer: { types?: ArrayLike<string>; files?: ArrayLike<File> } | null | undefined,
+): boolean {
+    if (!dataTransfer) return false;
+    if (dataTransfer.types && Array.from(dataTransfer.types).includes('Files')) {
+        return true;
+    }
+    return (dataTransfer.files?.length ?? 0) > 0;
+}
+
+export function extractDroppedAttachmentFiles(
+    dataTransfer: { files?: ArrayLike<File> | Iterable<File> } | null | undefined,
+): File[] {
+    if (!dataTransfer?.files) return [];
+    return Array.from(dataTransfer.files);
+}
+
 function readFileAsDataUrl(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();

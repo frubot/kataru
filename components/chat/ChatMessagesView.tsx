@@ -34,10 +34,12 @@ function SituationPriorMessageBubble({
     presentation,
     index,
     formatAssistantActions,
+    isMessageMode,
 }: {
     presentation: PriorMessagePresentation;
     index: number;
     formatAssistantActions: boolean;
+    isMessageMode: boolean;
 }) {
     const { message, character, isAssistantContinuation } = presentation;
     return (
@@ -54,6 +56,7 @@ function SituationPriorMessageBubble({
             isCopied={false}
             formatAssistantActions={formatAssistantActions}
             isAssistantContinuation={isAssistantContinuation}
+            isMessageMode={isMessageMode}
             showAssistantActions={false}
             showBranchAction={false}
             showMemoryIndicator={false}
@@ -410,6 +413,7 @@ export default function ChatMessagesView({
                     presentation={item.presentation}
                     index={item.presentationIndex}
                     formatAssistantActions={formatAssistantActions}
+                    isMessageMode={isMessageMode}
                 />
             );
         }
@@ -432,6 +436,7 @@ export default function ChatMessagesView({
                 isTypewriterActive={isTypewriterActive && message.id === typingMessageId}
                 formatAssistantActions={formatAssistantActions}
                 isAssistantContinuation={message.isAssistantContinuation}
+                isMessageMode={isMessageMode}
                 showAssistantActions={message.showAssistantActions}
                 showBranchAction={message.showBranchAction}
                 showMemoryIndicator={message.showMemoryIndicator}
@@ -550,6 +555,7 @@ export default function ChatMessagesView({
                         isCopied={false}
                         formatAssistantActions={formatAssistantActions}
                         isAssistantContinuation={bubble.continuation}
+                        isMessageMode={isMessageMode}
                         showAssistantActions={false}
                         showBranchAction={false}
                         showMemoryIndicator={false}

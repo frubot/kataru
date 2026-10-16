@@ -23,6 +23,8 @@ interface MessageBubbleProps {
     isTypewriterActive?: boolean;
     formatAssistantActions?: boolean;
     isAssistantContinuation?: boolean;
+    /** メッセージモードではキャラ側の各バブルが独立したメッセージとして扱われる。 */
+    isMessageMode?: boolean;
     showAssistantActions?: boolean;
     showBranchAction?: boolean;
     showMemoryIndicator: boolean;
@@ -65,6 +67,7 @@ export default memo(function MessageBubble({
     isTypewriterActive,
     formatAssistantActions = true,
     isAssistantContinuation = false,
+    isMessageMode = false,
     showAssistantActions = true,
     showBranchAction = false,
     showMemoryIndicator,
@@ -93,6 +96,10 @@ export default memo(function MessageBubble({
     const editTextareaRef = useRef<HTMLTextAreaElement>(null);
     const { status: ttsStatus } = useTtsEntry(messageId);
     const isUserMessage = role === 'user';
+    // メッセージモードでは、連続する同一キャラのバブルもそれぞれ独立した
+    // メッセージとしてアイコンと名前を表示する (連結バブル扱いにしない)。
+    const showsCharacterHeader = isMessageMode || !isAssistantContinuation;
+    const isContinuationRow = isAssistantContinuation && !isMessageMode;
     const showRegenerateBtn = isLastMessage && role === 'assistant' && !isLoading;
 
     const assistantContent = displayContent || '...';
@@ -117,7 +124,7 @@ export default memo(function MessageBubble({
     }, [isEditing]);
 
     return (
-        <div className={isAssistantContinuation ? 'message-continuation' : undefined} style={isArchived ? { opacity: 0.45 } : undefined}>
+        <div className={isContinuationRow ? 'message-continuation' : undefined} style={isArchived ? { opacity: 0.45 } : undefined}>
             {showArchiveDivider && (
                 <div style={{
                     display: 'flex',
@@ -318,7 +325,7 @@ export default memo(function MessageBubble({
                     style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}
                 >
                     <div
-                        aria-hidden={isAssistantContinuation}
+                        aria-hidden={!showsCharacterHeader}
                         style={{
                             flexShrink: 0,
                             width: '2rem',
@@ -328,10 +335,10 @@ export default memo(function MessageBubble({
                             marginTop: '0.25rem',
                             background: 'var(--bg-secondary)',
                             border: '1px solid var(--border-color)',
-                            visibility: isAssistantContinuation ? 'hidden' : undefined,
+                            visibility: showsCharacterHeader ? undefined : 'hidden',
                         }}
                     >
-                        {!isAssistantContinuation && (
+                        {showsCharacterHeader && (
                             characterIcon ? (
                                 <StoredImage src={characterIcon} alt={characterName ?? 'character'} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                             ) : (
@@ -342,7 +349,7 @@ export default memo(function MessageBubble({
                         )}
                     </div>
                     <div className="assistant-message-content">
-                    {isGroupRoom && characterName && !isAssistantContinuation && (
+                    {isGroupRoom && characterName && showsCharacterHeader && (
                         <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.125rem', marginLeft: '0.25rem', fontWeight: 500 }}>
                             {characterName}
                         </div>

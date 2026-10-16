@@ -192,6 +192,7 @@ describe('streaming preview presentation', () => {
             },
             room: room([message('assistant', 'assistant', 'done')]),
             isLoading: true,
+            isMessageMode: false,
             characterMap: null,
             character,
         });
@@ -206,6 +207,7 @@ describe('streaming preview presentation', () => {
             streamingPreview: preview,
             room: room([message('user', 'user', 'hello')]),
             isLoading: true,
+            isMessageMode: false,
             characterMap: null,
             character,
         });
@@ -241,6 +243,7 @@ describe('streaming preview presentation', () => {
             },
             room: room([message('user', 'user', 'hello')]),
             isLoading: true,
+            isMessageMode: false,
             characterMap: null,
             character,
         });
@@ -297,6 +300,7 @@ describe('streaming preview presentation', () => {
                 message('assistant-1', 'assistant', 'one', { characterId: 'char-a' }),
             ]),
             isLoading: true,
+            isMessageMode: false,
             characterMap: null,
             character,
         });
@@ -320,6 +324,7 @@ describe('streaming preview presentation', () => {
                 message('assistant-1', 'assistant', 'one', { characterId: 'character-1' }),
             ]),
             isLoading: true,
+            isMessageMode: false,
             characterMap: null,
             character,
         });
@@ -345,6 +350,7 @@ describe('streaming preview presentation', () => {
                 message('assistant-1', 'assistant', 'one', { characterId: 'char-a' }),
             ]),
             isLoading: true,
+            isMessageMode: false,
             characterMap: new Map(),
             character,
         });
@@ -370,6 +376,7 @@ describe('streaming preview presentation', () => {
                 message('assistant-1', 'assistant', 'one', { characterId: 'character-1' }),
             ]),
             isLoading: true,
+            isMessageMode: false,
             characterMap: null,
             character,
         });

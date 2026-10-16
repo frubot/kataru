@@ -87,6 +87,14 @@ pub fn character_setting(character: &Value) -> String {
     sections.join("\n\n")
 }
 
+/// キャラクター応答プロンプトへ注入する記憶1件。
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InjectedMemory {
+    pub content: String,
+    /// 「いつの出来事か」のラベル（例: `2026-02-14・約3日前`）。時刻が不明なら `None`。
+    pub date_label: Option<String>,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn character_system_prompt(
     character: &Value,
@@ -94,7 +102,7 @@ pub fn character_system_prompt(
     expression_names: &[String],
     motion_names: &[String],
     summary: Option<&str>,
-    relevant_memories: &[String],
+    relevant_memories: &[InjectedMemory],
     situation: Option<&Value>,
     participants: &[Value],
     active_costume: Option<&Value>,
@@ -161,8 +169,17 @@ pub fn character_system_prompt(
     }
     if !relevant_memories.is_empty() {
         prompt.push_str("\n\n## 関連するメモリ\n");
+        prompt.push_str(
+            "各行の [日付・経過] はその記憶を知った時期です。古い記憶を最近の出来事として扱わないでください。\n",
+        );
         for (index, memory) in relevant_memories.iter().enumerate() {
-            prompt.push_str(&format!("{}. {memory}\n", index + 1));
+            let number = index + 1;
+            match memory.date_label.as_deref() {
+                Some(label) if !label.is_empty() => {
+                    prompt.push_str(&format!("{number}. [{label}] {}\n", memory.content));
+                }
+                _ => prompt.push_str(&format!("{number}. {}\n", memory.content)),
+            }
         }
     }
     let setting = character_setting(character);
@@ -688,7 +705,10 @@ mod tests {
             &[],
             &[],
             Some("これまでの要約"),
-            &["重要なメモリ".into()],
+            &[InjectedMemory {
+                content: "重要なメモリ".into(),
+                date_label: None,
+            }],
             None,
             &[],
             None,
@@ -703,6 +723,48 @@ mod tests {
         assert!(
             prompt.ends_with("# 葵の設定\n葵として振る舞う\n\n# 口調\n以下はキャラクターの口調例です。ただし、特徴のみを真似てください。そのままこれらの言葉を写さないでください。\n\n丁寧語で話し、語尾は柔らかくする\n\n# 主人公の概要\n主人公は幼なじみ\n\n# 追加の制約\n このセクションの指示を最優先に従ってください。他の設定と矛盾する場合もこちらに従ってください。\n\n返答は三文以内にする")
         );
+    }
+
+    #[test]
+    fn related_memories_carry_the_recorded_date() {
+        let character = json!({"name": "葵"});
+
+        let prompt = character_system_prompt(
+            &character,
+            false,
+            &[],
+            &[],
+            None,
+            &[
+                InjectedMemory {
+                    content: "主人公は紅茶を毎朝飲む".into(),
+                    date_label: Some("2026-02-14・約3日前".into()),
+                },
+                InjectedMemory {
+                    content: "王都で祭りが起きた".into(),
+                    date_label: None,
+                },
+            ],
+            None,
+            &[],
+            None,
+        );
+
+        assert!(prompt.contains("## 関連するメモリ\n"));
+        assert!(prompt.contains("はその記憶を知った時期です"));
+        assert!(prompt.contains("1. [2026-02-14・約3日前] 主人公は紅茶を毎朝飲む\n"));
+        assert!(prompt.contains("2. 王都で祭りが起きた\n"));
+    }
+
+    #[test]
+    fn related_memories_are_omitted_when_empty() {
+        let character = json!({"name": "葵"});
+
+        let prompt =
+            character_system_prompt(&character, false, &[], &[], None, &[], None, &[], None);
+
+        assert!(!prompt.contains("## 関連するメモリ"));
+        assert!(!prompt.contains("はその記憶を知った時期です"));
     }
 
     #[test]

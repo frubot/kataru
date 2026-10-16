@@ -29,17 +29,18 @@ use super::{
     GenerationMode,
     jobs::{ConversationJobs, JobCancellation},
     memory::request_embedding,
+    memory_date,
     memory_gate::{
         MEMORY_GATE_TIMEOUT_SECS, MemoryGateDecision, MemoryGateReason, MemoryGateTurn,
         evaluate_memory_gate, memory_gate_questions, memory_gate_state,
     },
     prompts::{
-        DIRECTOR_TRANSCRIPT_USER_HISTORY, JEV_CONVERSATION_COMPLETE_OPTION, JEV_END_OPTION,
-        JEV_PROTAGONIST_OPTION, SUMMARY_RECENT_USER_TURNS_TO_KEEP, actor_id, assistant_schema,
-        boolean, character_setting, character_system_prompt, director_jev_first_questions,
-        director_jev_safe_question, director_jev_state, director_prompts, director_schema,
-        message_image_attachment_urls, message_text_with_attachments, string, summary_prompts,
-        summary_schema,
+        DIRECTOR_TRANSCRIPT_USER_HISTORY, InjectedMemory, JEV_CONVERSATION_COMPLETE_OPTION,
+        JEV_END_OPTION, JEV_PROTAGONIST_OPTION, SUMMARY_RECENT_USER_TURNS_TO_KEEP, actor_id,
+        assistant_schema, boolean, character_setting, character_system_prompt,
+        director_jev_first_questions, director_jev_safe_question, director_jev_state,
+        director_prompts, director_schema, message_image_attachment_urls,
+        message_text_with_attachments, string, summary_prompts, summary_schema,
     },
     response::{
         AssistantEnvelope, DirectorDecision, assistant_expression_preview,
@@ -908,16 +909,21 @@ async fn generate_for_character(
         message_mode,
         max_characters,
     );
+    let injected_memories = memories
+        .iter()
+        .map(|memory| InjectedMemory {
+            content: memory.content.clone(),
+            date_label: memory_date::memory_occurred_at(&memory.data)
+                .and_then(|occurred_at| memory_date::date_label(occurred_at, now_ms() as i64)),
+        })
+        .collect::<Vec<_>>();
     let system_prompt = character_system_prompt(
         character,
         message_mode,
         &expression_names,
         &motion_names,
         summary,
-        &memories
-            .iter()
-            .map(|memory| memory.content.clone())
-            .collect::<Vec<_>>(),
+        &injected_memories,
         situation,
         participants,
         selected_costume(character, room),

@@ -961,6 +961,7 @@ async fn generate_for_character(
                     &debug_context.character_name,
                     None,
                     None,
+                    None,
                 );
             }
         };
@@ -983,9 +984,12 @@ async fn generate_for_character(
                 let preview = assistant_response_preview(partial, message_mode, max_characters);
                 jobs.update_preview(
                     job_id,
-                    &preview,
+                    &preview.content,
                     &debug_context.character_id,
                     &debug_context.character_name,
+                    // メッセージモードでは閉じたバブルを確定済みとして流し、
+                    // 一文字ずつの更新ではなく送信済みメッセージとして見せる。
+                    message_mode.then(|| preview.confirmed_messages.as_slice()),
                     assistant_expression_preview(partial, &expression_names).as_deref(),
                     assistant_motion_preview(partial, &motion_names).as_deref(),
                 );

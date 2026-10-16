@@ -1030,6 +1030,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         previewCharacter: streamingPreviewCharacter,
         formattedMessages: formattedStreamingPreviewMessages,
         bubbles: streamingPreviewBubbles,
+        awaiting: streamingAwaiting,
         continuationAppend,
         continuationAppendKey,
     } = useMemo(
@@ -1037,10 +1038,11 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             streamingPreview,
             room,
             isLoading,
+            isMessageMode,
             characterMap,
             character,
         }),
-        [character, characterMap, isLoading, room, streamingPreview],
+        [character, characterMap, isMessageMode, isLoading, room, streamingPreview],
     );
     // A 「続きを生成」bubble that continues the same character renders as an
     // extension of the previous bubble rather than a separate one.
@@ -2228,6 +2230,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     character={character}
                     activeStreamingPreview={activeStreamingPreview}
                     streamingPreviewBubbles={streamingPreviewBubbles}
+                    streamingAwaiting={streamingAwaiting}
                     isLoading={isLoading}
                     isSummarizing={isSummarizing}
                     branchingMessageId={branchingMessageId}

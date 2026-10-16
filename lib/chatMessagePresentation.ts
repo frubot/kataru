@@ -176,10 +176,19 @@ export type ChatStreamingPreviewBubble = {
     continuation: boolean;
 };
 
+/** メッセージモードの確定バブル。まだ本文が出揃っていない間はダミーの
+ * `awaiting` バブルで「入力中…」を差し込む。`streaming` は本文が成長中か。 */
+export type ChatStreamingAwaitingStatus = {
+    characterId?: string;
+    characterName?: string;
+    character?: Character | null;
+};
+
 type ResolveStreamingPresentationOptions = {
     streamingPreview: ChatStreamingPreview | null;
     room: Room | null;
     isLoading: boolean;
+    isMessageMode: boolean;
     characterMap: Map<string, Character> | null;
     character: Character | null;
 };
@@ -188,6 +197,7 @@ export function resolveChatStreamingPresentation({
     streamingPreview,
     room,
     isLoading,
+    isMessageMode,
     characterMap,
     character,
 }: ResolveStreamingPresentationOptions) {
@@ -261,15 +271,36 @@ export function resolveChatStreamingPresentation({
                     && resolveCharacterKey(bubble.characterId) === continuationBaseKey,
         });
     };
+    // メッセージモードでは確定済みバブル (confirmedMessages) だけを送信済み風に
+    // 表示する。未確定テキストはバブルに露出せず、awaiting インジケータへ集約
+    // する。非メッセージモードは従来どおり content 全体を1バブルで成長させる。
+    let awaiting: ChatStreamingAwaitingStatus | null = null;
     if (previewForRoom?.turns?.length) {
         for (const turn of previewForRoom.turns) {
             const formatted = turn.formattedMessages?.filter((content) => content.trim()) ?? [];
+            const confirmed = isMessageMode && turn.formattedMessages === undefined
+                ? (turn.confirmedMessages ?? []).filter((content) => content.trim())
+                : [];
             const contents = (formatted.length > 0 ? formatted : [turn.content])
                 .filter((content) => content.trim());
             const characterId = turn.characterId ?? previewForRoom.characterId;
-            if (contents.length === 0 || persisted(contents, characterId)) continue;
+            const awaitingThisTurn = isMessageMode
+                && !turn.complete
+                && !formatted.length
+                && (confirmed.length === 0 || turn.content.trim().length > confirmed.join('\n\n').length);
+            if (awaitingThisTurn && !persisted(confirmed.length > 0 ? confirmed : contents, characterId)) {
+                awaiting = {
+                    characterId,
+                    characterName: turn.characterName ?? previewForRoom.characterName,
+                    character: resolveBubbleCharacter(characterId),
+                };
+            }
+            const visibleContents = isMessageMode && turn.formattedMessages === undefined
+                ? confirmed
+                : contents;
+            if (visibleContents.length === 0 || persisted(visibleContents, characterId)) continue;
             const bubbleCharacter = resolveBubbleCharacter(characterId);
-            contents.forEach((content, index) => {
+            visibleContents.forEach((content, index) => {
                 if (
                     turn.turnIndex === 0
                     && index === 0
@@ -317,9 +348,12 @@ export function resolveChatStreamingPresentation({
             });
         }
     }
-    const activePreview = previewForRoom && isLoading && (allBubbles.length > 0 || continuationAppend != null)
+    const activePreview = previewForRoom
+        && isLoading
+        && (allBubbles.length > 0 || continuationAppend != null || awaiting != null)
         ? previewForRoom
         : null;
+    if (!isLoading) awaiting = null;
     const previewCharacter = activePreview?.characterId && characterMap
         ? characterMap.get(activePreview.characterId)
         : character;
@@ -329,6 +363,7 @@ export function resolveChatStreamingPresentation({
         previewCharacter,
         formattedMessages: activePreview ? availableFormattedMessages : [],
         bubbles: activePreview ? allBubbles : [],
+        awaiting,
         continuationAppend: isLoading ? continuationAppend : undefined,
         continuationAppendKey: isLoading ? continuationAppendKey : undefined,
     };

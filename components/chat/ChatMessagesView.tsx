@@ -11,6 +11,7 @@ import type { ReactNode } from 'react';
 import type { Character } from '@/lib/store';
 import type {
     ChatMessagePresentation,
+    ChatStreamingAwaitingStatus,
     ChatStreamingPreview,
     ChatStreamingPreviewBubble,
     PriorMessagePresentation,
@@ -151,6 +152,7 @@ type ChatMessagesViewProps = {
     character: Character | null;
     activeStreamingPreview: ChatStreamingPreview | null;
     streamingPreviewBubbles: ChatStreamingPreviewBubble[];
+    streamingAwaiting: ChatStreamingAwaitingStatus | null;
     isLoading: boolean;
     isSummarizing: boolean;
     branchingMessageId: string | null;
@@ -204,6 +206,7 @@ export default function ChatMessagesView({
     character,
     activeStreamingPreview,
     streamingPreviewBubbles,
+    streamingAwaiting,
     isLoading,
     isSummarizing,
     branchingMessageId,
@@ -569,6 +572,29 @@ export default function ChatMessagesView({
                     />
                 )
             ))}
+            {streamingAwaiting && (
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+                    <Avatar
+                        character={streamingAwaiting.character}
+                        name={streamingAwaiting.characterName ?? streamingAwaiting.character?.name}
+                    />
+                    <div className="assistant-message-content">
+                        {isGroupRoom && (streamingAwaiting.characterName ?? streamingAwaiting.character?.name) && (
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.125rem', marginLeft: '0.25rem', fontWeight: 500 }}>
+                                {streamingAwaiting.characterName ?? streamingAwaiting.character?.name}
+                            </div>
+                        )}
+                        <div
+                            className="message-bubble assistant animate-slide-up waiting-bubble streaming-preview-bubble"
+                            role="status"
+                            aria-live="polite"
+                            aria-label="入力中…"
+                        >
+                            <WaitingEllipsis />
+                        </div>
+                    </div>
+                </div>
+            )}
             {isLoading && !activeStreamingPreview && messages.at(-1)?.role !== 'assistant' && (
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
                     <Avatar character={isGroupRoom ? null : character} />

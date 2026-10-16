@@ -279,16 +279,25 @@ impl ConversationJobs {
         }
     }
 
+    /// Pushes a streaming update for one turn. `message_mode_messages` carries the
+    /// already-finalized bubbles of a message-mode reply (possibly empty while the
+    /// first bubble is still streaming); `None` leaves the turn without the field so
+    /// other formats keep the classic single growing preview.
     pub(crate) fn update_preview(
         &self,
         job_id: &str,
         content: &str,
         character_id: &str,
         character_name: &str,
+        message_mode_messages: Option<&[String]>,
         expression: Option<&str>,
         motion: Option<&str>,
     ) {
-        if content.trim().is_empty() && expression.is_none() && motion.is_none() {
+        if content.trim().is_empty()
+            && expression.is_none()
+            && motion.is_none()
+            && message_mode_messages.is_none()
+        {
             return;
         }
         let Ok(mut jobs) = self.inner.try_lock() else {
@@ -318,18 +327,25 @@ impl ConversationJobs {
             turns.len().saturating_sub(1)
         } else {
             let index = turns.len();
-            turns.push(json!({
+            let mut turn = json!({
                 "turnIndex": index,
                 "content": content,
                 "characterId": character_id,
                 "characterName": character_name,
                 "complete": false,
-            }));
+            });
+            if let Some(messages) = message_mode_messages {
+                turn["confirmedMessages"] = json!(messages);
+            }
+            turns.push(turn);
             index
         };
         if continue_last_turn {
             turns[turn_index]["content"] = Value::String(content.to_owned());
             turns[turn_index]["characterName"] = Value::String(character_name.to_owned());
+            if let Some(messages) = message_mode_messages {
+                turns[turn_index]["confirmedMessages"] = json!(messages);
+            }
         }
         if let Some(expression) = expression {
             turns[turn_index]["expression"] = Value::String(expression.to_owned());
@@ -1320,13 +1336,13 @@ mod tests {
         .await
         .expect("insert streaming job");
 
-        jobs.update_preview(job_id, "", "actor-a", "A", Some("happy"), None);
+        jobs.update_preview(job_id, "", "actor-a", "A", None, Some("happy"), None);
         let snapshot = jobs.get(job_id).await.expect("expression-only preview");
         assert_eq!(snapshot["preview"]["expression"], "happy");
         assert_eq!(snapshot["preview"]["turns"][0]["expression"], "happy");
         assert_eq!(snapshot["preview"]["turns"][0]["complete"], false);
-        jobs.update_preview(job_id, "こ", "actor-a", "A", Some("happy"), Some("wave"));
-        jobs.update_preview(job_id, "こんにちは", "actor-a", "A", None, None);
+        jobs.update_preview(job_id, "こ", "actor-a", "A", None, Some("happy"), Some("wave"));
+        jobs.update_preview(job_id, "こんにちは", "actor-a", "A", None, None, None);
         let mid_snapshot = jobs.get(job_id).await.unwrap();
         assert_eq!(mid_snapshot["preview"]["expression"], "happy");
         assert_eq!(mid_snapshot["preview"]["motion"], "wave");
@@ -1340,7 +1356,7 @@ mod tests {
             Some("wave"),
         )
         .await;
-        jobs.update_preview(job_id, "や", "actor-b", "B", None, None);
+        jobs.update_preview(job_id, "や", "actor-b", "B", None, None, None);
         jobs.finalize_preview(job_id, "やあ", "actor-b", "B", &[], None, None)
             .await;
 
@@ -1361,5 +1377,79 @@ mod tests {
         assert_eq!(turns[1]["complete"], true);
         assert!(turns[1].get("expression").is_none());
         assert!(turns[1].get("motion").is_none());
+    }
+
+    #[tokio::test]
+    async fn message_mode_streaming_preview_tracks_confirmed_bubbles() {
+        let jobs = ConversationJobs::default();
+        let job_id = "job-message-streaming";
+        jobs.insert(
+            job_id.to_owned(),
+            "room-1".to_owned(),
+            true,
+            GenerationMode::Reply,
+        )
+        .await
+        .expect("insert message-mode job");
+
+        // 最初のバブルがまだ開いていても値が確定した配列 (空) を流す。
+        jobs.update_preview(job_id, "こ", "actor-a", "A", Some(&[]), None, None);
+        let mut snapshot = jobs.get(job_id).await.expect("first bubble streaming");
+        assert_eq!(snapshot["preview"]["turns"][0]["confirmedMessages"], json!([]));
+        assert!(snapshot["preview"]
+            .get("formattedMessages")
+            .is_none());
+
+        // 閉じたバブルは順番に確定済みリストへ乗り、同じターンの更新で置き換わる。
+        jobs.update_preview(
+            job_id,
+            "一つ目\n\n二つ",
+            "actor-a",
+            "A",
+            Some(&["一つ目".to_owned()]),
+            None,
+            None,
+        );
+        jobs.update_preview(
+            job_id,
+            "一つ目\n\n二つ目\n\n三",
+            "actor-a",
+            "A",
+            Some(&["一つ目".to_owned(), "二つ目".to_owned()]),
+            None,
+            None,
+        );
+        snapshot = jobs.get(job_id).await.expect("confirmed bubbles grow");
+        assert_eq!(snapshot["preview"]["turns"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            snapshot["preview"]["turns"][0]["confirmedMessages"],
+            json!(["一つ目", "二つ目"])
+        );
+        assert_eq!(snapshot["preview"]["turns"][0]["complete"], false);
+
+        // ターン確定で formattedMessages に置き換わり、確定済みリストは消える。
+        jobs.finalize_preview(
+            job_id,
+            "一つ目\n\n二つ目\n\n三つ目",
+            "actor-a",
+            "A",
+            &[
+                "一つ目".to_owned(),
+                "二つ目".to_owned(),
+                "三つ目".to_owned(),
+            ],
+            None,
+            None,
+        )
+        .await;
+        snapshot = jobs.get(job_id).await.expect("finalized turn");
+        assert_eq!(snapshot["preview"]["turns"][0]["complete"], true);
+        assert_eq!(
+            snapshot["preview"]["turns"][0]["formattedMessages"],
+            json!(["一つ目", "二つ目", "三つ目"])
+        );
+        assert!(snapshot["preview"]["turns"][0]
+            .get("confirmedMessages")
+            .is_none());
     }
 }

@@ -7,6 +7,11 @@ export type ConversationJobPreviewTurn = {
     characterId?: string;
     characterName?: string;
     formattedMessages?: string[];
+    /**
+     * メッセージモード: まだSSL/TLSではなく、JSON文字列が閉じた＝確定済みの
+     * バブル本文のリスト。末尾の未完成分は含まれず `content` 側にだけ現れる。
+     */
+    confirmedMessages?: string[];
     expression?: string;
     motion?: string;
     complete: boolean;

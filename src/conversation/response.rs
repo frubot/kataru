@@ -270,23 +270,37 @@ pub(crate) fn assistant_motion_preview(content: &str, motion_names: &[String]) -
         .cloned()
 }
 
+/// Preview of an in-progress assistant reply.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct AssistantResponsePreview {
+    /// User-visible text received so far. Message mode joins the bubbles with
+    /// `\n\n`, including the still-streaming tail.
+    pub content: String,
+    /// Message mode only: bubbles whose JSON string already closed, so their
+    /// text is final. Built with the same sanitize/dedupe/limit pipeline as the
+    /// finalized reply so a confirmed bubble matches the persisted message.
+    pub confirmed_messages: Vec<String>,
+}
+
 /// Extracts only user-visible reply text from an in-progress structured JSON response.
 /// Incomplete JSON string escape sequences are held back until they can be decoded safely.
 pub(crate) fn assistant_response_preview(
     content: &str,
     message_mode: bool,
     max_characters: usize,
-) -> String {
-    let preview = if message_mode {
+) -> AssistantResponsePreview {
+    let max_characters = max_characters.max(1);
+    if message_mode {
         let Some(mut cursor) = json_property_value_start(content, &["messages"]) else {
-            return String::new();
+            return AssistantResponsePreview::default();
         };
         let bytes = content.as_bytes();
         if bytes.get(cursor) != Some(&b'[') {
-            return String::new();
+            return AssistantResponsePreview::default();
         }
         cursor += 1;
         let mut messages = Vec::new();
+        let mut closed_messages = Vec::new();
         while cursor < bytes.len() {
             while cursor < bytes.len()
                 && (bytes[cursor].is_ascii_whitespace() || bytes[cursor] == b',')
@@ -301,6 +315,9 @@ pub(crate) fn assistant_response_preview(
             }
             let (message, end, complete) = json_string_at(content, cursor);
             if !message.is_empty() {
+                if complete {
+                    closed_messages.push(message.clone());
+                }
                 messages.push(message);
             }
             if !complete {
@@ -308,20 +325,50 @@ pub(crate) fn assistant_response_preview(
             }
             cursor = end;
         }
-        messages.join("\n\n")
-    } else {
-        let Some(cursor) = json_property_value_start(
-            content,
-            &["message", "dialogue", "content", "text", "reply", "answer"],
-        ) else {
-            return String::new();
+        return AssistantResponsePreview {
+            content: truncate_to_character_limit(&messages.join("\n\n"), max_characters),
+            confirmed_messages: limited_confirmed_messages(closed_messages, max_characters),
         };
-        if content.as_bytes().get(cursor) != Some(&b'"') {
-            return String::new();
-        }
-        json_string_at(content, cursor).0
+    }
+    let Some(cursor) = json_property_value_start(
+        content,
+        &["message", "dialogue", "content", "text", "reply", "answer"],
+    ) else {
+        return AssistantResponsePreview::default();
     };
-    truncate_to_character_limit(&preview, max_characters.max(1))
+    if content.as_bytes().get(cursor) != Some(&b'"') {
+        return AssistantResponsePreview::default();
+    }
+    AssistantResponsePreview {
+        content: truncate_to_character_limit(&json_string_at(content, cursor).0, max_characters),
+        confirmed_messages: Vec::new(),
+    }
+}
+
+/// Applies the finalized reply pipeline (sanitize, dedupe, per-bubble character
+/// limit) to the closed prefix of a streaming message array, so confirmed
+/// preview bubbles match `parse_assistant_response` output exactly.
+fn limited_confirmed_messages(messages: Vec<String>, max_characters: usize) -> Vec<String> {
+    let sanitized = unique_nonempty(
+        messages
+            .into_iter()
+            .map(|message| sanitize_assistant_reply_content(&message))
+            .collect(),
+    );
+    if sanitized.is_empty() {
+        return sanitized;
+    }
+    limit_assistant_reply_characters(
+        AssistantEnvelope {
+            message: String::new(),
+            messages: sanitized,
+            to: Vec::new(),
+            expression: None,
+            motion: None,
+        },
+        max_characters,
+    )
+    .messages
 }
 
 /// Preview of an in-progress plain-text reply. Nothing has to be decoded, so the
@@ -963,21 +1010,52 @@ mod tests {
                 r#"{"note":"hidden","expression":"happy","message":"こんにちは\n世"#,
                 false,
                 512,
-            ),
+            )
+            .content,
             "こんにちは\n世"
         );
         assert_eq!(
-            assistant_response_preview(r#"{"note":"still hidden"#, false, 512),
+            assistant_response_preview(r#"{"note":"still hidden"#, false, 512).content,
             ""
         );
     }
 
     #[test]
     fn previews_message_array_as_one_temporary_block() {
-        assert_eq!(
-            assistant_response_preview(r#"{"messages":["一つ目","二つ"#, true, 512),
-            "一つ目\n\n二つ"
+        let preview = assistant_response_preview(r#"{"messages":["一つ目","二つ"#, true, 512);
+        assert_eq!(preview.content, "一つ目\n\n二つ");
+        assert_eq!(preview.confirmed_messages, ["一つ目"]);
+    }
+
+    #[test]
+    fn confirms_only_closed_message_bubbles_while_streaming() {
+        // まだ閉じていない先頭バブルは確定扱いにしない。
+        let partial = assistant_response_preview(r#"{"messages":["こ"#, true, 512);
+        assert_eq!(partial.content, "こ");
+        assert_eq!(partial.confirmed_messages, Vec::<String>::new());
+        // 閉じたバブルは確定済みリストに乗り、末尾の未完成分は含めない。
+        let mid = assistant_response_preview(r#"{"messages":["一つ目","二つ"#, true, 512);
+        assert_eq!(mid.content, "一つ目\n\n二つ");
+        assert_eq!(mid.confirmed_messages, ["一つ目"]);
+        // サニタイズ・結束した配列の上限も確定済みリストへ反映する。
+        let sanitized = assistant_response_preview(
+            r#"{"messages":["「一つ目」","二つ目","三"#,
+            true,
+            5,
         );
+        assert_eq!(sanitized.confirmed_messages, ["一つ目", "二つ"]);
+        // 完成後 (`limit_assistant_reply_characters`) と同じ結果になること。
+        let finalized = limit_assistant_reply_characters(
+            AssistantEnvelope {
+                message: "一つ目\n\n二つ目".into(),
+                messages: vec!["一つ目".into(), "二つ目".into()],
+                to: Vec::new(),
+                expression: None,
+                motion: None,
+            },
+            5,
+        );
+        assert_eq!(sanitized.confirmed_messages, finalized.messages);
     }
 
     #[test]
@@ -1003,7 +1081,7 @@ mod tests {
     #[test]
     fn limits_streaming_preview_by_characters() {
         assert_eq!(
-            assistant_response_preview(r#"{"message":"あいうえお"#, false, 3),
+            assistant_response_preview(r#"{"message":"あいうえお"#, false, 3).content,
             "あいう"
         );
     }

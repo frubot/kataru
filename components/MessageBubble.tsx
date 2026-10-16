@@ -7,6 +7,9 @@ import type { MessageAttachment } from '@/lib/store';
 import { stopTtsPlayback, useTtsEntry } from '@/lib/ttsPlayer';
 import StoredImage from './StoredImage';
 
+/** キャラアイコンは固定したまま、最初のバブルだけを少し下へずらす量。 */
+const ICON_TO_BUBBLE_SHIFT = '0.5rem';
+
 interface MessageBubbleProps {
     messageId: string;
     role: 'user' | 'assistant';
@@ -361,7 +364,10 @@ export default memo(function MessageBubble({
                                 className={`assistant-action-description${disableEntranceAnimation ? '' : ' animate-slide-up'}`}
                                 onClick={isTypewriterActive ? onRevealTypewriter : undefined}
                                 title={isTypewriterActive ? '全文表示' : undefined}
-                                style={{ cursor: isTypewriterActive ? 'pointer' : undefined }}
+                                style={{
+                                    cursor: isTypewriterActive ? 'pointer' : undefined,
+                                    marginTop: showsCharacterHeader && segmentIndex === 0 ? ICON_TO_BUBBLE_SHIFT : undefined,
+                                }}
                             >
                                 <ReactMarkdown>{segment.content}</ReactMarkdown>
                             </div>
@@ -371,7 +377,10 @@ export default memo(function MessageBubble({
                                 className={`message-bubble assistant assistant-segment-bubble${disableEntranceAnimation ? '' : ' animate-slide-up'} ${segmentIndex > 0 ? 'assistant-segment-continuation' : ''}`}
                                 onClick={isTypewriterActive ? onRevealTypewriter : undefined}
                                 title={isTypewriterActive ? '全文表示' : undefined}
-                                style={{ cursor: isTypewriterActive ? 'pointer' : undefined }}
+                                style={{
+                                    cursor: isTypewriterActive ? 'pointer' : undefined,
+                                    marginTop: showsCharacterHeader && segmentIndex === 0 ? ICON_TO_BUBBLE_SHIFT : undefined,
+                                }}
                             >
                                 <ReactMarkdown>{formatAssistantSegment(segment.content)}</ReactMarkdown>
                             </div>

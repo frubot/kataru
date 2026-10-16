@@ -30,6 +30,9 @@ import WaitingEllipsis from './WaitingEllipsis';
 
 const NOOP = () => undefined;
 
+/** キャラアイコンは固定したまま、最初のバブルだけを少し下へずらす量。 */
+const ICON_TO_BUBBLE_SHIFT = '0.5rem';
+
 function SituationPriorMessageBubble({
     presentation,
     index,
@@ -534,7 +537,7 @@ export default function ChatMessagesView({
                                 className="message-bubble assistant animate-slide-up streaming-preview-bubble"
                                 role="status"
                                 aria-live="polite"
-                                style={{ whiteSpace: 'pre-wrap' }}
+                                style={{ whiteSpace: 'pre-wrap', marginTop: ICON_TO_BUBBLE_SHIFT }}
                             >
                                 {bubble.content}
                             </div>
@@ -595,6 +598,7 @@ export default function ChatMessagesView({
                             role="status"
                             aria-live="polite"
                             aria-label="入力中…"
+                            style={{ marginTop: ICON_TO_BUBBLE_SHIFT }}
                         >
                             <WaitingEllipsis />
                         </div>
@@ -604,7 +608,10 @@ export default function ChatMessagesView({
             {isLoading && !activeStreamingPreview && messages.at(-1)?.role !== 'assistant' && (
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
                     <Avatar character={isGroupRoom ? null : character} />
-                    <div className="message-bubble assistant animate-slide-up waiting-bubble">
+                    <div
+                        className="message-bubble assistant animate-slide-up waiting-bubble"
+                        style={{ marginTop: ICON_TO_BUBBLE_SHIFT }}
+                    >
                         <WaitingEllipsis />
                     </div>
                 </div>

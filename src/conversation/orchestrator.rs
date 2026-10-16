@@ -59,6 +59,10 @@ const MEMORY_LIMIT: usize = 8;
 const MEMORY_MIN_IMPORTANCE: f64 = 0.4;
 const MEMORY_MIN_CONFIDENCE: f64 = 0.7;
 const MEMORY_MAX_CANDIDATES: usize = 5;
+/// 無関係なメモリをコンテキストへ注入しないための関連度の下限。
+/// 重要度・確信度・新しさ・固定は並び順にだけ効かせ、注入の可否は関連度だけで決める。
+const MEMORY_MIN_VECTOR_SIMILARITY: f64 = 0.35;
+const MEMORY_MIN_LEXICAL_SIMILARITY: f64 = 0.25;
 const CONTINATUION_TRIGGER: &str = "[内部指示] これは主人公の発言ではありません。主人公から新しい発言や行動はありません。直前の場面を繰り返さず、自然な続きを作成してください。もし前回のレスポンスが途中で途切れている場合、その続きから作成してください。";
 
 const JEV_CONTINUE_THRESHOLD: f64 = 0.5;
@@ -1707,7 +1711,7 @@ async fn search_memories(
                 || already_recent;
             !(same_room && already_recent)
         })
-        .map(|memory| {
+        .filter_map(|memory| {
             let content = string(&memory, "content");
             let lexical = lexical_similarity(&query, &content);
             let vector = query_embedding
@@ -1724,6 +1728,10 @@ async fn search_memories(
                         .map(|stored| cosine_similarity(query, &stored).max(0.0))
                 })
                 .unwrap_or(0.0);
+            // 埋め込みが無い、または別のモデル・接続で作られたメモリは字句類似度で判定する。
+            if !memory_is_relevant(vector, lexical.max(memory_similarity(&query, &content))) && !boolean(&memory, "pinned") {
+                return None;
+            }
             let importance = clamp01(
                 memory
                     .get("importance")
@@ -1774,12 +1782,12 @@ async fn search_memories(
                         + usage * 0.06
                         + recency * 0.08
                 };
-            ScoredMemory {
+            Some(ScoredMemory {
                 id: string(&memory, "id"),
                 content,
                 data: memory,
                 score,
-            }
+            })
         })
         .collect::<Vec<_>>();
     scored.sort_by(|a, b| b.score.total_cmp(&a.score));
@@ -2741,6 +2749,12 @@ fn lexical_similarity(query: &str, content: &str) -> f64 {
     query_signals.intersection(&content_signals).count() as f64 / query_signals.len().min(12) as f64
 }
 
+/// そのメモリを今回のコンテキストへ注入するかどうかを、関連度だけで決める。
+/// 埋め込み類似度か字句類似度のどちらかが下限を超えていれば採用する。
+fn memory_is_relevant(vector: f64, lexical: f64) -> bool {
+    vector >= MEMORY_MIN_VECTOR_SIMILARITY || lexical >= MEMORY_MIN_LEXICAL_SIMILARITY
+}
+
 fn unique_strings(values: Vec<String>) -> Vec<String> {
     let mut seen = HashSet::new();
     values
@@ -3284,6 +3298,32 @@ mod tests {
     #[test]
     fn similar_memory_text_scores_high() {
         assert!(memory_similarity("主人公はコーヒーが好き", "主人公はコーヒーが好き。") > 0.9);
+    }
+
+    #[test]
+    fn memories_without_any_relevance_are_not_injected() {
+        let query = "今日は学校で何があったの？";
+        // 重要度や固定に関係なく、関連度がゼロのメモリは注入しない。
+        for content in ["主人公は紅茶が好き", "葵は弓道部", "宇宙船を修理した"] {
+            let lexical =
+                lexical_similarity(query, content).max(memory_similarity(query, content));
+            assert!(!memory_is_relevant(0.0, lexical), "{content}");
+        }
+        // 埋め込みも下限未満なら採用しない。
+        assert!(!memory_is_relevant(
+            MEMORY_MIN_VECTOR_SIMILARITY - 0.01,
+            0.0
+        ));
+    }
+
+    #[test]
+    fn memories_related_to_the_query_are_injected() {
+        let query = "今日は学校で何があったの？";
+        let related = "学校であった出来事を覚えている";
+        let lexical = lexical_similarity(query, related).max(memory_similarity(query, related));
+        assert!(memory_is_relevant(0.0, lexical));
+        // 語が重ならなくても、埋め込みが下限以上なら採用する。
+        assert!(memory_is_relevant(MEMORY_MIN_VECTOR_SIMILARITY, 0.0));
     }
 
     #[test]

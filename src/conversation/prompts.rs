@@ -7,12 +7,51 @@ pub const JEV_PROTAGONIST_OPTION: &str = "protagonist";
 pub const JEV_CONVERSATION_COMPLETE_OPTION: &str = "conversation-complete";
 pub const JEV_END_OPTION: &str = "end";
 
-fn reply_instruction_base(character_name: &str) -> String {
+/// キャラクター返答の出力形式。ベーシックだけが構造化出力を使わない。
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ReplyFormat {
+    /// ベーシック: 平文。`response_format` を送らない。
+    PlainText,
+    /// メッセージ: JSONの `messages` 配列。
+    Message,
+    /// ゲーム: JSON。表情とモーションを含む。
+    Structured,
+}
+
+impl ReplyFormat {
+    /// 表示モードから決める。未設定はベーシックと同じ平文として扱う。
+    pub(crate) fn from_view_mode(view_mode: &str) -> Self {
+        match view_mode {
+            "message" => Self::Message,
+            "vn" => Self::Structured,
+            _ => Self::PlainText,
+        }
+    }
+
+    pub(crate) fn is_message(self) -> bool {
+        matches!(self, Self::Message)
+    }
+
+    pub(crate) fn is_structured(self) -> bool {
+        matches!(self, Self::Structured)
+    }
+
+    fn uses_json(self) -> bool {
+        !matches!(self, Self::PlainText)
+    }
+}
+
+fn reply_instruction_base(character_name: &str, format: ReplyFormat) -> String {
+    let output_instruction = if format.uses_json() {
+        "JSON形式で生成してください。提示されたJSONの構造および順序に厳密に従ってください。"
+    } else {
+        "返答は本文だけを出力してください。JSONやコードブロックで囲まないでください。"
+    };
     format!(
         r#"
 あなたは{character_name}です。
 {character_name}とナレーションを演じてください。
-JSON形式で生成してください。提示されたJSONの構造および順序に厳密に従ってください。
+{output_instruction}
 設定に示した情報は必ずしも返答に含める必要はありません。
 
 ユーザー=主人公
@@ -21,10 +60,27 @@ JSON形式で生成してください。提示されたJSONの構造および順
     )
 }
 
-fn roleplay_reply_instruction(character_name: &str) -> String {
+/// 構造化出力のときに使う、JSONで包んだ出力例。
+const ROLEPLAY_JSON_OUTPUT_EXAMPLE: &str = r#"{"message": "*夕焼けの光が窓から差し込む誰もいない教室の隅で、あなたの発言を聞いて太郎は興奮した様子で話す* そうなんだよ！それでさ、寝る前に裏庭のほうを見たらUFOみたいに光る物体が止まってたんだよ。その日は全く眠れなかったぜ。 *目を輝かせてそのまま勢いで机に手を付き、顔を近づける。そして真っすぐな目で見つめる。* わかってくれる人がいて嬉しすぎるぜ！"}"#;
+
+/// 平文出力のときに使う、包みのない出力例。
+const ROLEPLAY_PLAIN_OUTPUT_EXAMPLE: &str = "*夕焼けの光が窓から差し込む誰もいない教室の隅で、あなたの発言を聞いて太郎は興奮した様子で話す* そうなんだよ！それでさ、寝る前に裏庭のほうを見たらUFOみたいに光る物体が止まってたんだよ。その日は全く眠れなかったぜ。 *目を輝かせてそのまま勢いで机に手を付き、顔を近づける。そして真っすぐな目で見つめる。* わかってくれる人がいて嬉しすぎるぜ！";
+
+fn roleplay_reply_instruction(character_name: &str, format: ReplyFormat) -> String {
+    let (heading, example) = if format.uses_json() {
+        (
+            "## messageフィールド内のフォーマット",
+            format!("` {ROLEPLAY_JSON_OUTPUT_EXAMPLE} `"),
+        )
+    } else {
+        (
+            "## 返答のフォーマット",
+            ROLEPLAY_PLAIN_OUTPUT_EXAMPLE.to_owned(),
+        )
+    };
     format!(
         r#"
-## messageフィールド内のフォーマット
+{heading}
 あなたは{character_name}を演じ、ナレーションで状況を表現します。
 
 ### キャラクターの返答  
@@ -43,7 +99,7 @@ fn roleplay_reply_instruction(character_name: &str) -> String {
 
 ### 出力例
   Good:
-  ` {{"message": "*夕焼けの光が窓から差し込む誰もいない教室の隅で、あなたの発言を聞いて太郎は興奮した様子で話す* そうなんだよ！それでさ、寝る前に裏庭のほうを見たらUFOみたいに光る物体が止まってたんだよ。その日は全く眠れなかったぜ。 *目を輝かせてそのまま勢いで机に手を付き、顔を近づける。そして真っすぐな目で見つめる。* わかってくれる人がいて嬉しすぎるぜ！"}} `
+  {example}
 
 ## 主人公についての前提知識
 主人公は単なる発言だけではなく、` *歩き出す* ` のようにアスタリスクで囲って主人公自身の行動等を描写することがあります。それは発言ではなく行動です。
@@ -98,7 +154,7 @@ pub struct InjectedMemory {
 #[allow(clippy::too_many_arguments)]
 pub fn character_system_prompt(
     character: &Value,
-    use_message_mode: bool,
+    format: ReplyFormat,
     expression_names: &[String],
     motion_names: &[String],
     summary: Option<&str>,
@@ -109,11 +165,11 @@ pub fn character_system_prompt(
 ) -> String {
     let character_name = string(character, "name");
     let mut prompt = String::from("# 指示");
-    prompt.push_str(&reply_instruction_base(&character_name));
-    if use_message_mode {
+    prompt.push_str(&reply_instruction_base(&character_name, format));
+    if format.is_message() {
         prompt.push_str(MESSAGE_REPLY_INSTRUCTION);
     } else {
-        prompt.push_str(&roleplay_reply_instruction(&character_name));
+        prompt.push_str(&roleplay_reply_instruction(&character_name, format));
     }
 
     if !expression_names.is_empty() {
@@ -669,7 +725,7 @@ mod tests {
 
         let prompt = character_system_prompt(
             &character,
-            false,
+            ReplyFormat::Structured,
             &[],
             &[],
             None,
@@ -701,7 +757,7 @@ mod tests {
 
         let prompt = character_system_prompt(
             &character,
-            false,
+            ReplyFormat::Structured,
             &[],
             &[],
             Some("これまでの要約"),
@@ -731,7 +787,7 @@ mod tests {
 
         let prompt = character_system_prompt(
             &character,
-            false,
+            ReplyFormat::Structured,
             &[],
             &[],
             None,
@@ -761,7 +817,17 @@ mod tests {
         let character = json!({"name": "葵"});
 
         let prompt =
-            character_system_prompt(&character, false, &[], &[], None, &[], None, &[], None);
+            character_system_prompt(
+                &character,
+                ReplyFormat::Structured,
+                &[],
+                &[],
+                None,
+                &[],
+                None,
+                &[],
+                None,
+            );
 
         assert!(!prompt.contains("## 関連するメモリ"));
         assert!(!prompt.contains("はその記憶を知った時期です"));
@@ -799,7 +865,7 @@ mod tests {
 
         let prompt = character_system_prompt(
             &character,
-            false,
+            ReplyFormat::Structured,
             &[],
             &[],
             None,
@@ -823,7 +889,7 @@ mod tests {
 
         let prompt = character_system_prompt(
             &character,
-            false,
+            ReplyFormat::Structured,
             &[],
             &[],
             None,
@@ -848,7 +914,7 @@ mod tests {
     fn character_prompt_omits_common_rules_when_unset() {
         let prompt = character_system_prompt(
             &json!({"name": "葵"}),
-            false,
+            ReplyFormat::Structured,
             &[],
             &[],
             None,
@@ -859,6 +925,77 @@ mod tests {
         );
 
         assert!(!prompt.contains("キャラクターの共通ルール"));
+    }
+
+    #[test]
+    fn basic_mode_prompt_asks_for_plain_text_without_json() {
+        let prompt = character_system_prompt(
+            &json!({"name": "葵"}),
+            ReplyFormat::PlainText,
+            &[],
+            &[],
+            None,
+            &[],
+            None,
+            &[],
+            None,
+        );
+
+        assert!(prompt.contains("返答は本文だけを出力してください。JSONやコードブロックで囲まないでください。"));
+        assert!(!prompt.contains("JSON形式で生成してください"));
+        assert!(!prompt.contains("messageフィールド内のフォーマット"));
+        assert!(prompt.contains("## 返答のフォーマット"));
+        assert!(prompt.contains("### 出力例\n  Good:\n  *夕焼けの光が"));
+        assert!(!prompt.contains("{\"message\""));
+    }
+
+    #[test]
+    fn structured_mode_prompt_keeps_the_json_output_example() {
+        let prompt = character_system_prompt(
+            &json!({"name": "葵"}),
+            ReplyFormat::Structured,
+            &[],
+            &[],
+            None,
+            &[],
+            None,
+            &[],
+            None,
+        );
+
+        assert!(prompt.contains("JSON形式で生成してください"));
+        assert!(prompt.contains("## messageフィールド内のフォーマット"));
+        assert!(prompt.contains("### 出力例\n  Good:\n  ` {\"message\": \"*夕焼けの光が"));
+    }
+
+    #[test]
+    fn message_mode_prompt_keeps_the_messenger_instructions() {
+        let prompt = character_system_prompt(
+            &json!({"name": "葵"}),
+            ReplyFormat::Message,
+            &[],
+            &[],
+            None,
+            &[],
+            None,
+            &[],
+            None,
+        );
+
+        assert!(prompt.contains("JSON形式で生成してください"));
+        assert!(prompt.contains("メッセンジャーアプリを使って"));
+    }
+
+    #[test]
+    fn reply_format_follows_the_room_view_mode() {
+        assert_eq!(ReplyFormat::from_view_mode("chat"), ReplyFormat::PlainText);
+        assert_eq!(ReplyFormat::from_view_mode(""), ReplyFormat::PlainText);
+        assert_eq!(ReplyFormat::from_view_mode("message"), ReplyFormat::Message);
+        assert_eq!(ReplyFormat::from_view_mode("vn"), ReplyFormat::Structured);
+        assert!(ReplyFormat::Message.is_message());
+        assert!(ReplyFormat::Structured.is_structured());
+        assert!(!ReplyFormat::PlainText.is_message());
+        assert!(!ReplyFormat::PlainText.is_structured());
     }
 
     #[test]
@@ -951,7 +1088,7 @@ mod tests {
     fn character_prompt_lists_motions_after_expression_instruction() {
         let prompt = character_system_prompt(
             &json!({"name": "葵"}),
-            false,
+            ReplyFormat::Structured,
             &["neutral".into(), "happy".into()],
             &["wave".into(), "jump".into()],
             None,
@@ -976,7 +1113,7 @@ mod tests {
     fn character_prompt_omits_motion_instruction_when_no_motions_registered() {
         let prompt = character_system_prompt(
             &json!({"name": "葵"}),
-            false,
+            ReplyFormat::Structured,
             &["neutral".into()],
             &[],
             None,
@@ -995,7 +1132,7 @@ mod tests {
 
         let prompt = character_system_prompt(
             &json!({"name": "葵"}),
-            false,
+            ReplyFormat::Structured,
             &[],
             &[],
             None,
@@ -1018,7 +1155,7 @@ mod tests {
         ] {
             let prompt = character_system_prompt(
                 &json!({"name": "葵"}),
-                false,
+                ReplyFormat::Structured,
                 &[],
                 &[],
                 None,

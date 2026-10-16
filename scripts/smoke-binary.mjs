@@ -66,11 +66,18 @@ const mockUpstreamApi = createServer(async (request, response) => {
   let requestBody = "";
   for await (const chunk of request) requestBody += chunk;
   lastUpstreamRequest = JSON.parse(requestBody);
+  const schema = lastUpstreamRequest.response_format?.json_schema?.schema;
+  // ベーシック（平文）は構造化出力を送らないので、応答も素の本文で返す。
+  const content = schema?.properties?.messages
+    ? JSON.stringify({ messages: ["Rust response"] })
+    : schema
+      ? JSON.stringify({ message: "Rust response" })
+      : "Rust response";
   response.writeHead(200, { "Content-Type": "application/json" });
   response.end(JSON.stringify({
     choices: [{
       message: {
-        content: JSON.stringify({ message: "Rust response" }),
+        content,
       },
     }],
     usage: {
@@ -201,15 +208,52 @@ try {
   }, applicationUrl);
   assert.equal(turn.messages[0].content, "Rust response");
   assert.equal(turn.usages[0].totalTokens, 14);
-  assert.equal(turn.fullJsonLogs[0].source, "assistant-json");
+  // ベーシックは平文生成なので、構造化出力を送らず本文をそのまま返す。
+  assert.equal(turn.fullJsonLogs[0].source, "assistant-text");
   assert.equal(lastUpstreamRequest.max_tokens, 2048);
-  assert.equal(
-    lastUpstreamRequest.response_format.json_schema.schema.properties.message.maxLength,
-    256,
-  );
+  assert.equal(lastUpstreamRequest.response_format, undefined);
   const sentPrompt = JSON.parse(turn.fullJsonLogs[0].prompt);
   assert.equal(sentPrompt[0].role, "system");
   assert.equal(sentPrompt.at(-1).content, "Hello");
+  assert.match(sentPrompt[0].content, /JSONやコードブロックで囲まないでください/);
+  assert.doesNotMatch(sentPrompt[0].content, /JSON形式で生成してください/);
+
+  // メッセージモードは今までどおり構造化出力（messages配列）を使う。
+  const messageTurn = await postJson(`${applicationUrl}/api/conversation/turn`, {
+    room: {
+      id: "smoke-room",
+      name: "Smoke room",
+      viewMode: "message",
+      messages: [],
+    },
+    character: {
+      id: "smoke-character",
+      name: "Smoke",
+      systemPrompt: "You are a test character.",
+      protagonistPrompt: "",
+      model: "mock-model",
+      maxCharacters: 256,
+      maxHistory: 7,
+      enableMemory: false,
+    },
+    conversationCompressionEnabled: false,
+    messages: [{
+      id: "smoke-user-message",
+      role: "user",
+      content: "Hello",
+      timestamp: Date.now(),
+      archived: false,
+    }],
+    aiApiConfig: {
+      aiApiType: "openai-compatible",
+    },
+  }, applicationUrl);
+  assert.equal(messageTurn.messages[0].content, "Rust response");
+  assert.equal(messageTurn.fullJsonLogs[0].source, "assistant-json");
+  assert.equal(
+    lastUpstreamRequest.response_format.json_schema.schema.properties.messages.items.maxLength,
+    256,
+  );
 
   const database = await stat(join(dataDirectory, "kataru.db"));
   assert.ok(database.size > 0);

@@ -20,10 +20,12 @@ fn response_format_for_schema(schema: Value) -> Value {
     }
 }
 
-async fn structured_attempt(
+/// Shared completion sender: normalizes a Kataru request body for the upstream API and
+/// optionally attaches a structured-output `response_format`.
+async fn completion_attempt(
     api_client: &AiApiClient,
     request: &Value,
-    response_format: &Value,
+    response_format: Option<&Value>,
     use_response_format: bool,
     require_parameters: bool,
     should_stream: bool,
@@ -70,7 +72,7 @@ async fn structured_attempt(
     }
     body.remove("requireParameters");
     body.insert("stream".to_owned(), Value::Bool(should_stream));
-    if use_response_format {
+    if let (true, Some(response_format)) = (use_response_format, response_format) {
         body.insert("response_format".to_owned(), response_format.clone());
     } else {
         body.remove("response_format");
@@ -81,7 +83,7 @@ async fn structured_attempt(
             .and_then(|value| value.as_str().map(ToOwned::to_owned));
         if !body.contains_key("reasoning") {
             let is_memory_extraction = response_format
-                .pointer("/json_schema/name")
+                .and_then(|response_format| response_format.pointer("/json_schema/name"))
                 .and_then(Value::as_str)
                 == Some("memory_save_updates");
             let effort = match requested_effort.as_deref() {
@@ -136,10 +138,10 @@ pub(crate) async fn structured_completion(
     timeout_secs: u64,
 ) -> AppResult<Value> {
     let response_format = response_format_for_schema(schema);
-    let first = structured_attempt(
+    let first = completion_attempt(
         api_client,
         &request,
-        &response_format,
+        Some(&response_format),
         true,
         true,
         false,
@@ -151,10 +153,10 @@ pub(crate) async fn structured_completion(
     }
     if api_client.is_anthropic() && first.status() == StatusCode::BAD_REQUEST {
         drop(first);
-        let fallback = structured_attempt(
+        let fallback = completion_attempt(
             api_client,
             &request,
-            &response_format,
+            Some(&response_format),
             false,
             false,
             false,
@@ -170,10 +172,10 @@ pub(crate) async fn structured_completion(
         return Err(upstream_error(first).await);
     }
 
-    let second = structured_attempt(
+    let second = completion_attempt(
         api_client,
         &request,
-        &response_format,
+        Some(&response_format),
         true,
         false,
         false,
@@ -438,10 +440,10 @@ where
     F: FnMut(&str),
 {
     let response_format = response_format_for_schema(schema);
-    let first = structured_attempt(
+    let first = completion_attempt(
         api_client,
         &request,
-        &response_format,
+        Some(&response_format),
         true,
         true,
         true,
@@ -453,10 +455,10 @@ where
     }
     if api_client.is_anthropic() && first.status() == StatusCode::BAD_REQUEST {
         drop(first);
-        let fallback = structured_attempt(
+        let fallback = completion_attempt(
             api_client,
             &request,
-            &response_format,
+            Some(&response_format),
             false,
             false,
             true,
@@ -472,10 +474,10 @@ where
         return Err(upstream_error(first).await);
     }
 
-    let second = structured_attempt(
+    let second = completion_attempt(
         api_client,
         &request,
-        &response_format,
+        Some(&response_format),
         true,
         false,
         true,
@@ -486,6 +488,36 @@ where
         return read_structured_stream(api_client, second, &mut on_content).await;
     }
     Err(upstream_error(second).await)
+}
+
+/// 構造化出力を使わない完了。`response_format` を送らないため、OpenRouter の
+/// `require_parameters` によるプロバイダ制限も掛からない。
+pub(crate) async fn plain_text_completion(
+    api_client: &AiApiClient,
+    request: Value,
+    timeout_secs: u64,
+) -> AppResult<Value> {
+    let response =
+        completion_attempt(api_client, &request, None, false, false, false, timeout_secs).await?;
+    if !response.status().is_success() {
+        return Err(upstream_error(response).await);
+    }
+    read_upstream_json(api_client, response).await
+}
+
+/// 平文完了のストリーミング版。受け取った本文の断片をそのまま `on_content` へ渡す。
+pub(crate) async fn plain_text_completion_streaming<F>(
+    api_client: &AiApiClient,
+    request: Value,
+    timeout_secs: u64,
+    mut on_content: F,
+) -> AppResult<Value>
+where
+    F: FnMut(&str),
+{
+    let response =
+        completion_attempt(api_client, &request, None, false, false, true, timeout_secs).await?;
+    read_structured_stream(api_client, response, &mut on_content).await
 }
 
 fn extract_content_text(content: &Value) -> String {

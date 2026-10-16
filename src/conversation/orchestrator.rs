@@ -13,7 +13,8 @@ use crate::{
         routes::{
             RoleSelection, entity_connection_id, extract_message_reasoning, extract_message_text,
             memory_extraction_guided_prompt, memory_extraction_prompt, memory_schema, model_string,
-            optional_role_selection, parse_memory_updates, resolve_role_selection, role_connection,
+            optional_role_selection, parse_memory_updates, plain_text_completion,
+            plain_text_completion_streaming, resolve_role_selection, role_connection,
             role_default_selection, structured_completion, structured_completion_streaming,
         },
         typesafe::{
@@ -36,8 +37,8 @@ use super::{
     },
     prompts::{
         DIRECTOR_TRANSCRIPT_USER_HISTORY, InjectedMemory, JEV_CONVERSATION_COMPLETE_OPTION,
-        JEV_END_OPTION, JEV_PROTAGONIST_OPTION, SUMMARY_RECENT_USER_TURNS_TO_KEEP, actor_id,
-        assistant_schema, boolean, character_setting, character_system_prompt,
+        JEV_END_OPTION, JEV_PROTAGONIST_OPTION, ReplyFormat, SUMMARY_RECENT_USER_TURNS_TO_KEEP,
+        actor_id, assistant_schema, boolean, character_setting, character_system_prompt,
         director_jev_first_questions, director_jev_safe_question, director_jev_state,
         director_prompts, director_schema, message_image_attachment_urls,
         message_text_with_attachments, string, summary_prompts, summary_schema,
@@ -46,7 +47,8 @@ use super::{
         AssistantEnvelope, DirectorDecision, assistant_expression_preview,
         assistant_motion_preview, assistant_response_preview, limit_assistant_reply_characters,
         parse_assistant_response, parse_director_decision, parse_summary_response,
-        sanitize_assistant_reply_content, sanitize_message_content,
+        plain_assistant_response, plain_response_preview, sanitize_assistant_reply_content,
+        sanitize_message_content,
     },
 };
 
@@ -413,7 +415,7 @@ async fn run_turn_inner(
     };
 
     let room_id = string(&room, "id");
-    let use_message_mode = string(&room, "viewMode") == "message";
+    let reply_format = ReplyFormat::from_view_mode(&string(&room, "viewMode"));
     let default_reasoning_effort = reasoning_effort_str(
         payload.get("reasoningEffort").and_then(Value::as_str),
     );
@@ -572,7 +574,7 @@ async fn run_turn_inner(
                     &participants,
                     current_summary.as_deref(),
                     &relevant,
-                    use_message_mode,
+                    reply_format,
                     secret_mode,
                     &mut usages,
                     full_json_logs,
@@ -628,7 +630,7 @@ async fn run_turn_inner(
                 &[],
                 current_summary.as_deref(),
                 &relevant,
-                use_message_mode,
+                reply_format,
                 secret_mode,
                 &mut usages,
                 full_json_logs,
@@ -890,7 +892,7 @@ async fn generate_for_character(
     participants: &[Value],
     summary: Option<&str>,
     memories: &[ScoredMemory],
-    message_mode: bool,
+    format: ReplyFormat,
     secret_mode: bool,
     usages: &mut Vec<Value>,
     full_json_logs: &mut Vec<Value>,
@@ -899,16 +901,13 @@ async fn generate_for_character(
     default_reasoning_effort: Option<&str>,
 ) -> AppResult<Vec<Value>> {
     let api_client = clients.for_connection(entity_connection_id(character).as_deref())?;
-    let visual_novel_mode = string(room, "viewMode") == "vn";
+    let message_mode = format.is_message();
+    // ベーシックだけが構造化出力を使わない。ゲームの表情・モーションはJSON前提。
+    let plain_text = format == ReplyFormat::PlainText;
+    let visual_novel_mode = format.is_structured();
     let expression_names = expression_names(character, room, visual_novel_mode);
     let motion_names = motion_names(character, room, visual_novel_mode);
     let max_characters = character_max_characters(character);
-    let schema = assistant_schema(
-        &expression_names,
-        &motion_names,
-        message_mode,
-        max_characters,
-    );
     let injected_memories = memories
         .iter()
         .map(|memory| InjectedMemory {
@@ -919,7 +918,7 @@ async fn generate_for_character(
         .collect::<Vec<_>>();
     let system_prompt = character_system_prompt(
         character,
-        message_mode,
+        format,
         &expression_names,
         &motion_names,
         summary,
@@ -950,23 +949,51 @@ async fn generate_for_character(
         prompt: &prompt,
     };
     let mut partial_content = String::new();
-    let completion = if let Some((jobs, job_id)) = streaming_preview {
-        structured_completion_streaming(&api_client, body, schema, 120, |partial| {
+    let completion = if plain_text {
+        let on_content = |partial: &str| {
             partial_content.clear();
             partial_content.push_str(partial);
-            let preview = assistant_response_preview(partial, message_mode, max_characters);
-            jobs.update_preview(
-                job_id,
-                &preview,
-                &debug_context.character_id,
-                &debug_context.character_name,
-                assistant_expression_preview(partial, &expression_names).as_deref(),
-                assistant_motion_preview(partial, &motion_names).as_deref(),
-            );
-        })
-        .await
+            if let Some((jobs, job_id)) = streaming_preview {
+                jobs.update_preview(
+                    job_id,
+                    &plain_response_preview(partial, max_characters),
+                    &debug_context.character_id,
+                    &debug_context.character_name,
+                    None,
+                    None,
+                );
+            }
+        };
+        if streaming_preview.is_some() {
+            plain_text_completion_streaming(&api_client, body, 120, on_content).await
+        } else {
+            plain_text_completion(&api_client, body, 120).await
+        }
     } else {
-        structured_completion(&api_client, body, schema, 120).await
+        let schema = assistant_schema(
+            &expression_names,
+            &motion_names,
+            message_mode,
+            max_characters,
+        );
+        if let Some((jobs, job_id)) = streaming_preview {
+            structured_completion_streaming(&api_client, body, schema, 120, |partial| {
+                partial_content.clear();
+                partial_content.push_str(partial);
+                let preview = assistant_response_preview(partial, message_mode, max_characters);
+                jobs.update_preview(
+                    job_id,
+                    &preview,
+                    &debug_context.character_id,
+                    &debug_context.character_name,
+                    assistant_expression_preview(partial, &expression_names).as_deref(),
+                    assistant_motion_preview(partial, &motion_names).as_deref(),
+                );
+            })
+            .await
+        } else {
+            structured_completion(&api_client, body, schema, 120).await
+        }
     };
     let raw = match completion {
         Ok(raw) => raw,
@@ -986,7 +1013,9 @@ async fn generate_for_character(
         }
     };
     let content = extract_message_text(&raw);
-    let envelope =
+    let envelope = if plain_text {
+        plain_assistant_response(&content, max_characters)
+    } else {
         match parse_assistant_response(&content, &expression_names, &motion_names, message_mode) {
             Ok(envelope) => limit_assistant_reply_characters(envelope, max_characters),
             Err(error) => {
@@ -1003,7 +1032,8 @@ async fn generate_for_character(
                 }
                 return Err(error);
             }
-        };
+        }
+    };
     if let Some((jobs, job_id)) = streaming_preview {
         jobs.finalize_preview(
             job_id,
@@ -1025,7 +1055,7 @@ async fn generate_for_character(
             "characterName": debug_context.character_name,
             "model": debug_context.model,
             "status": "success",
-            "source": "assistant-json",
+            "source": if plain_text { "assistant-text" } else { "assistant-json" },
             "prompt": prompt,
             "json": content,
             "elapsedMs": now_ms().saturating_sub(started),

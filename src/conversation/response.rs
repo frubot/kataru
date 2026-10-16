@@ -157,6 +157,25 @@ pub(crate) fn limit_assistant_reply_characters(
     envelope
 }
 
+/// Wraps a plain-text reply. Basic mode does not use structured output, so the whole
+/// response body is the reply; a fenced block around the whole body is unwrapped.
+pub(crate) fn plain_assistant_response(
+    content: &str,
+    max_characters: usize,
+) -> AssistantEnvelope {
+    let message = strip_json_code_fence(content).trim().to_owned();
+    limit_assistant_reply_characters(
+        AssistantEnvelope {
+            message: message.clone(),
+            messages: vec![message],
+            to: Vec::new(),
+            expression: None,
+            motion: None,
+        },
+        max_characters,
+    )
+}
+
 fn json_string_at(content: &str, start: usize) -> (String, usize, bool) {
     let bytes = content.as_bytes();
     let mut index = start + 1;
@@ -303,6 +322,12 @@ pub(crate) fn assistant_response_preview(
         json_string_at(content, cursor).0
     };
     truncate_to_character_limit(&preview, max_characters.max(1))
+}
+
+/// Preview of an in-progress plain-text reply. Nothing has to be decoded, so the
+/// received text is shown as-is within the character limit.
+pub(crate) fn plain_response_preview(content: &str, max_characters: usize) -> String {
+    truncate_to_character_limit(content, max_characters.max(1))
 }
 
 pub fn parse_director_decision(
@@ -981,6 +1006,49 @@ mod tests {
             assistant_response_preview(r#"{"message":"あいうえお"#, false, 3),
             "あいう"
         );
+    }
+
+    #[test]
+    fn plain_reply_keeps_the_body_without_metadata() {
+        let response = plain_assistant_response("  こんにちは。*微笑む*  ", 512);
+
+        assert_eq!(response.messages, ["こんにちは。*微笑む*"]);
+        assert_eq!(response.message, "こんにちは。*微笑む*");
+        assert!(response.expression.is_none());
+        assert!(response.motion.is_none());
+        assert!(response.to.is_empty());
+    }
+
+    #[test]
+    fn plain_reply_reuses_the_structured_reply_normalization() {
+        assert_eq!(plain_assistant_response("「返答」", 512).message, "返答");
+    }
+
+    #[test]
+    fn plain_reply_is_limited_by_characters() {
+        assert_eq!(plain_assistant_response("あいうえお", 3).messages, ["あいう"]);
+    }
+
+    #[test]
+    fn plain_reply_unwraps_a_fenced_block_but_never_parses_json_bodies() {
+        assert_eq!(
+            plain_assistant_response("```json\n{\"a\": 1}\n```", 512).message,
+            "{\"a\": 1}"
+        );
+        assert_eq!(
+            plain_assistant_response(r#"{"message":"hi"}"#, 512).message,
+            r#"{"message":"hi"}"#
+        );
+    }
+
+    #[test]
+    fn plain_reply_falls_back_to_ellipsis_when_empty() {
+        assert_eq!(plain_assistant_response("   ", 512).message, "...");
+    }
+
+    #[test]
+    fn previews_plain_reply_by_characters() {
+        assert_eq!(plain_response_preview("あいうえお", 3), "あいう");
     }
 
     #[test]

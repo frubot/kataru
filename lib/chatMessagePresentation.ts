@@ -1,4 +1,3 @@
-import { getMessageMemories } from './chatAssistantResponse';
 import { isConversationResponseEnd } from './conversationBranch';
 import type { ConversationJobPreviewTurn } from './conversationJobClient';
 import type {
@@ -69,6 +68,18 @@ export function buildPriorMessagePresentations(
                 && previousMessage.actorId === message.actorId,
         };
     });
+}
+
+/** Assistantメッセージが参照したメモリ。空文字と重複を除いて並び順を保つ。 */
+function getMessageMemories(message: Pick<Message, 'memories'>): string[] {
+    const seen = new Set<string>();
+    return (message.memories ?? [])
+        .map((memory) => memory.trim())
+        .filter((memory) => {
+            if (!memory || seen.has(memory)) return false;
+            seen.add(memory);
+            return true;
+        });
 }
 
 type BuildChatMessagePresentationsOptions = {

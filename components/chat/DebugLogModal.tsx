@@ -8,6 +8,8 @@ function getDebugSourceLabel(source: string): string {
         case 'assistant-json':
         case 'chat-response-json':
             return '出力されたJSON';
+        case 'assistant-text':
+            return '出力されたテキスト';
         case 'chat-http-error':
             return 'HTTPエラー';
         case 'chat-response-parse-error':
@@ -63,7 +65,7 @@ export default function DebugLogModal({ logs, onClose, onClear }: DebugLogModalP
                 <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                     {logs.length === 0 ? (
                         <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
-                            まだJSONログはありません。
+                            まだログはありません。
                         </p>
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>

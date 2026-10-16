@@ -2356,7 +2356,7 @@ body {
 /* Message bubble styles */
 .message-bubble {
   max-width: 80%;
-  padding: 0.75rem 1rem;
+  padding: 0.65rem 1rem;
   border-radius: 1rem;
   line-height: 1.5;
   word-wrap: break-word;
@@ -2556,7 +2556,7 @@ body {
 }
 
 .chat-messages .message-continuation {
-  margin-top: -0.8125rem;
+  margin-top: -0.55rem;
 }
 
 .chat-messages .message-continuation .message-bubble.assistant {

@@ -502,13 +502,11 @@ fn character_schema() -> Value {
                 "relationship": {
                     "type": "string",
                     "description": "キャラクターとの関係性",
-                    "maxLength": 50,
                     "minLength": 5
                 },
                 "protagonistImpression": {
                     "type": "string",
                     "description": "主人公に対して抱いている印象や感情",
-                    "maxLength": 50,
                     "minLength": 10
                 },
                 "speechExamples": {

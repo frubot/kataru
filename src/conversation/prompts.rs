@@ -108,8 +108,8 @@ fn roleplay_reply_instruction(character_name: &str, format: ReplyFormat) -> Stri
 }
 
 const MESSAGE_REPLY_INSTRUCTION: &str = r#"
- あなたはメッセンジャーアプリを使って、相手とやりとりします。
- アプリ上での出来事なので、文章は発言ではなくテキストです。
+ あなたは今、SNSで主人公とやりとりしています。
+ アプリ上での出来事なので、テキストでのやり取りです。
 
  ## 例
  Good:
@@ -117,7 +117,7 @@ const MESSAGE_REPLY_INSTRUCTION: &str = r#"
 
  ## 写真の添付
  主人公が添付する[写真の概要]は主人公が添付した写真についての短い説明です。
- もしあなたが写真を添付したいなら、`[画像の説明]` を表記することで任意の画像を送信できます。
+ あなたが写真を添付したい場合は、`[画像: <画像の説明>]` 形式で表記することで任意の画像を送信できます。
 "#;
 
 pub fn character_setting(character: &Value) -> String {

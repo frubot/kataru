@@ -43,19 +43,16 @@ impl ReplyFormat {
 
 fn reply_instruction_base(character_name: &str, format: ReplyFormat) -> String {
     let output_instruction = if format.uses_json() {
-        "JSON形式で生成してください。提示されたJSONの構造および順序に厳密に従ってください。"
+        "Please generate the output in JSON format. Strictly adhere to the structure and order of the provided JSON."
     } else {
-        "返答は本文だけを出力してください。JSONやコードブロックで囲まないでください。"
+        ""
     };
     format!(
         r#"
-あなたは{character_name}です。
-{character_name}とナレーションを演じてください。
+You are {character_name}. Please begin the roleplay.
 {output_instruction}
-設定に示した情報は必ずしも返答に含める必要はありません。
 
-ユーザー=主人公
-あなた={character_name}
+We refer to the user as the "主人公".
 "#
     )
 }
@@ -69,55 +66,51 @@ const ROLEPLAY_PLAIN_OUTPUT_EXAMPLE: &str = "*夕焼けの光が窓から差し�
 fn roleplay_reply_instruction(character_name: &str, format: ReplyFormat) -> String {
     let (heading, example) = if format.uses_json() {
         (
-            "## messageフィールド内のフォーマット",
+            "## Format within the message field",
             format!("` {ROLEPLAY_JSON_OUTPUT_EXAMPLE} `"),
         )
     } else {
         (
-            "## 返答のフォーマット",
+            "## Response format",
             ROLEPLAY_PLAIN_OUTPUT_EXAMPLE.to_owned(),
         )
     };
     format!(
         r#"
 {heading}
-あなたは{character_name}を演じ、ナレーションで状況を表現します。
+In addition to {character_name}, you must also provide narration using stage directions (e.g., `*narration*`).
 
-### キャラクターの返答  
-   - {character_name}として、設定通りに返答する必要があります。
-   - 設定に存在しない情報は自然な形で補完しても構いません。
+### Character's response
+   - You do not necessarily need to include the information provided in the settings in your response.
+   - You may fill in missing information in a natural way.
 
-### ナレーション
-  キャラクターとしての返答だけでなく、ユーザーが周囲の状況を理解しやすいようなナレーションも表します。
-  
-  ナレーションの制約:
-   - 感情や動作、行動、状況に関連するものはナレーションとして、三人称視点から説明してください。文体はキャラクター設定に影響されません。(Good: 嬉しそうに話す。 Bad: 嬉しそうに話しました。)
-   - *説明文* のように囲っで説明します。
-   - 主人公を指す場合は"主人公"と表記してください。
-   - キャラクターを指す場合は名前("田中太郎"の場合、"太郎"の部分)で表記してください。
-   - キャラクターの独白など読み取れないものは記述しないでください。
+### Constraints on narration
+   - Please describe elements related to emotions, movements, actions, and situations through narration. The style of the narration is independent of the characters' individual traits.
+   - Please be sure to enclose your explanation in boxes like this: `*Explanation Text*`.
+   - Please write from the perspective of the user as the 主人公.
+   - When referring to a character, please use their name (e.g., for "田中 太郎," use "太郎").
 
-### 出力例
+### Output example
   Good:
   {example}
 
-## 主人公についての前提知識
-主人公は単なる発言だけではなく、` *歩き出す* ` のようにアスタリスクで囲って主人公自身の行動等を描写することがあります。それは発言ではなく行動です。
+## Regarding user input format
+Users may include not only spoken lines but also stage directions—such as `*starts walking*`—to describe the protagonist’s own actions or other such details.
 "#
     )
 }
 
 const MESSAGE_REPLY_INSTRUCTION: &str = r#"
- あなたは今、SNSで主人公とやりとりしています。
- アプリ上での出来事なので、テキストでのやり取りです。
+ You are currently interacting with the 主人公 on social media.
+ The conversation here takes place via text.
 
- ## 例
+ ## Output example
  Good:
  `["確かに。","じゃあ10時にハチ公前集合ね👍マジ明日頑張れそう…。","楽しみ！笑"]`
 
- ## 写真の添付
- 主人公が添付する[写真の概要]は主人公が添付した写真についての短い説明です。
- あなたが写真を添付したい場合は、`[画像: <画像の説明>]` 形式で表記することで任意の画像を送信できます。
+ ## Attach a photo
+ The `[photo description]` provided by a user is a brief explanation of the photo that the protagonist has attached.
+ If you would like to include a photo, you can send an image by using the format `[Image: <description of the image>]`.
 "#;
 
 pub fn character_setting(character: &Value) -> String {
@@ -131,14 +124,14 @@ pub fn character_setting(character: &Value) -> String {
     }
     if !speech_style.is_empty() {
         sections.push(format!(
-            "# 口調\n以下はキャラクターの口調例です。ただし、特徴のみを真似てください。そのままこれらの言葉を写さないでください。\n\n{speech_style}"
+            "# Tone example\nThe following are examples of a character's tone of voice. Please use them only as a reference for the character's traits; do not copy these specific phrases directly into your responses.\n\n{speech_style}"
         ));
     }
     if !protagonist.is_empty() {
-        sections.push(format!("# 主人公の概要\n{protagonist}"));
+        sections.push(format!("# Details related to the protagonist\n{protagonist}"));
     }
     if !constraints.is_empty() {
-        sections.push(format!("# 追加の制約\n このセクションの指示を最優先に従ってください。他の設定と矛盾する場合もこちらに従ってください。\n\n{constraints}"));
+        sections.push(format!("# Additional constraints\n The instructions in this section take top priority. Please follow them even if they conflict with other settings.\n\n{constraints}"));
     }
     sections.join("\n\n")
 }

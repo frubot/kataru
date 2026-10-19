@@ -320,6 +320,15 @@ export interface ParsedBackup {
     connections?: ExportedConnection[];
 }
 
+/** デバッグログに添える生成コスト。サーバー側で実測した値をそのまま表示する。 */
+export interface DebugLogUsage {
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
+    tokensPerSecond?: number;
+    cost?: number;
+}
+
 export interface FullJsonDebugLog {
     id: string;
     roomId: string;
@@ -336,6 +345,10 @@ export interface FullJsonDebugLog {
     httpStatus?: number;
     elapsedMs?: number;
     errorName?: string;
+    /** 1回目の生成のトークン数・コスト・スループット。 */
+    usage?: DebugLogUsage;
+    /** 2回目の生成（指揮役の追加呼び出しなど）の同じ内訳。 */
+    secondUsage?: DebugLogUsage;
     createdAt: number;
 }
 

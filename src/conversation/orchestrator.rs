@@ -805,6 +805,76 @@ fn push_debug_log(logs: &mut Vec<Value>, mut log: Value) {
     logs.push(log);
 }
 
+/// デバッグログの `usage` に載せるトークン数・コスト・スループット。
+/// 使用量がひとつも取れないときは `None` を返し、空の統計をログへ足さない。
+fn token_debug_usage(
+    prompt_tokens: u64,
+    completion_tokens: u64,
+    total_tokens: Option<u64>,
+    cost: Option<f64>,
+    elapsed_ms: u64,
+) -> Option<Value> {
+    if prompt_tokens == 0 && completion_tokens == 0 && total_tokens.unwrap_or(0) == 0 {
+        return None;
+    }
+    let total_tokens = total_tokens
+        .filter(|total| *total > 0)
+        .unwrap_or(prompt_tokens + completion_tokens);
+    let mut usage = json!({
+        "promptTokens": prompt_tokens,
+        "completionTokens": completion_tokens,
+        "totalTokens": total_tokens,
+    });
+    if let Some(cost) = cost.filter(|cost| *cost > 0.0) {
+        usage["cost"] = json!(cost);
+    }
+    // 生成速度は出力トークンだけで測る。待ち時間を含む実測値なので、
+    // 表示側では `elapsedMs` と対で読む。
+    if completion_tokens > 0 && elapsed_ms > 0 {
+        let tokens_per_second = completion_tokens as f64 * 1000.0 / elapsed_ms as f64;
+        usage["tokensPerSecond"] = json!((tokens_per_second * 10.0).round() / 10.0);
+    }
+    Some(usage)
+}
+
+/// OpenAI互換の応答からデバッグログ用の使用量を取り出す。
+fn completion_debug_usage(raw: &Value, elapsed_ms: u64) -> Option<Value> {
+    let usage = raw.get("usage").filter(|usage| usage.is_object())?;
+    token_debug_usage(
+        usage
+            .get("prompt_tokens")
+            .and_then(Value::as_u64)
+            .unwrap_or(0),
+        usage
+            .get("completion_tokens")
+            .and_then(Value::as_u64)
+            .unwrap_or(0),
+        usage.get("total_tokens").and_then(Value::as_u64),
+        usage.get("cost").and_then(Value::as_f64),
+        elapsed_ms,
+    )
+}
+
+/// Jev (System One) の応答からデバッグログ用の使用量を取り出す。
+fn jev_debug_usage(response: &SystemOneResponse, elapsed_ms: u64) -> Option<Value> {
+    let usage = response.usage.as_ref()?;
+    token_debug_usage(
+        usage.input_tokens,
+        usage.output_tokens,
+        None,
+        None,
+        elapsed_ms,
+    )
+}
+
+/// デバッグログ本体へ使用量を差し込む。
+fn insert_debug_usage(log: &mut Value, key: &str, usage: Option<Value>) {
+    let (Some(log), Some(usage)) = (log.as_object_mut(), usage) else {
+        return;
+    };
+    log.insert(key.to_owned(), usage);
+}
+
 /// `data:<mediatype>;base64,<payload>` のペイロード部分を `[base64省略:Nchars]`
 /// に置き換える。JSON文字列内では `"`・`\`・空白が必ず区切りになる。
 fn redact_base64_data_urls(text: &str) -> String {
@@ -1052,6 +1122,7 @@ async fn generate_for_character(
     }
     if !secret_mode {
         push_usage(usages, &raw, character, "chat");
+        let elapsed_ms = now_ms().saturating_sub(started);
         let mut log = json!({
             "roomId": string(room, "id"),
             "roomName": string(room, "name"),
@@ -1062,11 +1133,12 @@ async fn generate_for_character(
             "source": if plain_text { "assistant-text" } else { "assistant-json" },
             "prompt": prompt,
             "json": content,
-            "elapsedMs": now_ms().saturating_sub(started),
+            "elapsedMs": elapsed_ms,
         });
         if let Some(reasoning) = extract_message_reasoning(&raw) {
             log["reasoning"] = json!(reasoning);
         }
+        insert_debug_usage(&mut log, "usage", completion_debug_usage(&raw, elapsed_ms));
         push_debug_log(full_json_logs, log);
     }
     Ok(envelope_to_messages(
@@ -1251,6 +1323,7 @@ async fn request_director(
             &selection.model,
             "director",
         );
+        let elapsed_ms = now_ms().saturating_sub(started);
         let mut log = json!({
             "roomId": string(room, "id"),
             "roomName": string(room, "name"),
@@ -1261,11 +1334,12 @@ async fn request_director(
             "source": "director-json",
             "prompt": prompt,
             "json": content,
-            "elapsedMs": now_ms().saturating_sub(started),
+            "elapsedMs": elapsed_ms,
         });
         if let Some(reasoning) = extract_message_reasoning(&raw) {
             log["reasoning"] = json!(reasoning);
         }
+        insert_debug_usage(&mut log, "usage", completion_debug_usage(&raw, elapsed_ms));
         push_debug_log(full_json_logs, log);
     }
     Ok(decision)
@@ -1355,6 +1429,9 @@ async fn request_director_typesafe(
             return Err(error);
         }
     };
+    // 1回目のJev呼び出しの実測時間。2回目を呼ぶ場合は全体の elapsedMs とは
+    // 別に測らないと、1回目の tok/s が二重に待ち時間を含んでしまう。
+    let first_elapsed_ms = now_ms().saturating_sub(started);
     let next = match choice_answer(&response, "next_speaker") {
         Ok(next) => next,
         Err(error) => {
@@ -1398,6 +1475,7 @@ async fn request_director_typesafe(
     }
     let mut selected_actor: Option<String> = None;
     let mut second_response: Option<SystemOneResponse> = None;
+    let mut second_elapsed_ms: Option<u64> = None;
 
     if eligible_ids.contains(&effective_choice) {
         selected_actor = Some(effective_choice.clone());
@@ -1423,6 +1501,7 @@ async fn request_director_typesafe(
         };
         if noul.noul >= continue_threshold {
             let safe_question = director_jev_safe_question(actors, &eligible_ids);
+            let second_started = now_ms();
             let second = match system_one(
                 &api_client,
                 &selection.model,
@@ -1448,6 +1527,7 @@ async fn request_director_typesafe(
                     return Err(error);
                 }
             };
+            second_elapsed_ms = Some(now_ms().saturating_sub(second_started));
             let safe = match choice_answer(&second, "safe_speaker") {
                 Ok(safe) => safe,
                 Err(error) => {
@@ -1529,6 +1609,7 @@ async fn request_director_typesafe(
         if let Some(second) = &second_response {
             push_jev_usage(usages, second, &situation_id, &selection.model, "director");
         }
+        let elapsed_ms = now_ms().saturating_sub(started);
         let mut log = json!({
             "roomId": string(room, "id"),
             "roomName": string(room, "name"),
@@ -1541,11 +1622,21 @@ async fn request_director_typesafe(
             "json": serde_json::to_string_pretty(&response)
                 .expect("Jev response must be serializable"),
             "effectiveChoice": effective_choice,
-            "elapsedMs": now_ms().saturating_sub(started),
+            "elapsedMs": elapsed_ms,
         });
+        insert_debug_usage(
+            &mut log,
+            "usage",
+            jev_debug_usage(&response, first_elapsed_ms),
+        );
         if let Some(second) = &second_response {
             log["secondJson"] = Value::String(
                 serde_json::to_string_pretty(second).expect("Jev response must be serializable"),
+            );
+            insert_debug_usage(
+                &mut log,
+                "secondUsage",
+                jev_debug_usage(second, second_elapsed_ms.unwrap_or(elapsed_ms)),
             );
         }
         push_debug_log(full_json_logs, log);
@@ -1988,7 +2079,8 @@ async fn request_memory_gate(
                 &debug_context.model,
                 "memory-gate",
             );
-            push_debug_log(full_json_logs, json!({
+            let elapsed_ms = now_ms().saturating_sub(started);
+            let mut log = json!({
                 "roomId": string(room, "id"),
                 "roomName": string(room, "name"),
                 "characterId": debug_context.character_id,
@@ -2002,8 +2094,10 @@ async fn request_memory_gate(
                     "response": response,
                 }))
                 .expect("Jev response must be serializable"),
-                "elapsedMs": now_ms().saturating_sub(started),
-            }));
+                "elapsedMs": elapsed_ms,
+            });
+            insert_debug_usage(&mut log, "usage", jev_debug_usage(&response, elapsed_ms));
+            push_debug_log(full_json_logs, log);
             Some(decision)
         }
         Err(error) => {
@@ -2944,6 +3038,66 @@ mod tests {
         );
 
         assert_eq!(chat_error_source(&error), "chat-response-parse-error");
+    }
+
+    #[test]
+    fn successful_debug_logs_carry_tokens_cost_and_throughput() {
+        let usage = token_debug_usage(1200, 400, Some(1600), Some(0.0042), 8000)
+            .expect("reporting tokens must produce debug usage fields");
+
+        assert_eq!(usage["promptTokens"], 1200);
+        assert_eq!(usage["completionTokens"], 400);
+        assert_eq!(usage["totalTokens"], 1600);
+        assert_eq!(usage["cost"], 0.0042);
+        assert_eq!(usage["tokensPerSecond"], 50.0);
+
+        let mut log = json!({"status": "success"});
+        insert_debug_usage(&mut log, "usage", Some(usage));
+
+        assert_eq!(log["usage"]["totalTokens"], 1600);
+        assert_eq!(log["status"], "success");
+    }
+
+    #[test]
+    fn debug_usage_fields_are_omitted_when_the_provider_reports_nothing() {
+        assert!(token_debug_usage(0, 0, None, None, 1000).is_none());
+        assert!(completion_debug_usage(&json!({"model": "test-model"}), 1000).is_none());
+
+        // total_tokens を返さない応答は入力と出力から合計を作る。
+        let usage = completion_debug_usage(
+            &json!({"usage": {"prompt_tokens": 10, "completion_tokens": 5}}),
+            500,
+        )
+        .expect("usage fields");
+
+        assert_eq!(usage["totalTokens"], 15);
+        assert_eq!(usage["tokensPerSecond"], 10.0);
+        assert!(usage.get("cost").is_none());
+    }
+
+    #[test]
+    fn jev_debug_usage_maps_input_and_output_tokens() {
+        let response = SystemOneResponse {
+            model: "jev-latest".to_owned(),
+            answers: HashMap::new(),
+            usage: Some(crate::ai::typesafe::JevUsage {
+                input_tokens: 300,
+                output_tokens: 20,
+            }),
+        };
+
+        let usage = jev_debug_usage(&response, 2000).expect("Jev usage fields");
+
+        assert_eq!(usage["promptTokens"], 300);
+        assert_eq!(usage["completionTokens"], 20);
+        assert_eq!(usage["totalTokens"], 320);
+        assert_eq!(usage["tokensPerSecond"], 10.0);
+
+        let without_usage = SystemOneResponse {
+            usage: None,
+            ..response
+        };
+        assert!(jev_debug_usage(&without_usage, 2000).is_none());
     }
 
     #[test]

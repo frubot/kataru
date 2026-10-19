@@ -247,4 +247,107 @@ describe('conversation result application', () => {
             secondJson: '{"answers":{"safe_speaker":{"choice":"actor-2"}}}',
         }));
     });
+
+    test('keeps debug log token counts and throughput for both calls', async () => {
+        const operations = createOperations(sourceRoom);
+
+        await applyConversationResult(
+            {
+                data: {
+                    messages: [{
+                        id: 'server-message',
+                        role: 'assistant',
+                        content: 'ログ付きの返答',
+                        characterId: 'character-1',
+                        timestamp: 1,
+                    }],
+                    fullJsonLogs: [{
+                        characterId: 'situation-1:director',
+                        characterName: '指揮役',
+                        model: 'jev-latest',
+                        status: 'success',
+                        source: 'director-jev',
+                        json: '{"answers":{"next_speaker":{"choice":"actor-1"}}}',
+                        secondJson: '{"answers":{"safe_speaker":{"choice":"actor-2"}}}',
+                        elapsedMs: 4000,
+                        usage: {
+                            promptTokens: 1200,
+                            completionTokens: 400,
+                            totalTokens: 1600,
+                            tokensPerSecond: 100,
+                            cost: 0.0042,
+                        },
+                        secondUsage: {
+                            promptTokens: 300,
+                            completionTokens: 20,
+                            totalTokens: 320,
+                            tokensPerSecond: 10,
+                        },
+                    }],
+                },
+                sourceRoom,
+                jobId: 'job-1',
+                isSecretMode: false,
+                debugEnabled: true,
+            },
+            operations,
+        );
+
+        expect(operations.addFullJsonDebugLog).toHaveBeenCalledWith(expect.objectContaining({
+            model: 'jev-latest',
+            usage: {
+                promptTokens: 1200,
+                completionTokens: 400,
+                totalTokens: 1600,
+                tokensPerSecond: 100,
+                cost: 0.0042,
+            },
+            secondUsage: {
+                promptTokens: 300,
+                completionTokens: 20,
+                totalTokens: 320,
+                tokensPerSecond: 10,
+            },
+        }));
+    });
+
+    test('drops usage fields that are missing or not numbers', async () => {
+        const operations = createOperations(sourceRoom);
+
+        await applyConversationResult(
+            {
+                data: {
+                    messages: [{
+                        id: 'server-message',
+                        role: 'assistant',
+                        content: '使用量なしの返答',
+                        characterId: 'character-1',
+                        timestamp: 1,
+                    }],
+                    fullJsonLogs: [{
+                        characterId: 'character-1',
+                        characterName: '葵',
+                        status: 'success',
+                        source: 'assistant-json',
+                        json: '{"reply":"ok"}',
+                        usage: {
+                            promptTokens: '1200',
+                            completionTokens: 400,
+                            tokensPerSecond: Number.NaN,
+                        } as unknown as { promptTokens: number },
+                    }],
+                },
+                sourceRoom,
+                jobId: 'job-1',
+                isSecretMode: false,
+                debugEnabled: true,
+            },
+            operations,
+        );
+
+        expect(operations.addFullJsonDebugLog).toHaveBeenCalledWith(expect.objectContaining({
+            usage: { completionTokens: 400 },
+            secondUsage: undefined,
+        }));
+    });
 });

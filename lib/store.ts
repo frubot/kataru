@@ -65,6 +65,7 @@ export type {
     Character,
     Costume,
     CreateSituationInput,
+    DebugLogUsage,
     Expression,
     FullJsonDebugLog,
     MemoryKind,

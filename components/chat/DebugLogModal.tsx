@@ -1,7 +1,66 @@
 import { useRef } from 'react';
+import type { CSSProperties } from 'react';
 import { Trash2, X } from 'lucide-react';
-import type { FullJsonDebugLog } from '@/lib/store';
+import type { DebugLogUsage, FullJsonDebugLog } from '@/lib/store';
 import { useModalKeyboard } from '../useModalKeyboard';
+
+const metaChipStyle: CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.25rem',
+    padding: '0.125rem 0.4375rem',
+    borderRadius: '999px',
+    border: '1px solid var(--border-color)',
+    background: 'var(--bg-tertiary)',
+    fontSize: '0.6875rem',
+    color: 'var(--text-secondary)',
+    whiteSpace: 'nowrap',
+};
+
+function formatCount(value: number): string {
+    return value.toLocaleString();
+}
+
+function formatCost(cost: number): string {
+    return `$${cost.toFixed(6)}`;
+}
+
+/** 使用量をチップ表示用の文字列へ整える。サーバーが返さなかった項目は出さない。 */
+function usageLabels(usage: DebugLogUsage | undefined): string[] {
+    if (!usage) return [];
+    const labels: string[] = [];
+    const promptTokens = usage.promptTokens ?? 0;
+    const completionTokens = usage.completionTokens ?? 0;
+    const totalTokens = usage.totalTokens ?? promptTokens + completionTokens;
+    if (promptTokens > 0 || completionTokens > 0 || totalTokens > 0) {
+        labels.push(
+            `入力 ${formatCount(promptTokens)} / 出力 ${formatCount(completionTokens)} / 計 ${formatCount(totalTokens)} トークン`,
+        );
+    }
+    if (usage.tokensPerSecond != null) {
+        labels.push(`${usage.tokensPerSecond.toLocaleString()} tok/s`);
+    }
+    if (usage.cost != null && usage.cost > 0) {
+        labels.push(formatCost(usage.cost));
+    }
+    return labels;
+}
+
+function MetaChips({ labels, prefix }: { labels: string[]; prefix?: string }) {
+    if (labels.length === 0) return null;
+    return (
+        <>
+            {prefix ? (
+                <span style={{ fontSize: '0.6875rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+                    {prefix}
+                </span>
+            ) : null}
+            {labels.map((label) => (
+                <span key={label} style={metaChipStyle}>{label}</span>
+            ))}
+        </>
+    );
+}
 
 function getDebugSourceLabel(source: string): string {
     switch (source) {
@@ -101,6 +160,18 @@ export default function DebugLogModal({ logs, onClose, onClear }: DebugLogModalP
                                                 {log.roomName} / {getDebugSourceLabel(log.source)}
                                                 {log.httpStatus ? ` / HTTP ${log.httpStatus}` : ''}
                                                 {log.elapsedMs != null ? ` / ${log.elapsedMs}ms` : ''}
+                                            </div>
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.375rem', marginTop: '0.375rem' }}>
+                                                {log.model ? (
+                                                    <span
+                                                        style={{ ...metaChipStyle, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                                                        title={log.model}
+                                                    >
+                                                        モデル: {log.model}
+                                                    </span>
+                                                ) : null}
+                                                <MetaChips labels={usageLabels(log.usage)} />
+                                                <MetaChips labels={usageLabels(log.secondUsage)} prefix="2回目" />
                                             </div>
                                         </div>
                                         <time style={{ flexShrink: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}>

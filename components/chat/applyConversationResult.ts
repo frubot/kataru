@@ -1,5 +1,6 @@
 import type { RustTurnResponse } from '../../lib/conversationResult';
 import type {
+    DebugLogUsage,
     FullJsonDebugLog,
     Message,
     Room,
@@ -47,6 +48,28 @@ function debugLogText(value: unknown): string | undefined {
     return JSON.stringify(value, null, 2);
 }
 
+const DEBUG_LOG_USAGE_KEYS = [
+    'promptTokens',
+    'completionTokens',
+    'totalTokens',
+    'tokensPerSecond',
+    'cost',
+] as const satisfies readonly (keyof DebugLogUsage)[];
+
+/** サーバーが返した使用量から、表示に使う数値だけを拾い直す。 */
+function debugLogUsage(value: unknown): DebugLogUsage | undefined {
+    if (!value || typeof value !== 'object') return undefined;
+    const source = value as Record<string, unknown>;
+    const usage: DebugLogUsage = {};
+    for (const key of DEBUG_LOG_USAGE_KEYS) {
+        const field = source[key];
+        if (typeof field === 'number' && Number.isFinite(field)) {
+            usage[key] = field;
+        }
+    }
+    return Object.keys(usage).length > 0 ? usage : undefined;
+}
+
 export function recordConversationDebugLogs(
     options: RecordConversationDebugLogsOptions,
     operations: RecordConversationDebugLogsOperations,
@@ -74,6 +97,8 @@ export function recordConversationDebugLogs(
             httpStatus: log.httpStatus,
             elapsedMs: log.elapsedMs,
             errorName: log.errorName,
+            usage: debugLogUsage(log.usage),
+            secondUsage: debugLogUsage(log.secondUsage),
         });
     }
 }

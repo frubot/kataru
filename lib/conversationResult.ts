@@ -1,4 +1,5 @@
 import type { ExtractedMemoryUpdate } from './chatMemoryCandidates';
+import type { DebugLogUsage } from './store/types';
 
 export type ConversationAssistantMessage = {
     id: string;
@@ -35,6 +36,10 @@ export type RustTurnResponse = {
         httpStatus?: number;
         elapsedMs?: number;
         errorName?: string;
+        /** 1回目の生成のトークン数・コスト・スループット。 */
+        usage?: DebugLogUsage;
+        /** 2回目の生成（指揮役の追加呼び出しなど）の同じ内訳。 */
+        secondUsage?: DebugLogUsage;
     }>;
     summary?: {
         text: string;

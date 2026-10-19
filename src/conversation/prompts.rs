@@ -101,7 +101,7 @@ Users may include not only spoken lines but also stage directions—such as `*st
 }
 
 const MESSAGE_REPLY_INSTRUCTION: &str = r#"
- You are currently interacting with the 主人公 on social media.
+ You are currently interacting with the 主人公 on **social media**.
  The conversation here takes place via text.
 
  ## Output example
@@ -110,7 +110,7 @@ const MESSAGE_REPLY_INSTRUCTION: &str = r#"
 
  ## Attach a photo
  The `[photo description]` provided by a user is a brief explanation of the photo that the protagonist has attached.
- If you would like to include a photo, you can send an image by using the format `[Image: <description of the image>]`.
+ If you would like to include a photo, you can send an image by using the format `[Image: <description of the image>]`. However, this is optional.
 "#;
 
 pub fn character_setting(character: &Value) -> String {
@@ -733,7 +733,7 @@ mod tests {
         assert!(prompt.starts_with("# 指示"));
         assert!(prompt.contains("## シチュエーション\n放課後の教室"));
         assert!(prompt.contains("# あなたについて\n幼なじみ"));
-        assert!(prompt.contains("` *歩き出す* ` のようにアスタリスクで囲って"));
+        assert!(prompt.contains("Users may include not only spoken lines but also stage directions"));
         assert!(!prompt.contains("括弧などを使って"));
         assert!(prompt.ends_with("# 葵の設定\n葵として振る舞う"));
     }
@@ -770,7 +770,7 @@ mod tests {
         assert!(prompt[..setting_heading].contains("# これまでの会話の要約"));
         assert!(prompt[..setting_heading].contains("## 関連するメモリ"));
         assert!(
-            prompt.ends_with("# 葵の設定\n葵として振る舞う\n\n# 口調\n以下はキャラクターの口調例です。ただし、特徴のみを真似てください。そのままこれらの言葉を写さないでください。\n\n丁寧語で話し、語尾は柔らかくする\n\n# 主人公の概要\n主人公は幼なじみ\n\n# 追加の制約\n このセクションの指示を最優先に従ってください。他の設定と矛盾する場合もこちらに従ってください。\n\n返答は三文以内にする")
+            prompt.ends_with("# 葵の設定\n葵として振る舞う\n\n# Tone example\nThe following are examples of a character's tone of voice. Please use them only as a reference for the character's traits; do not copy these specific phrases directly into your responses.\n\n丁寧語で話し、語尾は柔らかくする\n\n# Details related to the protagonist\n主人公は幼なじみ\n\n# Additional constraints\n The instructions in this section take top priority. Please follow them even if they conflict with other settings.\n\n返答は三文以内にする")
         );
     }
 
@@ -834,7 +834,7 @@ mod tests {
 
         assert_eq!(
             character_setting(&character),
-            "# 口調\n以下はキャラクターの口調例です。ただし、特徴のみを真似てください。そのままこれらの言葉を写さないでください。\n\nくだけた話し方をする"
+            "# Tone example\nThe following are examples of a character's tone of voice. Please use them only as a reference for the character's traits; do not copy these specific phrases directly into your responses.\n\nくだけた話し方をする"
         );
     }
 
@@ -846,7 +846,7 @@ mod tests {
 
         assert_eq!(
             character_setting(&character),
-            "# 追加の制約\n このセクションの指示を最優先に従ってください。他の設定と矛盾する場合もこちらに従ってください。\n\n一人称は私にする"
+            "# Additional constraints\n The instructions in this section take top priority. Please follow them even if they conflict with other settings.\n\n一人称は私にする"
         );
     }
 
@@ -934,11 +934,11 @@ mod tests {
             None,
         );
 
-        assert!(prompt.contains("返答は本文だけを出力してください。JSONやコードブロックで囲まないでください。"));
-        assert!(!prompt.contains("JSON形式で生成してください"));
-        assert!(!prompt.contains("messageフィールド内のフォーマット"));
-        assert!(prompt.contains("## 返答のフォーマット"));
-        assert!(prompt.contains("### 出力例\n  Good:\n  *夕焼けの光が"));
+        assert!(prompt.contains("You are 葵. Please begin the roleplay."));
+        assert!(!prompt.contains("Please generate the output in JSON format"));
+        assert!(!prompt.contains("Format within the message field"));
+        assert!(prompt.contains("## Response format"));
+        assert!(prompt.contains("### Output example\n  Good:\n  *夕焼けの光が"));
         assert!(!prompt.contains("{\"message\""));
     }
 
@@ -956,9 +956,9 @@ mod tests {
             None,
         );
 
-        assert!(prompt.contains("JSON形式で生成してください"));
-        assert!(prompt.contains("## messageフィールド内のフォーマット"));
-        assert!(prompt.contains("### 出力例\n  Good:\n  ` {\"message\": \"*夕焼けの光が"));
+        assert!(prompt.contains("Please generate the output in JSON format"));
+        assert!(prompt.contains("## Format within the message field"));
+        assert!(prompt.contains("### Output example\n  Good:\n  ` {\"message\": \"*夕焼けの光が"));
     }
 
     #[test]
@@ -975,8 +975,9 @@ mod tests {
             None,
         );
 
-        assert!(prompt.contains("JSON形式で生成してください"));
-        assert!(prompt.contains("メッセンジャーアプリを使って"));
+        assert!(prompt.contains("Please generate the output in JSON format"));
+        assert!(prompt.contains("You are currently interacting with the 主人公 on **social media**."));
+        assert!(prompt.contains("However, this is optional."));
     }
 
     #[test]

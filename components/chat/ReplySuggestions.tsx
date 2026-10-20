@@ -17,7 +17,7 @@ export default function ReplySuggestions({
     return (
         <div
             className={`reply-suggestions${visualNovelMode ? ' vn-reply-suggestions' : ''}`}
-            aria-label="主人公の返答候補"
+            aria-label="ユーザーの返答候補"
         >
             {state.loading && (
                 <div className="reply-suggestions-heading">

@@ -57,12 +57,12 @@ impl MemoryGateReason {
                 format!("{character_name}自身についての情報（経歴・家族・好み・習慣など）")
             }
             Self::Relationship => {
-                format!("主人公と{character_name}の関係性・約束・距離感の変化")
+                format!("{{{{user}}}}と{character_name}の関係性・約束・距離感の変化")
             }
             Self::Protagonist => {
-                "主人公についての情報（呼び方・好み・苦手・NG・経歴など）".to_owned()
+                "{{user}}についての情報（呼び方・好み・苦手・NG・経歴など）".to_owned()
             }
-            Self::Instruction => "主人公からの明示的な依頼（「覚えて」「今後は〜して」など、記憶や今後の振る舞いについての依頼）".to_owned(),
+            Self::Instruction => "{{user}}からの明示的な依頼（「覚えて」「今後は〜して」など、記憶や今後の振る舞いについての依頼）".to_owned(),
         }
     }
 
@@ -75,13 +75,13 @@ impl MemoryGateReason {
                 "対象キャラクター自身（経歴・家族・好み・習慣）の新しい情報。scope は character"
             }
             Self::Relationship => {
-                "主人公と対象キャラクターの関係性・約束・距離感の変化。scope は relationship"
+                "{{user}}と対象キャラクターの関係性・約束・距離感の変化。scope は relationship"
             }
             Self::Protagonist => {
-                "主人公（呼び方・好み・苦手・NG・経歴）の新しい情報。scope は character"
+                "{{user}}（呼び方・好み・苦手・NG・経歴）の新しい情報。scope は character"
             }
             Self::Instruction => {
-                "主人公から明示的に依頼された、覚えておくことや今後守ること。kind は instruction"
+                "{{user}}から明示的に依頼された、覚えておくことや今後守ること。kind は instruction"
             }
         }
     }
@@ -103,7 +103,7 @@ pub(super) fn memory_gate_state(turn: &MemoryGateTurn<'_>) -> Value {
         .map(|message| {
             json!({
                 "speaker": if string(message, "role") == "user" {
-                    "主人公"
+                    "{{user}}"
                 } else {
                     character_name.as_str()
                 },
@@ -301,7 +301,7 @@ mod tests {
             json!({"role": "assistant", "content": "そうなんだ"}),
             json!({"role": "assistant", "content": "覚えておくね"}),
         ];
-        let memories = vec!["主人公は紅茶が好き".to_owned()];
+        let memories = vec!["{{user}}は紅茶が好き".to_owned()];
 
         let state = memory_gate_state(&MemoryGateTurn {
             character: &character,
@@ -313,7 +313,7 @@ mod tests {
 
         assert_eq!(state["targetCharacter"], "葵");
         assert_eq!(state["characterSetting"], "明るい高校生");
-        assert_eq!(state["savedMemories"], json!(["主人公は紅茶が好き"]));
+        assert_eq!(state["savedMemories"], json!(["{{user}}は紅茶が好き"]));
         assert_eq!(state["latestTurn"]["protagonist"], "猫が苦手なんだ");
         assert_eq!(
             state["latestTurn"]["characterReply"],
@@ -322,7 +322,7 @@ mod tests {
         let previous = state["previousMessages"].as_array().expect("previous");
         assert_eq!(previous.len(), PREVIOUS_MESSAGE_LIMIT);
         assert_eq!(previous[0]["text"], "message-2");
-        assert_eq!(previous[0]["speaker"], "主人公");
+        assert_eq!(previous[0]["speaker"], "{{user}}");
         assert_eq!(previous[1]["speaker"], "葵");
     }
 
@@ -349,7 +349,7 @@ mod tests {
 
     #[test]
     fn questions_cover_every_reason_and_each_memory() {
-        let memories = vec!["主人公は猫が苦手".to_owned(), "葵は弓道部".to_owned()];
+        let memories = vec!["{{user}}は猫が苦手".to_owned(), "葵は弓道部".to_owned()];
         let questions = memory_gate_questions("葵", &memories);
         let questions = questions.as_object().expect("questions");
 
@@ -367,7 +367,7 @@ mod tests {
         assert!(
             relationship["instructions"]
                 .as_str()
-                .is_some_and(|instructions| instructions.contains("主人公と葵の関係性"))
+                .is_some_and(|instructions| instructions.contains("{{user}}と葵の関係性"))
         );
         assert_eq!(questions["used_1"]["type"], "noul");
         assert_eq!(questions["used_1"]["instructions"]["memory"], "葵は弓道部");

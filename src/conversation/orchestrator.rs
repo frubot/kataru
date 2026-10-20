@@ -66,7 +66,7 @@ const MEMORY_MAX_CANDIDATES: usize = 5;
 /// 重要度・確信度・新しさ・固定は並び順にだけ効かせ、注入の可否は関連度だけで決める。
 const MEMORY_MIN_VECTOR_SIMILARITY: f64 = 0.35;
 const MEMORY_MIN_LEXICAL_SIMILARITY: f64 = 0.25;
-const CONTINATUION_TRIGGER: &str = "[内部指示] これは主人公の発言ではありません。主人公から新しい発言や行動はありません。直前の場面を繰り返さず、自然な続きを作成してください。もし前回のレスポンスが途中で途切れている場合、その続きから作成してください。";
+const CONTINATUION_TRIGGER: &str = "[内部指示] これは{{user}}の発言ではありません。{{user}}から新しい発言や行動はありません。直前の場面を繰り返さず、自然な続きを作成してください。もし前回のレスポンスが途中で途切れている場合、その続きから作成してください。";
 
 const JEV_CONTINUE_THRESHOLD: f64 = 0.5;
 const JEV_PROTAGONIST_THRESHOLD: f64 = 0.6;
@@ -106,6 +106,14 @@ impl<'a> RequestClients<'a> {
 
     fn for_selection(&mut self, selection: &RoleSelection) -> AppResult<AiApiClient> {
         self.for_connection(selection.connection_id.as_deref())
+    }
+
+    fn user_name(&self) -> &str {
+        crate::user_placeholder::normalized_user_name(
+            self.api_config
+                .as_ref()
+                .and_then(|config| config.user_name.as_deref()),
+        )
     }
 }
 
@@ -1008,8 +1016,10 @@ async fn generate_for_character(
         })
     }));
     let body = character_completion_body(character, request_messages, default_reasoning_effort);
-    let prompt = serde_json::to_string_pretty(&body["messages"])
-        .expect("completion messages must be serializable");
+    let prompt = api_client.resolve_user_placeholders(
+        &serde_json::to_string_pretty(&body["messages"])
+            .expect("completion messages must be serializable"),
+    );
     let started = now_ms();
     let debug_context = GenerationDebugContext {
         room,
@@ -1255,8 +1265,10 @@ async fn request_director(
     if api_client.is_openrouter() {
         request["reasoning"] = json!({"effort": "low"});
     }
-    let prompt = serde_json::to_string_pretty(&request["messages"])
-        .expect("director messages must be serializable");
+    let prompt = api_client.resolve_user_placeholders(
+        &serde_json::to_string_pretty(&request["messages"])
+            .expect("director messages must be serializable"),
+    );
     let started = now_ms();
     let debug_context = GenerationDebugContext {
         room,
@@ -1391,11 +1403,13 @@ async fn request_director_typesafe(
     let transcript = director_transcript(&transcript_messages, actors);
     let state = director_jev_state(situation, actors, &transcript, turn_index, max_turns);
     let first_questions = director_jev_first_questions(actors, &eligible_ids, !require_actor);
-    let prompt = serde_json::to_string_pretty(&json!({
-        "state": state,
-        "questions": first_questions,
-    }))
-    .expect("director request must be serializable");
+    let prompt = api_client.resolve_user_placeholders(
+        &serde_json::to_string_pretty(&json!({
+            "state": state,
+            "questions": first_questions,
+        }))
+        .expect("director request must be serializable"),
+    );
     let started = now_ms();
     let debug_context = GenerationDebugContext {
         room,
@@ -2046,11 +2060,14 @@ async fn request_memory_gate(
         continuation,
     });
     let questions = memory_gate_questions(&string(&context.character, "name"), &memories);
-    let prompt = serde_json::to_string_pretty(&json!({
-        "state": state,
-        "questions": questions,
-    }))
-    .expect("memory gate request must be serializable");
+    let prompt = crate::user_placeholder::resolve_user_placeholders(
+        &serde_json::to_string_pretty(&json!({
+            "state": state,
+            "questions": questions,
+        }))
+        .expect("memory gate request must be serializable"),
+        clients.user_name(),
+    );
     let started = now_ms();
     let debug_context = GenerationDebugContext {
         room,
@@ -2262,7 +2279,7 @@ async fn extract_memory_candidates(
     let raw = structured_completion(&api_client, body, memory_schema(), 60).await?;
     push_usage(usages, &raw, &context.character, "memory-extraction");
     let content = extract_message_text(&raw);
-    let setting = character_setting(&context.character);
+    let setting = api_client.resolve_user_placeholders(&character_setting(&context.character));
     let existing_contents = context
         .existing_memories
         .iter()
@@ -2372,7 +2389,7 @@ fn director_transcript(messages: &[Value], actors: &[Value]) -> String {
         .map(|message| {
             let content = message_text_with_attachments(message, true);
             if string(message, "role") == "user" {
-                format!("主人公: {content}")
+                format!("{{{{user}}}}: {content}")
             } else {
                 let id = string(message, "characterId");
                 format!(
@@ -3142,7 +3159,7 @@ mod tests {
             character: json!({"id": "character-1", "name": "葵", "systemPrompt": "高校生"}),
             recent_history: vec![json!({"role": "user", "content": "猫が苦手なんだ"})],
             existing_memories: vec![
-                scored_memory("memory-used", "主人公は紅茶が好き"),
+                scored_memory("memory-used", "{{user}}は紅茶が好き"),
                 scored_memory("memory-other", "葵は弓道部"),
             ],
         }
@@ -3226,7 +3243,7 @@ mod tests {
         );
         assert_eq!(
             input["usedMemories"],
-            json!([{"content": "主人公は紅茶が好き", "kind": "fact", "scope": "character"}])
+            json!([{"content": "{{user}}は紅茶が好き", "kind": "fact", "scope": "character"}])
         );
         assert_eq!(
             input["existingMemories"],
@@ -3315,7 +3332,7 @@ mod tests {
         assert!(
             request_history[2]["content"]
                 .as_str()
-                .is_some_and(|content| content.contains("主人公から新しい発言や行動はありません"))
+                .is_some_and(|content| content.contains("{{user}}から新しい発言や行動はありません"))
         );
     }
 
@@ -3491,14 +3508,14 @@ mod tests {
 
     #[test]
     fn similar_memory_text_scores_high() {
-        assert!(memory_similarity("主人公はコーヒーが好き", "主人公はコーヒーが好き。") > 0.9);
+        assert!(memory_similarity("{{user}}はコーヒーが好き", "{{user}}はコーヒーが好き。") > 0.9);
     }
 
     #[test]
     fn memories_without_any_relevance_are_not_injected() {
         let query = "今日は学校で何があったの？";
         // 重要度や固定に関係なく、関連度がゼロのメモリは注入しない。
-        for content in ["主人公は紅茶が好き", "葵は弓道部", "宇宙船を修理した"] {
+        for content in ["{{user}}は紅茶が好き", "葵は弓道部", "宇宙船を修理した"] {
             let lexical =
                 lexical_similarity(query, content).max(memory_similarity(query, content));
             assert!(!memory_is_relevant(0.0, lexical), "{content}");

@@ -15,6 +15,7 @@ use crate::{
         EffectiveConnection,
     },
     error::{AppError, AppResult},
+    user_placeholder::{normalized_user_name, resolve_json_user_placeholders},
 };
 
 use super::anthropic;
@@ -39,6 +40,9 @@ pub struct AiApiConfig {
     /// connection record, never from the request body.
     #[serde(alias = "aiApiType", alias = "aiProvider", alias = "connection_id")]
     pub connection_id: Option<String>,
+    /// プロンプト内の `{{user}}` を置き換える名前。未設定なら `ユーザー`。
+    #[serde(alias = "user_name")]
+    pub user_name: Option<String>,
 }
 
 #[derive(Clone)]
@@ -53,6 +57,7 @@ pub struct AiApiClient {
     embeddings_enabled: bool,
     image_generation_enabled: bool,
     tts_enabled: bool,
+    user_name: String,
 }
 
 impl AiApiClient {
@@ -98,6 +103,7 @@ impl AiApiClient {
         connection_id: Option<&str>,
     ) -> AppResult<Self> {
         let config = config.unwrap_or_default();
+        let user_name = normalized_user_name(config.user_name.as_deref()).to_owned();
         let requested = connection_id
             .map(str::trim)
             .filter(|value| !value.is_empty())
@@ -141,6 +147,7 @@ impl AiApiClient {
             embeddings_enabled: connection.embeddings_enabled,
             image_generation_enabled: connection.image_generation_enabled,
             tts_enabled: connection.tts_enabled,
+            user_name,
         })
     }
 
@@ -170,6 +177,16 @@ impl AiApiClient {
 
     pub fn connection_id(&self) -> &str {
         &self.connection_id
+    }
+
+    /// 設定されたユーザー名（未設定なら `ユーザー`）。
+    pub fn user_name(&self) -> &str {
+        &self.user_name
+    }
+
+    /// デバッグ表示など、送信前のプロンプトを実際の名前で解決する。
+    pub fn resolve_user_placeholders(&self, value: &str) -> String {
+        crate::user_placeholder::resolve_user_placeholders(value, &self.user_name)
     }
 
     pub fn base_url(&self) -> &str {
@@ -296,10 +313,12 @@ impl AiApiClient {
         body: &Value,
         timeout_secs: u64,
     ) -> AppResult<Response> {
-        let routed_body = self.with_openrouter_provider_preferences(body);
+        let mut resolved_body = body.clone();
+        resolve_json_user_placeholders(&mut resolved_body, &self.user_name);
+        let routed_body = self.with_openrouter_provider_preferences(&resolved_body);
         let anthropic_body = if self.is_anthropic() && path.trim_matches('/') == "chat/completions"
         {
-            Some(anthropic::request_from_openai(body)?)
+            Some(anthropic::request_from_openai(&resolved_body)?)
         } else {
             None
         };
@@ -342,9 +361,11 @@ impl AiApiClient {
         timeout_secs: u64,
     ) -> AppResult<Response> {
         let started_at = Instant::now();
+        let mut resolved_body = body.clone();
+        resolve_json_user_placeholders(&mut resolved_body, &self.user_name);
         let result = self
             .post_url(url, Duration::from_secs(timeout_secs))
-            .json(body)
+            .json(&resolved_body)
             .send()
             .await;
         self.finish_request(operation, started_at, result)
@@ -609,6 +630,7 @@ mod tests {
             &server_config(),
             Some(AiApiConfig {
                 connection_id: Some("openai-compatible".to_owned()),
+                user_name: None,
             }),
         )
         .unwrap();
@@ -627,6 +649,7 @@ mod tests {
             &server_config(),
             Some(AiApiConfig {
                 connection_id: Some("openai-compatible".to_owned()),
+                user_name: None,
             }),
         )
         .unwrap();
@@ -728,6 +751,7 @@ mod tests {
             &server_config(),
             Some(AiApiConfig {
                 connection_id: Some("anthropic".to_owned()),
+                user_name: None,
             }),
         )
         .unwrap();
@@ -792,6 +816,7 @@ mod tests {
             &server_config(),
             Some(AiApiConfig {
                 connection_id: Some("cx_missing".to_owned()),
+                user_name: None,
             }),
         )
         .err()
@@ -853,6 +878,7 @@ mod tests {
             &config,
             Some(AiApiConfig {
                 connection_id: Some("openai-compatible".to_owned()),
+                user_name: None,
             }),
         )
         .unwrap();

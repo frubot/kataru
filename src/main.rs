@@ -10,6 +10,7 @@ mod error;
 mod logging;
 mod static_assets;
 mod update;
+mod user_placeholder;
 
 use std::{
     net::SocketAddr,

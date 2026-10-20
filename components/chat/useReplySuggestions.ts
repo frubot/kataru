@@ -86,7 +86,7 @@ export function useReplySuggestions({
             const prompt = participant.protagonistPrompt?.trim();
             if (!prompt || seen.has(prompt)) return [];
             seen.add(prompt);
-            return [`${participant.name}から見た主人公:\n${prompt}`];
+            return [`${participant.name}から見た{{user}}:\n${prompt}`];
         }).join('\n\n');
     }, [character, groupCharacters, isGroupRoom]);
 

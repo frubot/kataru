@@ -67,6 +67,7 @@ import {
     persistModelDefaults,
     resolveThemeSelection,
     waitForModelDefaultsWrites,
+    waitForUserNameWrites,
     writeThemeCache,
 } from './settings';
 import { normalizeGroupData } from './situations';
@@ -132,7 +133,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
         hydrate: async () => {
             if (get().hydrated) return;
             await db.migrateLegacyDatabase();
-            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, storedChatWallpaper, storedDefaultViewMode, currentRoomId, vnTypingSpeed, storedKeyboardShortcuts, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedModelDefaults, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedRoleApiTypes, storedConversationCompressionEnabled, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion, storedTtsEnabled, storedTtsConnectionId, storedTtsModel, storedTtsVoice, storedTtsSpeed, storedTtsVolume, storedTtsAutoPlay, storedTtsActionCaption, storedTtsCaptionCfgScale, storedTtsChunkMinChars, storedTtsFirstChunkMinChars, storedTtsNarrationEnabled, storedTtsNarratorVoice, storedMemoryGateEnabled, storedMemoryGateShadowMode, storedReasoningEffort] = await Promise.all([
+            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, storedChatWallpaper, storedDefaultViewMode, currentRoomId, vnTypingSpeed, storedKeyboardShortcuts, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedModelDefaults, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedRoleApiTypes, storedConversationCompressionEnabled, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion, storedTtsEnabled, storedTtsConnectionId, storedTtsModel, storedTtsVoice, storedTtsSpeed, storedTtsVolume, storedTtsAutoPlay, storedTtsActionCaption, storedTtsCaptionCfgScale, storedTtsChunkMinChars, storedTtsFirstChunkMinChars, storedTtsNarrationEnabled, storedTtsNarratorVoice, storedMemoryGateEnabled, storedMemoryGateShadowMode, storedReasoningEffort, storedUserName] = await Promise.all([
                 db.getAllCharacters(),
                 db.getAllGroups(),
                 db.getAllRooms(),
@@ -189,6 +190,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 db.getMeta<boolean>('memoryGateEnabled'),
                 db.getMeta<boolean>('memoryGateShadowMode'),
                 db.getMeta<unknown>('reasoningEffort'),
+                db.getMeta<string>('userName'),
             ]);
             // Drop any previously stored client-side API key from IndexedDB.
             if (legacyOpenAiCompatibleApiKey !== undefined) {
@@ -315,6 +317,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
             const resolvedReasoningEffort = isReasoningEffort(storedReasoningEffort)
                 ? storedReasoningEffort
                 : DEFAULT_REASONING_EFFORT;
+            const resolvedUserName = typeof storedUserName === 'string' ? storedUserName : '';
             const resolvedGenerateTitleOnFirstReply = storedGenerateTitleOnFirstReply === true;
             const resolvedReplySuggestionsEnabled = storedReplySuggestionsEnabled === true;
             const resolvedTtsEnabled = storedTtsEnabled !== false;
@@ -413,6 +416,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 : normalizedOnboardingVersion;
             if (storedConversationCompressionEnabled !== resolvedConversationCompressionEnabled) fire(db.setMeta('conversationCompressionEnabled', resolvedConversationCompressionEnabled));
             if (storedReasoningEffort !== resolvedReasoningEffort) fire(db.setMeta('reasoningEffort', resolvedReasoningEffort));
+            if (storedUserName !== undefined && storedUserName !== resolvedUserName) fire(db.setMeta('userName', resolvedUserName));
             if (storedGenerateTitleOnFirstReply !== resolvedGenerateTitleOnFirstReply) fire(db.setMeta('generateTitleOnFirstReply', resolvedGenerateTitleOnFirstReply));
             if (storedReplySuggestionsEnabled !== resolvedReplySuggestionsEnabled) fire(db.setMeta('replySuggestionsEnabled', resolvedReplySuggestionsEnabled));
             if (storedTtsEnabled !== resolvedTtsEnabled) fire(db.setMeta('ttsEnabled', resolvedTtsEnabled));
@@ -444,6 +448,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 chatWallpaper: resolvedChatWallpaper,
                 defaultViewMode: resolvedDefaultViewMode,
                 vnTypingSpeed: resolvedVnTypingSpeed,
+                userName: resolvedUserName,
                 keyboardShortcuts: resolvedKeyboardShortcuts,
                 ...resolvedModelDefaults,
                 memoryGateEnabled: storedMemoryGateEnabled !== false,
@@ -482,6 +487,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
         resetApplication: async () => {
             nextRoomLoadSequence();
             await waitForModelDefaultsWrites();
+            await waitForUserNameWrites();
             await db.resetAll();
             nextRoomLoadSequence();
             clearThemeCache();
@@ -492,6 +498,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 chatWallpaper: undefined,
                 defaultViewMode: DEFAULT_VIEW_MODE,
                 vnTypingSpeed: DEFAULT_VN_TYPING_SPEED,
+                userName: '',
                 keyboardShortcuts: createDefaultKeyboardShortcuts(),
                 ...getDefaultModelDefaults(),
                 memoryGateEnabled: DEFAULT_MEMORY_GATE_ENABLED,

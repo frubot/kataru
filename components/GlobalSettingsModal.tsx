@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Check, ChevronDown, RefreshCw, ExternalLink, Plus, type LucideIcon } from 'lucide-react';
-import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, RoomViewMode, VOICEVOX_TTS_MODEL, getDefaultModelDefaults, TTS_CHUNK_MIN_CHARS_MAX, TTS_CHUNK_MIN_CHARS_MIN, TTS_FIRST_CHUNK_MIN_CHARS_MAX, TTS_FIRST_CHUNK_MIN_CHARS_MIN } from '@/lib/store';
+import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, RoomViewMode, VOICEVOX_TTS_MODEL, DEFAULT_USER_NAME, getDefaultModelDefaults, TTS_CHUNK_MIN_CHARS_MAX, TTS_CHUNK_MIN_CHARS_MIN, TTS_FIRST_CHUNK_MIN_CHARS_MAX, TTS_FIRST_CHUNK_MIN_CHARS_MIN } from '@/lib/store';
 import { AI_CONNECTION_KIND_LABELS, isAiConnectionKind, type AiConnectionKind } from '@/lib/aiApi';
 import { useAiConnections, type AiConnectionStatus } from '@/lib/aiConnections';
 import { isReasoningEffort, MODEL_DEFAULT_FIELDS, modelRefsEqual, REASONING_EFFORT_OPTIONS, type ModelRef, type ModelRoleKey } from '@/lib/modelDefaults';
@@ -412,6 +412,7 @@ function RoleModelField({
 export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding }: GlobalSettingsModalProps) {
     const {
         themeMode, themePalette, chatWallpaper, defaultViewMode, vnTypingSpeed,
+        userName, setUserName,
         summaryModel, setSummaryModel,
         defaultChatModel, setDefaultChatModel,
         defaultDirectorModel, setDefaultDirectorModel,
@@ -1007,6 +1008,34 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                             設定されていません
                                         </span>
                                     )}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Profile Section */}
+                        <div style={{ marginBottom: '1.5rem' }}>
+                            <h3 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '0.75rem' }}>
+                                プロフィール
+                            </h3>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                <div className="global-settings-selector-row">
+                                    <label
+                                        htmlFor="user-name-input"
+                                        style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
+                                    >
+                                        ユーザー名
+                                    </label>
+                                    <div className="global-settings-selector-control">
+                                        <input
+                                            id="user-name-input"
+                                            type="text"
+                                            className="input"
+                                            value={userName}
+                                            onChange={(event) => setUserName(event.target.value)}
+                                            placeholder={DEFAULT_USER_NAME}
+                                            style={{ width: '100%', minWidth: '14rem' }}
+                                        />
+                                    </div>
                                 </div>
                             </div>
                         </div>

@@ -26,7 +26,7 @@ function buildCharacterSettingPrompt(character: CharacterSetting): string {
     return [
         character.systemPrompt,
         speechStyle ? `# 口調\n${speechStyle}` : '',
-        protagonistPrompt ? `# 主人公について\n${protagonistPrompt}` : '',
+        protagonistPrompt ? `# {{user}}について\n${protagonistPrompt}` : '',
         userConstraints ? `# 追加の制約\n${userConstraints}` : '',
     ].filter((part) => part.trim()).join('\n\n');
 }

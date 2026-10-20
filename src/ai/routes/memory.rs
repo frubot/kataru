@@ -30,7 +30,7 @@ pub(crate) fn memory_extraction_prompt() -> &'static str {
 
 似た内容は1つのアイテムにまとめて保存します。正確な内容を簡単に、短く記述してください。
 
-- 主人公が明示的に「覚えて」「記憶して」「今後も守って」と依頼した内容
+- {{user}}が明示的に「覚えて」「記憶して」「今後も守って」と依頼した内容
 - characterSystemPrompt, existingMemories に含まれない設定
  - 呼び方
  - 好み
@@ -39,12 +39,12 @@ pub(crate) fn memory_extraction_prompt() -> &'static str {
  - キャラクター自身の情報
  - 世界観の固有名詞
  など
-- 主人公とキャラクターの関係性、約束、距離感の変化
+- {{user}}とキャラクターの関係性、約束、距離感の変化
 
 ### scope
 
-- character: 対象キャラクターが覚えている主人公情報、好み、指示
-- relationship: 主人公と対象キャラクターの関係性、距離感の変化、約束
+- character: 対象キャラクターが覚えている{{user}}情報、好み、指示
+- relationship: {{user}}と対象キャラクターの関係性、距離感の変化、約束
 - world: 継続シナリオ、世界観、事件、固有名詞、場所
 
 ### kind
@@ -62,7 +62,7 @@ pub(crate) fn memory_extraction_prompt() -> &'static str {
 0.00-0.39 保存しない
 
 ### confidence
-0.90-1.00 主人公が明確に依頼または断定した
+0.90-1.00 {{user}}が明確に依頼または断定した
 0.70-0.89 会話から明確に読み取れる
 0.40-0.69 推測を含むため保存しない
 0.00-0.39 保存しない"#
@@ -93,8 +93,8 @@ pub(crate) fn memory_extraction_guided_prompt() -> &'static str {
 
 ### scope
 
-- character: 対象キャラクターが覚えている主人公情報、好み、指示
-- relationship: 主人公と対象キャラクターの関係性、距離感の変化、約束
+- character: 対象キャラクターが覚えている{{user}}情報、好み、指示
+- relationship: {{user}}と対象キャラクターの関係性、距離感の変化、約束
 - world: 継続シナリオ、世界観、事件、固有名詞、場所
 
 ### kind
@@ -112,7 +112,7 @@ pub(crate) fn memory_extraction_guided_prompt() -> &'static str {
 0.00-0.39 保存しない
 
 ### confidence
-0.90-1.00 主人公が明確に依頼または断定した
+0.90-1.00 {{user}}が明確に依頼または断定した
 0.70-0.89 会話から明確に読み取れる
 0.40-0.69 推測を含むため保存しない
 0.00-0.39 保存しない"#

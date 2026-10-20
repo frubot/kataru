@@ -146,7 +146,7 @@ export default function CharacterGeneratorModal({ isOpen, onClose, onApply }: Pr
 
                 <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                     <div>
-                        <label style={labelStyle}>どんなキャラクターにしたい？主人公との関係性は？</label>
+                        <label style={labelStyle}>どんなキャラクターにしたい？{'{{user}}'}との関係性は？</label>
                         <textarea
                             className="input textarea"
                             value={direction}
@@ -191,9 +191,9 @@ export default function CharacterGeneratorModal({ isOpen, onClose, onApply }: Pr
                             <PreviewRow label="口調の具体例" value={formatGeneratedSpeechStyle(generated)} />
                             <PreviewRow label="性格" value={generated.personality} />
                             <PreviewRow label="特徴" value={generated.traits} />
-                            <PreviewRow label="主人公への呼び方" value={generated.protagonistAddress} />
-                            <PreviewRow label="主人公から見た関係性" value={generated.relationship} />
-                            <PreviewRow label="主人公に対する印象" value={generated.protagonistImpression} />
+                            <PreviewRow label="{{user}}への呼び方" value={generated.protagonistAddress} />
+                            <PreviewRow label="{{user}}から見た関係性" value={generated.relationship} />
+                            <PreviewRow label="{{user}}に対する印象" value={generated.protagonistImpression} />
                         </div>
                     )}
                 </div>

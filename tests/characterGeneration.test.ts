@@ -61,7 +61,7 @@ describe('character generation profile', () => {
             '- 「もう、また無理してるじゃないですか」',
             '- 「ほら、こっちです。早く早く！」',
         ].join('\n'));
-        expect(protagonistPrompt).toContain('## 主人公に対する印象\n頼りになるが');
-        expect(characterPrompt).not.toContain('主人公に対する印象');
+        expect(protagonistPrompt).toContain('## {{user}}に対する印象\n頼りになるが');
+        expect(characterPrompt).not.toContain('{{user}}に対する印象');
     });
 });

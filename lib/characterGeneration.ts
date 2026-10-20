@@ -29,9 +29,9 @@ const CHARACTER_FIELD_LABELS: Array<[GeneratedCharacterTextField, string]> = [
 ];
 
 const PROTAGONIST_FIELD_LABELS: Array<[GeneratedCharacterTextField, string]> = [
-    ['protagonistAddress', '主人公への呼び方'],
-    ['relationship', '主人公から見た関係性'],
-    ['protagonistImpression', '主人公に対する印象'],
+    ['protagonistAddress', '{{user}}への呼び方'],
+    ['relationship', '{{user}}から見た関係性'],
+    ['protagonistImpression', '{{user}}に対する印象'],
 ];
 
 const pickString = (source: Record<string, unknown>, keys: string[]): string => {
@@ -63,9 +63,9 @@ export function normalizeGeneratedCharacterProfile(value: unknown): GeneratedCha
         name: pickString(source, ['name', '名前']),
         gender: pickString(source, ['gender', '性別']),
         firstPerson: pickString(source, ['firstPerson', 'first_person', '一人称']),
-        protagonistAddress: pickString(source, ['protagonistAddress', 'protagonist_address', '主人公への呼び方', '主人公の呼び方']),
-        relationship: pickString(source, ['relationship', '主人公から見た関係性', '関係性']),
-        protagonistImpression: pickString(source, ['protagonistImpression', 'protagonist_impression', '主人公に対する印象', '主人公への印象']),
+        protagonistAddress: pickString(source, ['protagonistAddress', 'protagonist_address', '{{user}}への呼び方', '{{user}}の呼び方', '主人公への呼び方', '主人公の呼び方']),
+        relationship: pickString(source, ['relationship', '{{user}}から見た関係性', '主人公から見た関係性', '関係性']),
+        protagonistImpression: pickString(source, ['protagonistImpression', 'protagonist_impression', '{{user}}に対する印象', '{{user}}への印象', '主人公に対する印象', '主人公への印象']),
         occupation: pickString(source, ['occupation', 'job', '職業']),
         speechExamples: pickSpeechExamples(source),
         personality: pickString(source, ['personality', '性格']),

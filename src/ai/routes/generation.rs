@@ -51,7 +51,7 @@ pub async fn summarize(
             let role = record.get("role")?.as_str()?;
             let content = record.get("content")?.as_str()?;
             if role == "user" {
-                return Some(format!("User: {content}"));
+                return Some(format!("{{{{user}}}}: {content}"));
             }
             if let Some(name) = record.get("name").and_then(Value::as_str) {
                 let to_suffix = record
@@ -382,16 +382,28 @@ fn normalize_character(value: &Value) -> Option<Value> {
         &[
             "protagonistAddress",
             "protagonist_address",
+            "{{user}}への呼び方",
+            "{{user}}の呼び方",
             "主人公への呼び方",
             "主人公の呼び方",
         ],
     );
-    let relationship = pick_string(source, &["relationship", "主人公から見た関係性", "関係性"]);
+    let relationship = pick_string(
+        source,
+        &[
+            "relationship",
+            "{{user}}から見た関係性",
+            "主人公から見た関係性",
+            "関係性",
+        ],
+    );
     let protagonist_impression = pick_string(
         source,
         &[
             "protagonistImpression",
             "protagonist_impression",
+            "{{user}}に対する印象",
+            "{{user}}への印象",
             "主人公に対する印象",
             "主人公への印象",
         ],
@@ -495,18 +507,18 @@ fn character_schema() -> Value {
                 },
                 "protagonistAddress": {
                     "type": "string",
-                    "description": "主人公に対する呼び名（例: ○○くん）",
-                    "maxLength": 5,
+                    "description": r"ユーザーへの呼び名（例: 太郎くん）。",
+                    "maxLength": 24,
                     "minLength": 1
                 },
                 "relationship": {
                     "type": "string",
-                    "description": "キャラクターとの関係性",
+                    "description": "ユーザーから見た、キャラクターとの関係性",
                     "minLength": 5
                 },
                 "protagonistImpression": {
                     "type": "string",
-                    "description": "主人公に対して抱いている印象や感情",
+                    "description": "ユーザーに対して抱いている印象や感情",
                     "minLength": 10
                 },
                 "speechExamples": {
@@ -533,15 +545,20 @@ pub async fn generate_character(
     let api_client = ai_api_client_for_selection(&state, &input, &selection)?;
     let direction = optional_trimmed_string(&input, "direction").unwrap_or_default();
     let model = selection.model;
+    let user_name = api_client.user_name().to_owned();
     let system_prompt = r#"
 あなたは魅力的なオリジナルキャラクター設定を作成するAIです。
 JSON形式で出力してください。
-キャラクターのフルネーム、主人公への呼び方に、フリガナは不要です。
-もし主人公の名前がプロンプト内で示されていない場合、主人公の名を"○○"と仮定して表記してください。
+キャラクターのフルネーム、ユーザーへの呼び方に、フリガナは不要です。
+
+## ユーザーについて
+会話の相手役であるユーザーの名前は「__USER_NAME__」です。
+
 キャラクター本人が実際に発する具体的なセリフを3つ作成してください。
 traits には外観、経歴、振る舞い、嗜好、周りからの印象などの可能な限り詳細な特徴を記述してください。
-relationship では主人公視点でキャラクターとの関係性について簡潔に記述してください。
-他項目と重複した内容は記述しないでください。"#;
+relationship ではユーザー視点でキャラクターとの関係性について簡潔に記述してください。
+他項目と重複した内容は記述しないでください。"#
+        .replace("__USER_NAME__", &user_name);
     let user_prompt = if direction.is_empty() {
         "完全におまかせで、ロールプレイに使いやすい特徴的なキャラクターを1人作成してください。"
             .to_owned()
@@ -892,11 +909,7 @@ pub async fn generate_reply_suggestions(
             let label = message
                 .get("name")
                 .and_then(Value::as_str)
-                .unwrap_or(if role == "user" {
-                    "主人公"
-                } else {
-                    "相手"
-                });
+                .unwrap_or(if role == "user" { "{{user}}" } else { "相手" });
             Some(format!("{label}: {content}"))
         })
         .collect::<Vec<_>>()
@@ -908,22 +921,25 @@ pub async fn generate_reply_suggestions(
         .map(|value| take_chars(&value, 2400))
         .unwrap_or_default();
     let context = [
-        (!protagonist_prompt.is_empty()).then(|| format!("# 主人公の設定\n{protagonist_prompt}")),
+        (!protagonist_prompt.is_empty())
+            .then(|| format!("# {{{{user}}}}の設定\n{protagonist_prompt}")),
         (!situation_prompt.is_empty()).then(|| format!("# シチュエーション\n{situation_prompt}")),
     ]
     .into_iter()
     .flatten()
     .collect::<Vec<_>>()
     .join("\n\n");
-    let system_prompt = r#"あなたはロールプレイ会話で、ユーザーが操作する主人公の次の返答候補を作る提案役です。
-会話の続きを自然に進められる、主人公自身の返答を3種類提案してください。
-3つは反応、態度、会話の進め方が互いに異なるものにしてください。ただし、主人公の設定と直前の文脈に従ってください。
-各候補は、そのまま主人公の発言として送信できる本文だけにしてください。番号、見出し、引用符、解説、Markdownは含めないでください。
+    let system_prompt = r#"あなたはロールプレイ会話で、ユーザーが操作する{{user}}の次の返答候補を作る提案役です。
+会話の続きを自然に進められる、{{user}}自身の返答を3種類提案してください。
+3つは反応、態度、会話の進め方が互いに異なるものにしてください。ただし、{{user}}の設定と直前の文脈に従ってください。
+各候補は、そのまま{{user}}の発言として送信できる本文だけにしてください。番号、見出し、引用符、解説、Markdownは含めないでください。
 会話と同じ言語を使用してください。"#;
     let user_prompt = if context.is_empty() {
-        format!("# 会話\n{transcript}\n\n主人公の次の返答候補を3つ作成してください。")
+        format!("# 会話\n{transcript}\n\n{{{{user}}}}の次の返答候補を3つ作成してください。")
     } else {
-        format!("{context}\n\n# 会話\n{transcript}\n\n主人公の次の返答候補を3つ作成してください。")
+        format!(
+            "{context}\n\n# 会話\n{transcript}\n\n{{{{user}}}}の次の返答候補を3つ作成してください。"
+        )
     };
     let mut request = json!({
         "model": model,
@@ -974,11 +990,7 @@ pub async fn generate_title(
             let label = record
                 .get("name")
                 .and_then(Value::as_str)
-                .unwrap_or(if role == "user" {
-                    "主人公"
-                } else {
-                    "相手"
-                });
+                .unwrap_or(if role == "user" { "{{user}}" } else { "相手" });
             Some(format!("{label}: {content}"))
         })
         .collect::<Vec<_>>()

@@ -1970,7 +1970,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                                             <div key={message.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.25rem' }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', width: '80%', gap: '0.375rem' }}>
                                                     <span style={{ marginRight: 'auto', paddingLeft: '0.25rem', color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 500 }}>
-                                                        主人公
+                                                        {'{{user}}'}
                                                     </span>
                                                     {renderPriorMessageActions(message.id, index)}
                                                 </div>
@@ -1979,8 +1979,8 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                                                         value={message.content}
                                                         onChange={(event) => updatePriorMessageContent(message.id, event.target.value)}
                                                         rows={3}
-                                                        placeholder="主人公の発言"
-                                                        aria-label={`${index + 1}件目の主人公の発言`}
+                                                        placeholder="{{user}}の発言"
+                                                        aria-label={`${index + 1}件目のユーザーの発言`}
                                                         style={{
                                                             display: 'block',
                                                             width: '100%',
@@ -2094,7 +2094,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                             <div style={{ display: 'flex', justifyContent: 'center', gap: '0.5rem', padding: '0.75rem', borderTop: '1px solid var(--border-color)', background: 'var(--bg-secondary)', flexWrap: 'wrap' }}>
                                 <button type="button" className="btn btn-secondary" onClick={() => addPriorMessage('user')}>
                                     <Plus size={15} />
-                                    主人公の発言
+                                    {'{{user}}'}の発言
                                 </button>
                                 <button
                                     type="button"

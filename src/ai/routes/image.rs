@@ -115,7 +115,10 @@ pub async fn generate_image(
             let mut form = Form::new()
                 .part("image", image_part)
                 .part("model", Part::text(model))
-                .part("prompt", Part::text(prompt))
+                .part(
+                    "prompt",
+                    Part::text(api_client.resolve_user_placeholders(&prompt)),
+                )
                 .part("size", Part::text(image_size(aspect_ratio)))
                 .part("n", Part::text("1"));
             if transparent_background {

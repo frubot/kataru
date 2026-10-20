@@ -61,6 +61,8 @@ export interface AiApiConfig {
     /** Connection id for the request. Omitted when each model field carries
      * its own `connectionId`. */
     connectionId?: string;
+    /** プロンプト内の `{{user}}` を置き換えるユーザー名。 */
+    userName?: string;
     modelDefaults: ModelDefaults;
 }
 

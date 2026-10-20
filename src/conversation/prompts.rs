@@ -52,7 +52,7 @@ fn reply_instruction_base(character_name: &str, format: ReplyFormat) -> String {
 You are {character_name}. Please begin the roleplay.
 {output_instruction}
 
-We refer to the user as the "主人公".
+The user is referred to as "{{{{user}}}}".
 "#
     )
 }
@@ -87,7 +87,7 @@ In addition to {character_name}, you must also provide narration using stage dir
 ### Constraints on narration
    - Please describe elements related to emotions, movements, actions, and situations through narration. The style of the narration is independent of the characters' individual traits.
    - Please be sure to enclose your explanation in boxes like this: `*Explanation Text*`.
-   - Please write from the perspective of the user as the 主人公.
+   - Please write from the perspective of {{{{user}}}}.
    - When referring to a character, please use their name (e.g., for "田中 太郎," use "太郎").
 
 ### Output example
@@ -95,13 +95,13 @@ In addition to {character_name}, you must also provide narration using stage dir
   {example}
 
 ## Regarding user input format
-Users may include not only spoken lines but also stage directions—such as `*starts walking*`—to describe the protagonist’s own actions or other such details.
+Users may include not only spoken lines but also stage directions—such as `*starts walking*`—to describe {{{{user}}}}’s own actions or other such details.
 "#
     )
 }
 
 const MESSAGE_REPLY_INSTRUCTION: &str = r#"
- You are currently interacting with the 主人公 on **social media**.
+ You are currently interacting with {{user}} on **social media**.
  The conversation here takes place via text.
 
  ## Output example
@@ -109,7 +109,7 @@ const MESSAGE_REPLY_INSTRUCTION: &str = r#"
  `["確かに。","じゃあ10時にハチ公前集合ね👍マジ明日頑張れそう…。","楽しみ！笑"]`
 
  ## Attach a photo
- The `[photo description]` provided by a user is a brief explanation of the photo that the protagonist has attached.
+ The `[photo description]` provided by a user is a brief explanation of the photo that {{user}} has attached.
  If you would like to include a photo, you can send an image by using the format `[Image: <description of the image>]`. However, this is optional.
 "#;
 
@@ -128,7 +128,7 @@ pub fn character_setting(character: &Value) -> String {
         ));
     }
     if !protagonist.is_empty() {
-        sections.push(format!("# Details related to the protagonist\n{protagonist}"));
+        sections.push(format!("# Details related to {{{{user}}}}\n{protagonist}"));
     }
     if !constraints.is_empty() {
         sections.push(format!("# Additional constraints\n The instructions in this section take top priority. Please follow them even if they conflict with other settings.\n\n{constraints}"));
@@ -193,7 +193,7 @@ pub fn character_system_prompt(
                 .collect::<Vec<_>>()
                 .join(", ");
             prompt.push_str(&format!(
-                "\n\nこのロールプレイには複数人が参加しています。あなたは「{}」としてのみ発言します。参加者: 主人公, {names}\n発言順は指揮役が決めます。他キャラクターの台詞を代弁しないでください。",
+                "\n\nこのロールプレイには複数人が参加しています。あなたは「{}」としてのみ発言します。参加者: {{{{user}}}}, {names}\n発言順は指揮役が決めます。他キャラクターの台詞を代弁しないでください。",
                 character_name
             ));
         }
@@ -344,7 +344,7 @@ pub fn summary_prompts(
         let role = string(message, "role");
         let content = message_text_with_attachments(message, true);
         if role == "user" {
-            transcript.push_str(&format!("User: {content}\n\n"));
+            transcript.push_str(&format!("{{{{user}}}}: {content}\n\n"));
         } else {
             let name = string(message, "name");
             let label = if name.is_empty() { "Assistant" } else { &name };
@@ -394,7 +394,7 @@ pub fn director_prompts(
     let candidate_rule = if require_actor {
         "場面の継続が要求されているため、candidates は必ず1件以上にしてください。"
     } else {
-        "主人公が発言すべき場合や自動会話を終える場合は空配列にしてください。"
+        "{{user}}が発言すべき場合や自動会話を終える場合は空配列にしてください。"
     };
     let system = format!(
         r#"あなたはロールプレイで次に発言するキャラクターを選ぶ指揮者です。
@@ -416,11 +416,11 @@ candidates は自然さ順の候補です。{candidate_rule}{banned}
         .collect::<Vec<_>>()
         .join("\n");
     let first_policy = if require_actor {
-        "主人公からの新しい発言や行動はありません。会話履歴の末尾から自然に場面を進める一人を必ず候補の先頭にしてください。"
+        "{{user}}からの新しい発言や行動はありません。会話履歴の末尾から自然に場面を進める一人を必ず候補の先頭にしてください。"
     } else if turn_index == 0 {
-        "主人公の最新発言に反応するのに最適な一人を必ず候補の先頭にしてください。"
+        "{{user}}の最新発言に反応するのに最適な一人を必ず候補の先頭にしてください。"
     } else {
-        "次の発言が自然なキャラクターを選ぶか、主人公に発言させるなら空配列にしてください。"
+        "次の発言が自然なキャラクターを選ぶか、{{user}}に発言させるなら空配列にしてください。"
     };
     let user = format!(
         "シチュエーション名: {}\n\n## シチュエーション\n{}\n\n## 役者\n{actor_lines}\n\n## 選び方\n{first_policy}\n\n## 会話履歴\n{}\n\n自動発言ターン: {} / {max_turns}",
@@ -482,7 +482,7 @@ fn director_jev_examples() -> Value {
                 {"id": "aoi", "name": "葵"},
                 {"id": "rin", "name": "凛"},
             ],
-            "transcript": "主人公: 凛、昨日の試合見たよ。すごかったね\n\n葵: 私も見てた！最後の得点は鳥肌ものだったよ",
+            "transcript": "{{user}}: 凛、昨日の試合見たよ。すごかったね\n\n葵: 私も見てた！最後の得点は鳥肌ものだったよ",
             "answer": {"next_speaker": "rin", "continue_naturally": 0.8},
         },
         {
@@ -490,7 +490,7 @@ fn director_jev_examples() -> Value {
                 {"id": "aoi", "name": "葵"},
                 {"id": "rin", "name": "凛"},
             ],
-            "transcript": "主人公: 週末みんなで映画見に行かない？\n\n凛: いいね！葵は何が見たい？",
+            "transcript": "{{user}}: 週末みんなで映画見に行かない？\n\n凛: いいね！葵は何が見たい？",
             "answer": {"next_speaker": "aoi", "continue_naturally": 0.9},
         },
         {
@@ -498,7 +498,7 @@ fn director_jev_examples() -> Value {
                 {"id": "aoi", "name": "葵"},
                 {"id": "rin", "name": "凛"},
             ],
-            "transcript": "主人公: 今日は疲れたなあ\n\n葵: おつかれ～。\n\n凛: おつかれ！ねえ、三人で放課後どこか寄ってかない？",
+            "transcript": "{{user}}: 今日は疲れたなあ\n\n葵: おつかれ～。\n\n凛: おつかれ！ねえ、三人で放課後どこか寄ってかない？",
             "answer": {"next_speaker": "protagonist", "continue_naturally": 0.15},
         },
         {
@@ -506,14 +506,14 @@ fn director_jev_examples() -> Value {
                 {"id": "aoi", "name": "葵"},
                 {"id": "rin", "name": "凛"},
             ],
-            "transcript": "主人公: じゃあまた明日ね。\n\n葵: うん、また明日！\n\n凛: おつかれさまー",
+            "transcript": "{{user}}: じゃあまた明日ね。\n\n葵: うん、また明日！\n\n凛: おつかれさまー",
             "answer": {"next_speaker": "conversation-complete", "continue_naturally": 0.7},
         },
         {
             "actors": [
                 {"id": "aoi", "name": "葵"},
             ],
-            "transcript": "主人公: ありがとう、もう行くね\n\n葵: うん、気をつけてね。また明日！",
+            "transcript": "{{user}}: ありがとう、もう行くね\n\n葵: うん、気をつけてね。また明日！",
             "answer": {"next_speaker": "end", "continue_naturally": 0.05},
         },
         {
@@ -521,7 +521,7 @@ fn director_jev_examples() -> Value {
                 {"id": "aoi", "name": "葵"},
                 {"id": "rin", "name": "凛"},
             ],
-            "transcript": "葵: はい、私の手作り料理を召し上がれ。\n\n主人公: おお、やっぱり葵は料理が上手いなぁ、凛そう思わない？\n\n",
+            "transcript": "葵: はい、私の手作り料理を召し上がれ。\n\n{{user}}: おお、やっぱり葵は料理が上手いなぁ、凛そう思わない？\n\n",
             "answer": {"next_speaker": "rin", "continue_naturally": 0.9},
         },
     ])
@@ -591,7 +591,7 @@ pub fn director_jev_first_questions(
     }
     criteria.insert(
         JEV_PROTAGONIST_OPTION.to_owned(),
-        Value::String("主人公（ユーザー）が次に発言すべき。".to_owned()),
+        Value::String("{{user}}が次に発言すべき。".to_owned()),
     );
     criteria.insert(
         JEV_CONVERSATION_COMPLETE_OPTION.to_owned(),
@@ -744,7 +744,7 @@ mod tests {
             "name": "葵",
             "systemPrompt": "葵として振る舞う",
             "speechStyle": "丁寧語で話し、語尾は柔らかくする",
-            "protagonistPrompt": "主人公は幼なじみ",
+            "protagonistPrompt": "{{user}}は幼なじみ",
             "userConstraints": "返答は三文以内にする"
         });
 
@@ -770,7 +770,7 @@ mod tests {
         assert!(prompt[..setting_heading].contains("# これまでの会話の要約"));
         assert!(prompt[..setting_heading].contains("## 関連するメモリ"));
         assert!(
-            prompt.ends_with("# 葵の設定\n葵として振る舞う\n\n# Tone example\nThe following are examples of a character's tone of voice. Please use them only as a reference for the character's traits; do not copy these specific phrases directly into your responses.\n\n丁寧語で話し、語尾は柔らかくする\n\n# Details related to the protagonist\n主人公は幼なじみ\n\n# Additional constraints\n The instructions in this section take top priority. Please follow them even if they conflict with other settings.\n\n返答は三文以内にする")
+            prompt.ends_with("# 葵の設定\n葵として振る舞う\n\n# Tone example\nThe following are examples of a character's tone of voice. Please use them only as a reference for the character's traits; do not copy these specific phrases directly into your responses.\n\n丁寧語で話し、語尾は柔らかくする\n\n# Details related to {{user}}\n{{user}}は幼なじみ\n\n# Additional constraints\n The instructions in this section take top priority. Please follow them even if they conflict with other settings.\n\n返答は三文以内にする")
         );
     }
 
@@ -786,7 +786,7 @@ mod tests {
             None,
             &[
                 InjectedMemory {
-                    content: "主人公は紅茶を毎朝飲む".into(),
+                    content: "{{user}}は紅茶を毎朝飲む".into(),
                     date_label: Some("2026-02-14・約3日前".into()),
                 },
                 InjectedMemory {
@@ -801,7 +801,7 @@ mod tests {
 
         assert!(prompt.contains("## 関連するメモリ\n"));
         assert!(prompt.contains("はその記憶を知った時期です"));
-        assert!(prompt.contains("1. [2026-02-14・約3日前] 主人公は紅茶を毎朝飲む\n"));
+        assert!(prompt.contains("1. [2026-02-14・約3日前] {{user}}は紅茶を毎朝飲む\n"));
         assert!(prompt.contains("2. 王都で祭りが起きた\n"));
     }
 
@@ -869,7 +869,7 @@ mod tests {
         );
 
         assert!(prompt.contains("複数人が参加しています"));
-        assert!(prompt.contains("参加者: 主人公, 葵, 凛"));
+        assert!(prompt.contains("参加者: {{user}}, 葵, 凛"));
     }
 
     #[test]
@@ -976,7 +976,9 @@ mod tests {
         );
 
         assert!(prompt.contains("Please generate the output in JSON format"));
-        assert!(prompt.contains("You are currently interacting with the 主人公 on **social media**."));
+        assert!(
+            prompt.contains("You are currently interacting with {{user}} on **social media**.")
+        );
         assert!(prompt.contains("However, this is optional."));
     }
 
@@ -1174,7 +1176,7 @@ mod tests {
         let (system, prompt) = director_prompts(
             &situation,
             &actors,
-            "主人公: 今日は寒いね\n葵: 雪になるかも",
+            "{{user}}: 今日は寒いね\n葵: 雪になるかも",
             0,
             1,
             None,
@@ -1183,7 +1185,7 @@ mod tests {
 
         assert!(system.contains("candidates は必ず1件以上にしてください"));
         assert!(!system.contains("空配列にしてください"));
-        assert!(prompt.contains("主人公からの新しい発言や行動はありません"));
+        assert!(prompt.contains("{{user}}からの新しい発言や行動はありません"));
         assert!(prompt.contains("会話履歴の末尾から自然に場面を進める"));
         assert!(!prompt.contains("## 最新のメッセージ"));
     }
@@ -1207,13 +1209,13 @@ mod tests {
         let (system, prompt) = director_prompts(
             &situation,
             &actors,
-            "主人公: 今日は寒いね",
+            "{{user}}: 今日は寒いね",
             0,
             1,
             None,
             false,
         );
-        let state = director_jev_state(&situation, &actors, "主人公: 今日は寒いね", 0, 1);
+        let state = director_jev_state(&situation, &actors, "{{user}}: 今日は寒いね", 0, 1);
 
         for text in [system, prompt, state.to_string()] {
             assert!(!text.contains("全員、敬語で話す"));
@@ -1298,7 +1300,7 @@ mod tests {
         let state = director_jev_state(
             &situation,
             &actors,
-            "主人公: 今日は寒いね\n葵: 雪になるかも",
+            "{{user}}: 今日は寒いね\n葵: 雪になるかも",
             1,
             3,
         );

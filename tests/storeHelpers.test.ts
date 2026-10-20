@@ -13,11 +13,13 @@ import { toPreview } from '../lib/store/persistence';
 import {
     DEFAULT_TTS_CHUNK_MIN_CHARS,
     DEFAULT_TTS_FIRST_CHUNK_MIN_CHARS,
+    getAiApiConfigFromState,
     normalizeTtsChunkMinChars,
     normalizeTtsFirstChunkMinChars,
     normalizeTtsModel,
     resolveThemeSelection,
 } from '../lib/store/settings';
+import { getDefaultModelDefaults } from '../lib/modelDefaults';
 import {
     getSituationCostumeSelections,
     normalizeGroupData,
@@ -369,5 +371,14 @@ describe('store pure helpers', () => {
 
         expect(actor).toMatchObject({ reasoningEffort: 'low' });
         expect(actor).not.toHaveProperty('enableThinking');
+    });
+
+    test('passes the trimmed user name to AI requests and omits blank names', () => {
+        const modelDefaults = getDefaultModelDefaults();
+
+        expect(getAiApiConfigFromState({ ...modelDefaults, userName: ' アリス ' }).userName)
+            .toBe('アリス');
+        expect(getAiApiConfigFromState({ ...modelDefaults, userName: '   ' }))
+            .not.toHaveProperty('userName');
     });
 });

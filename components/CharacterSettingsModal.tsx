@@ -38,7 +38,7 @@ const NEUTRAL_NAME = 'neutral';
 const DEFAULT_COSTUME_NAME = 'default';
 const CHARACTER_PROMPT_SECTION_TITLE = 'プロフィール';
 const SPEECH_STYLE_SECTION_TITLE = '口調';
-const PROTAGONIST_PROMPT_SECTION_TITLE = '主人公について';
+const PROTAGONIST_PROMPT_SECTION_TITLE = '{{user}}について';
 const USER_CONSTRAINTS_SECTION_TITLE = '追加の制約';
 
 const REASONING_EFFORT_SELECT_OPTIONS = [
@@ -817,7 +817,7 @@ function CharacterSettingsModalContent({
                                 <PromptSectionEditor
                                     markdown={protagonistPrompt}
                                     onChange={setProtagonistPrompt}
-                                    placeholder="主人公に関する詳細を記述してください..."
+                                    placeholder="{{user}}に関する詳細を記述してください..."
                                 />
                             </div>
                             <div>

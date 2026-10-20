@@ -35,6 +35,8 @@ export const THEME_LS_KEY = 'kataru-theme';
 export const DEFAULT_THEME_SELECTION: ThemeSelection = { mode: 'dark', palette: 'mono' };
 export const DEFAULT_VIEW_MODE: RoomViewMode = 'chat';
 export const DEFAULT_VN_TYPING_SPEED: VnTypingSpeed = 'default';
+/** `{{user}}` が空のときに使う表示名。 */
+export const DEFAULT_USER_NAME = 'ユーザー';
 export const DEFAULT_CHARACTER_MAX_CHARACTERS = 512;
 export const DEFAULT_CHARACTER_MAX_HISTORY: number | undefined = 7;
 export const DEFAULT_CHARACTER_TEMPERATURE = 1.0;
@@ -162,6 +164,7 @@ export function clearThemeCache(): void {
 
 const DEBUG_LOG_LIMIT = 50;
 let modelDefaultsWriteQueue: Promise<void> = Promise.resolve();
+let userNameWriteQueue: Promise<void> = Promise.resolve();
 
 /** The effective model selection for every role. */
 export function modelDefaultsFromState(state: ModelDefaults): ModelDefaults {
@@ -193,6 +196,10 @@ export async function waitForModelDefaultsWrites(): Promise<void> {
     await modelDefaultsWriteQueue.catch(() => undefined);
 }
 
+export async function waitForUserNameWrites(): Promise<void> {
+    await userNameWriteQueue.catch(() => undefined);
+}
+
 function updateModelDefault<K extends keyof ModelDefaults>(
     set: StoreSet,
     get: StoreGet,
@@ -204,10 +211,14 @@ function updateModelDefault<K extends keyof ModelDefaults>(
     persistModelDefaults(get());
 }
 
-export function getAiApiConfigFromState(state: ModelDefaults): AiApiConfig {
+export function getAiApiConfigFromState(
+    state: ModelDefaults & { userName?: string },
+): AiApiConfig {
     const modelDefaults = modelDefaultsFromState(state);
+    const userName = typeof state.userName === 'string' ? state.userName.trim() : '';
     return {
         connectionId: modelDefaults.defaultChatModel.connectionId,
+        ...(userName ? { userName } : {}),
         modelDefaults,
     };
 }
@@ -219,6 +230,7 @@ type SettingsSlice = Pick<
     | 'chatWallpaper'
     | 'defaultViewMode'
     | 'vnTypingSpeed'
+    | 'userName'
     | 'keyboardShortcuts'
     | 'summaryModel'
     | 'defaultChatModel'
@@ -262,6 +274,7 @@ type SettingsSlice = Pick<
     | 'toggleThemeMode'
     | 'toggleTheme'
     | 'setVnTypingSpeed'
+    | 'setUserName'
     | 'setKeyboardShortcut'
     | 'resetKeyboardShortcut'
     | 'resetKeyboardShortcuts'
@@ -312,6 +325,7 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         chatWallpaper: undefined,
         defaultViewMode: DEFAULT_VIEW_MODE,
         vnTypingSpeed: DEFAULT_VN_TYPING_SPEED,
+        userName: '',
         keyboardShortcuts: createDefaultKeyboardShortcuts(),
         ...getDefaultModelDefaults(),
         memoryGateEnabled: DEFAULT_MEMORY_GATE_ENABLED,
@@ -370,6 +384,16 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         setVnTypingSpeed: (vnTypingSpeed) => {
             set({ vnTypingSpeed });
             fire(db.setMeta('vnTypingSpeed', vnTypingSpeed));
+        },
+        setUserName: (userName) => {
+            set({ userName });
+            // 入力中の連続更新で古い値が最後に残らないよう、書き込みを直列化する。
+            userNameWriteQueue = userNameWriteQueue
+                .catch(() => undefined)
+                .then(() => userName.trim()
+                    ? db.setMeta('userName', userName)
+                    : db.deleteMeta('userName'));
+            fire(userNameWriteQueue);
         },
         setKeyboardShortcut: (action, shortcut) => {
             const keyboardShortcuts = {

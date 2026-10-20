@@ -8,6 +8,7 @@ use crate::{
     ai::{AiApiClient, ai_api_config_value, routes::optional_role_selection},
     db::get_conversation_memories,
     error::AppResult,
+    user_placeholder::{resolve_json_user_placeholders, resolve_user_placeholders},
 };
 
 use super::prompts::string;
@@ -50,7 +51,11 @@ pub(super) async fn prepare_conversation_memories(
     }
 
     let existing = get_conversation_memories(&state.database, &character_id).await?;
-    let selected = select_memory_candidates(candidates, character, &existing);
+    let user_name = ai_api_config_value(payload)
+        .and_then(|config| config.get("userName"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let selected = select_memory_candidates(candidates, character, &existing, user_name);
     if selected.is_empty() {
         return Ok(Vec::new());
     }
@@ -159,6 +164,7 @@ pub(super) async fn request_embedding(
         "model": model,
         "encoding_format": "float",
     });
+    resolve_json_user_placeholders(&mut body, api_client.user_name());
     if api_client.is_openrouter() {
         body["input_type"] = Value::String(input_type.to_owned());
         body["provider"] = json!({"data_collection": "deny"});
@@ -197,8 +203,10 @@ fn select_memory_candidates(
     candidates: Vec<Value>,
     character: &Value,
     existing_memories: &[Value],
+    user_name: &str,
 ) -> Vec<Value> {
-    let setting_prompt = candidate_character_setting(character);
+    let setting_prompt =
+        resolve_user_placeholders(&candidate_character_setting(character), user_name);
     let mut candidates = candidates
         .into_iter()
         .filter(valid_candidate)
@@ -384,7 +392,7 @@ fn candidate_character_setting(character: &Value) -> String {
         if protagonist_prompt.is_empty() {
             String::new()
         } else {
-            format!("# 主人公について\n{protagonist_prompt}")
+            format!("# {{{{user}}}}について\n{protagonist_prompt}")
         },
         if user_constraints.is_empty() {
             String::new()
@@ -519,11 +527,11 @@ mod tests {
             "systemPrompt": "猫が好きな人物",
             "speechStyle": "静かに話す"
         });
-        let existing = vec![json!({"content": "主人公は紅茶を毎朝飲む"})];
+        let existing = vec![json!({"content": "{{user}}は紅茶を毎朝飲む"})];
         let candidates = vec![
             json!({
                 "id": "low-confidence",
-                "content": "主人公は朝が弱い",
+                "content": "{{user}}は朝が弱い",
                 "kind": "fact",
                 "scope": "character",
                 "importance": 0.9,
@@ -539,7 +547,7 @@ mod tests {
             }),
             json!({
                 "id": "existing",
-                "content": "主人公は紅茶を毎朝飲む",
+                "content": "{{user}}は紅茶を毎朝飲む",
                 "kind": "fact",
                 "scope": "character",
                 "importance": 0.9,
@@ -547,7 +555,7 @@ mod tests {
             }),
             json!({
                 "id": "accepted",
-                "content": "主人公の誕生日は五月三日",
+                "content": "{{user}}の誕生日は五月三日",
                 "kind": "fact",
                 "scope": "character",
                 "importance": 0.8,
@@ -555,7 +563,7 @@ mod tests {
             }),
         ];
 
-        let selected = select_memory_candidates(candidates, &character, &existing);
+        let selected = select_memory_candidates(candidates, &character, &existing, "");
 
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0]["id"], "accepted");

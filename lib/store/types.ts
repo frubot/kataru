@@ -372,6 +372,8 @@ export interface AppState {
     chatWallpaper?: string;
     defaultViewMode: RoomViewMode;
     vnTypingSpeed: VnTypingSpeed;
+    /** プロンプト内の `{{user}}` を置き換える名前。空なら `ユーザー`。 */
+    userName: string;
     keyboardShortcuts: KeyboardShortcutSettings;
     summaryModel: ModelRef;
     defaultChatModel: ModelRef;
@@ -435,6 +437,7 @@ export interface AppState {
     toggleThemeMode: () => void;
     toggleTheme: () => void;
     setVnTypingSpeed: (speed: VnTypingSpeed) => void;
+    setUserName: (name: string) => void;
     setKeyboardShortcut: (action: KeyboardShortcutAction, shortcut: KeyboardShortcut) => void;
     resetKeyboardShortcut: (action: KeyboardShortcutAction) => void;
     resetKeyboardShortcuts: () => void;

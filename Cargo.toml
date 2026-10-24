@@ -7,7 +7,7 @@ description = "Standalone local-first roleplay chat application"
 
 [dependencies]
 axum = { version = "0.8", features = ["json", "macros"] }
-base64 = "0.22"
+base64 = "0.23"
 directories = "6"
 dotenvy = "0.15"
 futures-util = "0.3"
@@ -19,15 +19,15 @@ rusqlite = { version = "0.40", features = ["backup", "bundled"] }
 rust-embed = "8"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
-sha2 = "0.10"
+sha2 = "0.11"
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal", "sync"] }
-tower-http = { version = "0.6", features = ["compression-br", "compression-gzip", "trace"] }
+tower-http = { version = "0.7", features = ["compression-br", "compression-gzip", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 uuid = { version = "1.25.0", features = ["v4"] }
 webbrowser = "1"
-zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+zip = { version = "9.0.5", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 tempfile = "3"

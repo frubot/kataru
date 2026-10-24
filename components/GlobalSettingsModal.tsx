@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef, type ReactNode } from 'react';
+import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Check, ChevronDown, RefreshCw, ExternalLink, Plus, type LucideIcon } from 'lucide-react';
 import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, RoomViewMode, VOICEVOX_TTS_MODEL, DEFAULT_USER_NAME, getDefaultModelDefaults, TTS_CHUNK_MIN_CHARS_MAX, TTS_CHUNK_MIN_CHARS_MIN, TTS_FIRST_CHUNK_MIN_CHARS_MAX, TTS_FIRST_CHUNK_MIN_CHARS_MIN } from '@/lib/store';
 import { AI_CONNECTION_KIND_LABELS, isAiConnectionKind, type AiConnectionKind } from '@/lib/aiApi';
 import { useAiConnections, type AiConnectionStatus } from '@/lib/aiConnections';
-import { isReasoningEffort, MODEL_DEFAULT_FIELDS, modelRefsEqual, REASONING_EFFORT_OPTIONS, type ModelRef, type ModelRoleKey } from '@/lib/modelDefaults';
+import { isReasoningEffort, MODEL_DEFAULT_FIELDS, modelRefsEqual, rebaseModelDefaults, REASONING_EFFORT_OPTIONS, type ModelRef, type ModelRoleKey } from '@/lib/modelDefaults';
 import type { ModelOutputModality } from '@/lib/availableModels';
 import { createFullBackup, downloadJson, parseFullBackup, reassignIds, type ParsedBackup } from '@/lib/importExport';
 import { resizeToMaxEdgeAsJpeg } from '@/lib/imageUtils';
@@ -395,7 +395,9 @@ function RoleModelField({
                         value={value}
                         onChange={onChange}
                         outputModality={outputModality}
-                        placeholder={`例: ${getDefaultModelDefaults()[role].model}`}
+                        placeholder={kind === 'openrouter'
+                            ? `例: ${getDefaultModelDefaults()[role].model}`
+                            : 'モデルを選択'}
                         style={trailing ? { flex: '0 1 auto', minWidth: 0 } : undefined}
                     />
                 ) : (
@@ -461,6 +463,12 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
     const ttsCapableConnections = connections.filter((connection) => (
         connectionSupportsCapability(connection.kind, connection, 'tts')
     ));
+    // リセット後の値。既定（OpenRouter）が未設定なら設定済みの接続へ寄せた
+    // ものになるため、比較基準もそれに合わせる。
+    const baselineModelDefaults = useMemo(
+        () => rebaseModelDefaults(getDefaultModelDefaults(), connections).defaults,
+        [connections],
+    );
     const modelDefaultsAreUnchanged = MODEL_DEFAULT_FIELDS.every((role) => {
         const current = {
             summaryModel,
@@ -475,7 +483,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
             memoryExtractionModel,
             memoryEmbeddingModel,
         }[role];
-        return modelRefsEqual(current, getDefaultModelDefaults()[role]);
+        return modelRefsEqual(current, baselineModelDefaults[role]);
     });
     const [showClearConfirm, setShowClearConfirm] = useState(false);
     const [showResetConfirm, setShowResetConfirm] = useState(false);
@@ -1080,7 +1088,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                 <button
                                     type="button"
                                     className="btn btn-secondary global-settings-model-reset"
-                                    onClick={resetModelDefaults}
+                                    onClick={() => { void resetModelDefaults(); }}
                                     disabled={modelDefaultsAreUnchanged}
                                     title="モデル設定を初期値に戻す"
                                 >

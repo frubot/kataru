@@ -1,6 +1,9 @@
+import type { AiConnectionKind } from './aiApi';
+
 /** A model on a named AI connection. `connectionId` is the server-side
  * connection id (`openrouter` / `openai-compatible` / `anthropic` for the
- * built-ins, `cx_*` for custom connections). */
+ * built-ins, `cx_*` for custom connections). `model` may be empty, which means
+ * the connection is chosen but its model is not picked yet. */
 export interface ModelRef {
     connectionId: string;
     model: string;
@@ -90,13 +93,19 @@ export function getDefaultModelDefaults(): ModelDefaults {
     return { ...DEFAULT_MODEL_DEFAULTS };
 }
 
-export function isModelRef(value: unknown): value is ModelRef {
+/** Shape check that tolerates an unset model name (a chosen connection whose
+ * model the user has not picked yet). */
+export function isModelRefShape(value: unknown): value is ModelRef {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
     const record = value as Record<string, unknown>;
     return typeof record.model === 'string'
-        && record.model.trim().length > 0
         && typeof record.connectionId === 'string'
         && record.connectionId.trim().length > 0;
+}
+
+export function isModelRef(value: unknown): value is ModelRef {
+    if (!isModelRefShape(value)) return false;
+    return value.model.trim().length > 0;
 }
 
 /** Normalizes a stored/requested model selection into a `ModelRef`.
@@ -117,7 +126,11 @@ export function normalizeModelRef(value: unknown, fallback: ModelRef): ModelRef 
             : typeof record.aiApiType === 'string' && record.aiApiType.trim()
                 ? record.aiApiType.trim()
                 : fallback.connectionId;
-        const model = typeof record.model === 'string' && record.model.trim()
+        // `model` が文字列で明示されていれば、空文字でもそのまま採用する。
+        // 空文字は「接続だけ決めてモデルは未選択」を表し、ここでフォールバック
+        // （既定はOpenRouterのモデル名）を復活させると、別の接続に OpenRouter の
+        // モデル名が載ってしまう。
+        const model = typeof record.model === 'string'
             ? record.model.trim()
             : fallback.model;
         return { connectionId, model };
@@ -173,4 +186,144 @@ export function normalizeModelDefaults(
         memoryExtractionModel: normalizeModelRef(record.memoryExtractionModel, fallback.memoryExtractionModel),
         memoryEmbeddingModel: normalizeModelRef(record.memoryEmbeddingModel, fallback.memoryEmbeddingModel),
     };
+}
+
+/** The connection fields the default-model rebase needs. `AiConnectionStatus`
+ * satisfies this structurally. */
+export interface RebaseConnection {
+    id: string;
+    kind: AiConnectionKind;
+    apiKey: { configured: boolean };
+    baseUrlSource: 'default' | 'stored' | 'environment' | null;
+    embeddingsEnabled: boolean;
+    imageGenerationEnabled: boolean;
+}
+
+/** What a role needs from its connection. */
+type RoleCapability = 'text' | 'image' | 'embeddings' | 'decisions';
+
+const ROLE_CAPABILITIES: Record<ModelRoleKey, RoleCapability> = {
+    summaryModel: 'text',
+    defaultChatModel: 'text',
+    defaultDirectorModel: 'text',
+    defaultAutoGenerationModel: 'text',
+    titleGenerationModel: 'text',
+    replySuggestionModel: 'text',
+    defaultImageModel: 'image',
+    expressionDetectionModel: 'text',
+    memoryGateModel: 'decisions',
+    memoryExtractionModel: 'text',
+    memoryEmbeddingModel: 'embeddings',
+};
+
+/** Which connection kinds to try first for a capability. OpenRouter serves
+ * everything, so it wins whenever it is configured. */
+const CAPABILITY_KIND_ORDER: Record<RoleCapability, readonly AiConnectionKind[]> = {
+    text: ['openrouter', 'anthropic', 'openai-compatible'],
+    image: ['openrouter', 'openai-compatible'],
+    embeddings: ['openrouter', 'openai-compatible'],
+    decisions: ['openrouter', 'typesafe'],
+};
+
+/** Whether a connection can serve requests without further configuration.
+ * Everything in the status list is already "configured" on the server side,
+ * but a built-in can be listed for a stored name or base URL without a key. */
+function isConfiguredConnection(connection: RebaseConnection): boolean {
+    switch (connection.kind) {
+        case 'voicevox':
+        case 'irodori':
+            return false;
+        case 'openai-compatible':
+            // ローカルやLANの互換サーバーはAPIキー無しでも動く。
+            return connection.apiKey.configured
+                || connection.baseUrlSource === 'stored'
+                || connection.baseUrlSource === 'environment';
+        default:
+            return connection.apiKey.configured;
+    }
+}
+
+function supportsCapability(connection: RebaseConnection, capability: RoleCapability): boolean {
+    switch (connection.kind) {
+        case 'openrouter':
+            return true;
+        case 'anthropic':
+            return capability === 'text';
+        case 'typesafe':
+            return capability === 'decisions';
+        case 'openai-compatible':
+            return capability === 'text'
+                || (capability === 'image' && connection.imageGenerationEnabled)
+                || (capability === 'embeddings' && connection.embeddingsEnabled);
+        default:
+            return false;
+    }
+}
+
+function pickConnection(
+    capability: RoleCapability,
+    connections: readonly RebaseConnection[],
+): RebaseConnection | null {
+    for (const kind of CAPABILITY_KIND_ORDER[capability]) {
+        const candidates = connections.filter((connection) => (
+            connection.kind === kind && supportsCapability(connection, capability)
+        ));
+        if (candidates.length === 0) continue;
+        // 組み込み接続（id と kind が同じ）を優先し、無ければ先頭。
+        return candidates.find((connection) => connection.id === kind) ?? candidates[0];
+    }
+    return null;
+}
+
+/** The model name to use on `connection` for `role`. Only names we know the
+ * connection serves are filled in; a compatible server's catalog is
+ * server-specific, so its model stays unset for the user to choose. */
+function modelForConnection(role: ModelRoleKey, connection: RebaseConnection): string {
+    switch (connection.kind) {
+        case 'openrouter':
+            return DEFAULT_MODEL_DEFAULTS[role].model;
+        case 'anthropic':
+            return DEFAULT_ANTHROPIC_TEXT_MODEL;
+        case 'typesafe':
+            return 'jev-latest';
+        default:
+            return '';
+    }
+}
+
+export interface ModelDefaultsRebaseResult {
+    defaults: ModelDefaults;
+    changedRoles: ModelRoleKey[];
+}
+
+/** Re-points every role whose connection is not configured at a connection
+ * that can serve the role, keeping an explicit user choice untouched.
+ *
+ * The built-in defaults name OpenRouter; without an OpenRouter key those refs
+ * can never run, so they are moved onto a configured connection (OpenRouter
+ * first, then the best local/other option). Roles no configured connection can
+ * serve (e.g. image generation with only Anthropic) keep their ref, because
+ * there is nothing better to point at. Returns `defaults` unchanged when no
+ * connection is configured, so a fresh install still starts on OpenRouter. */
+export function rebaseModelDefaults(
+    defaults: ModelDefaults,
+    connections: readonly RebaseConnection[],
+): ModelDefaultsRebaseResult {
+    const configured = connections.filter(isConfiguredConnection);
+    if (configured.length === 0) {
+        return { defaults, changedRoles: [] };
+    }
+    const next = { ...defaults };
+    const changedRoles: ModelRoleKey[] = [];
+    for (const role of MODEL_DEFAULT_FIELDS) {
+        const current = defaults[role];
+        if (configured.some((connection) => connection.id === current.connectionId)) continue;
+        const target = pickConnection(ROLE_CAPABILITIES[role], configured);
+        if (!target) continue;
+        next[role] = { connectionId: target.id, model: modelForConnection(role, target) };
+        changedRoles.push(role);
+    }
+    return changedRoles.length === 0
+        ? { defaults, changedRoles }
+        : { defaults: next, changedRoles };
 }

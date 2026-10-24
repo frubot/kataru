@@ -4,7 +4,7 @@ import {
     isReasoningEffort,
     normalizeOpenRouterIgnoredProviders,
 } from '../aiApi';
-import { updateAiConnection, type UpdateAiConnectionInput } from '../aiConnections';
+import { getAiConnections, updateAiConnection, type UpdateAiConnectionInput } from '../aiConnections';
 import {
     foldMigratedModelDefaults,
     normalizeMigratableRoleApiTypes,
@@ -33,6 +33,7 @@ import {
     getDefaultModelDefaults,
     MODEL_DEFAULT_FIELDS,
     normalizeModelDefaults,
+    rebaseModelDefaults,
 } from '../modelDefaults';
 import { normalizeCharacters } from './characters';
 import { fire, nextRoomLoadSequence, persistGroup, toStoredRoom } from './persistence';
@@ -198,6 +199,47 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
             }
             fire(db.deleteMeta('thinkDebugEnabled'));
             fire(db.deleteMeta('promptInspectorEnabled'));
+            // 旧接続設定を組み込み接続へベストエフォートで引き継ぐ（失敗しても続行）。
+            const resolvedOpenRouterIgnoredProviders = normalizeOpenRouterIgnoredProviders(storedOpenRouterIgnoredProviders);
+            let openRouterUpdateSucceeded = true;
+            if (resolvedOpenRouterIgnoredProviders.length > 0) {
+                try {
+                    await updateAiConnection('openrouter', {
+                        ignoredProviders: resolvedOpenRouterIgnoredProviders,
+                    });
+                } catch (error) {
+                    openRouterUpdateSucceeded = false;
+                    console.error('[db]', error);
+                }
+            }
+            const openAiConnectionUpdate: UpdateAiConnectionInput = {};
+            const storedOpenAiBaseUrl = typeof storedOpenAiCompatibleBaseUrl === 'string'
+                ? storedOpenAiCompatibleBaseUrl.trim().replace(/\/+$/, '')
+                : '';
+            if (storedOpenAiBaseUrl && storedOpenAiBaseUrl !== LEGACY_DEFAULT_OPENAI_COMPATIBLE_BASE_URL) {
+                openAiConnectionUpdate.baseUrl = storedOpenAiBaseUrl;
+            }
+            if (typeof storedOpenAiCompatibleEmbeddingsEnabled === 'boolean') {
+                openAiConnectionUpdate.embeddingsEnabled = storedOpenAiCompatibleEmbeddingsEnabled;
+            }
+            if (typeof storedOpenAiCompatibleImageGenerationEnabled === 'boolean') {
+                openAiConnectionUpdate.imageGenerationEnabled = storedOpenAiCompatibleImageGenerationEnabled;
+            }
+            let openAiCompatibleUpdateSucceeded = true;
+            if (Object.keys(openAiConnectionUpdate).length > 0) {
+                try {
+                    await updateAiConnection('openai-compatible', openAiConnectionUpdate);
+                } catch (error) {
+                    openAiCompatibleUpdateSucceeded = false;
+                    console.error('[db]', error);
+                }
+            }
+            // 接続一覧はモデル既定の寄せ先を決めるのに使う。上の移行を反映した
+            // 最新の一覧を取り、取得に失敗した場合は既定を書き換えない
+            // （寄せ先が分からないまま別の接続へ動かさない）。
+            const connections = await getAiConnections({ force: true })
+                .then((response) => response.connections)
+                .catch(() => []);
             const hasLegacyModelDefaults = [
                 storedSummaryModel,
                 storedDefaultChatModel,
@@ -263,7 +305,13 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
             const resolvedModelDefaults = storedModelDefaultsIsCurrent
                 ? normalizeModelDefaults(storedModelDefaults, foldedModelDefaults)
                 : foldedModelDefaults;
-            const characters = normalizeCharacters(loadedCharacters, resolvedModelDefaults.defaultChatModel);
+            // 既定はOpenRouterを指す。OpenRouterのAPIキーが無い環境ではその
+            // 既定が実行できないので、実際に設定済みの接続へ寄せ直す。
+            const effectiveModelDefaults = rebaseModelDefaults(
+                resolvedModelDefaults,
+                connections,
+            ).defaults;
+            const characters = normalizeCharacters(loadedCharacters, effectiveModelDefaults.defaultChatModel);
             const changedCharacters = characters.filter((character, index) => character !== loadedCharacters[index]);
             if (changedCharacters.length > 0) {
                 await Promise.all(changedCharacters.map((character) => db.putCharacter(character)));
@@ -272,8 +320,8 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 characters,
                 groups: storedGroups,
                 rooms: storedRooms.map((r) => ({ ...r, messages: [] })),
-                fallbackModel: resolvedModelDefaults.defaultChatModel,
-                directorFallbackModel: resolvedModelDefaults.defaultDirectorModel,
+                fallbackModel: effectiveModelDefaults.defaultChatModel,
+                directorFallbackModel: effectiveModelDefaults.defaultDirectorModel,
             });
             const groups = normalized.groups;
             const rooms: Room[] = normalized.rooms;
@@ -339,46 +387,11 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
             const resolvedTtsNarratorVoice = typeof storedTtsNarratorVoice === 'string'
                 ? storedTtsNarratorVoice.trim()
                 : DEFAULT_TTS_NARRATOR_VOICE;
-            // 旧接続設定を組み込み接続へベストエフォートで引き継ぐ（失敗しても続行）。
-            const resolvedOpenRouterIgnoredProviders = normalizeOpenRouterIgnoredProviders(storedOpenRouterIgnoredProviders);
-            let openRouterUpdateSucceeded = true;
-            if (resolvedOpenRouterIgnoredProviders.length > 0) {
-                try {
-                    await updateAiConnection('openrouter', {
-                        ignoredProviders: resolvedOpenRouterIgnoredProviders,
-                    });
-                } catch (error) {
-                    openRouterUpdateSucceeded = false;
-                    console.error('[db]', error);
-                }
-            }
-            const openAiConnectionUpdate: UpdateAiConnectionInput = {};
-            const storedOpenAiBaseUrl = typeof storedOpenAiCompatibleBaseUrl === 'string'
-                ? storedOpenAiCompatibleBaseUrl.trim().replace(/\/+$/, '')
-                : '';
-            if (storedOpenAiBaseUrl && storedOpenAiBaseUrl !== LEGACY_DEFAULT_OPENAI_COMPATIBLE_BASE_URL) {
-                openAiConnectionUpdate.baseUrl = storedOpenAiBaseUrl;
-            }
-            if (typeof storedOpenAiCompatibleEmbeddingsEnabled === 'boolean') {
-                openAiConnectionUpdate.embeddingsEnabled = storedOpenAiCompatibleEmbeddingsEnabled;
-            }
-            if (typeof storedOpenAiCompatibleImageGenerationEnabled === 'boolean') {
-                openAiConnectionUpdate.imageGenerationEnabled = storedOpenAiCompatibleImageGenerationEnabled;
-            }
-            let openAiCompatibleUpdateSucceeded = true;
-            if (Object.keys(openAiConnectionUpdate).length > 0) {
-                try {
-                    await updateAiConnection('openai-compatible', openAiConnectionUpdate);
-                } catch (error) {
-                    openAiCompatibleUpdateSucceeded = false;
-                    console.error('[db]', error);
-                }
-            }
 
             let modelDefaultsPersisted = true;
-            if (JSON.stringify(storedModelDefaults) !== JSON.stringify(resolvedModelDefaults)) {
+            if (JSON.stringify(storedModelDefaults) !== JSON.stringify(effectiveModelDefaults)) {
                 try {
-                    await persistModelDefaults(resolvedModelDefaults);
+                    await persistModelDefaults(effectiveModelDefaults);
                 } catch {
                     modelDefaultsPersisted = false;
                 }
@@ -450,7 +463,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 vnTypingSpeed: resolvedVnTypingSpeed,
                 userName: resolvedUserName,
                 keyboardShortcuts: resolvedKeyboardShortcuts,
-                ...resolvedModelDefaults,
+                ...effectiveModelDefaults,
                 memoryGateEnabled: storedMemoryGateEnabled !== false,
                 memoryGateShadowMode: storedMemoryGateShadowMode === true,
                 conversationCompressionEnabled: resolvedConversationCompressionEnabled,
@@ -491,6 +504,13 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
             await db.resetAll();
             nextRoomLoadSequence();
             clearThemeCache();
+            // 接続設定（サーバー側）は残るので、既定も設定済みの接続へ寄せる。
+            const connections = await getAiConnections()
+                .then((response) => response.connections)
+                .catch(() => null);
+            const modelDefaults = connections
+                ? rebaseModelDefaults(getDefaultModelDefaults(), connections).defaults
+                : getDefaultModelDefaults();
             set({
                 onboardingVersion: 0,
                 themeMode: DEFAULT_THEME_SELECTION.mode,
@@ -500,7 +520,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 vnTypingSpeed: DEFAULT_VN_TYPING_SPEED,
                 userName: '',
                 keyboardShortcuts: createDefaultKeyboardShortcuts(),
-                ...getDefaultModelDefaults(),
+                ...modelDefaults,
                 memoryGateEnabled: DEFAULT_MEMORY_GATE_ENABLED,
                 memoryGateShadowMode: false,
                 conversationCompressionEnabled: DEFAULT_CONVERSATION_COMPRESSION_ENABLED,

@@ -6,6 +6,7 @@ import {
     type AiApiConfig,
     type ReasoningEffort,
 } from '../aiApi';
+import { getAiConnections } from '../aiConnections';
 import * as db from '../db';
 import { generateId } from '../id';
 import {
@@ -16,6 +17,7 @@ import {
 import {
     getDefaultModelDefaults,
     normalizeModelDefaults,
+    rebaseModelDefaults,
     type ModelDefaults,
 } from '../modelDefaults';
 import { clearAllTts, setTtsPlaybackVolume } from '../ttsPlayer';
@@ -416,9 +418,17 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
             set({ keyboardShortcuts });
             fire(db.setMeta('keyboardShortcuts', keyboardShortcuts));
         },
-        resetModelDefaults: () => {
-            set({ ...getDefaultModelDefaults() });
-            persistModelDefaults(get());
+        resetModelDefaults: async () => {
+            // 既定値はOpenRouterを指す。OpenRouterが未設定なら、そのままだと
+            // 実行できない指定になるので、設定済みの接続へ寄せ直す。
+            const connections = await getAiConnections()
+                .then((response) => response.connections)
+                .catch(() => null);
+            const defaults = connections
+                ? rebaseModelDefaults(getDefaultModelDefaults(), connections).defaults
+                : getDefaultModelDefaults();
+            set({ ...defaults });
+            await persistModelDefaults(get()).catch(() => undefined);
         },
         setSummaryModel: (summaryModel) => {
             updateModelDefault(set, get, 'summaryModel', summaryModel);

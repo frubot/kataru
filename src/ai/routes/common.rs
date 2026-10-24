@@ -166,10 +166,33 @@ pub(crate) fn resolve_role_selection(
     role: &str,
 ) -> AppResult<RoleSelection> {
     optional_role_selection(body, field, role).ok_or_else(|| {
+        if has_unset_model_selection(body, field, role) {
+            return AppError::BadRequest(
+                "モデルが未設定です。設定画面の「既定のモデル」でモデルを選択してください。"
+                    .to_owned(),
+            );
+        }
         AppError::BadRequest(format!(
             "{field} または aiApiConfig.modelDefaults.{role} が必要です。"
         ))
     })
+}
+
+/// The request names a connection for the role but leaves the model blank — a
+/// connection was picked in the settings without a model, so the user needs to
+/// choose one rather than resend a field.
+fn has_unset_model_selection(body: &Value, field: &str, role: &str) -> bool {
+    fn is_unset(value: &Value) -> bool {
+        value
+            .get("model")
+            .and_then(Value::as_str)
+            .is_some_and(|model| model.trim().is_empty())
+    }
+    body.get(field).is_some_and(is_unset)
+        || ai_api_config_value(body)
+            .and_then(|config| config.get("modelDefaults"))
+            .and_then(|defaults| defaults.get(role))
+            .is_some_and(is_unset)
 }
 
 pub(super) fn copy_if_present(
@@ -306,6 +329,28 @@ mod tests {
     #[test]
     fn model_resolution_rejects_a_missing_model_and_default() {
         assert!(resolve_role_selection(&json!({}), "model", "summaryModel").is_err());
+    }
+
+    #[test]
+    fn an_unset_model_asks_for_a_model_choice() {
+        // 接続だけ決めてモデル名が空の状態（設定画面の「既定のモデル」未選択）。
+        for input in [
+            json!({"model": {"model": "", "connectionId": "cx_local"}}),
+            json!({
+                "aiApiConfig": {
+                    "modelDefaults": {"summaryModel": {"model": "", "connectionId": "cx_local"}}
+                }
+            }),
+        ] {
+            let error = match resolve_role_selection(&input, "model", "summaryModel") {
+                Ok(selection) => panic!("expected an error, got {}", selection.model),
+                Err(error) => error,
+            };
+            assert!(
+                error.to_string().contains("モデルが未設定です。"),
+                "unexpected message: {error}"
+            );
+        }
     }
 
     #[test]

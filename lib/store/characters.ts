@@ -1,6 +1,7 @@
 import * as db from '../db';
-import { isAiConnectionKind, isModelRef, isReasoningEffort, normalizeModelRef, type ModelRef } from '../aiApi';
+import { isAiConnectionKind, isReasoningEffort, normalizeModelRef, type ModelRef } from '../aiApi';
 import { generateId } from '../id';
+import { isModelRefShape } from '../modelDefaults';
 import { normalizeCharactersForCostumeDiffs } from '../visualDiffMigration';
 import { duplicateDedicatedMemories } from './memories';
 import { fire, persistGroup, shouldPersistRoom, toStoredRoom } from './persistence';
@@ -55,7 +56,8 @@ export function normalizeCharacterModel(character: Character, fallbackModel: Mod
     // JSONのthoughtフィールドで考えていたキャラクターはネイティブ推論（low）へ移行する。
     const migrateThinkingToReasoning = normalized.enableThinking === true
         && !isReasoningEffort(normalized.reasoningEffort);
-    const modelUnchanged = isModelRef(stored.model)
+    // モデル未選択（model が空）も正規化結果として保持し、毎回の書き戻しを避ける。
+    const modelUnchanged = isModelRefShape(stored.model)
         && stored.model.model === model.model
         && stored.model.connectionId === model.connectionId;
     delete normalized.thinkModeEnabled;

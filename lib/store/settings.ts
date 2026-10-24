@@ -281,6 +281,7 @@ type SettingsSlice = Pick<
     | 'resetKeyboardShortcut'
     | 'resetKeyboardShortcuts'
     | 'resetModelDefaults'
+    | 'refreshModelDefaults'
     | 'setSummaryModel'
     | 'setDefaultChatModel'
     | 'setDefaultDirectorModel'
@@ -420,13 +421,28 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         },
         resetModelDefaults: async () => {
             // 既定値はOpenRouterを指す。OpenRouterが未設定なら、そのままだと
-            // 実行できない指定になるので、設定済みの接続へ寄せ直す。
+            // 実行できない指定になるので、設定済みの接続へ寄せ直す。どの接続
+            // でも実行できない役割は空になる。
             const connections = await getAiConnections()
                 .then((response) => response.connections)
                 .catch(() => null);
             const defaults = connections
                 ? rebaseModelDefaults(getDefaultModelDefaults(), connections).defaults
                 : getDefaultModelDefaults();
+            set({ ...defaults });
+            await persistModelDefaults(get()).catch(() => undefined);
+        },
+        refreshModelDefaults: async () => {
+            // 接続を追加・設定した直後に呼ぶ。ユーザーが明示した設定済み接続の
+            // 選択はそのままに、未設定の接続を指す役割だけ寄せ直す（寄せ先が
+            // 無ければ空にする）。
+            const connections = await getAiConnections()
+                .then((response) => response.connections)
+                .catch(() => null);
+            if (!connections) return;
+            const current = modelDefaultsFromState(get());
+            const { defaults, changedRoles } = rebaseModelDefaults(current, connections);
+            if (changedRoles.length === 0) return;
             set({ ...defaults });
             await persistModelDefaults(get()).catch(() => undefined);
         },

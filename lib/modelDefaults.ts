@@ -3,10 +3,20 @@ import type { AiConnectionKind } from './aiApi';
 /** A model on a named AI connection. `connectionId` is the server-side
  * connection id (`openrouter` / `openai-compatible` / `anthropic` for the
  * built-ins, `cx_*` for custom connections). `model` may be empty, which means
- * the connection is chosen but its model is not picked yet. */
+ * the connection is chosen but its model is not picked yet. Both fields are
+ * empty for a role that has no usable connection at all. */
 export interface ModelRef {
     connectionId: string;
     model: string;
+}
+
+/** A role with neither a connection nor a model selected. */
+export function emptyModelRef(): ModelRef {
+    return { connectionId: '', model: '' };
+}
+
+export function isEmptyModelRef(ref: ModelRef | null | undefined): boolean {
+    return !ref || (!ref.connectionId.trim() && !ref.model.trim());
 }
 
 /** OpenRouterの `reasoning.effort` に対応する推論レベル。'none' は推論なし。 */
@@ -93,19 +103,20 @@ export function getDefaultModelDefaults(): ModelDefaults {
     return { ...DEFAULT_MODEL_DEFAULTS };
 }
 
-/** Shape check that tolerates an unset model name (a chosen connection whose
- * model the user has not picked yet). */
+/** Shape check that tolerates an unset selection: a chosen connection whose
+ * model the user has not picked yet, or an empty ref for a role no configured
+ * connection can serve. */
 export function isModelRefShape(value: unknown): value is ModelRef {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
     const record = value as Record<string, unknown>;
     return typeof record.model === 'string'
-        && typeof record.connectionId === 'string'
-        && record.connectionId.trim().length > 0;
+        && typeof record.connectionId === 'string';
 }
 
+/** A complete selection: both a connection and a model were picked. */
 export function isModelRef(value: unknown): value is ModelRef {
     if (!isModelRefShape(value)) return false;
-    return value.model.trim().length > 0;
+    return value.model.trim().length > 0 && value.connectionId.trim().length > 0;
 }
 
 /** Normalizes a stored/requested model selection into a `ModelRef`.
@@ -121,7 +132,11 @@ export function normalizeModelRef(value: unknown, fallback: ModelRef): ModelRef 
     }
     if (value && typeof value === 'object' && !Array.isArray(value)) {
         const record = value as Record<string, unknown>;
-        const connectionId = typeof record.connectionId === 'string' && record.connectionId.trim()
+        // `connectionId` が文字列で明示されていれば、空文字でもそのまま採用する。
+        // 空文字は「利用できる接続が無い」を表し、ここでフォールバック
+        // （既定はOpenRouter）を復活させると、未設定の接続を設定済みとして
+        // 扱ってしまう。
+        const connectionId = typeof record.connectionId === 'string'
             ? record.connectionId.trim()
             : typeof record.aiApiType === 'string' && record.aiApiType.trim()
                 ? record.aiApiType.trim()
@@ -299,28 +314,32 @@ export interface ModelDefaultsRebaseResult {
 /** Re-points every role whose connection is not configured at a connection
  * that can serve the role, keeping an explicit user choice untouched.
  *
- * The built-in defaults name OpenRouter; without an OpenRouter key those refs
+ * The built-in defaults name OpenRouter. Without an OpenRouter key those refs
  * can never run, so they are moved onto a configured connection (OpenRouter
- * first, then the best local/other option). Roles no configured connection can
- * serve (e.g. image generation with only Anthropic) keep their ref, because
- * there is nothing better to point at. Returns `defaults` unchanged when no
- * connection is configured, so a fresh install still starts on OpenRouter. */
+ * first, then the best local/other option). A role no configured connection can
+ * serve — image generation or memory search with only Anthropic, or every role
+ * before any connection is configured — is cleared to an empty ref rather than
+ * left pointing at OpenRouter's default. That keeps the settings screen honest:
+ * it shows an unset role instead of a model the app cannot run. */
 export function rebaseModelDefaults(
     defaults: ModelDefaults,
     connections: readonly RebaseConnection[],
 ): ModelDefaultsRebaseResult {
     const configured = connections.filter(isConfiguredConnection);
-    if (configured.length === 0) {
-        return { defaults, changedRoles: [] };
-    }
     const next = { ...defaults };
     const changedRoles: ModelRoleKey[] = [];
     for (const role of MODEL_DEFAULT_FIELDS) {
         const current = defaults[role];
-        if (configured.some((connection) => connection.id === current.connectionId)) continue;
+        if (current.connectionId
+            && configured.some((connection) => connection.id === current.connectionId)) {
+            continue;
+        }
         const target = pickConnection(ROLE_CAPABILITIES[role], configured);
-        if (!target) continue;
-        next[role] = { connectionId: target.id, model: modelForConnection(role, target) };
+        const rebased = target
+            ? { connectionId: target.id, model: modelForConnection(role, target) }
+            : emptyModelRef();
+        if (modelRefsEqual(current, rebased)) continue;
+        next[role] = rebased;
         changedRoles.push(role);
     }
     return changedRoles.length === 0

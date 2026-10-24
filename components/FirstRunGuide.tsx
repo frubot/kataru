@@ -83,6 +83,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
         setSummaryModel,
         setExpressionDetectionModel,
         setMemoryExtractionModel,
+        refreshModelDefaults,
         setTtsConnectionId,
         setTtsVoice,
         createCharacter,
@@ -256,6 +257,9 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
                 throw new Error(data.message || `接続の確認に失敗しました (${response.status})`);
             }
             if (data.ready === true) {
+                // 接続できるようになったので、未設定だった既定モデルをこの接続へ
+                // 寄せ直す（OpenRouterなら既定のモデル名、その他の接続なら選択待ち）。
+                await refreshModelDefaults();
                 if (kind === 'openrouter') {
                     setStep('tts');
                     setConnectionState('idle');

@@ -151,6 +151,9 @@ async function requestMemoryEmbedding(
 ): Promise<{ embedding: number[]; model: string; connectionId: string } | null> {
     const trimmed = input.trim();
     if (!trimmed || typeof window === 'undefined') return null;
+    // モデル未設定（OpenRouterが無く、埋め込みを提供できる接続も無い）なら
+    // リクエストを送らず、字句類似度だけの検索に任せる。
+    if (!model.model.trim() || !model.connectionId.trim()) return null;
 
     try {
         const response = await fetch('/api/embeddings', {

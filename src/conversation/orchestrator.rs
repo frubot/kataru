@@ -542,18 +542,19 @@ async fn run_turn_inner(
                 }
             };
             let relevant = if memory_allowed {
-                let embedding_selection = resolve_role_selection(
+                // 埋め込みモデルが未設定でも記憶検索は字句類似度だけで続行する。
+                let embedding_selection = optional_role_selection(
                     &payload,
                     "memoryEmbeddingModel",
                     "memoryEmbeddingModel",
-                )?;
+                );
                 tokio::select! {
                     biased;
                     () = cancellation.cancelled() => break,
                     memories = search_memories(
                         &state,
                         &mut clients,
-                        &embedding_selection,
+                        embedding_selection.as_ref(),
                         &memory_character_id,
                         &room_id,
                         &actor_history,
@@ -601,7 +602,7 @@ async fn run_turn_inner(
             !secret_mode && !matches!(character.get("enableMemory"), Some(Value::Bool(false)));
         let relevant = if memory_allowed {
             let embedding_selection =
-                resolve_role_selection(&payload, "memoryEmbeddingModel", "memoryEmbeddingModel")?;
+                optional_role_selection(&payload, "memoryEmbeddingModel", "memoryEmbeddingModel");
             let memory_character_id = string(character, "id");
             tokio::select! {
                 biased;
@@ -609,7 +610,7 @@ async fn run_turn_inner(
                 memories = search_memories(
                     &state,
                     &mut clients,
-                    &embedding_selection,
+                    embedding_selection.as_ref(),
                     &memory_character_id,
                     &room_id,
                     &active_history,
@@ -1928,12 +1929,15 @@ struct ScoredMemory {
 async fn search_memories(
     state: &AppState,
     clients: &mut RequestClients<'_>,
-    selection: &RoleSelection,
+    selection: Option<&RoleSelection>,
     character_id: &str,
     room_id: &str,
     messages: &[Value],
 ) -> AppResult<Vec<ScoredMemory>> {
-    let api_client = clients.for_selection(selection)?;
+    // 埋め込みモデルが未設定なら接続も作らず、字句類似度だけで採点する。
+    let api_client = selection
+        .map(|selection| clients.for_selection(selection))
+        .transpose()?;
     if character_id.is_empty() {
         return Ok(Vec::new());
     }
@@ -1969,11 +1973,16 @@ async fn search_memories(
         .iter()
         .filter_map(|message| message.get("id").and_then(Value::as_str))
         .collect::<HashSet<_>>();
-    let query_embedding = request_embedding(&api_client, &query, &selection.model, "search_query")
-        .await
-        .ok()
-        .flatten()
-        .map(|embedding| embedding.values);
+    let query_embedding = match (api_client.as_ref(), selection) {
+        (Some(api_client), Some(selection)) => {
+            request_embedding(api_client, &query, &selection.model, "search_query")
+                .await
+                .ok()
+                .flatten()
+                .map(|embedding| embedding.values)
+        }
+        _ => None,
+    };
     let now = now_ms() as f64;
     let mut scored = rows
         .into_iter()
@@ -1995,20 +2004,21 @@ async fn search_memories(
         .filter_map(|memory| {
             let content = string(&memory, "content");
             let lexical = lexical_similarity(&query, &content);
-            let vector = query_embedding
-                .as_ref()
-                .filter(|_| {
-                    string(&memory, "embeddingModel") == selection.model
-                        && string(&memory, "embeddingConnectionId") == api_client.connection_id()
-                })
-                .and_then(|query| {
+            let vector = match (query_embedding.as_ref(), selection, api_client.as_ref()) {
+                (Some(query), Some(selection), Some(api_client))
+                    if string(&memory, "embeddingModel") == selection.model
+                        && string(&memory, "embeddingConnectionId")
+                            == api_client.connection_id() =>
+                {
                     memory
                         .get("embedding")
                         .and_then(Value::as_array)
                         .map(|values| values.iter().filter_map(Value::as_f64).collect::<Vec<_>>())
                         .map(|stored| cosine_similarity(query, &stored).max(0.0))
-                })
-                .unwrap_or(0.0);
+                        .unwrap_or(0.0)
+                }
+                _ => 0.0,
+            };
             // 埋め込みが無い、または別のモデル・接続で作られたメモリは字句類似度で判定する。
             if !memory_is_relevant(vector, lexical.max(memory_similarity(&query, &content))) && !boolean(&memory, "pinned") {
                 return None;

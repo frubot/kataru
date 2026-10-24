@@ -236,10 +236,10 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
             }
             // 接続一覧はモデル既定の寄せ先を決めるのに使う。上の移行を反映した
             // 最新の一覧を取り、取得に失敗した場合は既定を書き換えない
-            // （寄せ先が分からないまま別の接続へ動かさない）。
+            // （寄せ先が分からないまま別の接続へ動かしたり、既定を空にしたりしない）。
             const connections = await getAiConnections({ force: true })
                 .then((response) => response.connections)
-                .catch(() => []);
+                .catch(() => null);
             const hasLegacyModelDefaults = [
                 storedSummaryModel,
                 storedDefaultChatModel,
@@ -306,11 +306,11 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 ? normalizeModelDefaults(storedModelDefaults, foldedModelDefaults)
                 : foldedModelDefaults;
             // 既定はOpenRouterを指す。OpenRouterのAPIキーが無い環境ではその
-            // 既定が実行できないので、実際に設定済みの接続へ寄せ直す。
-            const effectiveModelDefaults = rebaseModelDefaults(
-                resolvedModelDefaults,
-                connections,
-            ).defaults;
+            // 既定が実行できないので、設定済みの接続へ寄せ直し、どの接続でも
+            // 実行できない役割は空にする。
+            const effectiveModelDefaults = connections
+                ? rebaseModelDefaults(resolvedModelDefaults, connections).defaults
+                : resolvedModelDefaults;
             const characters = normalizeCharacters(loadedCharacters, effectiveModelDefaults.defaultChatModel);
             const changedCharacters = characters.filter((character, index) => character !== loadedCharacters[index]);
             if (changedCharacters.length > 0) {

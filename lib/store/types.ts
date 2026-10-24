@@ -448,6 +448,7 @@ export interface AppState {
     resetKeyboardShortcut: (action: KeyboardShortcutAction) => void;
     resetKeyboardShortcuts: () => void;
     resetModelDefaults: () => Promise<void>;
+    refreshModelDefaults: () => Promise<void>;
     setSummaryModel: (model: ModelRef) => void;
     setDefaultChatModel: (model: ModelRef) => void;
     setDefaultDirectorModel: (model: ModelRef) => void;

@@ -3,6 +3,8 @@ import { describe, expect, test } from 'vitest';
 import {
     DEFAULT_ANTHROPIC_TEXT_MODEL,
     getDefaultModelDefaults,
+    isEmptyModelRef,
+    MODEL_DEFAULT_FIELDS,
     normalizeModelDefaults,
     normalizeModelRef,
     rebaseModelDefaults,
@@ -33,13 +35,13 @@ const localServer = connection('cx_local', 'openai-compatible', {
 });
 
 describe('rebaseModelDefaults', () => {
-    test('leaves the defaults alone when nothing is configured', () => {
-        const defaults = getDefaultModelDefaults();
+    test('clears every role when nothing is configured', () => {
+        const result = rebaseModelDefaults(getDefaultModelDefaults(), []);
 
-        const result = rebaseModelDefaults(defaults, []);
-
-        expect(result.defaults).toBe(defaults);
-        expect(result.changedRoles).toEqual([]);
+        for (const role of MODEL_DEFAULT_FIELDS) {
+            expect(isEmptyModelRef(result.defaults[role])).toBe(true);
+        }
+        expect(result.changedRoles).toEqual([...MODEL_DEFAULT_FIELDS]);
     });
 
     test('keeps OpenRouter defaults when OpenRouter is configured', () => {
@@ -51,7 +53,7 @@ describe('rebaseModelDefaults', () => {
         expect(result.changedRoles).toEqual([]);
     });
 
-    test('moves text roles to Anthropic and leaves capability-only roles on OpenRouter', () => {
+    test('moves text roles to Anthropic and clears capability-only roles', () => {
         const result = rebaseModelDefaults(getDefaultModelDefaults(), [anthropic]);
 
         for (const role of [
@@ -69,22 +71,27 @@ describe('rebaseModelDefaults', () => {
                 model: DEFAULT_ANTHROPIC_TEXT_MODEL,
             });
         }
-        // 画像・埋め込み・判定はAnthropicでは提供されないので、遷移先が無い。
-        expect(result.defaults.defaultImageModel.connectionId).toBe('openrouter');
-        expect(result.defaults.memoryEmbeddingModel.connectionId).toBe('openrouter');
-        expect(result.defaults.memoryGateModel.connectionId).toBe('openrouter');
-        expect(result.changedRoles).toHaveLength(8);
+        // 画像・埋め込み・判定はAnthropicでは提供されないので空にする。
+        expect(isEmptyModelRef(result.defaults.defaultImageModel)).toBe(true);
+        expect(isEmptyModelRef(result.defaults.memoryEmbeddingModel)).toBe(true);
+        expect(isEmptyModelRef(result.defaults.memoryGateModel)).toBe(true);
+        expect(result.changedRoles).toHaveLength(11);
     });
 
-    test('moves text roles to a local compatible server without inventing a model name', () => {
+    test('moves supported roles to a local compatible server without inventing a model name', () => {
         const result = rebaseModelDefaults(getDefaultModelDefaults(), [localServer]);
 
         expect(result.defaults.defaultChatModel).toEqual({
             connectionId: 'cx_local',
             model: '',
         });
-        expect(result.defaults.memoryGateModel.connectionId).toBe('openrouter');
-        expect(result.defaults.defaultImageModel.connectionId).toBe('openrouter');
+        // 互換サーバーは埋め込みに対応しているが、画像生成と判定は未対応。
+        expect(result.defaults.memoryEmbeddingModel).toEqual({
+            connectionId: 'cx_local',
+            model: '',
+        });
+        expect(isEmptyModelRef(result.defaults.memoryGateModel)).toBe(true);
+        expect(isEmptyModelRef(result.defaults.defaultImageModel)).toBe(true);
     });
 
     test('uses compatible-server capabilities for image and embedding roles', () => {
@@ -116,8 +123,10 @@ describe('rebaseModelDefaults', () => {
             connectionId: 'typesafe',
             model: 'jev-latest',
         });
-        // TypeSafeはテキスト生成を提供しないので、他は遷移先が無い。
-        expect(result.defaults.defaultChatModel.connectionId).toBe('openrouter');
+        // TypeSafeはテキスト生成・画像・埋め込みを提供しないので、他は空になる。
+        expect(isEmptyModelRef(result.defaults.defaultChatModel)).toBe(true);
+        expect(isEmptyModelRef(result.defaults.defaultImageModel)).toBe(true);
+        expect(isEmptyModelRef(result.defaults.memoryEmbeddingModel)).toBe(true);
     });
 
     test('does not treat a listed built-in without a key as usable', () => {
@@ -147,13 +156,25 @@ describe('rebaseModelDefaults', () => {
         });
     });
 
-    test('ignores TTS-only connections', () => {
+    test('treats TTS-only connections as no configuration', () => {
         const voicevox = connection('voicevox', 'voicevox', { apiKey: { configured: false } });
         const irodori = connection('irodori', 'irodori', { apiKey: { configured: false } });
 
         const result = rebaseModelDefaults(getDefaultModelDefaults(), [voicevox, irodori]);
 
-        expect(result.changedRoles).toEqual([]);
+        for (const role of MODEL_DEFAULT_FIELDS) {
+            expect(isEmptyModelRef(result.defaults[role])).toBe(true);
+        }
+        expect(result.changedRoles).toHaveLength(11);
+    });
+
+    test('fills cleared roles once a capable connection is configured', () => {
+        const cleared = rebaseModelDefaults(getDefaultModelDefaults(), []).defaults;
+
+        const result = rebaseModelDefaults(cleared, [openrouter]);
+
+        expect(result.defaults).toEqual(getDefaultModelDefaults());
+        expect(result.changedRoles).toHaveLength(11);
     });
 
     test('is idempotent', () => {
@@ -171,6 +192,13 @@ describe('unset model names', () => {
             { connectionId: 'cx_local', model: '' },
             { connectionId: 'openrouter', model: 'z-ai/glm-5.2' },
         )).toEqual({ connectionId: 'cx_local', model: '' });
+    });
+
+    test('normalizeModelRef keeps an explicitly empty connection instead of restoring OpenRouter', () => {
+        expect(normalizeModelRef(
+            { connectionId: '', model: '' },
+            { connectionId: 'openrouter', model: 'z-ai/glm-5.2' },
+        )).toEqual({ connectionId: '', model: '' });
     });
 
     test('normalizeModelDefaults keeps an unset model instead of restoring the OpenRouter name', () => {

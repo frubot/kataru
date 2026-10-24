@@ -402,7 +402,7 @@ function RoleModelField({
                     />
                 ) : (
                     <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                        {kind ? AI_CONNECTION_KIND_LABELS[kind] : 'この接続先'} では{capability === 'embeddings' ? '埋め込み' : '画像生成'}を利用できません。
+                        {kind ? AI_CONNECTION_KIND_LABELS[kind] : '利用可能な接続先'} では{capability === 'embeddings' ? '埋め込み' : '画像生成'}を利用できません。
                     </p>
                 )}
                 {trailing}
@@ -463,8 +463,8 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
     const ttsCapableConnections = connections.filter((connection) => (
         connectionSupportsCapability(connection.kind, connection, 'tts')
     ));
-    // リセット後の値。既定（OpenRouter）が未設定なら設定済みの接続へ寄せた
-    // ものになるため、比較基準もそれに合わせる。
+    // リセット後の値。既定（OpenRouter）が未設定なら設定済みの接続へ寄せ、
+    // 寄せ先が無い役割は空になるため、比較基準もそれに合わせる。
     const baselineModelDefaults = useMemo(
         () => rebaseModelDefaults(getDefaultModelDefaults(), connections).defaults,
         [connections],

@@ -10,6 +10,7 @@ import {
     type AiConnectionStatus,
     type UpdateAiConnectionInput,
 } from '@/lib/aiConnections';
+import { useStore } from '@/lib/store';
 import ProviderSelector from './ProviderSelector';
 import OptionSelector from './OptionSelector';
 
@@ -46,6 +47,7 @@ function apiKeyPlaceholder(connection: AiConnectionStatus): string {
 }
 
 function AiConnectionCard({ connection }: { connection: AiConnectionStatus }) {
+    const { refreshModelDefaults } = useStore();
     const [name, setName] = useState(connection.name);
     const [baseUrl, setBaseUrl] = useState(connection.baseUrl ?? '');
     const [apiKey, setApiKey] = useState('');
@@ -91,6 +93,9 @@ function AiConnectionCard({ connection }: { connection: AiConnectionStatus }) {
         setMessage(null);
         try {
             await operation();
+            // 接続状態が変わると、その接続を前提にしていた既定モデルも
+            // 寄せ直す（使えなくなった役割は空になる）。
+            await refreshModelDefaults();
             setMessage(successMessage);
         } catch (caught) {
             setError(caught instanceof Error ? caught.message : 'AI接続設定を更新できませんでした。');
@@ -321,6 +326,7 @@ function AiConnectionCard({ connection }: { connection: AiConnectionStatus }) {
 }
 
 function AddAiConnectionCard({ onClose }: { onClose: () => void }) {
+    const { refreshModelDefaults } = useStore();
     const [name, setName] = useState('');
     const [kind, setKind] = useState<AiConnectionKind>('openai-compatible');
     const [baseUrl, setBaseUrl] = useState('');
@@ -360,6 +366,7 @@ function AddAiConnectionCard({ onClose }: { onClose: () => void }) {
                     ? { embeddingsEnabled, imageGenerationEnabled, ttsEnabled }
                     : {}),
             });
+            await refreshModelDefaults();
             reset();
             onClose();
         } catch (caught) {

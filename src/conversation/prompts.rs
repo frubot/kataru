@@ -52,7 +52,7 @@ fn reply_instruction_base(character_name: &str, format: ReplyFormat) -> String {
 You are {character_name}. Please begin the roleplay.
 {output_instruction}
 
-The user is referred to as "{{{{user}}}}".
+The user's name is "{{{{user}}}}".
 "#
     )
 }
@@ -87,8 +87,7 @@ In addition to {character_name}, you must also provide narration using stage dir
 ### Constraints on narration
    - Please describe elements related to emotions, movements, actions, and situations through narration. The style of the narration is independent of the characters' individual traits.
    - Please be sure to enclose your explanation in boxes like this: `*Explanation Text*`.
-   - Please write from the perspective of {{{{user}}}}.
-   - When referring to a character, please use their name (e.g., for "田中 太郎," use "太郎").
+   - Please refer to the character as {character_name} and the user as {{{{user}}}}. If a full name is provided, use only the first name.
 
 ### Output example
   Good:

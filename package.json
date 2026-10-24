@@ -7,6 +7,7 @@
     "build:binary": "npm run build && cargo build --release",
     "check:release-version": "node scripts/check-release-version.mjs",
     "check:rust": "cargo test",
+    "dummy:api": "node scripts/dummy-api-server.mjs",
     "test": "npm run test:unit && npm run test:migration && npm run test:branch",
     "test:unit": "vitest run",
     "test:migration": "node --experimental-strip-types --test tests/aiSettingsMigration.test.mjs",

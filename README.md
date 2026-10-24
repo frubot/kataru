@@ -164,6 +164,24 @@ cargo clippy --all-targets -- -D warnings
 npm run build
 ```
 
+### ダミーAPIサーバー（APIキー不要）
+
+外部APIに接続せず、チャット・ストリーミング・構造化出力の動作を確認したい場合は、OpenAI互換APIとAnthropic Messages APIを模擬するダミーサーバーを起動できます（Node.jsのみで動作します）。
+
+```bash
+npm run dummy:api        # http://127.0.0.1:4200
+PORT=4300 npm run dummy:api
+```
+
+Kataruの **「設定」→「モデル」→「接続先」** で、次のベースURLを登録してください。APIキーは任意の文字列で構いません。
+
+| 接続先 | ベースURL |
+| --- | --- |
+| OpenAI互換 | `http://127.0.0.1:4200/v1` |
+| Anthropic | `http://127.0.0.1:4200/v1` |
+
+最後のユーザーメッセージに `slow` を含めると10秒待ってから応答し、`fail`（`fail:429` など）を含めるとエラーを返します。画像生成を確認する場合は `node scripts/dummy-image-server.mjs` を使用してください。
+
 ## 単一バイナリのビルド
 
 フロントエンドの静的アセットを内包した、配布・実行用のリリースバイナリをビルドします。

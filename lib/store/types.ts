@@ -327,6 +327,12 @@ export interface DebugLogUsage {
     totalTokens?: number;
     tokensPerSecond?: number;
     cost?: number;
+    /** 最初のトークンが届くまでの時間（ミリ秒）。ストリーミング時のみ。 */
+    timeToFirstTokenMs?: number;
+    /** プロンプト処理の速度。TTFT 由来なので通信や待ち行列も含む参考値。 */
+    promptTokensPerSecond?: number;
+    /** トークン数がサーバー値ではなく文字数からの概算か。 */
+    estimated?: boolean;
 }
 
 export interface FullJsonDebugLog {

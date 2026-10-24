@@ -813,66 +813,202 @@ fn push_debug_log(logs: &mut Vec<Value>, mut log: Value) {
     logs.push(log);
 }
 
-/// デバッグログの `usage` に載せるトークン数・コスト・スループット。
-/// 使用量がひとつも取れないときは `None` を返し、空の統計をログへ足さない。
-fn token_debug_usage(
+/// デバッグログの `usage` に載せるトークン数・コスト・スループットの元データ。
+#[derive(Default)]
+struct DebugUsageInput {
     prompt_tokens: u64,
     completion_tokens: u64,
     total_tokens: Option<u64>,
     cost: Option<f64>,
+    /// リクエスト開始から完了までの経過時間。
     elapsed_ms: u64,
-) -> Option<Value> {
-    if prompt_tokens == 0 && completion_tokens == 0 && total_tokens.unwrap_or(0) == 0 {
+    /// 最初のトークンが届くまでの時間。ストリーミング時のみ測れる。
+    first_token_ms: Option<u64>,
+    /// 最初のトークンから最後のトークンまでのデコード区間。
+    decode_ms: Option<u64>,
+    provider_tokens_per_second: Option<f64>,
+    provider_prompt_tokens_per_second: Option<f64>,
+    /// 出力トークン数がサーバー値ではなく概算か。
+    estimated_completion_tokens: bool,
+}
+
+/// デバッグログの `usage` に載せるトークン数・コスト・スループット。
+/// 使用量がひとつも取れないときは `None` を返し、空の統計をログへ足さない。
+fn token_debug_usage(input: DebugUsageInput) -> Option<Value> {
+    if input.prompt_tokens == 0
+        && input.completion_tokens == 0
+        && input.total_tokens.unwrap_or(0) == 0
+    {
         return None;
     }
-    let total_tokens = total_tokens
+    let total_tokens = input
+        .total_tokens
         .filter(|total| *total > 0)
-        .unwrap_or(prompt_tokens + completion_tokens);
+        .unwrap_or(input.prompt_tokens + input.completion_tokens);
     let mut usage = json!({
-        "promptTokens": prompt_tokens,
-        "completionTokens": completion_tokens,
+        "promptTokens": input.prompt_tokens,
+        "completionTokens": input.completion_tokens,
         "totalTokens": total_tokens,
     });
-    if let Some(cost) = cost.filter(|cost| *cost > 0.0) {
+    if let Some(cost) = input.cost.filter(|cost| *cost > 0.0) {
         usage["cost"] = json!(cost);
     }
-    // 生成速度は出力トークンだけで測る。待ち時間を含む実測値なので、
-    // 表示側では `elapsedMs` と対で読む。
-    if completion_tokens > 0 && elapsed_ms > 0 {
-        let tokens_per_second = completion_tokens as f64 * 1000.0 / elapsed_ms as f64;
+    if input.estimated_completion_tokens {
+        usage["estimated"] = json!(true);
+    }
+    // 生成速度は出力トークンだけで測る。プロバイダの実測値 → ストリームの
+    // デコード区間 → 全体の経過時間、の順に信頼できる値を使う。概算トークン数を
+    // 全体の経過時間で割るとプロンプト処理まで含んでしまうため、最後の手段にしない。
+    let decode_tokens_per_second = input
+        .decode_ms
+        .filter(|decode_ms| *decode_ms > 0)
+        .map(|decode_ms| input.completion_tokens as f64 * 1000.0 / decode_ms as f64);
+    let elapsed_tokens_per_second = (!input.estimated_completion_tokens
+        && input.elapsed_ms > 0
+        && input.completion_tokens > 0)
+        .then(|| input.completion_tokens as f64 * 1000.0 / input.elapsed_ms as f64);
+    if let Some(tokens_per_second) = input
+        .provider_tokens_per_second
+        .or(decode_tokens_per_second)
+        .or(elapsed_tokens_per_second)
+        .filter(|value| value.is_finite() && *value > 0.0)
+    {
         usage["tokensPerSecond"] = json!((tokens_per_second * 10.0).round() / 10.0);
+    }
+    if let Some(first_token_ms) = input.first_token_ms.filter(|value| *value > 0) {
+        usage["timeToFirstTokenMs"] = json!(first_token_ms);
+    }
+    // プロンプト処理の速度。TTFT には通信と待ち行列も含むため参考値。
+    let prompt_tokens_per_second = input.provider_prompt_tokens_per_second.or_else(|| {
+        input
+            .first_token_ms
+            .filter(|first_token_ms| *first_token_ms > 0 && input.prompt_tokens > 0)
+            .map(|first_token_ms| input.prompt_tokens as f64 * 1000.0 / first_token_ms as f64)
+    });
+    if let Some(prompt_tokens_per_second) = prompt_tokens_per_second
+        .filter(|value| value.is_finite() && *value > 0.0)
+    {
+        usage["promptTokensPerSecond"] = json!((prompt_tokens_per_second * 10.0).round() / 10.0);
     }
     Some(usage)
 }
 
+/// ストリーミング時に測った、最初のトークンまでの時間とデコード区間。
+#[derive(Default, Clone, Copy)]
+struct CompletionTimings {
+    first_token_ms: Option<u64>,
+    decode_ms: Option<u64>,
+}
+
+fn completion_timings(raw: &Value) -> CompletionTimings {
+    let timings = raw.get("kataruTimings");
+    CompletionTimings {
+        first_token_ms: timings
+            .and_then(|timings| timings.get("firstTokenMs"))
+            .and_then(Value::as_u64),
+        decode_ms: timings
+            .and_then(|timings| timings.get("decodeMs"))
+            .and_then(Value::as_u64),
+    }
+}
+
+/// llama.cpp (`timings`) や LM Studio (`stats`) が返す、サーバー側の実測速度。
+fn provider_tokens_per_second(raw: &Value) -> Option<f64> {
+    raw.pointer("/timings/predicted_per_second")
+        .and_then(Value::as_f64)
+        .or_else(|| {
+            raw.pointer("/stats/tokens_per_second")
+                .and_then(Value::as_f64)
+        })
+        .filter(|value| value.is_finite() && *value > 0.0)
+}
+
+fn provider_prompt_tokens_per_second(raw: &Value) -> Option<f64> {
+    raw.pointer("/timings/prompt_per_second")
+        .and_then(Value::as_f64)
+        .filter(|value| value.is_finite() && *value > 0.0)
+}
+
+/// トークナイザを持たないローカルサーバー向けの概算。日本語・中国語は
+/// ほぼ1文字1トークン、ラテン文字などは約4文字1トークンとして数える。
+fn estimate_completion_tokens(text: &str) -> u64 {
+    let mut tokens = 0.0f64;
+    for character in text.chars() {
+        tokens += if is_wide_character(character) { 1.0 } else { 0.25 };
+    }
+    tokens.round() as u64
+}
+
+fn is_wide_character(character: char) -> bool {
+    matches!(
+        character as u32,
+        0x3000..=0x30FF | 0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF | 0xFF00..=0xFFEF
+    )
+}
+
 /// OpenAI互換の応答からデバッグログ用の使用量を取り出す。
 fn completion_debug_usage(raw: &Value, elapsed_ms: u64) -> Option<Value> {
-    let usage = raw.get("usage").filter(|usage| usage.is_object())?;
-    token_debug_usage(
-        usage
-            .get("prompt_tokens")
+    let usage = raw.get("usage").filter(|usage| usage.is_object());
+    let mut prompt_tokens = usage
+        .and_then(|usage| usage.get("prompt_tokens"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    if prompt_tokens == 0 {
+        prompt_tokens = raw
+            .pointer("/timings/prompt_n")
             .and_then(Value::as_u64)
-            .unwrap_or(0),
-        usage
-            .get("completion_tokens")
+            .unwrap_or(0);
+    }
+    let mut completion_tokens = usage
+        .and_then(|usage| usage.get("completion_tokens"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    if completion_tokens == 0 {
+        completion_tokens = raw
+            .pointer("/timings/predicted_n")
             .and_then(Value::as_u64)
-            .unwrap_or(0),
-        usage.get("total_tokens").and_then(Value::as_u64),
-        usage.get("cost").and_then(Value::as_f64),
+            .unwrap_or(0);
+    }
+    let mut estimated_completion_tokens = false;
+    if completion_tokens == 0 {
+        // ローカルサーバーは usage を返さないことがある。その場合は出力本文と
+        // 推論から概算し、推定であることをログに残す。
+        let mut generated = extract_message_text(raw);
+        if let Some(reasoning) = extract_message_reasoning(raw) {
+            generated.push_str(&reasoning);
+        }
+        let estimated = estimate_completion_tokens(&generated);
+        if estimated > 0 {
+            completion_tokens = estimated;
+            estimated_completion_tokens = true;
+        }
+    }
+    let timings = completion_timings(raw);
+    token_debug_usage(DebugUsageInput {
+        prompt_tokens,
+        completion_tokens,
+        total_tokens: usage
+            .and_then(|usage| usage.get("total_tokens"))
+            .and_then(Value::as_u64),
+        cost: usage.and_then(|usage| usage.get("cost")).and_then(Value::as_f64),
         elapsed_ms,
-    )
+        first_token_ms: timings.first_token_ms,
+        decode_ms: timings.decode_ms,
+        provider_tokens_per_second: provider_tokens_per_second(raw),
+        provider_prompt_tokens_per_second: provider_prompt_tokens_per_second(raw),
+        estimated_completion_tokens,
+    })
 }
 
 /// Jev (System One) の応答からデバッグログ用の使用量を取り出す。
 fn jev_debug_usage(response: &SystemOneResponse, elapsed_ms: u64) -> Option<Value> {
     let usage = response.usage.as_ref()?;
-    token_debug_usage(
-        usage.input_tokens,
-        usage.output_tokens,
-        None,
-        None,
+    token_debug_usage(DebugUsageInput {
+        prompt_tokens: usage.input_tokens,
+        completion_tokens: usage.output_tokens,
         elapsed_ms,
-    )
+        ..Default::default()
+    })
 }
 
 /// デバッグログ本体へ使用量を差し込む。
@@ -1069,7 +1205,7 @@ async fn generate_for_character(
                     &debug_context.character_name,
                     // メッセージモードでは閉じたバブルを確定済みとして流し、
                     // 一文字ずつの更新ではなく送信済みメッセージとして見せる。
-                    message_mode.then(|| preview.confirmed_messages.as_slice()),
+                    message_mode.then_some(preview.confirmed_messages.as_slice()),
                     assistant_expression_preview(partial, &expression_names).as_deref(),
                     assistant_motion_preview(partial, &motion_names).as_deref(),
                 );
@@ -3059,8 +3195,15 @@ mod tests {
 
     #[test]
     fn successful_debug_logs_carry_tokens_cost_and_throughput() {
-        let usage = token_debug_usage(1200, 400, Some(1600), Some(0.0042), 8000)
-            .expect("reporting tokens must produce debug usage fields");
+        let usage = token_debug_usage(DebugUsageInput {
+            prompt_tokens: 1200,
+            completion_tokens: 400,
+            total_tokens: Some(1600),
+            cost: Some(0.0042),
+            elapsed_ms: 8000,
+            ..Default::default()
+        })
+        .expect("reporting tokens must produce debug usage fields");
 
         assert_eq!(usage["promptTokens"], 1200);
         assert_eq!(usage["completionTokens"], 400);
@@ -3077,7 +3220,13 @@ mod tests {
 
     #[test]
     fn debug_usage_fields_are_omitted_when_the_provider_reports_nothing() {
-        assert!(token_debug_usage(0, 0, None, None, 1000).is_none());
+        assert!(
+            token_debug_usage(DebugUsageInput {
+                elapsed_ms: 1000,
+                ..Default::default()
+            })
+            .is_none()
+        );
         assert!(completion_debug_usage(&json!({"model": "test-model"}), 1000).is_none());
 
         // total_tokens を返さない応答は入力と出力から合計を作る。
@@ -3090,6 +3239,60 @@ mod tests {
         assert_eq!(usage["totalTokens"], 15);
         assert_eq!(usage["tokensPerSecond"], 10.0);
         assert!(usage.get("cost").is_none());
+    }
+
+    #[test]
+    fn streaming_timings_measure_decode_speed_apart_from_prompt_processing() {
+        let raw = json!({
+            "choices": [{ "message": { "content": "{\"message\":\"こんにちは\"}" } }],
+            "usage": { "prompt_tokens": 2000, "completion_tokens": 100, "total_tokens": 2100 },
+            "kataruTimings": { "firstTokenMs": 2000, "decodeMs": 4000 }
+        });
+
+        let usage = completion_debug_usage(&raw, 6000).expect("usage fields");
+
+        // プロンプト処理を除いたデコード区間だけで測るので 100 / 4秒 = 25 tok/s。
+        assert_eq!(usage["tokensPerSecond"], 25.0);
+        assert_eq!(usage["timeToFirstTokenMs"], 2000);
+        // 2000 プロンプトトークンを 2 秒で処理した計算。
+        assert_eq!(usage["promptTokensPerSecond"], 1000.0);
+    }
+
+    #[test]
+    fn llama_cpp_timings_are_preferred_over_elapsed_time() {
+        let raw = json!({
+            "choices": [{ "message": { "content": "{\"message\":\"hi\"}" } }],
+            "timings": {
+                "prompt_n": 900,
+                "prompt_per_second": 450.5,
+                "predicted_n": 40,
+                "predicted_per_second": 21.7
+            }
+        });
+
+        let usage = completion_debug_usage(&raw, 9000).expect("usage fields");
+
+        assert_eq!(usage["promptTokens"], 900);
+        assert_eq!(usage["completionTokens"], 40);
+        assert_eq!(usage["tokensPerSecond"], 21.7);
+        assert_eq!(usage["promptTokensPerSecond"], 450.5);
+        assert!(usage.get("estimated").is_none());
+    }
+
+    #[test]
+    fn missing_local_usage_is_estimated_from_the_output_text() {
+        let raw = json!({
+            "choices": [{ "message": { "content": "こんにちは、世界！" } }],
+            "kataruTimings": { "firstTokenMs": 500, "decodeMs": 1000 }
+        });
+
+        let usage = completion_debug_usage(&raw, 1500).expect("estimated usage");
+
+        // 日本語は1文字1トークンとして概算する。
+        assert_eq!(usage["completionTokens"], 9);
+        assert_eq!(usage["totalTokens"], 9);
+        assert_eq!(usage["estimated"], true);
+        assert_eq!(usage["tokensPerSecond"], 9.0);
     }
 
     #[test]

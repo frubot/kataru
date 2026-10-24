@@ -283,6 +283,7 @@ impl ConversationJobs {
     /// already-finalized bubbles of a message-mode reply (possibly empty while the
     /// first bubble is still streaming); `None` leaves the turn without the field so
     /// other formats keep the classic single growing preview.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn update_preview(
         &self,
         job_id: &str,

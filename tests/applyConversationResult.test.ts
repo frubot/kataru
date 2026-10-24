@@ -311,6 +311,58 @@ describe('conversation result application', () => {
         }));
     });
 
+    test('keeps measured timings and the estimated flag', async () => {
+        const operations = createOperations(sourceRoom);
+
+        await applyConversationResult(
+            {
+                data: {
+                    messages: [{
+                        id: 'server-message',
+                        role: 'assistant',
+                        content: 'ローカル用のログ',
+                        characterId: 'character-1',
+                        timestamp: 1,
+                    }],
+                    fullJsonLogs: [{
+                        characterId: 'character-1',
+                        characterName: '葵',
+                        status: 'success',
+                        source: 'assistant-json',
+                        json: '{"message":"こんにちは"}',
+                        elapsedMs: 4000,
+                        usage: {
+                            promptTokens: 900,
+                            completionTokens: 40,
+                            totalTokens: 940,
+                            tokensPerSecond: 21.7,
+                            promptTokensPerSecond: 450.5,
+                            timeToFirstTokenMs: 1200,
+                            estimated: true,
+                        },
+                    }],
+                },
+                sourceRoom,
+                jobId: 'job-1',
+                isSecretMode: false,
+                debugEnabled: true,
+            },
+            operations,
+        );
+
+        expect(operations.addFullJsonDebugLog).toHaveBeenCalledWith(expect.objectContaining({
+            usage: {
+                promptTokens: 900,
+                completionTokens: 40,
+                totalTokens: 940,
+                tokensPerSecond: 21.7,
+                promptTokensPerSecond: 450.5,
+                timeToFirstTokenMs: 1200,
+                estimated: true,
+            },
+        }));
+    });
+
     test('drops usage fields that are missing or not numbers', async () => {
         const operations = createOperations(sourceRoom);
 
@@ -334,6 +386,7 @@ describe('conversation result application', () => {
                             promptTokens: '1200',
                             completionTokens: 400,
                             tokensPerSecond: Number.NaN,
+                            estimated: 'yes',
                         } as unknown as { promptTokens: number },
                     }],
                 },

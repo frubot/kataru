@@ -25,6 +25,10 @@ function formatCost(cost: number): string {
     return `$${cost.toFixed(6)}`;
 }
 
+function formatDuration(ms: number): string {
+    return ms >= 1000 ? `${(ms / 1000).toFixed(1)} 秒` : `${Math.round(ms)} ms`;
+}
+
 /** 使用量をチップ表示用の文字列へ整える。サーバーが返さなかった項目は出さない。 */
 function usageLabels(usage: DebugLogUsage | undefined): string[] {
     if (!usage) return [];
@@ -34,11 +38,17 @@ function usageLabels(usage: DebugLogUsage | undefined): string[] {
     const totalTokens = usage.totalTokens ?? promptTokens + completionTokens;
     if (promptTokens > 0 || completionTokens > 0 || totalTokens > 0) {
         labels.push(
-            `入力 ${formatCount(promptTokens)} / 出力 ${formatCount(completionTokens)} / 計 ${formatCount(totalTokens)} トークン`,
+            `入力 ${formatCount(promptTokens)} / 出力 ${formatCount(completionTokens)} / 計 ${formatCount(totalTokens)} トークン${usage.estimated ? '（推定）' : ''}`,
         );
     }
     if (usage.tokensPerSecond != null) {
         labels.push(`${usage.tokensPerSecond.toLocaleString()} tok/s`);
+    }
+    if (usage.promptTokensPerSecond != null) {
+        labels.push(`プロンプト ${usage.promptTokensPerSecond.toLocaleString()} tok/s`);
+    }
+    if (usage.timeToFirstTokenMs != null) {
+        labels.push(`初回 ${formatDuration(usage.timeToFirstTokenMs)}`);
     }
     if (usage.cost != null && usage.cost > 0) {
         labels.push(formatCost(usage.cost));

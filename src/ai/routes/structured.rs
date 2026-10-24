@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use axum::http::StatusCode;
 use futures_util::StreamExt;
 use serde_json::{Value, json};
@@ -111,20 +113,23 @@ async fn completion_attempt(
         } else {
             body.insert("provider".to_owned(), Value::Object(provider_options));
         }
-        if should_stream {
-            body.insert(
-                "stream_options".to_owned(),
-                json!({ "include_usage": true }),
-            );
-        } else {
-            body.remove("stream_options");
-        }
     } else if api_client.is_openai_compatible() {
         body.remove("reasoningEffort");
         body.remove("top_k");
         body.remove("repetition_penalty");
     } else {
         body.remove("reasoningEffort");
+    }
+    // 使用量はストリーミングの終端チャンクでしか返さないサーバーが多い。
+    // OpenRouter に限らず OpenAI 互換のローカルサーバーにも要求する。応答に
+    // `usage` が無い場合は計測側がストリームの到着時刻から速度を求める。
+    if should_stream && !api_client.is_anthropic() {
+        body.insert(
+            "stream_options".to_owned(),
+            json!({ "include_usage": true }),
+        );
+    } else {
+        body.remove("stream_options");
     }
     api_client
         .send_json("chat/completions", &Value::Object(body), timeout_secs)
@@ -221,9 +226,27 @@ struct StructuredStreamResult {
     usage: Option<Value>,
     finish_reason: Value,
     anthropic_input_tokens: u64,
+    /// 要求を投げた時刻。最初のトークンまでの時間（TTFT）を測る基準。
+    started_at: Option<Instant>,
+    first_token_at: Option<Instant>,
+    last_token_at: Option<Instant>,
+    chunks: u32,
+    /// llama.cpp などが返すサーバー側の実測値。
+    provider_timings: Option<Value>,
+    /// LM Studio などが返すサーバー側の実測値。
+    provider_stats: Option<Value>,
 }
 
 impl StructuredStreamResult {
+    /// 本文か推論の断片が届くたびに呼ぶ。デコード区間は最初と最後の断片で挟む。
+    fn record_token(&mut self, at: Instant) {
+        if self.first_token_at.is_none() {
+            self.first_token_at = Some(at);
+        }
+        self.last_token_at = Some(at);
+        self.chunks = self.chunks.saturating_add(1);
+    }
+
     fn apply_event<F>(
         &mut self,
         event: &str,
@@ -347,6 +370,12 @@ impl StructuredStreamResult {
         if let Some(usage) = value.get("usage").filter(|usage| !usage.is_null()) {
             self.usage = Some(usage.clone());
         }
+        if let Some(timings) = value.get("timings").filter(|timings| timings.is_object()) {
+            self.provider_timings = Some(timings.clone());
+        }
+        if let Some(stats) = value.get("stats").filter(|stats| stats.is_object()) {
+            self.provider_stats = Some(stats.clone());
+        }
         if let Some(reason) = value
             .pointer("/choices/0/finish_reason")
             .filter(|reason| !reason.is_null())
@@ -363,13 +392,16 @@ impl StructuredStreamResult {
                     .map(extract_content_text)
                     .filter(|content| !content.is_empty())
             });
+        let reasoning_delta = extract_reasoning_delta(value.pointer("/choices/0/delta"))
+            .or_else(|| extract_reasoning_delta(value.pointer("/choices/0/message")));
+        if delta.is_some() || reasoning_delta.is_some() {
+            self.record_token(Instant::now());
+        }
         if let Some(delta) = delta {
             self.content.push_str(&delta);
             on_content(&self.content);
         }
-        if let Some(reasoning) = extract_reasoning_delta(value.pointer("/choices/0/delta"))
-            .or_else(|| extract_reasoning_delta(value.pointer("/choices/0/message")))
-        {
+        if let Some(reasoning) = reasoning_delta {
             self.reasoning.push_str(&reasoning);
         }
         Ok(())
@@ -393,6 +425,27 @@ impl StructuredStreamResult {
         if let Some(usage) = self.usage {
             response["usage"] = usage;
         }
+        if let Some(started_at) = self.started_at {
+            let first_token_ms = self
+                .first_token_at
+                .map(|first| first.duration_since(started_at).as_millis() as u64);
+            let decode_ms = self
+                .first_token_at
+                .zip(self.last_token_at)
+                .map(|(first, last)| last.duration_since(first).as_millis() as u64);
+            response["kataruTimings"] = json!({
+                "firstTokenMs": first_token_ms,
+                "decodeMs": decode_ms,
+                "chunks": self.chunks,
+                "contentChars": self.content.chars().count(),
+            });
+        }
+        if let Some(timings) = self.provider_timings {
+            response["timings"] = timings;
+        }
+        if let Some(stats) = self.provider_stats {
+            response["stats"] = stats;
+        }
         response
     }
 }
@@ -401,6 +454,7 @@ async fn read_structured_stream<F>(
     api_client: &AiApiClient,
     response: reqwest::Response,
     on_content: &mut F,
+    started_at: Instant,
 ) -> AppResult<Value>
 where
     F: FnMut(&str),
@@ -408,7 +462,10 @@ where
     if !response.status().is_success() {
         return Err(upstream_error(response).await);
     }
-    let mut result = StructuredStreamResult::default();
+    let mut result = StructuredStreamResult {
+        started_at: Some(started_at),
+        ..Default::default()
+    };
     let mut buffer = Vec::new();
     let mut upstream = response.bytes_stream();
     while let Some(chunk) = upstream.next().await {
@@ -439,6 +496,7 @@ pub(crate) async fn structured_completion_streaming<F>(
 where
     F: FnMut(&str),
 {
+    let started_at = Instant::now();
     let response_format = response_format_for_schema(schema);
     let first = completion_attempt(
         api_client,
@@ -451,7 +509,7 @@ where
     )
     .await?;
     if first.status().is_success() {
-        return read_structured_stream(api_client, first, &mut on_content).await;
+        return read_structured_stream(api_client, first, &mut on_content, started_at).await;
     }
     if api_client.is_anthropic() && first.status() == StatusCode::BAD_REQUEST {
         drop(first);
@@ -466,7 +524,7 @@ where
         )
         .await?;
         if fallback.status().is_success() {
-            return read_structured_stream(api_client, fallback, &mut on_content).await;
+            return read_structured_stream(api_client, fallback, &mut on_content, started_at).await;
         }
         return Err(upstream_error(fallback).await);
     }
@@ -485,7 +543,7 @@ where
     )
     .await?;
     if second.status().is_success() {
-        return read_structured_stream(api_client, second, &mut on_content).await;
+        return read_structured_stream(api_client, second, &mut on_content, started_at).await;
     }
     Err(upstream_error(second).await)
 }
@@ -515,9 +573,10 @@ pub(crate) async fn plain_text_completion_streaming<F>(
 where
     F: FnMut(&str),
 {
+    let started_at = Instant::now();
     let response =
         completion_attempt(api_client, &request, None, false, false, true, timeout_secs).await?;
-    read_structured_stream(api_client, response, &mut on_content).await
+    read_structured_stream(api_client, response, &mut on_content, started_at).await
 }
 
 fn extract_content_text(content: &Value) -> String {
@@ -624,6 +683,38 @@ mod tests {
             r#"{"message":"こんにちは"}"#
         );
         assert_eq!(response["usage"]["total_tokens"], 14);
+    }
+
+    #[test]
+    fn records_stream_timings_and_provider_timings() {
+        let mut result = StructuredStreamResult {
+            started_at: Some(Instant::now()),
+            ..Default::default()
+        };
+        let mut capture = |_: &str| {};
+
+        result
+            .apply_event(
+                r#"{"choices":[{"delta":{"content":"{\"message\":\"こん"}}]}"#,
+                false,
+                &mut capture,
+            )
+            .unwrap();
+        result
+            .apply_event(
+                r#"{"choices":[{"delta":{"content":"にちは\"}"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":4,"total_tokens":14},"timings":{"prompt_n":10,"prompt_per_second":100.0,"predicted_n":4,"predicted_per_second":50.0}}"#,
+                false,
+                &mut capture,
+            )
+            .unwrap();
+
+        let response = result.into_response();
+
+        assert_eq!(response["kataruTimings"]["chunks"], 2);
+        assert!(response["kataruTimings"]["firstTokenMs"].as_u64().is_some());
+        assert!(response["kataruTimings"]["decodeMs"].as_u64().is_some());
+        // llama.cpp の実測値はそのまま後段へ渡す。
+        assert_eq!(response["timings"]["predicted_per_second"], 50.0);
     }
 
     #[test]

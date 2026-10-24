@@ -53,6 +53,8 @@ const DEBUG_LOG_USAGE_KEYS = [
     'completionTokens',
     'totalTokens',
     'tokensPerSecond',
+    'timeToFirstTokenMs',
+    'promptTokensPerSecond',
     'cost',
 ] as const satisfies readonly (keyof DebugLogUsage)[];
 
@@ -66,6 +68,9 @@ function debugLogUsage(value: unknown): DebugLogUsage | undefined {
         if (typeof field === 'number' && Number.isFinite(field)) {
             usage[key] = field;
         }
+    }
+    if (typeof source.estimated === 'boolean') {
+        usage.estimated = source.estimated;
     }
     return Object.keys(usage).length > 0 ? usage : undefined;
 }

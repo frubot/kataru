@@ -215,8 +215,10 @@ try {
   const sentPrompt = JSON.parse(turn.fullJsonLogs[0].prompt);
   assert.equal(sentPrompt[0].role, "system");
   assert.equal(sentPrompt.at(-1).content, "Hello");
-  assert.match(sentPrompt[0].content, /JSONやコードブロックで囲まないでください/);
-  assert.doesNotMatch(sentPrompt[0].content, /JSON形式で生成してください/);
+  // プロンプトは英語に統一されたため、平文モードの見出しとJSON指示の不在で判定する。
+  assert.match(sentPrompt[0].content, /## Response format/);
+  assert.doesNotMatch(sentPrompt[0].content, /Please generate the output in JSON format/);
+  assert.doesNotMatch(sentPrompt[0].content, /## Format within the message field/);
 
   // メッセージモードは今までどおり構造化出力（messages配列）を使う。
   const messageTurn = await postJson(`${applicationUrl}/api/conversation/turn`, {

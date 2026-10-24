@@ -424,9 +424,8 @@ async fn run_turn_inner(
 
     let room_id = string(&room, "id");
     let reply_format = ReplyFormat::from_view_mode(&string(&room, "viewMode"));
-    let default_reasoning_effort = reasoning_effort_str(
-        payload.get("reasoningEffort").and_then(Value::as_str),
-    );
+    let default_reasoning_effort =
+        reasoning_effort_str(payload.get("reasoningEffort").and_then(Value::as_str));
     let preview_job_id = payload
         .get("streamingPreview")
         .and_then(Value::as_bool)
@@ -864,10 +863,9 @@ fn token_debug_usage(input: DebugUsageInput) -> Option<Value> {
         .decode_ms
         .filter(|decode_ms| *decode_ms > 0)
         .map(|decode_ms| input.completion_tokens as f64 * 1000.0 / decode_ms as f64);
-    let elapsed_tokens_per_second = (!input.estimated_completion_tokens
-        && input.elapsed_ms > 0
-        && input.completion_tokens > 0)
-        .then(|| input.completion_tokens as f64 * 1000.0 / input.elapsed_ms as f64);
+    let elapsed_tokens_per_second =
+        (!input.estimated_completion_tokens && input.elapsed_ms > 0 && input.completion_tokens > 0)
+            .then(|| input.completion_tokens as f64 * 1000.0 / input.elapsed_ms as f64);
     if let Some(tokens_per_second) = input
         .provider_tokens_per_second
         .or(decode_tokens_per_second)
@@ -886,8 +884,8 @@ fn token_debug_usage(input: DebugUsageInput) -> Option<Value> {
             .filter(|first_token_ms| *first_token_ms > 0 && input.prompt_tokens > 0)
             .map(|first_token_ms| input.prompt_tokens as f64 * 1000.0 / first_token_ms as f64)
     });
-    if let Some(prompt_tokens_per_second) = prompt_tokens_per_second
-        .filter(|value| value.is_finite() && *value > 0.0)
+    if let Some(prompt_tokens_per_second) =
+        prompt_tokens_per_second.filter(|value| value.is_finite() && *value > 0.0)
     {
         usage["promptTokensPerSecond"] = json!((prompt_tokens_per_second * 10.0).round() / 10.0);
     }
@@ -935,7 +933,11 @@ fn provider_prompt_tokens_per_second(raw: &Value) -> Option<f64> {
 fn estimate_completion_tokens(text: &str) -> u64 {
     let mut tokens = 0.0f64;
     for character in text.chars() {
-        tokens += if is_wide_character(character) { 1.0 } else { 0.25 };
+        tokens += if is_wide_character(character) {
+            1.0
+        } else {
+            0.25
+        };
     }
     tokens.round() as u64
 }
@@ -991,7 +993,9 @@ fn completion_debug_usage(raw: &Value, elapsed_ms: u64) -> Option<Value> {
         total_tokens: usage
             .and_then(|usage| usage.get("total_tokens"))
             .and_then(Value::as_u64),
-        cost: usage.and_then(|usage| usage.get("cost")).and_then(Value::as_f64),
+        cost: usage
+            .and_then(|usage| usage.get("cost"))
+            .and_then(Value::as_f64),
         elapsed_ms,
         first_token_ms: timings.first_token_ms,
         decode_ms: timings.decode_ms,
@@ -1037,9 +1041,8 @@ fn redact_base64_data_urls(text: &str) -> String {
         let comma_at = rest[head_end..segment_end]
             .find(',')
             .map(|offset| head_end + offset);
-        let base64_meta = comma_at.is_some_and(|comma_at| {
-            rest[head_end..comma_at].rsplit(';').next() == Some("base64")
-        });
+        let base64_meta = comma_at
+            .is_some_and(|comma_at| rest[head_end..comma_at].rsplit(';').next() == Some("base64"));
         if !base64_meta {
             result.push_str(&rest[..head_end]);
             rest = &rest[head_end..];
@@ -1087,10 +1090,9 @@ fn character_completion_body(
         }
     }
     // キャラクター個別の推論レベルが全体設定を上書きする。
-    if let Some(effort) = reasoning_effort_str(
-        character.get("reasoningEffort").and_then(Value::as_str),
-    )
-    .or(default_reasoning_effort)
+    if let Some(effort) =
+        reasoning_effort_str(character.get("reasoningEffort").and_then(Value::as_str))
+            .or(default_reasoning_effort)
     {
         body["reasoningEffort"] = json!(effort);
     }
@@ -2020,7 +2022,9 @@ async fn search_memories(
                 _ => 0.0,
             };
             // 埋め込みが無い、または別のモデル・接続で作られたメモリは字句類似度で判定する。
-            if !memory_is_relevant(vector, lexical.max(memory_similarity(&query, &content))) && !boolean(&memory, "pinned") {
+            if !memory_is_relevant(vector, lexical.max(memory_similarity(&query, &content)))
+                && !boolean(&memory, "pinned")
+            {
                 return None;
             }
             let importance = clamp01(
@@ -2850,7 +2854,11 @@ fn history_content(message: &Value) -> String {
                 .unwrap_or("")
                 .trim();
             if kind == "file" {
-                let label = if name.is_empty() { "ファイル" } else { &name };
+                let label = if name.is_empty() {
+                    "ファイル"
+                } else {
+                    &name
+                };
                 if data.is_empty() {
                     sections.push(format!("[添付ファイル: {label}]"));
                 } else {
@@ -3121,11 +3129,8 @@ mod tests {
         );
         assert_eq!(with_character_effort["reasoningEffort"], "high");
 
-        let with_default_effort = character_completion_body(
-            &json!({"model": "test-model"}),
-            Vec::new(),
-            Some("low"),
-        );
+        let with_default_effort =
+            character_completion_body(&json!({"model": "test-model"}), Vec::new(), Some("low"));
         assert_eq!(with_default_effort["reasoningEffort"], "low");
 
         // 無効なキャラクター値は全体設定へフォールバックする。
@@ -3136,11 +3141,8 @@ mod tests {
         );
         assert_eq!(with_invalid_effort["reasoningEffort"], "medium");
 
-        let without_effort = character_completion_body(
-            &json!({"model": "test-model"}),
-            Vec::new(),
-            None,
-        );
+        let without_effort =
+            character_completion_body(&json!({"model": "test-model"}), Vec::new(), None);
         assert!(without_effort.get("reasoningEffort").is_none());
     }
 
@@ -3728,9 +3730,9 @@ mod tests {
     fn memories_without_any_relevance_are_not_injected() {
         let query = "今日は学校で何があったの？";
         // 重要度や固定に関係なく、関連度がゼロのメモリは注入しない。
-        for content in ["{{user}}は紅茶が好き", "葵は弓道部", "宇宙船を修理した"] {
-            let lexical =
-                lexical_similarity(query, content).max(memory_similarity(query, content));
+        for content in ["{{user}}は紅茶が好き", "葵は弓道部", "宇宙船を修理した"]
+        {
+            let lexical = lexical_similarity(query, content).max(memory_similarity(query, content));
             assert!(!memory_is_relevant(0.0, lexical), "{content}");
         }
         // 埋め込みも下限未満なら採用しない。

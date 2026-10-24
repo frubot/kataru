@@ -555,8 +555,16 @@ pub(crate) async fn plain_text_completion(
     request: Value,
     timeout_secs: u64,
 ) -> AppResult<Value> {
-    let response =
-        completion_attempt(api_client, &request, None, false, false, false, timeout_secs).await?;
+    let response = completion_attempt(
+        api_client,
+        &request,
+        None,
+        false,
+        false,
+        false,
+        timeout_secs,
+    )
+    .await?;
     if !response.status().is_success() {
         return Err(upstream_error(response).await);
     }
@@ -780,11 +788,11 @@ mod tests {
             .unwrap();
 
         let response = result.into_response();
-        assert_eq!(extract_message_reasoning(&response), Some("考え中".to_owned()));
         assert_eq!(
-            extract_message_text(&response),
-            r#"{"message":"hi"}"#
+            extract_message_reasoning(&response),
+            Some("考え中".to_owned())
         );
+        assert_eq!(extract_message_text(&response), r#"{"message":"hi"}"#);
     }
 
     #[test]

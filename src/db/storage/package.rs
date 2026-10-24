@@ -1073,7 +1073,13 @@ mod tests {
             &zip_entry(&package, "character.json").expect("read character entry"),
         )
         .expect("parse shared character");
-        for key in ["id", "createdAt", "updatedAt", "favorite", "reasoningEffort"] {
+        for key in [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "favorite",
+            "reasoningEffort",
+        ] {
             assert!(shared.get(key).is_none(), "shared must not contain {key}");
         }
         assert_eq!(
@@ -1148,7 +1154,13 @@ mod tests {
         let mut actual = get_character_with_images(&target_db, &imported_id)
             .expect("read target")
             .expect("imported character");
-        for key in ["id", "createdAt", "updatedAt", "favorite", "reasoningEffort"] {
+        for key in [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "favorite",
+            "reasoningEffort",
+        ] {
             expected.as_object_mut().expect("object").remove(key);
             actual.as_object_mut().expect("object").remove(key);
         }

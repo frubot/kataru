@@ -159,10 +159,7 @@ pub(crate) fn limit_assistant_reply_characters(
 
 /// Wraps a plain-text reply. Basic mode does not use structured output, so the whole
 /// response body is the reply; a fenced block around the whole body is unwrapped.
-pub(crate) fn plain_assistant_response(
-    content: &str,
-    max_characters: usize,
-) -> AssistantEnvelope {
+pub(crate) fn plain_assistant_response(content: &str, max_characters: usize) -> AssistantEnvelope {
     let message = strip_json_code_fence(content).trim().to_owned();
     limit_assistant_reply_characters(
         AssistantEnvelope {
@@ -1038,11 +1035,8 @@ mod tests {
         assert_eq!(mid.content, "一つ目\n\n二つ");
         assert_eq!(mid.confirmed_messages, ["一つ目"]);
         // サニタイズ・結束した配列の上限も確定済みリストへ反映する。
-        let sanitized = assistant_response_preview(
-            r#"{"messages":["「一つ目」","二つ目","三"#,
-            true,
-            5,
-        );
+        let sanitized =
+            assistant_response_preview(r#"{"messages":["「一つ目」","二つ目","三"#, true, 5);
         assert_eq!(sanitized.confirmed_messages, ["一つ目", "二つ"]);
         // 完成後 (`limit_assistant_reply_characters`) と同じ結果になること。
         let finalized = limit_assistant_reply_characters(
@@ -1104,7 +1098,10 @@ mod tests {
 
     #[test]
     fn plain_reply_is_limited_by_characters() {
-        assert_eq!(plain_assistant_response("あいうえお", 3).messages, ["あいう"]);
+        assert_eq!(
+            plain_assistant_response("あいうえお", 3).messages,
+            ["あいう"]
+        );
     }
 
     #[test]

@@ -1342,7 +1342,15 @@ mod tests {
         assert_eq!(snapshot["preview"]["expression"], "happy");
         assert_eq!(snapshot["preview"]["turns"][0]["expression"], "happy");
         assert_eq!(snapshot["preview"]["turns"][0]["complete"], false);
-        jobs.update_preview(job_id, "こ", "actor-a", "A", None, Some("happy"), Some("wave"));
+        jobs.update_preview(
+            job_id,
+            "こ",
+            "actor-a",
+            "A",
+            None,
+            Some("happy"),
+            Some("wave"),
+        );
         jobs.update_preview(job_id, "こんにちは", "actor-a", "A", None, None, None);
         let mid_snapshot = jobs.get(job_id).await.unwrap();
         assert_eq!(mid_snapshot["preview"]["expression"], "happy");
@@ -1396,10 +1404,11 @@ mod tests {
         // 最初のバブルがまだ開いていても値が確定した配列 (空) を流す。
         jobs.update_preview(job_id, "こ", "actor-a", "A", Some(&[]), None, None);
         let mut snapshot = jobs.get(job_id).await.expect("first bubble streaming");
-        assert_eq!(snapshot["preview"]["turns"][0]["confirmedMessages"], json!([]));
-        assert!(snapshot["preview"]
-            .get("formattedMessages")
-            .is_none());
+        assert_eq!(
+            snapshot["preview"]["turns"][0]["confirmedMessages"],
+            json!([])
+        );
+        assert!(snapshot["preview"].get("formattedMessages").is_none());
 
         // 閉じたバブルは順番に確定済みリストへ乗り、同じターンの更新で置き換わる。
         jobs.update_preview(
@@ -1449,8 +1458,10 @@ mod tests {
             snapshot["preview"]["turns"][0]["formattedMessages"],
             json!(["一つ目", "二つ目", "三つ目"])
         );
-        assert!(snapshot["preview"]["turns"][0]
-            .get("confirmedMessages")
-            .is_none());
+        assert!(
+            snapshot["preview"]["turns"][0]
+                .get("confirmedMessages")
+                .is_none()
+        );
     }
 }

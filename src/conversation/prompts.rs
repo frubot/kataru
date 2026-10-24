@@ -665,7 +665,11 @@ pub fn message_text_with_attachments(message: &Value, include_image_placeholders
                 .unwrap_or("")
                 .trim();
             if kind == "file" {
-                let label = if name.is_empty() { "ファイル" } else { &name };
+                let label = if name.is_empty() {
+                    "ファイル"
+                } else {
+                    &name
+                };
                 // data を削られた添付は内容なしのマーカーだけ残す。
                 if data.is_empty() {
                     sections.push(format!("[添付ファイル: {label}]"));
@@ -732,7 +736,9 @@ mod tests {
         assert!(prompt.starts_with("# 指示"));
         assert!(prompt.contains("## シチュエーション\n放課後の教室"));
         assert!(prompt.contains("# あなたについて\n幼なじみ"));
-        assert!(prompt.contains("Users may include not only spoken lines but also stage directions"));
+        assert!(
+            prompt.contains("Users may include not only spoken lines but also stage directions")
+        );
         assert!(!prompt.contains("括弧などを使って"));
         assert!(prompt.ends_with("# 葵の設定\n葵として振る舞う"));
     }
@@ -808,18 +814,17 @@ mod tests {
     fn related_memories_are_omitted_when_empty() {
         let character = json!({"name": "葵"});
 
-        let prompt =
-            character_system_prompt(
-                &character,
-                ReplyFormat::Structured,
-                &[],
-                &[],
-                None,
-                &[],
-                None,
-                &[],
-                None,
-            );
+        let prompt = character_system_prompt(
+            &character,
+            ReplyFormat::Structured,
+            &[],
+            &[],
+            None,
+            &[],
+            None,
+            &[],
+            None,
+        );
 
         assert!(!prompt.contains("## 関連するメモリ"));
         assert!(!prompt.contains("はその記憶を知った時期です"));

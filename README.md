@@ -6,7 +6,7 @@
 
 Kataruは、AIキャラクターとの1対1の会話や、複数キャラクターが織りなすシチュエーションを楽しめる、ローカルファーストなロールプレイチャットアプリです。
 
-OpenRouter、OpenAI互換API、Anthropic APIに対応しています。TypeSafe AI (Jev)やVOICEVOX、Irodori TTS Serverも接続できます！
+OpenRouter、OpenAI互換API、Anthropic APIに対応しています。TypeSafe AI やVOICEVOX、Irodori TTS Serverも接続できます！
 
 ## 主な機能
 

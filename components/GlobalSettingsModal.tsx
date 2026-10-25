@@ -1570,7 +1570,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         ariaLabel: 'メモリ保存判定のシャドーモードを有効化',
                                     })}
                                     <p style={{ margin: '0.375rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                                        Jevの判定結果を記録するだけにして、メモリ保存は毎ターン従来どおり行います。判定と実際の保存結果の比較はサーバーログに出力されます。
+                                        Decisionの判定結果を記録するだけにして、メモリ保存は毎ターン従来どおり行います。判定と実際の保存結果の比較はサーバーログに出力されます。
                                     </p>
                                 </div>
                             </div>
@@ -1697,7 +1697,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', marginTop: '1rem' }}>
                                     <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
-                                        メモリ保存の必要性をJevで判定
+                                        メモリ保存の必要性をDecisionで判定
                                     </span>
                                     <button
                                         type="button"

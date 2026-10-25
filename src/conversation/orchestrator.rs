@@ -1700,7 +1700,7 @@ async fn request_director_typesafe(
             };
             if !eligible_ids.iter().any(|id| id == safe.choice.as_str()) {
                 let error = AppError::Upstream(
-                    format!("Jevが不明な発言者を返しました: {}", safe.choice),
+                    format!("Decisionモデルが不明な発言者を返しました: {}", safe.choice),
                     axum::http::StatusCode::BAD_GATEWAY,
                 );
                 if !secret_mode {
@@ -1721,7 +1721,7 @@ async fn request_director_typesafe(
         }
     } else {
         let error = AppError::Upstream(
-            format!("Jevが不明な選択肢を返しました: {next_choice}"),
+            format!("Decisionモデルが不明な選択肢を返しました: {next_choice}"),
             axum::http::StatusCode::BAD_GATEWAY,
         );
         if !secret_mode {

@@ -120,7 +120,7 @@ pub fn choice_answer(response: &SystemOneResponse, question_id: &str) -> AppResu
     answer(response, question_id).and_then(|answer| {
         serde_json::from_value::<ChoiceAnswer>(answer).map_err(|error| {
             AppError::Upstream(
-                format!("Jevのchoice応答を解析できません: {error}"),
+                format!("Decisionのchoice応答を解析できません: {error}"),
                 StatusCode::BAD_GATEWAY,
             )
         })
@@ -131,7 +131,7 @@ pub fn noul_answer(response: &SystemOneResponse, question_id: &str) -> AppResult
     answer(response, question_id).and_then(|answer| {
         serde_json::from_value::<NoulAnswer>(answer).map_err(|error| {
             AppError::Upstream(
-                format!("Jevのnoul応答を解析できません: {error}"),
+                format!("Decisionのnoul応答を解析できません: {error}"),
                 StatusCode::BAD_GATEWAY,
             )
         })
@@ -141,7 +141,7 @@ pub fn noul_answer(response: &SystemOneResponse, question_id: &str) -> AppResult
 fn answer(response: &SystemOneResponse, question_id: &str) -> AppResult<Value> {
     response.answers.get(question_id).cloned().ok_or_else(|| {
         AppError::Upstream(
-            format!("Jevの応答に質問 {question_id} の回答がありません。"),
+            format!("Decisionの応答に質問 {question_id} の回答がありません。"),
             StatusCode::BAD_GATEWAY,
         )
     })

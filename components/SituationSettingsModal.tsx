@@ -2437,7 +2437,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                                             ariaLabel="指揮エンジン"
                                             options={[
                                                 { value: 'llm', label: 'LLM' },
-                                                { value: 'typesafe', label: 'System One (Jev)' },
+                                                { value: 'typesafe', label: 'Decision' },
                                             ]}
                                         />
                                     </div>

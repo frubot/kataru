@@ -38,7 +38,7 @@ export const AI_CONNECTION_KIND_LABELS: Record<AiConnectionKind, string> = {
     openrouter: 'OpenRouter',
     'openai-compatible': 'OpenAI / 互換API',
     anthropic: 'Anthropic / 互換API',
-    typesafe: 'TypeSafe AI (Jev)',
+    typesafe: 'TypeSafe AI (Decision)',
     voicevox: 'VOICEVOX',
     irodori: 'Irodori TTS',
 };

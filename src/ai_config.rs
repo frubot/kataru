@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     env, fs,
     io::{self, Read},
-    net::IpAddr,
+    net::{IpAddr, SocketAddr, UdpSocket},
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
@@ -14,7 +14,7 @@ use std::{
 use axum::{
     Json,
     extract::{ConnectInfo, Path as AxumPath, State},
-    http::{HeaderMap, header},
+    http::{HeaderMap, header, uri::Authority},
 };
 use keyring::Entry;
 use reqwest::Url;
@@ -1539,7 +1539,7 @@ pub async fn list_connections(
     ConnectInfo(peer): ConnectInfo<std::net::SocketAddr>,
     State(state): State<AppState>,
 ) -> AppResult<Json<ConnectionsStatus>> {
-    require_loopback(peer)?;
+    require_local_machine(peer)?;
     Ok(Json(state.ai_config.status()))
 }
 
@@ -1600,8 +1600,8 @@ pub async fn delete_connection(
     Ok(Json(state.ai_config.status()))
 }
 
-fn require_loopback(peer: std::net::SocketAddr) -> AppResult<()> {
-    if peer.ip().is_loopback() {
+fn require_local_machine(peer: SocketAddr) -> AppResult<()> {
+    if is_local_machine_ip(peer.ip()) {
         Ok(())
     } else {
         Err(AppError::Forbidden(
@@ -1610,21 +1610,65 @@ fn require_loopback(peer: std::net::SocketAddr) -> AppResult<()> {
     }
 }
 
-fn require_config_write(
-    peer: std::net::SocketAddr,
-    headers: &HeaderMap,
-    state: &AppState,
-) -> AppResult<()> {
-    require_loopback(peer)?;
+/// このマシン自身のアドレスかどうか。
+///
+/// ループバック以外は「そのアドレスに bind できるか」で判定する。OSは
+/// 自分に割り当てられていないアドレスへの bind を拒否するため、成功は
+/// このマシンのアドレス、失敗は他端末を意味する（判定は拒否側に倒れる）。
+/// `--host` に LAN アドレスや 0.0.0.0 を指定して PC からそのアドレスで
+/// 開いた場合、接続元は 127.0.0.1 ではなく自分の LAN アドレスになる。
+/// これを救済しつつ、同じ LAN 上の他端末は引き続き拒否する。
+fn is_local_machine_ip(ip: IpAddr) -> bool {
+    ip.is_loopback() || UdpSocket::bind(SocketAddr::new(ip, 0)).is_ok()
+}
+
+fn require_config_write(peer: SocketAddr, headers: &HeaderMap, state: &AppState) -> AppResult<()> {
+    require_local_machine(peer)?;
     let origin = headers
         .get(header::ORIGIN)
         .and_then(|value| value.to_str().ok())
         .ok_or_else(|| AppError::Forbidden("Originヘッダーが必要です。".to_owned()))?;
-    if configuration_origin_allowed(origin, &state.configuration_origins) {
+    // `configuration_origins` は bind アドレスから作るため、`--host 0.0.0.0`
+    // で起動して 127.0.0.1 や LAN アドレスで開くと一致しない。ブラウザが
+    // 送る Origin は実際に表示している URL と同一なので、ローカルな Host に
+    // 対する同一オリジンも受け入れる。
+    if configuration_origin_allowed(origin, &state.configuration_origins)
+        || same_origin_on_local_host(origin, headers)
+    {
         Ok(())
     } else {
         Err(AppError::Forbidden("不正なOriginヘッダーです。".to_owned()))
     }
+}
+
+/// `Origin` がリクエストの `Host` と同一で、かつその Host がこのマシンの
+/// アドレス（IPリテラルか localhost）であること。
+///
+/// ホスト名は受け入れない。DNSリバインディングは攻撃者のドメイン名で
+/// 127.0.0.1 を指させる手口なので、IPリテラルに限定しておけば成立しない。
+fn same_origin_on_local_host(origin: &str, headers: &HeaderMap) -> bool {
+    let Some(host) = headers
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+    else {
+        return false;
+    };
+    let Ok(authority) = host.parse::<Authority>() else {
+        return false;
+    };
+    if !is_local_authority(&authority) {
+        return false;
+    }
+    origin.eq_ignore_ascii_case(&format!("http://{host}"))
+}
+
+fn is_local_authority(authority: &Authority) -> bool {
+    let raw = authority.host();
+    // IPv6 は実装によって角括弧が残ることがあるため、どちらでも解釈する。
+    let host = raw
+        .strip_prefix('[')
+        .map_or(raw, |rest| rest.strip_suffix(']').unwrap_or(rest));
+    host.eq_ignore_ascii_case("localhost") || host.parse::<IpAddr>().is_ok_and(is_local_machine_ip)
 }
 
 fn configuration_origin_allowed(origin: &str, allowed_origins: &[String]) -> bool {
@@ -1886,9 +1930,11 @@ mod tests {
     }
 
     #[test]
-    fn config_writes_require_loopback_and_an_allowed_origin() {
-        assert!(require_loopback("127.0.0.1:1234".parse().unwrap()).is_ok());
-        assert!(require_loopback("192.168.1.20:1234".parse().unwrap()).is_err());
+    fn config_writes_require_a_local_peer_and_an_allowed_origin() {
+        assert!(require_local_machine("127.0.0.1:1234".parse().unwrap()).is_ok());
+        assert!(require_local_machine("[::1]:1234".parse().unwrap()).is_ok());
+        // TEST-NET-3: このマシンには割り当てられていない代表的なアドレス。
+        assert!(require_local_machine("203.0.113.7:1234".parse().unwrap()).is_err());
         let allowed = [
             "http://127.0.0.1:37371".to_owned(),
             "http://127.0.0.1:3000".to_owned(),
@@ -1900,6 +1946,51 @@ mod tests {
         assert!(!configuration_origin_allowed(
             "https://attacker.example",
             &allowed
+        ));
+    }
+
+    fn headers_with_host(host: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::HOST,
+            axum::http::HeaderValue::try_from(host).unwrap(),
+        );
+        headers
+    }
+
+    #[test]
+    fn same_origin_is_accepted_only_for_a_local_host() {
+        assert!(same_origin_on_local_host(
+            "http://127.0.0.1:37371",
+            &headers_with_host("127.0.0.1:37371")
+        ));
+        assert!(same_origin_on_local_host(
+            "http://localhost:37371",
+            &headers_with_host("localhost:37371")
+        ));
+        assert!(same_origin_on_local_host(
+            "http://[::1]:37371",
+            &headers_with_host("[::1]:37371")
+        ));
+        // ポートが違う＝同一オリジンではない。
+        assert!(!same_origin_on_local_host(
+            "http://127.0.0.1:3000",
+            &headers_with_host("127.0.0.1:37371")
+        ));
+        // ホスト名は DNS リバインディングで 127.0.0.1 を指し得るので拒否。
+        assert!(!same_origin_on_local_host(
+            "http://attacker.example:37371",
+            &headers_with_host("attacker.example:37371")
+        ));
+        // このマシンに割り当てられていない IP リテラルも拒否。
+        assert!(!same_origin_on_local_host(
+            "http://203.0.113.7:37371",
+            &headers_with_host("203.0.113.7:37371")
+        ));
+        // Origin が Host と食い違う（クロスサイト）。
+        assert!(!same_origin_on_local_host(
+            "http://203.0.113.7:37371",
+            &headers_with_host("127.0.0.1:37371")
         ));
     }
 

@@ -19,13 +19,13 @@ use axum::{
 use keyring::Entry;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 use crate::{
     AppState,
     ai::api_client::normalize_provider_slugs,
     config::{default_data_dir, portable_data_dir},
     error::{AppError, AppResult},
+    hashing::sha256_hex,
 };
 
 pub const OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
@@ -468,9 +468,9 @@ struct KeyringSecretStore {
 impl KeyringSecretStore {
     fn new(data_dir: &Path) -> Self {
         let resolved = fs::canonicalize(data_dir).unwrap_or_else(|_| data_dir.to_path_buf());
-        let digest = Sha256::digest(resolved.to_string_lossy().as_bytes());
+        let digest = sha256_hex(resolved.to_string_lossy().as_bytes());
         Self {
-            namespace: format!("{:x}", digest)[..24].to_owned(),
+            namespace: digest[..24].to_owned(),
         }
     }
 
@@ -1085,7 +1085,7 @@ fn generate_connection_id(persisted: &PersistedConfig) -> String {
             std::process::id(),
             COUNTER.fetch_add(1, Ordering::Relaxed)
         );
-        let digest = format!("{:x}", Sha256::digest(seed.as_bytes()));
+        let digest = sha256_hex(seed.as_bytes());
         let id = format!("{CUSTOM_ID_PREFIX}{}", &digest[..16]);
         if !persisted.connections.iter().any(|record| record.id == id) {
             return id;
@@ -1152,13 +1152,11 @@ fn secret_store_error(error: String) -> AppError {
 }
 
 fn openai_secret_key(base_url: &str) -> String {
-    let digest = Sha256::digest(base_url.as_bytes());
-    format!("openai.api-key:{:x}", digest)[..35].to_owned()
+    format!("openai.api-key:{}", sha256_hex(base_url.as_bytes()))[..35].to_owned()
 }
 
 fn anthropic_secret_key(base_url: &str) -> String {
-    let digest = Sha256::digest(base_url.as_bytes());
-    format!("anthropic.api-key:{:x}", digest)[..38].to_owned()
+    format!("anthropic.api-key:{}", sha256_hex(base_url.as_bytes()))[..38].to_owned()
 }
 
 fn normalize_api_base_url(value: &str, api_name: &str) -> AppResult<String> {

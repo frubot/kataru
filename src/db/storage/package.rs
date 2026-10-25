@@ -14,10 +14,12 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
 use serde_json::{Map, Value, json};
-use sha2::{Digest, Sha256};
 use zip::{CompressionMethod, DateTime, ZipArchive, ZipWriter, write::SimpleFileOptions};
 
-use crate::error::{AppError, AppResult};
+use crate::{
+    error::{AppError, AppResult},
+    hashing::sha256_hex,
+};
 
 use super::{
     characters::upsert_character,
@@ -64,13 +66,6 @@ fn invalid_package() -> AppError {
 
 fn package_too_large() -> AppError {
     AppError::BadRequest("キャラクターパッケージが大きすぎます。".to_owned())
-}
-
-fn sha256_hex(data: &[u8]) -> String {
-    Sha256::digest(data)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
 }
 
 /// 共有キャラクターのうち `copySharedCharacter` が引き継ぐフィールドだけを抜き出す
@@ -641,7 +636,7 @@ fn parse_package(bytes: &[u8]) -> AppResult<ParsedPackage> {
     let mut total_size = 0_u64;
     for index in 0..archive.len() {
         let entry = archive.by_index(index).map_err(|_| invalid_package())?;
-        let name = entry.name().to_owned();
+        let name = entry.name().map_err(|_| invalid_package())?.into_owned();
         if name.ends_with('/') {
             continue;
         }
@@ -970,11 +965,8 @@ mod tests {
         let mut archive = ZipArchive::new(Cursor::new(bytes)).expect("open package");
         (0..archive.len())
             .map(|index| {
-                archive
-                    .by_index(index)
-                    .expect("read entry name")
-                    .name()
-                    .to_owned()
+                let entry = archive.by_index(index).expect("read entry name");
+                entry.name().expect("read entry name").into_owned()
             })
             .collect()
     }

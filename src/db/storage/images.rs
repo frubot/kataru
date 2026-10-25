@@ -3,17 +3,18 @@ use std::collections::HashSet;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Map, Value};
-use sha2::{Digest, Sha256};
 
-use crate::error::{AppError, AppResult};
+use crate::{
+    error::{AppError, AppResult},
+    hashing::sha256_hex,
+};
 
 use super::json::{now_millis, serialize};
 
 const IMAGE_ASSET_PREFIX: &str = "asset:";
 
 fn image_asset_id(data: &[u8]) -> String {
-    let digest = Sha256::digest(data);
-    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+    sha256_hex(data)
 }
 
 /// 画像マジックバイトからMIME typeを検出する。SVG等の判別不能なものはNone。

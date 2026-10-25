@@ -7,6 +7,7 @@ mod db;
 mod doctor;
 mod env_file;
 mod error;
+mod hashing;
 mod logging;
 mod static_assets;
 mod update;
@@ -431,9 +432,9 @@ mod tests {
     use axum::http::{StatusCode, header};
     use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
     use serde_json::json;
-    use sha2::{Digest, Sha256};
 
     use super::*;
+    use crate::hashing::sha256_hex;
 
     fn security_state(authority: Option<&str>, port: u16) -> SecurityState {
         SecurityState {
@@ -508,10 +509,7 @@ mod tests {
         });
 
         let image_data = b"\x89PNG\r\n\x1a\ncacheable-image";
-        let asset_id = Sha256::digest(image_data)
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>();
+        let asset_id = sha256_hex(image_data);
         let client = Client::new();
         let storage_response = client
             .post(format!("http://{address}/storage"))

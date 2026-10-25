@@ -14,9 +14,11 @@ use axum::http::StatusCode;
 use futures_util::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
-use crate::error::{AppError, AppResult};
+use crate::{
+    error::{AppError, AppResult},
+    hashing::sha256_hex,
+};
 
 const LATEST_RELEASE_API_URL: &str = "https://api.github.com/repos/frubot/kataru/releases/latest";
 const RELEASE_PAGE_BASE_URL: &str = "https://github.com/frubot/kataru/releases/tag/";
@@ -335,7 +337,7 @@ async fn download_update(
         ));
     }
 
-    let actual_digest = format!("{:x}", Sha256::digest(&bytes));
+    let actual_digest = sha256_hex(&bytes);
     if actual_digest != expected_sha256(asset)? {
         return Err(AppError::Internal(
             "更新ファイルのSHA-256検証に失敗しました。".to_owned(),

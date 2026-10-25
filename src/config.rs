@@ -44,7 +44,7 @@ impl Config {
         let mut host = DEFAULT_HOST.to_owned();
         let mut port = DEFAULT_PORT;
         let mut data_dir = default_data_dir()?;
-        let mut open_browser = false;
+        let mut open_browser = true;
         let mut development_origin = None;
 
         let mut args = env::args().skip(1);
@@ -77,7 +77,7 @@ impl Config {
                 "--portable" => {
                     data_dir = portable_data_dir()?;
                 }
-                "--open" => open_browser = true,
+                "--no-open" => open_browser = false,
                 "--verbose" => {}
                 "--dev-origin" => {
                     let value = args.next().ok_or_else(|| {
@@ -101,7 +101,7 @@ impl Config {
                 }
                 "--help" | "-h" => {
                     println!(
-                        "Kataru\n\n  version, --version, -V 現在のバージョンを表示\n  update                 最新版を確認して自動更新\n  config                 AI接続設定を表示・変更\n  models                 モデル一覧キャッシュを更新\n  doctor                 DB・設定・AI疎通を一括診断\n\n  --host <HOST>          待受ホスト（既定: {DEFAULT_HOST}）\n  --port <PORT>          待受ポート（既定: {DEFAULT_PORT}）\n  --data-dir <PATH>      データ保存先\n  --portable             実行ファイル横の kataru-data を使用\n  --open                 ブラウザを自動で開く\n  --dev-origin <ORIGIN>  開発UI用のloopbackオリジンを許可\n  --verbose              詳細な診断ログを出力\n\n  環境変数は .env ファイルからも読み込めます\n  （カレントディレクトリと実行ファイルの隣を順に探索。OSの環境変数が優先）"
+                        "Kataru\n\n  version, --version, -V 現在のバージョンを表示\n  update                 最新版を確認して自動更新\n  config                 AI接続設定を表示・変更\n  models                 モデル一覧キャッシュを更新\n  doctor                 DB・設定・AI疎通を一括診断\n\n  --host <HOST>          待受ホスト（既定: {DEFAULT_HOST}）\n  --port <PORT>          待受ポート（既定: {DEFAULT_PORT}）\n  --data-dir <PATH>      データ保存先\n  --portable             実行ファイル横の kataru-data を使用\n  --no-open              ブラウザを自動で開かない\n  --dev-origin <ORIGIN>  開発UI用のloopbackオリジンを許可\n  --verbose              詳細な診断ログを出力\n\n  環境変数は .env ファイルからも読み込めます\n  （カレントディレクトリと実行ファイルの隣を順に探索。OSの環境変数が優先）"
                     );
                     std::process::exit(0);
                 }

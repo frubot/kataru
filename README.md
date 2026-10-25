@@ -30,7 +30,7 @@ OpenRouter、OpenAI互換API、Anthropic APIに対応しています。TypeSafe 
 
 1. [GitHub Releases](https://github.com/frubot/kataru/releases) からお使いのOS向け（Windows / macOS / Linux）のアーカイブをダウンロードして展開します。
 2. 実行ファイル（`kataru` または `kataru.exe`）を起動します。
-3. ブラウザで <http://127.0.0.1:37371> を開きます。
+3. ブラウザが自動で開きます（開かない場合は <http://127.0.0.1:37371> を開いてください）。
 
 ### AI接続先の設定
 
@@ -88,7 +88,7 @@ models                モデル一覧キャッシュの更新
 --port <PORT>         リッスンポート（デフォルト: 37371）
 --data-dir <PATH>     データ保存先ディレクトリ
 --portable            実行ファイルと同じ階層の kataru-data/ を使用
---open                起動時にブラウザを自動で開く
+--no-open             起動時にブラウザを自動で開かない
 --dev-origin <ORIGIN> 開発用UIのloopbackオリジンを許可
 ```
 

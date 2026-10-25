@@ -167,9 +167,10 @@ async fn run() -> AppResult<()> {
         "Kataru started"
     );
     println!("Kataru: {url}");
-    if config.open_browser {
-        webbrowser::open(&url)
-            .map_err(|error| AppError::Internal(format!("ブラウザを開けませんでした: {error}")))?;
+    if config.open_browser
+        && let Err(error) = webbrowser::open(&url)
+    {
+        tracing::warn!(url = %url, %error, "failed to open browser");
     }
 
     axum::serve(

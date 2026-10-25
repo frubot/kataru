@@ -2228,6 +2228,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     isMessageMode={isMessageMode}
                     isGroupRoom={isGroupRoom}
                     character={character}
+                    groupCharacters={isGroupRoom ? groupCharacters : null}
                     activeStreamingPreview={activeStreamingPreview}
                     streamingPreviewBubbles={streamingPreviewBubbles}
                     streamingAwaiting={streamingAwaiting}

@@ -4494,6 +4494,49 @@ body {
   opacity: 0.5;
 }
 
+.empty-state-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.625rem;
+  max-width: 100%;
+}
+
+.empty-state-avatars {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.empty-state-avatar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: var(--bg-secondary);
+  border: 2px solid var(--bg-primary);
+}
+
+.empty-state-avatar + .empty-state-avatar {
+  margin-left: -0.75rem;
+}
+
+.empty-state-avatar-fallback {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  line-height: 1;
+}
+
+.empty-state-header .empty-state-title {
+  margin-bottom: 0;
+}
+
 .empty-state-title {
   margin: 0 0 0.375rem;
   font-size: 1.125rem;

@@ -8,7 +8,7 @@ import {
     useState,
 } from 'react';
 import type { ReactNode } from 'react';
-import type { Character } from '@/lib/store';
+import type { Character, SituationParticipant } from '@/lib/store';
 import type {
     ChatMessagePresentation,
     ChatStreamingAwaitingStatus,
@@ -156,6 +156,7 @@ type ChatMessagesViewProps = {
     isMessageMode: boolean;
     isGroupRoom: boolean;
     character: Character | null;
+    groupCharacters?: SituationParticipant[] | null;
     activeStreamingPreview: ChatStreamingPreview | null;
     streamingPreviewBubbles: ChatStreamingPreviewBubble[];
     streamingAwaiting: ChatStreamingAwaitingStatus | null;
@@ -203,6 +204,44 @@ function Avatar({ character, name }: { character?: Character | null; name?: stri
     );
 }
 
+function EmptyStateAvatarStack({
+    character,
+    groupCharacters,
+}: {
+    character: Character | null;
+    groupCharacters?: SituationParticipant[] | null;
+}) {
+    const cast = (groupCharacters ?? []).slice(0, 3);
+    const members: Array<Character | SituationParticipant> = cast.length > 0
+        ? cast
+        : character
+            ? [character]
+            : [];
+    if (members.length === 0) return null;
+
+    return (
+        <div className="empty-state-avatars" aria-hidden="true">
+            {members.map((member, index) => (
+                <span
+                    key={'actorId' in member ? member.actorId : member.id}
+                    className="empty-state-avatar"
+                    style={{ zIndex: members.length - index }}
+                >
+                    {member.icon ? (
+                        <StoredImage
+                            src={member.icon}
+                            alt=""
+                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                        />
+                    ) : (
+                        <span className="empty-state-avatar-fallback">{member.name.charAt(0)}</span>
+                    )}
+                </span>
+            ))}
+        </div>
+    );
+}
+
 export default function ChatMessagesView({
     priorMessages,
     messages,
@@ -210,6 +249,7 @@ export default function ChatMessagesView({
     isMessageMode,
     isGroupRoom,
     character,
+    groupCharacters,
     activeStreamingPreview,
     streamingPreviewBubbles,
     streamingAwaiting,
@@ -480,9 +520,10 @@ export default function ChatMessagesView({
                             </p>
                         </>
                     ) : (
-                        <>
+                        <div className="empty-state-header">
+                            <EmptyStateAvatarStack character={character} groupCharacters={groupCharacters} />
                             <h2 className="empty-state-title">何を話しますか？</h2>
-                        </>
+                        </div>
                     )}
                 </div>
             ) : (

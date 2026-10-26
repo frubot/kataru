@@ -37,6 +37,43 @@ pub struct Config {
     pub database_path: PathBuf,
     pub open_browser: bool,
     pub development_origin: Option<String>,
+    /// `--token` で固定したアクセストークン。未指定ならデータディレクトリの値を使う。
+    pub fixed_token: Option<String>,
+    pub auth_disabled: bool,
+}
+
+/// `--host` に指定できるのはIPアドレスか `localhost` だけ。
+///
+/// 0.0.0.0 / :: のような全アドレス待受は、意図せずLAN全体へ公開されるため拒否する。
+/// 任意のホスト名も、名前解決で全アドレスを指す抜け道になるため受け付けない。
+pub fn validate_host(host: &str) -> AppResult<()> {
+    if host.eq_ignore_ascii_case("localhost") {
+        return Ok(());
+    }
+    let address = host.parse::<IpAddr>().map_err(|_| {
+        AppError::BadRequest(format!(
+            "--host にはIPアドレスか localhost を指定してください: {host}"
+        ))
+    })?;
+    if address.to_canonical().is_unspecified() {
+        return Err(AppError::BadRequest(
+            "--host に 0.0.0.0 / :: は指定できません。LANから使う場合はこのPCのIPアドレスを指定してください。"
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+pub fn parse_port(value: &str) -> AppResult<u16> {
+    let port = value
+        .parse::<u16>()
+        .map_err(|_| AppError::BadRequest(format!("不正なポート番号です: {value}")))?;
+    if port == 0 {
+        return Err(AppError::BadRequest(
+            "ポート番号には1以上を指定してください。".to_owned(),
+        ));
+    }
+    Ok(port)
 }
 
 impl Config {
@@ -46,6 +83,8 @@ impl Config {
         let mut data_dir = default_data_dir()?;
         let mut open_browser = true;
         let mut development_origin = None;
+        let mut fixed_token = None;
+        let mut auth_disabled = false;
 
         let mut args = env::args().skip(1);
         while let Some(arg) = args.next() {
@@ -54,19 +93,13 @@ impl Config {
                     host = args.next().ok_or_else(|| {
                         AppError::BadRequest("--host には値が必要です。".to_owned())
                     })?;
+                    validate_host(&host)?;
                 }
                 "--port" => {
                     let value = args.next().ok_or_else(|| {
                         AppError::BadRequest("--port には値が必要です。".to_owned())
                     })?;
-                    port = value.parse().map_err(|_| {
-                        AppError::BadRequest(format!("不正なポート番号です: {value}"))
-                    })?;
-                    if port == 0 {
-                        return Err(AppError::BadRequest(
-                            "ポート番号には1以上を指定してください。".to_owned(),
-                        ));
-                    }
+                    port = parse_port(&value)?;
                 }
                 "--data-dir" => {
                     let value = args.next().ok_or_else(|| {
@@ -78,6 +111,14 @@ impl Config {
                     data_dir = portable_data_dir()?;
                 }
                 "--no-open" => open_browser = false,
+                "--token" => {
+                    let value = args.next().ok_or_else(|| {
+                        AppError::BadRequest("--token には値が必要です。".to_owned())
+                    })?;
+                    crate::auth::validate_token(&value)?;
+                    fixed_token = Some(value);
+                }
+                "--no-auth" => auth_disabled = true,
                 "--verbose" => {}
                 "--dev-origin" => {
                     let value = args.next().ok_or_else(|| {
@@ -110,6 +151,16 @@ impl Config {
                 }
             }
         }
+        if auth_disabled && !is_loopback_host(&host) {
+            return Err(AppError::BadRequest(
+                "--no-auth はloopbackアドレスで待ち受けるときだけ指定できます。".to_owned(),
+            ));
+        }
+        if auth_disabled && fixed_token.is_some() {
+            return Err(AppError::BadRequest(
+                "--no-auth と --token は同時に指定できません。".to_owned(),
+            ));
+        }
         std::fs::create_dir_all(&data_dir)?;
         Ok(Self {
             host,
@@ -118,6 +169,8 @@ impl Config {
             database_path: data_dir.join("kataru.db"),
             open_browser,
             development_origin,
+            fixed_token,
+            auth_disabled,
         })
     }
 
@@ -133,14 +186,23 @@ impl Config {
         }
     }
 
-    pub fn is_wildcard_host(&self) -> bool {
-        self.host
-            .parse::<IpAddr>()
-            .is_ok_and(|address| address.is_unspecified())
-    }
-
     pub fn origin(&self) -> String {
-        format!("http://{}", self.authority())
+        origin_for(&self.host, self.port)
+    }
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<IpAddr>()
+            .is_ok_and(|address| address.to_canonical().is_loopback())
+}
+
+pub fn origin_for(host: &str, port: u16) -> String {
+    if host.parse::<Ipv6Addr>().is_ok() {
+        format!("http://[{host}]:{port}")
+    } else {
+        format!("http://{host}:{port}")
     }
 }
 
@@ -156,6 +218,8 @@ mod tests {
             database_path: PathBuf::from("kataru.db"),
             open_browser: false,
             development_origin: None,
+            fixed_token: None,
+            auth_disabled: false,
         }
     }
 
@@ -163,5 +227,25 @@ mod tests {
     fn hostnames_and_ipv6_have_valid_authorities() {
         assert_eq!(config("localhost").authority(), "localhost:37371");
         assert_eq!(config("::1").authority(), "[::1]:37371");
+    }
+
+    #[test]
+    fn wildcard_and_hostname_hosts_are_rejected() {
+        assert!(validate_host("0.0.0.0").is_err());
+        assert!(validate_host("::").is_err());
+        assert!(validate_host("::ffff:0.0.0.0").is_err());
+        assert!(validate_host("example.com").is_err());
+        assert!(validate_host("127.0.0.1").is_ok());
+        assert!(validate_host("192.168.1.20").is_ok());
+        assert!(validate_host("::1").is_ok());
+        assert!(validate_host("LocalHost").is_ok());
+    }
+
+    #[test]
+    fn only_loopback_hosts_count_as_loopback() {
+        assert!(is_loopback_host("127.0.0.1"));
+        assert!(is_loopback_host("::1"));
+        assert!(is_loopback_host("localhost"));
+        assert!(!is_loopback_host("192.168.1.20"));
     }
 }

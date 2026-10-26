@@ -14,7 +14,7 @@ use std::{
 use axum::{
     Json,
     extract::{ConnectInfo, Path as AxumPath, State},
-    http::{HeaderMap, header, uri::Authority},
+    http::{HeaderMap, header},
 };
 use keyring::Entry;
 use reqwest::Url;
@@ -1615,8 +1615,8 @@ fn require_local_machine(peer: SocketAddr) -> AppResult<()> {
 /// ループバック以外は「そのアドレスに bind できるか」で判定する。OSは
 /// 自分に割り当てられていないアドレスへの bind を拒否するため、成功は
 /// このマシンのアドレス、失敗は他端末を意味する（判定は拒否側に倒れる）。
-/// `--host` に LAN アドレスや 0.0.0.0 を指定して PC からそのアドレスで
-/// 開いた場合、接続元は 127.0.0.1 ではなく自分の LAN アドレスになる。
+/// `--host` に LAN アドレスを指定して PC からそのアドレスで開いた場合、
+/// 接続元は 127.0.0.1 ではなく自分の LAN アドレスになる。
 /// これを救済しつつ、同じ LAN 上の他端末は引き続き拒否する。
 fn is_local_machine_ip(ip: IpAddr) -> bool {
     ip.is_loopback() || UdpSocket::bind(SocketAddr::new(ip, 0)).is_ok()
@@ -1628,47 +1628,13 @@ fn require_config_write(peer: SocketAddr, headers: &HeaderMap, state: &AppState)
         .get(header::ORIGIN)
         .and_then(|value| value.to_str().ok())
         .ok_or_else(|| AppError::Forbidden("Originヘッダーが必要です。".to_owned()))?;
-    // `configuration_origins` は bind アドレスから作るため、`--host 0.0.0.0`
-    // で起動して 127.0.0.1 や LAN アドレスで開くと一致しない。ブラウザが
-    // 送る Origin は実際に表示している URL と同一なので、ローカルな Host に
-    // 対する同一オリジンも受け入れる。
-    if configuration_origin_allowed(origin, &state.configuration_origins)
-        || same_origin_on_local_host(origin, headers)
-    {
+    // 0.0.0.0 での待受は禁止しているため、Host は常に bind アドレスと一致し、
+    // 正しい Origin は必ず `configuration_origins` に含まれる。
+    if configuration_origin_allowed(origin, &state.configuration_origins) {
         Ok(())
     } else {
         Err(AppError::Forbidden("不正なOriginヘッダーです。".to_owned()))
     }
-}
-
-/// `Origin` がリクエストの `Host` と同一で、かつその Host がこのマシンの
-/// アドレス（IPリテラルか localhost）であること。
-///
-/// ホスト名は受け入れない。DNSリバインディングは攻撃者のドメイン名で
-/// 127.0.0.1 を指させる手口なので、IPリテラルに限定しておけば成立しない。
-fn same_origin_on_local_host(origin: &str, headers: &HeaderMap) -> bool {
-    let Some(host) = headers
-        .get(header::HOST)
-        .and_then(|value| value.to_str().ok())
-    else {
-        return false;
-    };
-    let Ok(authority) = host.parse::<Authority>() else {
-        return false;
-    };
-    if !is_local_authority(&authority) {
-        return false;
-    }
-    origin.eq_ignore_ascii_case(&format!("http://{host}"))
-}
-
-fn is_local_authority(authority: &Authority) -> bool {
-    let raw = authority.host();
-    // IPv6 は実装によって角括弧が残ることがあるため、どちらでも解釈する。
-    let host = raw
-        .strip_prefix('[')
-        .map_or(raw, |rest| rest.strip_suffix(']').unwrap_or(rest));
-    host.eq_ignore_ascii_case("localhost") || host.parse::<IpAddr>().is_ok_and(is_local_machine_ip)
 }
 
 fn configuration_origin_allowed(origin: &str, allowed_origins: &[String]) -> bool {
@@ -1946,51 +1912,6 @@ mod tests {
         assert!(!configuration_origin_allowed(
             "https://attacker.example",
             &allowed
-        ));
-    }
-
-    fn headers_with_host(host: &str) -> HeaderMap {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            header::HOST,
-            axum::http::HeaderValue::try_from(host).unwrap(),
-        );
-        headers
-    }
-
-    #[test]
-    fn same_origin_is_accepted_only_for_a_local_host() {
-        assert!(same_origin_on_local_host(
-            "http://127.0.0.1:37371",
-            &headers_with_host("127.0.0.1:37371")
-        ));
-        assert!(same_origin_on_local_host(
-            "http://localhost:37371",
-            &headers_with_host("localhost:37371")
-        ));
-        assert!(same_origin_on_local_host(
-            "http://[::1]:37371",
-            &headers_with_host("[::1]:37371")
-        ));
-        // ポートが違う＝同一オリジンではない。
-        assert!(!same_origin_on_local_host(
-            "http://127.0.0.1:3000",
-            &headers_with_host("127.0.0.1:37371")
-        ));
-        // ホスト名は DNS リバインディングで 127.0.0.1 を指し得るので拒否。
-        assert!(!same_origin_on_local_host(
-            "http://attacker.example:37371",
-            &headers_with_host("attacker.example:37371")
-        ));
-        // このマシンに割り当てられていない IP リテラルも拒否。
-        assert!(!same_origin_on_local_host(
-            "http://203.0.113.7:37371",
-            &headers_with_host("203.0.113.7:37371")
-        ));
-        // Origin が Host と食い違う（クロスサイト）。
-        assert!(!same_origin_on_local_host(
-            "http://203.0.113.7:37371",
-            &headers_with_host("127.0.0.1:37371")
         ));
     }
 

@@ -1,5 +1,6 @@
 mod ai;
 mod ai_config;
+mod auth;
 mod character_package;
 mod config;
 mod conversation;
@@ -23,7 +24,7 @@ use axum::{
     Json, Router,
     body::Body,
     extract::{DefaultBodyLimit, Path, Request, State},
-    http::{HeaderValue, Method, StatusCode, header, uri::Authority},
+    http::{HeaderValue, Method, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -75,9 +76,10 @@ pub struct AppState {
 
 #[derive(Clone)]
 struct SecurityState {
-    authority: Option<Arc<str>>,
-    port: u16,
+    authority: Arc<str>,
     allowed_origins: Arc<[String]>,
+    auth: auth::Auth,
+    development_origin: Option<Arc<str>>,
 }
 
 #[tokio::main]
@@ -101,6 +103,9 @@ async fn run() -> AppResult<()> {
         return Ok(());
     }
     if ai_config::run_cli_command_if_requested()? {
+        return Ok(());
+    }
+    if auth::run_cli_command_if_requested()? {
         return Ok(());
     }
     if ai::run_models_cli_command_if_requested().await? {
@@ -138,10 +143,24 @@ async fn run() -> AppResult<()> {
         pending_update_marker: Arc::new(Mutex::new(None)),
     };
 
+    let auth = if config.auth_disabled {
+        auth::Auth::disabled()
+    } else {
+        let token = match &config.fixed_token {
+            Some(token) => token.clone(),
+            None => auth::load_or_create_token(&config.data_dir)?,
+        };
+        auth::Auth::new(token, config.port)
+    };
+    let launch_url = auth.token().map_or_else(
+        || config.origin(),
+        |token| auth::launch_url(&config.origin(), token),
+    );
     let security = SecurityState {
-        authority: (!config.is_wildcard_host()).then(|| Arc::from(config.authority())),
-        port: config.port,
+        authority: Arc::from(config.authority()),
         allowed_origins,
+        auth,
+        development_origin: config.development_origin.as_deref().map(Arc::from),
     };
 
     let api = api_router();
@@ -161,14 +180,16 @@ async fn run() -> AppResult<()> {
 
     let listener = TcpListener::bind(config.bind_address()).await?;
     let url = config.origin();
+    // ログファイルに残らないよう、トークン付きURLはtracingに渡さない。
     tracing::info!(
         url = %url,
+        auth = !config.auth_disabled,
         database = %state.database.path().display(),
         "Kataru started"
     );
-    println!("Kataru: {url}");
+    println!("Kataru: {launch_url}");
     if config.open_browser
-        && let Err(error) = webbrowser::open(&url)
+        && let Err(error) = webbrowser::open(&launch_url)
     {
         tracing::warn!(url = %url, %error, "failed to open browser");
     }
@@ -343,23 +364,14 @@ async fn install_update(State(state): State<AppState>) -> AppResult<Json<update:
 }
 
 fn host_matches(security: &SecurityState, value: &str) -> bool {
-    security.authority.as_ref().map_or_else(
-        || {
-            value
-                .parse::<Authority>()
-                .is_ok_and(|authority| authority.port_u16() == Some(security.port))
-        },
-        |expected| value.eq_ignore_ascii_case(expected),
-    )
+    value.eq_ignore_ascii_case(&security.authority)
 }
 
-fn origin_matches(security: &SecurityState, request_authority: &str, origin: &str) -> bool {
+fn origin_matches(security: &SecurityState, origin: &str) -> bool {
     security
         .allowed_origins
         .iter()
         .any(|allowed| origin.eq_ignore_ascii_case(allowed))
-        || (security.authority.is_none()
-            && origin.eq_ignore_ascii_case(&format!("http://{request_authority}")))
 }
 
 async fn security_guard(
@@ -367,16 +379,24 @@ async fn security_guard(
     request: Request<Body>,
     next: Next,
 ) -> Response {
-    let request_authority = request
+    let host_is_valid = request
         .headers()
         .get(header::HOST)
-        .and_then(|value| value.to_str().ok());
-    if !request_authority.is_some_and(|value| host_matches(&security, value)) {
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| host_matches(&security, value));
+    if !host_is_valid {
         return (
             StatusCode::MISDIRECTED_REQUEST,
             Json(json!({ "error": "不正なHostヘッダーです。" })),
         )
             .into_response();
+    }
+
+    if let Some(response) = security
+        .auth
+        .check(&request, security.development_origin.as_deref())
+    {
+        return response;
     }
 
     let unsafe_method = !matches!(
@@ -388,7 +408,7 @@ async fn security_guard(
             .headers()
             .get(header::ORIGIN)
             .and_then(|value| value.to_str().ok())
-        && !request_authority.is_some_and(|authority| origin_matches(&security, authority, origin))
+        && !origin_matches(&security, origin)
     {
         return (
             StatusCode::FORBIDDEN,
@@ -437,39 +457,31 @@ mod tests {
     use super::*;
     use crate::hashing::sha256_hex;
 
-    fn security_state(authority: Option<&str>, port: u16) -> SecurityState {
+    fn security_state(authority: &str) -> SecurityState {
         SecurityState {
-            authority: authority.map(Arc::from),
-            port,
-            allowed_origins: Arc::from(Vec::<String>::new()),
+            authority: Arc::from(authority),
+            allowed_origins: Arc::from(vec![format!("http://{authority}")]),
+            auth: auth::Auth::disabled(),
+            development_origin: None,
         }
     }
 
     #[test]
-    fn wildcard_host_accepts_any_authority_on_the_listening_port() {
-        let security = security_state(None, 37371);
+    fn host_must_match_the_listening_authority_exactly() {
+        let security = security_state("192.168.1.20:37371");
 
-        assert!(host_matches(&security, "localhost:37371"));
         assert!(host_matches(&security, "192.168.1.20:37371"));
-        assert!(host_matches(&security, "[::1]:37371"));
-        assert!(!host_matches(&security, "localhost:3000"));
-        assert!(!host_matches(&security, "invalid host:37371"));
+        assert!(!host_matches(&security, "localhost:37371"));
+        assert!(!host_matches(&security, "127.0.0.1:37371"));
+        assert!(!host_matches(&security, "192.168.1.20:3000"));
     }
 
     #[test]
-    fn wildcard_host_accepts_only_the_request_origin() {
-        let security = security_state(None, 37371);
+    fn origin_must_be_in_the_allowed_list() {
+        let security = security_state("192.168.1.20:37371");
 
-        assert!(origin_matches(
-            &security,
-            "192.168.1.20:37371",
-            "http://192.168.1.20:37371"
-        ));
-        assert!(!origin_matches(
-            &security,
-            "192.168.1.20:37371",
-            "http://example.com:37371"
-        ));
+        assert!(origin_matches(&security, "http://192.168.1.20:37371"));
+        assert!(!origin_matches(&security, "http://example.com:37371"));
     }
 
     #[test]

@@ -30,6 +30,9 @@ async function reservePort() {
   return port;
 }
 
+const accessToken = "smoke-token-0123456789abcdef0123456789abcdef";
+const authorization = { Authorization: `Bearer ${accessToken}` };
+
 async function waitForHealth(url, child) {
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
@@ -37,7 +40,7 @@ async function waitForHealth(url, child) {
       throw new Error(`Kataru が終了しました: ${child.exitCode}`);
     }
     try {
-      const response = await fetch(`${url}/api/health`);
+      const response = await fetch(`${url}/api/health`, { headers: authorization });
       if (response.ok) return response.json();
     } catch {
       // 起動完了まで再試行します。
@@ -51,6 +54,7 @@ async function postJson(url, value, origin) {
   const response = await fetch(url, {
     method: "POST",
     headers: {
+      ...authorization,
       "Content-Type": "application/json",
       Origin: origin,
     },
@@ -103,6 +107,9 @@ const child = spawn(
     dataDirectory,
     "--dev-origin",
     "http://127.0.0.1:3000",
+    "--token",
+    accessToken,
+    "--no-open",
   ],
   {
     windowsHide: true,
@@ -124,13 +131,29 @@ try {
   const health = await waitForHealth(applicationUrl, child);
   assert.equal(health.status, "ok");
 
-  const page = await fetch(applicationUrl);
+  assert.ok(output.includes(`Kataru: ${applicationUrl}/?token=${accessToken}`), output);
+
+  const unauthenticatedApi = await fetch(`${applicationUrl}/api/health`);
+  assert.equal(unauthenticatedApi.status, 401);
+  const unauthenticatedPage = await fetch(applicationUrl);
+  assert.equal(unauthenticatedPage.status, 401);
+  const wrongToken = await fetch(`${applicationUrl}/?token=wrong`, { redirect: "manual" });
+  assert.equal(wrongToken.status, 401);
+
+  const exchange = await fetch(`${applicationUrl}/?token=${accessToken}`, { redirect: "manual" });
+  assert.equal(exchange.status, 303);
+  const sessionCookie = exchange.headers.get("set-cookie")?.split(";")[0];
+  assert.ok(sessionCookie?.startsWith(`kataru_session_${applicationPort}=`));
+  assert.ok(!sessionCookie.includes(accessToken));
+
+  const page = await fetch(applicationUrl, { headers: { Cookie: sessionCookie } });
   assert.equal(page.status, 200);
   assert.match(await page.text(), /Kataru/);
 
   const rejectedOrigin = await fetch(`${applicationUrl}/api/storage`, {
     method: "POST",
     headers: {
+      ...authorization,
       "Content-Type": "application/json",
       Origin: "http://127.0.0.1:1",
     },

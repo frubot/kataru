@@ -21,7 +21,7 @@ const group = (icon: string): Situation => ({
         systemPrompt: '',
         icon,
     }],
-    director: { enabled: true, model: { connectionId: 'openrouter', model: 'model' }, maxAutoTurns: 3, stopPolicy: 'max-turns' },
+    maxTurns: 3,
     memoryMode: 'off',
     createdAt: 1,
     updatedAt: 1,

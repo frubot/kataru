@@ -1,11 +1,6 @@
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 
 pub const SUMMARY_RECENT_USER_TURNS_TO_KEEP: usize = 3;
-pub const DIRECTOR_TRANSCRIPT_USER_HISTORY: usize = 2;
-
-pub const JEV_PROTAGONIST_OPTION: &str = "protagonist";
-pub const JEV_CONVERSATION_COMPLETE_OPTION: &str = "conversation-complete";
-pub const JEV_END_OPTION: &str = "end";
 
 /// キャラクター返答の出力形式。ベーシックだけが構造化出力を使わない。
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -151,8 +146,6 @@ pub fn character_system_prompt(
     motion_names: &[String],
     summary: Option<&str>,
     relevant_memories: &[InjectedMemory],
-    situation: Option<&Value>,
-    participants: &[Value],
     active_costume: Option<&Value>,
 ) -> String {
     let character_name = string(character, "name");
@@ -184,55 +177,19 @@ pub fn character_system_prompt(
         ));
     }
 
-    if let Some(situation) = situation {
-        if participants.len() > 1 {
-            let names = participants
-                .iter()
-                .filter_map(|actor| actor.get("name").and_then(Value::as_str))
-                .collect::<Vec<_>>()
-                .join(", ");
-            prompt.push_str(&format!(
-                "\n\nYou shall speak only as \"{}\" and must not portray any other characters. Characters other than you: {{{{user}}}}, {names}",
-                character_name
-            ));
-        }
-        let situation_prompt = string(situation, "situationPrompt");
-        if !situation_prompt.is_empty() {
-            prompt.push_str(&format!("\n\n## Situation\n{situation_prompt}"));
-        }
-        // 参加キャラクター全員に共通で適用するルール。指揮役の判断材料にはしない。
-        let common_rules = string(situation, "characterCommonRules");
-        if !common_rules.is_empty() {
-            prompt.push_str(&format!(
-                "\n\n## General Rules for Characters\nThe following rules apply to all participating characters. Please ensure you follow them.\n\n{common_rules}"
-            ));
-        }
-        let role_prompt = string(character, "rolePrompt");
-        if !role_prompt.is_empty() {
-            prompt.push_str(&format!("\n\n# About You\n{role_prompt}"));
-        }
-    }
     if let Some(summary) = summary.filter(|value| !value.trim().is_empty()) {
-        prompt.push_str(&format!("\n\n# Summary of the conversation so far\n{}", summary.trim()));
+        prompt.push_str(&format!(
+            "\n\n# Summary of the conversation so far\n{}",
+            summary.trim()
+        ));
     }
     if !relevant_memories.is_empty() {
         prompt.push_str("\n\n## List of Related Memories\n");
-        prompt.push_str(
-            "The [Date/Elapsed Time] entry in each row indicates the date on which the event was recorded.\n",
-        );
-        for (index, memory) in relevant_memories.iter().enumerate() {
-            let number = index + 1;
-            match memory.date_label.as_deref() {
-                Some(label) if !label.is_empty() => {
-                    prompt.push_str(&format!("{number}. [{label}] {}\n", memory.content));
-                }
-                _ => prompt.push_str(&format!("{number}. {}\n", memory.content)),
-            }
-        }
+        push_memory_lines(&mut prompt, relevant_memories);
     }
     let setting = character_setting(character);
     if !setting.is_empty() {
-        prompt.push_str(&format!("\n\n# {}'s Profile'\n{setting}", character_name));
+        prompt.push_str(&format!("\n\n# {character_name}'s Profile\n{setting}"));
     }
     if let Some(costume) = active_costume {
         let description = string(costume, "description");
@@ -244,6 +201,272 @@ pub fn character_system_prompt(
         }
     }
     prompt
+}
+
+fn push_memory_lines(prompt: &mut String, memories: &[InjectedMemory]) {
+    prompt.push_str(
+        "The [Date/Elapsed Time] entry in each row indicates the date on which the event was recorded.\n",
+    );
+    for (index, memory) in memories.iter().enumerate() {
+        let number = index + 1;
+        match memory.date_label.as_deref() {
+            Some(label) if !label.is_empty() => {
+                prompt.push_str(&format!("{number}. [{label}] {}\n", memory.content));
+            }
+            _ => prompt.push_str(&format!("{number}. {}\n", memory.content)),
+        }
+    }
+}
+
+/// シチュエーションの一括生成で、1人の登場キャラクターについてプロンプトへ渡す情報。
+pub(crate) struct EnsembleCast<'a> {
+    pub actor: &'a Value,
+    pub expression_names: Vec<String>,
+    pub motion_names: Vec<String>,
+    pub memories: Vec<InjectedMemory>,
+    pub costume: Option<&'a Value>,
+}
+
+const ENSEMBLE_ROLEPLAY_JSON_EXAMPLE: &str = r#"{"turns": [{"speaker": "taro", "message": "*夕焼けの光が差し込む教室で、太郎は身を乗り出す* そうなんだよ！昨日の夜、裏庭にUFOみたいな光が止まってたんだ！*花子を見つめて、なにかひらめいたように*そうだ花子…今晩、俺の裏庭に来ないか！？今日ならまた現れるかも。"}, {"speaker": "hanako", "message": "*花子は呆れたように肩をすくめる* また始まった…。それ、どうせ街灯でしょ？絶対、絶対行かないから。*心底呆れたように太郎を見ながら、髪をいじる*"}]}"#;
+
+const ENSEMBLE_MESSAGE_JSON_EXAMPLE: &str = r#"{"turns": [{"speaker": "taro", "messages": ["確かに。", "じゃあ10時にハチ公前集合ね👍"]}, {"speaker": "hanako", "messages": ["了解！楽しみ笑"]}]}"#;
+
+/// シチュエーション会話を1回の呼び出しでまとめて書かせるためのシステムプロンプト。
+pub(crate) fn ensemble_system_prompt(
+    situation: &Value,
+    cast: &[EnsembleCast<'_>],
+    format: ReplyFormat,
+    max_turns: usize,
+    first_speaker: Option<&Value>,
+    summary: Option<&str>,
+) -> String {
+    let max_turns = max_turns.max(1);
+    let mut prompt = String::from(
+        r##"# Instructions
+You are the narrator of a roleplay and play every character listed under "# Characters".
+{{user}} is played by the user. Never write {{user}}'s lines, actions, or thoughts.
+Please generate the output in JSON format. Strictly adhere to the structure and order of the provided JSON.
+
+## How the scene flows
+- Write the characters' turns in speaking order in the `turns` array. Each turn has exactly one `speaker` (the character's id) and that character's reply.
+- Start with the character who would most naturally react to {{user}}'s latest line or action.
+"##,
+    );
+    prompt.push_str(&format!("- Write at most {max_turns} turn(s).\n"));
+    if let Some(actor) = first_speaker {
+        prompt.push_str(&format!(
+            "- {{{{user}}}} is addressing {} (id: {}). The first turn must be {}'s.\n",
+            string(actor, "name"),
+            actor_id(actor),
+            string(actor, "name"),
+        ));
+    }
+    prompt.push_str(
+        r#"- Each character knows only what is written in their own section below and what they have seen or heard in this conversation.
+- Keep every character's voice distinct. Follow each character's profile and tone example, and do not let their speech styles blend together.
+"#,
+    );
+    if format.is_message() {
+        prompt.push_str(&format!(
+            r#"
+## Reply format
+The characters are chatting with {{{{user}}}} on **social media**, so every reply is text messages.
+Put each turn's messages in its `messages` array.
+If a character wants to send a photo, they can write `[Image: <description of the image>]`. This is optional.
+The `[photo description]` provided by {{{{user}}}} is a brief explanation of the photo that {{{{user}}}} has attached.
+
+### Output example
+`{ENSEMBLE_MESSAGE_JSON_EXAMPLE}`
+"#
+        ));
+    } else {
+        prompt.push_str(&format!(
+            r#"
+## Reply format
+The output should include character dialogue and stage directions (e.g., `*narration*`).
+  - Use stage directions (narration) to describe emotions, movements, actions, situations, and the like. The writing style is independent of the character's specific profile.
+  - Always format stage directions as `*descriptive text*`.
+  - Refer to each character by name, and use `{{{{user}}}}` to refer to the user. If a full name is provided, use only the first name.
+  - You do not need to include every detail from the character profile; feel free to naturally fill in any missing information based on the context.
+
+### Output example
+`{ENSEMBLE_ROLEPLAY_JSON_EXAMPLE}`
+
+## Regarding user input format
+Users may include not only spoken lines but also stage directions—such as `*starts walking*`—to describe {{{{user}}}}'s own actions or other such details.
+"#
+        ));
+    }
+    if format.is_structured() {
+        prompt.push_str(
+            "\nFor `expression`, choose one of the expressions listed in the speaker's own section. For `motion`, choose one of the speaker's motions only when you want to add a body movement, otherwise use none.\n",
+        );
+    }
+
+    let situation_prompt = string(situation, "situationPrompt");
+    if !situation_prompt.is_empty() {
+        prompt.push_str(&format!("\n## Situation\n{situation_prompt}\n"));
+    }
+    let common_rules = string(situation, "characterCommonRules");
+    if !common_rules.is_empty() {
+        prompt.push_str(&format!(
+            "\n## General Rules for Characters\nThe following rules apply to all characters. Please ensure you follow them.\n\n{common_rules}\n"
+        ));
+    }
+    if let Some(summary) = summary.filter(|value| !value.trim().is_empty()) {
+        prompt.push_str(&format!(
+            "\n# Summary of the conversation so far\n{}\n",
+            summary.trim()
+        ));
+    }
+
+    prompt.push_str("\n# Characters");
+    for member in cast {
+        let actor = member.actor;
+        let name = string(actor, "name");
+        prompt.push_str(&format!("\n\n## {name} (id: {})", actor_id(actor)));
+        let role_prompt = string(actor, "rolePrompt");
+        if !role_prompt.is_empty() {
+            prompt.push_str(&format!("\n### Role in this situation\n{role_prompt}"));
+        }
+        let setting = character_setting(actor);
+        if !setting.is_empty() {
+            // character_setting の見出しは1段深くして、キャラクターの節に収める。
+            let nested = setting.replace("\n# ", "\n#### ");
+            let nested = nested
+                .strip_prefix("# ")
+                .map(|rest| format!("#### {rest}"))
+                .unwrap_or(nested);
+            prompt.push_str(&format!("\n### Profile\n{nested}"));
+        }
+        if let Some(costume) = member.costume {
+            let description = string(costume, "description");
+            if !description.is_empty() {
+                prompt.push_str(&format!(
+                    "\n### Current outfit\n{name}'s current appearance: 「{}」\n{description}",
+                    string(costume, "name"),
+                ));
+            }
+        }
+        if !member.expression_names.is_empty() {
+            prompt.push_str(&format!(
+                "\n### Expressions\n{}",
+                member.expression_names.join(", ")
+            ));
+        }
+        if !member.motion_names.is_empty() {
+            prompt.push_str(&format!(
+                "\n### Motions\n{}",
+                member.motion_names.join(", ")
+            ));
+        }
+        if !member.memories.is_empty() {
+            prompt.push_str(&format!("\n### {name}'s related memories\n"));
+            push_memory_lines(&mut prompt, &member.memories);
+        }
+    }
+    prompt
+}
+
+/// 一括生成の出力スキーマ。キャラクターごとに異なる制約（表情の候補・文字数上限）は
+/// strictなスキーマでは要素ごとに変えられないため、和集合・最大値で緩めておき、
+/// 受け取った後にキャラクター単位で検証する。
+pub(crate) fn ensemble_schema(
+    speaker_ids: &[String],
+    expression_names: &[String],
+    motion_names: &[String],
+    format: ReplyFormat,
+    max_characters: usize,
+    max_turns: usize,
+) -> Value {
+    let max_characters = max_characters.max(1);
+    let mut properties = serde_json::Map::new();
+    let mut required = vec!["speaker"];
+    properties.insert(
+        "speaker".into(),
+        json!({
+            "type": "string",
+            "description": "発言するキャラクターのid",
+            "enum": speaker_ids,
+        }),
+    );
+    if format.is_structured() && !expression_names.is_empty() {
+        properties.insert(
+            "expression".into(),
+            json!({
+                "type": "string",
+                "description": "発言者の表情",
+                "enum": expression_names,
+            }),
+        );
+        required.push("expression");
+    }
+    if format.is_structured() && !motion_names.is_empty() {
+        let mut motion_enum = Vec::with_capacity(motion_names.len() + 1);
+        motion_enum.push("none".to_owned());
+        motion_enum.extend(motion_names.iter().cloned());
+        properties.insert(
+            "motion".into(),
+            json!({
+                "type": "string",
+                "description": "発言者の体の動き(ワンショットモーション)",
+                "enum": motion_enum,
+            }),
+        );
+        required.push("motion");
+    }
+    if format.is_message() {
+        properties.insert(
+            "messages".into(),
+            json!({
+                "type": "array",
+                "description": "発言者の返信。",
+                "minItems": 1,
+                "maxItems": 4,
+                "items": {
+                    "type": "string",
+                    "maxLength": max_characters,
+                },
+            }),
+        );
+        required.push("messages");
+    } else {
+        properties.insert(
+            "message".into(),
+            json!({
+                "type": "string",
+                "description": "発言者の返答とナレーション",
+                "minLength": 1,
+                "maxLength": max_characters,
+            }),
+        );
+        required.push("message");
+    }
+    json!({
+        "type": "json_schema",
+        "json_schema": {
+            "name": "roleplay_ensemble",
+            "strict": true,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "turns": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": max_turns.max(1),
+                        "items": {
+                            "type": "object",
+                            "properties": properties,
+                            "required": required,
+                            "additionalProperties": false,
+                        },
+                    },
+                },
+                "required": ["turns"],
+                "additionalProperties": false,
+            },
+        },
+    })
 }
 
 pub fn assistant_schema(
@@ -372,260 +595,6 @@ pub fn summary_schema() -> Value {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn director_prompts(
-    situation: &Value,
-    actors: &[Value],
-    transcript: &str,
-    turn_index: usize,
-    max_turns: usize,
-    banned_actor_id: Option<&str>,
-    continuation_generation: bool,
-) -> (String, String) {
-    let banned = banned_actor_id
-        .map(|id| format!("\n直前の発言者 actorId={id} は candidates に含めないでください。"))
-        .unwrap_or_default();
-    let custom = situation
-        .pointer("/director/systemPrompt")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .trim();
-    let require_actor = continuation_generation && turn_index == 0;
-    let candidate_rule = if require_actor {
-        "場面の継続が要求されているため、candidates は必ず1件以上にしてください。"
-    } else {
-        "{{user}}が発言すべき場合や自動会話を終える場合は空配列にしてください。"
-    };
-    let system = format!(
-        r#"あなたはロールプレイで次に発言するキャラクターを選ぶ指揮者です。
-有効なJSONのみを出力し、スキーマに従ってください。
-candidates は自然さ順の候補です。{candidate_rule}{banned}
-
-{custom}"#
-    );
-    let actor_lines = actors
-        .iter()
-        .map(|actor| {
-            format!(
-                "- id={} / name={} / note={}",
-                actor_id(actor),
-                string(actor, "name"),
-                truncate(&actor_note(actor), 320)
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    let first_policy = if require_actor {
-        "{{user}}からの新しい発言や行動はありません。会話履歴の末尾から自然に場面を進める一人を必ず候補の先頭にしてください。"
-    } else if turn_index == 0 {
-        "{{user}}の最新発言に反応するのに最適な一人を必ず候補の先頭にしてください。"
-    } else {
-        "次の発言が自然なキャラクターを選ぶか、{{user}}に発言させるなら空配列にしてください。"
-    };
-    let user = format!(
-        "シチュエーション名: {}\n\n## シチュエーション\n{}\n\n## 役者\n{actor_lines}\n\n## 選び方\n{first_policy}\n\n## 会話履歴\n{}\n\n自動発言ターン: {} / {max_turns}",
-        string(situation, "name"),
-        string(situation, "situationPrompt"),
-        if transcript.trim().is_empty() {
-            "まだ会話はありません。"
-        } else {
-            transcript
-        },
-        turn_index + 1,
-    );
-    (system, user)
-}
-
-pub fn director_schema(actor_ids: &[String], require_candidate: bool) -> Value {
-    json!({
-        "type": "json_schema",
-        "json_schema": {
-            "name": "situation_director_decision",
-            "strict": true,
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "candidates": {
-            "type": "array",
-            "minItems": if require_candidate { 1 } else { 0 },
-            "maxItems": actor_ids.len().clamp(1, 3),
-            "items": {
-                "type": "object",
-                "properties": {
-                    "actorId": {"type": "string", "enum": actor_ids},
-                    "reason": {"type": "string"},
-                },
-                "required": ["actorId", "reason"],
-                "additionalProperties": false,
-            },
-                    }
-                },
-                "required": ["candidates"],
-                "additionalProperties": false,
-            },
-        },
-    })
-}
-
-pub fn actor_note(actor: &Value) -> String {
-    ["directorDescription", "rolePrompt", "systemPrompt"]
-        .iter()
-        .map(|key| string(actor, key))
-        .find(|value| !value.is_empty())
-        .unwrap_or_default()
-}
-
-fn director_jev_examples() -> Value {
-    json!([
-        {
-            "actors": [
-                {"id": "aoi", "name": "葵"},
-                {"id": "rin", "name": "凛"},
-            ],
-            "transcript": "{{user}}: 凛、昨日の試合見たよ。すごかったね\n\n葵: 私も見てた！最後の得点は鳥肌ものだったよ",
-            "answer": {"next_speaker": "rin", "continue_naturally": 0.8},
-        },
-        {
-            "actors": [
-                {"id": "aoi", "name": "葵"},
-                {"id": "rin", "name": "凛"},
-            ],
-            "transcript": "{{user}}: 週末みんなで映画見に行かない？\n\n凛: いいね！葵は何が見たい？",
-            "answer": {"next_speaker": "aoi", "continue_naturally": 0.9},
-        },
-        {
-            "actors": [
-                {"id": "aoi", "name": "葵"},
-                {"id": "rin", "name": "凛"},
-            ],
-            "transcript": "{{user}}: 今日は疲れたなあ\n\n葵: おつかれ～。\n\n凛: おつかれ！ねえ、三人で放課後どこか寄ってかない？",
-            "answer": {"next_speaker": "protagonist", "continue_naturally": 0.15},
-        },
-        {
-            "actors": [
-                {"id": "aoi", "name": "葵"},
-                {"id": "rin", "name": "凛"},
-            ],
-            "transcript": "{{user}}: じゃあまた明日ね。\n\n葵: うん、また明日！\n\n凛: おつかれさまー",
-            "answer": {"next_speaker": "conversation-complete", "continue_naturally": 0.7},
-        },
-        {
-            "actors": [
-                {"id": "aoi", "name": "葵"},
-            ],
-            "transcript": "{{user}}: ありがとう、もう行くね\n\n葵: うん、気をつけてね。また明日！",
-            "answer": {"next_speaker": "end", "continue_naturally": 0.05},
-        },
-        {
-            "actors": [
-                {"id": "aoi", "name": "葵"},
-                {"id": "rin", "name": "凛"},
-            ],
-            "transcript": "葵: はい、私の手作り料理を召し上がれ。\n\n{{user}}: おお、やっぱり葵は料理が上手いなぁ、凛そう思わない？\n\n",
-            "answer": {"next_speaker": "rin", "continue_naturally": 0.9},
-        },
-    ])
-}
-
-/// Structured state handed to Jev for director decisions. Jev evaluates
-/// questions in parallel against this single state, so it carries the same
-/// context the LLM director prompt would. `examples` holds few-shot
-/// reference decisions; see `director_jev_examples`.
-pub fn director_jev_state(
-    situation: &Value,
-    actors: &[Value],
-    transcript: &str,
-    turn_index: usize,
-    max_turns: usize,
-) -> Value {
-    let actor_entries = actors
-        .iter()
-        .map(|actor| {
-            json!({
-                "id": actor_id(actor),
-                "name": string(actor, "name"),
-                "note": truncate(&actor_note(actor), 320),
-            })
-        })
-        .collect::<Vec<_>>();
-    json!({
-        "situationName": string(situation, "name"),
-        "situationPrompt": string(situation, "situationPrompt"),
-        "actors": actor_entries,
-        "transcript": if transcript.trim().is_empty() {
-            "まだ会話はありません。"
-        } else {
-            transcript
-        },
-        "autoTurn": format!("{}/{}", turn_index + 1, max_turns),
-        "examples": director_jev_examples(),
-    })
-}
-
-fn actor_criteria(actors: &[Value], eligible_ids: &[String]) -> Map<String, Value> {
-    let mut criteria = Map::new();
-    for actor in actors {
-        let id = actor_id(actor);
-        if !eligible_ids.contains(&id) {
-            continue;
-        }
-        criteria.insert(id, Value::String(string(actor, "name")));
-    }
-    criteria
-}
-
-pub fn director_jev_first_questions(
-    actors: &[Value],
-    eligible_ids: &[String],
-    include_stop_options: bool,
-) -> Value {
-    let mut criteria = actor_criteria(actors, eligible_ids);
-    if !include_stop_options {
-        return json!({
-            "next_speaker": {
-                "type": "choice",
-                "instructions": "この会話で次に発言するのが最も自然なキャラクターを選んでください。",
-                "criteria": criteria,
-            },
-        });
-    }
-    criteria.insert(
-        JEV_PROTAGONIST_OPTION.to_owned(),
-        Value::String("{{user}}が次に発言すべき。".to_owned()),
-    );
-    criteria.insert(
-        JEV_CONVERSATION_COMPLETE_OPTION.to_owned(),
-        Value::String("会話を終了するが、キャラクター同士が会話を続けても違和感がない".to_owned()),
-    );
-    criteria.insert(
-        JEV_END_OPTION.to_owned(),
-        Value::String("会話を終える。これ以上会話が続くと違和感がある".to_owned()),
-    );
-    json!({
-        "next_speaker": {
-            "type": "choice",
-            "instructions": "この会話で次に発言するのが最も自然なキャラクターを選んでください。",
-            "criteria": criteria,
-        },
-        "continue_naturally": {
-            "type": "noul",
-            "instructions": "仮に会話が自然な終了点に達しているとしても、キャラクター同士の会話を続けて違和感がない。",
-        },
-    })
-}
-
-/// Second Jev call, used when the scene reached its natural end but the
-/// continuation probability cleared the threshold: pick an actor whose
-/// entrance would not break the scene. No stop options in this call.
-pub fn director_jev_safe_question(actors: &[Value], eligible_ids: &[String]) -> Value {
-    json!({
-        "safe_speaker": {
-            "type": "choice",
-            "instructions": "会話は自然な終了点に達していますが、続けることにしました。今登場してもシチュエーションが崩壊しないキャラクターを選んでください。",
-            "criteria": actor_criteria(actors, eligible_ids),
-        },
-    })
-}
-
 pub fn actor_id(actor: &Value) -> String {
     actor
         .get("actorId")
@@ -699,49 +668,9 @@ pub fn message_image_attachment_urls(message: &Value) -> Vec<String> {
         .collect()
 }
 
-fn truncate(value: &str, max_chars: usize) -> String {
-    value.chars().take(max_chars).collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn single_participant_prompt_omits_multi_participant_instructions() {
-        let character = json!({
-            "name": "葵",
-            "systemPrompt": "葵として振る舞う",
-            "rolePrompt": "幼なじみ"
-        });
-        let situation = json!({
-            "situationPrompt": "放課後の教室"
-        });
-        let participants = vec![json!({"name": "葵"})];
-
-        let prompt = character_system_prompt(
-            &character,
-            ReplyFormat::Structured,
-            &[],
-            &[],
-            None,
-            &[],
-            Some(&situation),
-            &participants,
-            None,
-        );
-
-        assert!(!prompt.contains("複数人が参加しています"));
-        assert!(!prompt.contains("発言順は指揮役が決めます"));
-        assert!(prompt.starts_with("# 指示"));
-        assert!(prompt.contains("## シチュエーション\n放課後の教室"));
-        assert!(prompt.contains("# あなたについて\n幼なじみ"));
-        assert!(
-            prompt.contains("Users may include not only spoken lines but also stage directions")
-        );
-        assert!(!prompt.contains("括弧などを使って"));
-        assert!(prompt.ends_with("# 葵の設定\n葵として振る舞う"));
-    }
 
     #[test]
     fn character_setting_is_separated_and_added_last() {
@@ -764,18 +693,16 @@ mod tests {
                 date_label: None,
             }],
             None,
-            &[],
-            None,
         );
 
         let setting_heading = prompt
-            .find("# 葵の設定")
+            .find("# 葵's Profile")
             .expect("character setting heading");
         assert_eq!(prompt.find("# 指示"), Some(0));
-        assert!(prompt[..setting_heading].contains("# これまでの会話の要約"));
-        assert!(prompt[..setting_heading].contains("## 関連するメモリ"));
+        assert!(prompt[..setting_heading].contains("# Summary of the conversation so far"));
+        assert!(prompt[..setting_heading].contains("## List of Related Memories"));
         assert!(
-            prompt.ends_with("# 葵の設定\n葵として振る舞う\n\n# Tone example\nThe following are examples of a character's tone of voice. Please use them only as a reference for the character's traits; do not copy these specific phrases directly into your responses.\n\n丁寧語で話し、語尾は柔らかくする\n\n# Details related to {{user}}\n{{user}}は幼なじみ\n\n# Additional constraints\n The instructions in this section take top priority. Please follow them even if they conflict with other settings.\n\n返答は三文以内にする")
+            prompt.ends_with("# 葵's Profile\n葵として振る舞う\n\n# Tone example\nThe following are examples of a character's tone of voice. Please use them only as a reference for the character's traits; do not copy these specific phrases directly into your responses.\n\n丁寧語で話し、語尾は柔らかくする\n\n# Details related to {{user}}\n{{user}}は幼なじみ\n\n# Additional constraints\n The instructions in this section take top priority. Please follow them even if they conflict with other settings.\n\n返答は三文以内にする")
         );
     }
 
@@ -800,12 +727,10 @@ mod tests {
                 },
             ],
             None,
-            &[],
-            None,
         );
 
-        assert!(prompt.contains("## 関連するメモリ\n"));
-        assert!(prompt.contains("はその記憶を知った時期です"));
+        assert!(prompt.contains("## List of Related Memories\n"));
+        assert!(prompt.contains("The [Date/Elapsed Time] entry"));
         assert!(prompt.contains("1. [2026-02-14・約3日前] {{user}}は紅茶を毎朝飲む\n"));
         assert!(prompt.contains("2. 王都で祭りが起きた\n"));
     }
@@ -822,12 +747,10 @@ mod tests {
             None,
             &[],
             None,
-            &[],
-            None,
         );
 
-        assert!(!prompt.contains("## 関連するメモリ"));
-        assert!(!prompt.contains("はその記憶を知った時期です"));
+        assert!(!prompt.contains("## List of Related Memories"));
+        assert!(!prompt.contains("The [Date/Elapsed Time] entry"));
     }
 
     #[test]
@@ -855,83 +778,11 @@ mod tests {
     }
 
     #[test]
-    fn multi_participant_prompt_keeps_multi_participant_instructions() {
-        let character = json!({"name": "葵"});
-        let situation = json!({});
-        let participants = vec![json!({"name": "葵"}), json!({"name": "凛"})];
-
-        let prompt = character_system_prompt(
-            &character,
-            ReplyFormat::Structured,
-            &[],
-            &[],
-            None,
-            &[],
-            Some(&situation),
-            &participants,
-            None,
-        );
-
-        assert!(prompt.contains("複数人が参加しています"));
-        assert!(prompt.contains("参加者: {{user}}, 葵, 凛"));
-    }
-
-    #[test]
-    fn character_prompt_includes_common_rules_after_the_situation() {
-        let character = json!({"name": "葵", "rolePrompt": "幼なじみ"});
-        let situation = json!({
-            "situationPrompt": "放課後の教室",
-            "characterCommonRules": "全員、敬語で話す"
-        });
-
-        let prompt = character_system_prompt(
-            &character,
-            ReplyFormat::Structured,
-            &[],
-            &[],
-            None,
-            &[],
-            Some(&situation),
-            &[json!({"name": "葵"})],
-            None,
-        );
-
-        let situation_index = prompt
-            .find("## シチュエーション\n放課後の教室")
-            .expect("situation section");
-        let rules_index = prompt
-            .find("## キャラクターの共通ルール")
-            .expect("common rules section");
-        assert!(rules_index > situation_index);
-        assert!(prompt.contains("全員、敬語で話す"));
-        assert!(rules_index < prompt.find("# あなたについて").expect("role section"));
-    }
-
-    #[test]
-    fn character_prompt_omits_common_rules_when_unset() {
-        let prompt = character_system_prompt(
-            &json!({"name": "葵"}),
-            ReplyFormat::Structured,
-            &[],
-            &[],
-            None,
-            &[],
-            Some(&json!({"situationPrompt": "放課後の教室"})),
-            &[json!({"name": "葵"})],
-            None,
-        );
-
-        assert!(!prompt.contains("キャラクターの共通ルール"));
-    }
-
-    #[test]
     fn basic_mode_prompt_asks_for_plain_text_without_json() {
         let prompt = character_system_prompt(
             &json!({"name": "葵"}),
             ReplyFormat::PlainText,
             &[],
-            &[],
-            None,
             &[],
             None,
             &[],
@@ -956,8 +807,6 @@ mod tests {
             None,
             &[],
             None,
-            &[],
-            None,
         );
 
         assert!(prompt.contains("Please generate the output in JSON format"));
@@ -971,8 +820,6 @@ mod tests {
             &json!({"name": "葵"}),
             ReplyFormat::Message,
             &[],
-            &[],
-            None,
             &[],
             None,
             &[],
@@ -1094,8 +941,6 @@ mod tests {
             None,
             &[],
             None,
-            &[],
-            None,
         );
 
         let expression_index = prompt
@@ -1119,8 +964,6 @@ mod tests {
             None,
             &[],
             None,
-            &[],
-            None,
         );
 
         assert!(!prompt.contains("JSONの motion"));
@@ -1137,13 +980,11 @@ mod tests {
             &[],
             None,
             &[],
-            None,
-            &[],
             Some(&costume),
         );
 
-        assert!(prompt.contains("# 現在の衣装"));
-        assert!(prompt.contains("あなたの現在の外観は次のとおりです: 「uniform」"));
+        assert!(prompt.contains("# Current outfit"));
+        assert!(prompt.contains("Your current appearance is as follows: 「uniform」"));
         assert!(prompt.contains("紺のブレザーと赤いリボン"));
     }
 
@@ -1160,190 +1001,147 @@ mod tests {
                 &[],
                 None,
                 &[],
-                None,
-                &[],
                 Some(&costume),
             );
 
-            assert!(!prompt.contains("現在の衣装"));
+            assert!(!prompt.contains("Current outfit"));
         }
     }
 
+    fn ensemble_cast<'a>(aoi: &'a Value, rin: &'a Value) -> Vec<EnsembleCast<'a>> {
+        vec![
+            EnsembleCast {
+                actor: aoi,
+                expression_names: vec!["neutral".into(), "smile".into()],
+                motion_names: vec!["wave".into()],
+                memories: vec![InjectedMemory {
+                    content: "{{user}}は紅茶が好き".into(),
+                    date_label: None,
+                }],
+                costume: None,
+            },
+            EnsembleCast {
+                actor: rin,
+                expression_names: Vec::new(),
+                motion_names: Vec::new(),
+                memories: Vec::new(),
+                costume: None,
+            },
+        ]
+    }
+
     #[test]
-    fn continuation_director_prompt_requires_a_candidate_and_drops_latest_message() {
-        let situation = json!({
-            "name": "放課後",
-            "situationPrompt": "教室で話している"
+    fn ensemble_prompt_lists_every_character_with_their_own_details() {
+        let aoi = json!({
+            "actorId": "aoi",
+            "name": "葵",
+            "systemPrompt": "明るい幼なじみ",
+            "speechStyle": "〜だよね！",
+            "rolePrompt": "クラス委員"
         });
-        let actors = vec![json!({"actorId": "actor-aoi", "name": "葵"})];
-
-        let (system, prompt) = director_prompts(
-            &situation,
-            &actors,
-            "{{user}}: 今日は寒いね\n葵: 雪になるかも",
-            0,
-            1,
-            None,
-            true,
-        );
-
-        assert!(system.contains("candidates は必ず1件以上にしてください"));
-        assert!(!system.contains("空配列にしてください"));
-        assert!(prompt.contains("{{user}}からの新しい発言や行動はありません"));
-        assert!(prompt.contains("会話履歴の末尾から自然に場面を進める"));
-        assert!(!prompt.contains("## 最新のメッセージ"));
-    }
-
-    #[test]
-    fn director_prompt_allows_empty_candidates_outside_continuation() {
-        let (system, _) = director_prompts(&json!({}), &[], "", 0, 1, None, false);
-
-        assert!(system.contains("空配列にしてください"));
-    }
-
-    #[test]
-    fn director_prompts_never_receive_character_common_rules() {
+        let rin = json!({"actorId": "rin", "name": "凛", "systemPrompt": "クールな転校生"});
         let situation = json!({
-            "name": "放課後",
-            "situationPrompt": "教室で話している",
+            "situationPrompt": "放課後の教室",
             "characterCommonRules": "全員、敬語で話す"
         });
-        let actors = vec![json!({"actorId": "actor-aoi", "name": "葵"})];
-
-        let (system, prompt) = director_prompts(
+        let prompt = ensemble_system_prompt(
             &situation,
-            &actors,
-            "{{user}}: 今日は寒いね",
-            0,
-            1,
-            None,
-            false,
+            &ensemble_cast(&aoi, &rin),
+            ReplyFormat::Structured,
+            3,
+            Some(&rin),
+            Some("これまでの要約"),
         );
-        let state = director_jev_state(&situation, &actors, "{{user}}: 今日は寒いね", 0, 1);
 
-        for text in [system, prompt, state.to_string()] {
-            assert!(!text.contains("全員、敬語で話す"));
-            assert!(!text.contains("キャラクターの共通ルール"));
-        }
+        assert!(prompt.starts_with("# Instructions"));
+        assert!(prompt.contains("Write at most 3 turn(s)."));
+        assert!(
+            prompt.contains("{{user}} is addressing 凛 (id: rin). The first turn must be 凛's.")
+        );
+        assert!(prompt.contains("## Situation\n放課後の教室"));
+        assert!(prompt.contains("全員、敬語で話す"));
+        assert!(prompt.contains("# Summary of the conversation so far\nこれまでの要約"));
+        let aoi_section = prompt.find("## 葵 (id: aoi)").expect("aoi section");
+        let rin_section = prompt.find("## 凛 (id: rin)").expect("rin section");
+        assert!(aoi_section < rin_section);
+        let aoi_part = &prompt[aoi_section..rin_section];
+        assert!(aoi_part.contains("### Role in this situation\nクラス委員"));
+        assert!(aoi_part.contains("### Profile\n明るい幼なじみ"));
+        assert!(aoi_part.contains("#### Tone example"));
+        assert!(aoi_part.contains("### Expressions\nneutral, smile"));
+        assert!(aoi_part.contains("### Motions\nwave"));
+        assert!(aoi_part.contains("1. {{user}}は紅茶が好き"));
+        let rin_part = &prompt[rin_section..];
+        assert!(!rin_part.contains("### Expressions"));
+        assert!(!rin_part.contains("related memories"));
     }
 
     #[test]
-    fn jev_first_questions_include_actors_and_stop_options() {
-        let actors = vec![
-            json!({"actorId": "actor-aoi", "name": "葵", "rolePrompt": "幼なじみ"}),
-            json!({"actorId": "actor-rin", "name": "凛", "rolePrompt": "後輩"}),
-            json!({"actorId": "actor-banned", "name": "直前の発言者"}),
-        ];
-        let eligible = vec!["actor-aoi".to_owned(), "actor-rin".to_owned()];
-
-        let questions = director_jev_first_questions(&actors, &eligible, true);
-
-        let criteria = &questions["next_speaker"]["criteria"];
-        assert_eq!(criteria.as_object().unwrap().len(), 5);
-        assert!(criteria.get("actor-aoi").is_some());
-        assert!(criteria.get("actor-rin").is_some());
-        assert!(criteria.get("actor-banned").is_none());
-        assert!(criteria.get(JEV_PROTAGONIST_OPTION).is_some());
-        assert!(criteria.get(JEV_CONVERSATION_COMPLETE_OPTION).is_some());
-        assert!(criteria.get(JEV_END_OPTION).is_some());
-        assert_eq!(criteria["actor-aoi"], "葵");
-        assert_eq!(criteria["actor-rin"], "凛");
-        assert!(!questions.to_string().contains("幼なじみ"));
-
-        assert_eq!(questions["next_speaker"]["type"], "choice");
-        assert_eq!(questions["continue_naturally"]["type"], "noul");
+    fn ensemble_prompt_omits_speaker_hint_and_expressions_outside_game_mode() {
+        let aoi = json!({"actorId": "aoi", "name": "葵"});
+        let rin = json!({"actorId": "rin", "name": "凛"});
+        let prompt = ensemble_system_prompt(
+            &json!({}),
+            &ensemble_cast(&aoi, &rin),
+            ReplyFormat::Message,
+            2,
+            None,
+            None,
+        );
+        assert!(!prompt.contains("is addressing"));
+        assert!(!prompt.contains("For `expression`"));
+        assert!(prompt.contains("**social media**"));
+        assert!(prompt.contains(r#""messages": ["確かに。""#));
     }
 
     #[test]
-    fn jev_first_questions_without_stop_options_only_offer_actors() {
-        let actors = vec![
-            json!({"actorId": "actor-aoi", "name": "葵"}),
-            json!({"actorId": "actor-rin", "name": "凛"}),
-        ];
-        let eligible = vec!["actor-aoi".to_owned(), "actor-rin".to_owned()];
-
-        let questions = director_jev_first_questions(&actors, &eligible, false);
-
-        let criteria = &questions["next_speaker"]["criteria"];
-        assert_eq!(criteria.as_object().unwrap().len(), 2);
-        assert!(criteria.get("actor-aoi").is_some());
-        assert!(criteria.get("actor-rin").is_some());
-        assert!(criteria.get(JEV_PROTAGONIST_OPTION).is_none());
-        assert!(criteria.get(JEV_CONVERSATION_COMPLETE_OPTION).is_none());
-        assert!(criteria.get(JEV_END_OPTION).is_none());
-        assert!(questions.get("continue_naturally").is_none());
-    }
-
-    #[test]
-    fn jev_safe_question_has_no_stop_options() {
-        let actors = vec![
-            json!({"actorId": "actor-aoi", "name": "葵"}),
-            json!({"actorId": "actor-banned", "name": "直前の発言者"}),
-        ];
-        let eligible = vec!["actor-aoi".to_owned()];
-
-        let questions = director_jev_safe_question(&actors, &eligible);
-
-        let criteria = &questions["safe_speaker"]["criteria"];
-        assert_eq!(criteria.as_object().unwrap().len(), 1);
-        assert!(criteria.get("actor-aoi").is_some());
-        assert!(criteria.get("actor-banned").is_none());
-        assert!(criteria.get(JEV_PROTAGONIST_OPTION).is_none());
-        assert!(criteria.get(JEV_CONVERSATION_COMPLETE_OPTION).is_none());
-        assert!(criteria.get(JEV_END_OPTION).is_none());
-    }
-
-    #[test]
-    fn jev_state_carries_director_context() {
-        let situation = json!({
-            "name": "放課後",
-            "situationPrompt": "教室で話している"
-        });
-        let actors = vec![json!({"actorId": "actor-aoi", "name": "葵", "rolePrompt": "幼なじみ"})];
-
-        let state = director_jev_state(
-            &situation,
-            &actors,
-            "{{user}}: 今日は寒いね\n葵: 雪になるかも",
-            1,
+    fn ensemble_schema_constrains_speakers_and_turn_count() {
+        let schema = ensemble_schema(
+            &["aoi".into(), "rin".into()],
+            &["neutral".into(), "smile".into()],
+            &["wave".into()],
+            ReplyFormat::Structured,
+            300,
             3,
         );
-
-        assert_eq!(state["situationName"], "放課後");
-        assert_eq!(state["autoTurn"], "2/3");
-        assert_eq!(state["actors"][0]["id"], "actor-aoi");
-        assert_eq!(state["actors"][0]["note"], "幼なじみ");
-        assert!(state.get("latestUserMessage").is_none());
-        assert!(state.get("lastSpeakerId").is_none());
+        let turns = &schema["json_schema"]["schema"]["properties"]["turns"];
+        assert_eq!(turns["maxItems"], 3);
+        let item = &turns["items"];
+        assert_eq!(item["properties"]["speaker"]["enum"], json!(["aoi", "rin"]));
+        assert_eq!(
+            item["properties"]["motion"]["enum"],
+            json!(["none", "wave"])
+        );
+        assert_eq!(item["properties"]["message"]["maxLength"], 300);
+        assert_eq!(
+            item["required"],
+            json!(["speaker", "expression", "motion", "message"])
+        );
+        let keys = item["properties"]
+            .as_object()
+            .expect("properties")
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        assert_eq!(keys.first().map(String::as_str), Some("speaker"));
     }
 
     #[test]
-    fn jev_state_examples_label_existing_options() {
-        let state = director_jev_state(&json!({}), &[], "", 0, 1);
-        let examples = state["examples"].as_array().expect("examples array");
-
-        assert!(examples.len() >= 3);
-        for example in examples {
-            let actor_ids = example["actors"]
-                .as_array()
-                .expect("example actors")
-                .iter()
-                .map(|actor| actor["id"].as_str().unwrap())
-                .collect::<Vec<_>>();
-            let choice = example["answer"]["next_speaker"]
-                .as_str()
-                .expect("example next_speaker");
-            assert!(
-                actor_ids.contains(&choice)
-                    || [
-                        JEV_PROTAGONIST_OPTION,
-                        JEV_CONVERSATION_COMPLETE_OPTION,
-                        JEV_END_OPTION,
-                    ]
-                    .contains(&choice),
-                "example answer {choice} must be one of its actors or a special option"
+    fn ensemble_schema_for_basic_and_message_modes_has_no_visual_fields() {
+        for (format, field) in [
+            (ReplyFormat::PlainText, "message"),
+            (ReplyFormat::Message, "messages"),
+        ] {
+            let schema = ensemble_schema(
+                &["aoi".into()],
+                &["neutral".into()],
+                &["wave".into()],
+                format,
+                100,
+                2,
             );
-            assert!(example["answer"]["continue_naturally"].as_f64().is_some());
+            let item = &schema["json_schema"]["schema"]["properties"]["turns"]["items"];
+            assert_eq!(item["required"], json!(["speaker", field]));
         }
     }
 }

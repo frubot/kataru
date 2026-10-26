@@ -171,7 +171,7 @@ interface CharacterStats {
 }
 
 export default function StatisticsPanel() {
-    const { usageRecords, characters, cleanOldUsageRecords } = useStore();
+    const { usageRecords, characters, groups, cleanOldUsageRecords } = useStore();
     const [viewMode, setViewMode] = useState<ViewMode>('tokens');
     const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
     const [period, setPeriod] = useState<PeriodFilter>('all');
@@ -199,6 +199,10 @@ export default function StatisticsPanel() {
         for (const record of filteredRecords) {
             const existing = statsMap.get(record.characterId);
             const character = characters.find(c => c.id === record.characterId);
+            // シチュエーションの会話はシチュエーション単位で記録する（旧形式の指揮役は `<id>:director`）。
+            const situation = character
+                ? undefined
+                : groups.find(g => g.id === record.characterId || `${g.id}:director` === record.characterId);
 
             if (existing) {
                 existing.promptTokens += record.promptTokens;
@@ -209,7 +213,8 @@ export default function StatisticsPanel() {
             } else {
                 statsMap.set(record.characterId, {
                     characterId: record.characterId,
-                    characterName: character?.name || '削除されたキャラクター',
+                    characterName: character?.name
+                        || (situation ? `${situation.name}（シチュエーション）` : '削除されたキャラクター'),
                     promptTokens: record.promptTokens,
                     completionTokens: record.completionTokens,
                     totalTokens: record.totalTokens,
@@ -223,7 +228,7 @@ export default function StatisticsPanel() {
         return Array.from(statsMap.values()).sort(
             (a, b) => (getMetricValue(a, viewMode) - getMetricValue(b, viewMode)) * direction,
         );
-    }, [filteredRecords, characters, viewMode, sortOrder]);
+    }, [filteredRecords, characters, groups, viewMode, sortOrder]);
 
     const totals = useMemo(() => {
         return characterStats.reduce(

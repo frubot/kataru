@@ -5,22 +5,16 @@ import {
     Character,
     Costume,
     DEFAULT_CHARACTER_MAX_HISTORY,
-    DEFAULT_CHARACTER_TEMPERATURE,
-    DEFAULT_CHARACTER_TOP_P,
-    DEFAULT_CHARACTER_TOP_K,
-    DEFAULT_CHARACTER_FREQUENCY_PENALTY,
-    DEFAULT_CHARACTER_PRESENCE_PENALTY,
-    DEFAULT_CHARACTER_REPETITION_PENALTY,
+    DEFAULT_SITUATION_MAX_TURNS,
+    MAX_SITUATION_MAX_TURNS,
+    MIN_SITUATION_MAX_TURNS,
     Expression,
     Room,
     Situation,
     SituationActor,
-    SituationDirector,
     SituationPriorMessage,
     useStore,
 } from '@/lib/store';
-import { DEFAULT_CONNECTION_ID, isJevModelRef, isReasoningEffort, REASONING_EFFORT_OPTIONS, type ModelRef, type ReasoningEffort } from '@/lib/modelDefaults';
-import { useAiConnections } from '@/lib/aiConnections';
 import { generateId } from '@/lib/id';
 import {
     DEFAULT_COSTUME_NAME,
@@ -33,7 +27,6 @@ import ImageGenerationModal from './ImageGenerationModal';
 import SituationBackgroundModal from './SituationBackgroundModal';
 import SituationDescriptionGeneratorModal from './SituationDescriptionGeneratorModal';
 import StoredImage from './StoredImage';
-import ModelSelector from './ModelSelector';
 import PromptSectionEditor from './PromptSectionEditor';
 import OptionSelector from './OptionSelector';
 import { useModalKeyboard } from './useModalKeyboard';
@@ -47,24 +40,15 @@ type TemporaryActorDraft = {
     systemPrompt: string;
     speechStyle: string;
     userConstraints: string;
-    model?: ModelRef;
     icon: string | null;
     expressions: Expression[];
     costumes: Costume[];
-    temperature: number | null;
-    topP: number | null;
-    topK: number | null;
-    frequencyPenalty: number | null;
-    presencePenalty: number | null;
-    repetitionPenalty: number | null;
-    reasoningEffort: ReasoningEffort | null;
 };
 
 type CharacterActorMeta = {
     id: string;
     costumeName?: string;
     rolePrompt?: string;
-    directorDescription?: string;
 };
 
 type CostumeMenuState = {
@@ -120,30 +104,6 @@ const priorMessageSelectTriggerStyle: CSSProperties = {
 
 const NEUTRAL_EXPRESSION_NAME = 'neutral';
 
-const REASONING_EFFORT_SELECT_OPTIONS = [
-    { value: '', label: '全体設定に従う' },
-    ...REASONING_EFFORT_OPTIONS,
-];
-
-type TemporaryActorParamKey = 'temperature' | 'topP' | 'topK' | 'frequencyPenalty' | 'presencePenalty' | 'repetitionPenalty';
-
-interface TemporaryActorSliderParam {
-    label: string;
-    min: number;
-    max: number;
-    step: number;
-    defaultValue: number;
-}
-
-const TEMPORARY_ACTOR_SLIDER_PARAMS: Record<TemporaryActorParamKey, TemporaryActorSliderParam> = {
-    temperature: { label: 'Temperature', min: 0, max: 2, step: 0.001, defaultValue: DEFAULT_CHARACTER_TEMPERATURE },
-    topP: { label: 'Top P', min: 0, max: 1, step: 0.001, defaultValue: DEFAULT_CHARACTER_TOP_P ?? 1 },
-    topK: { label: 'Top K', min: 0, max: 100, step: 1, defaultValue: DEFAULT_CHARACTER_TOP_K },
-    frequencyPenalty: { label: 'Frequency Penalty', min: -2, max: 2, step: 0.001, defaultValue: DEFAULT_CHARACTER_FREQUENCY_PENALTY },
-    presencePenalty: { label: 'Presence Penalty', min: -2, max: 2, step: 0.001, defaultValue: DEFAULT_CHARACTER_PRESENCE_PENALTY },
-    repetitionPenalty: { label: 'Repetition Penalty', min: 0, max: 2, step: 0.001, defaultValue: DEFAULT_CHARACTER_REPETITION_PENALTY },
-};
-
 const MAX_HISTORY_SLIDER_MAX = 100;
 const DEFAULT_MAX_HISTORY_SLIDER_VALUE = DEFAULT_CHARACTER_MAX_HISTORY == null
     ? MAX_HISTORY_SLIDER_MAX
@@ -162,22 +122,17 @@ function createTemporaryDraft(): TemporaryActorDraft {
         systemPrompt: '',
         speechStyle: '',
         userConstraints: '',
-        model: undefined,
         icon: null,
         expressions: [],
         costumes: [],
-        temperature: null,
-        topP: null,
-        topK: null,
-        frequencyPenalty: null,
-        presencePenalty: null,
-        repetitionPenalty: null,
-        reasoningEffort: null,
     };
 }
 
 function getInitialMaxTurns(situation: Situation | null | undefined, room: Room | null | undefined): number {
-    return Math.max(1, Math.min(10, room?.maxMentionChain ?? situation?.director?.maxAutoTurns ?? 3));
+    return Math.max(
+        MIN_SITUATION_MAX_TURNS,
+        Math.min(MAX_SITUATION_MAX_TURNS, room?.maxMentionChain ?? situation?.maxTurns ?? DEFAULT_SITUATION_MAX_TURNS),
+    );
 }
 
 interface MaxAutoTurnsSliderProps {
@@ -275,108 +230,6 @@ function MaxAutoTurnsSlider({ value, onChange }: MaxAutoTurnsSliderProps) {
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.25rem' }}>
                 <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>1回</span>
                 <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>10回</span>
-            </div>
-        </div>
-    );
-}
-
-interface ThresholdSliderProps {
-    label: string;
-    inputId: string;
-    value: number;
-    onChange: (value: number) => void;
-}
-
-function ThresholdSlider({ label, inputId, value, onChange }: ThresholdSliderProps) {
-    const percent = value * 100;
-
-    return (
-        <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.375rem', gap: '0.75rem' }}>
-                <label
-                    htmlFor={inputId}
-                    style={{
-                        fontSize: '0.8125rem',
-                        fontWeight: 500,
-                        color: 'var(--text-secondary)',
-                    }}
-                >
-                    {label}
-                </label>
-                <span
-                    style={{
-                        fontSize: '0.8125rem',
-                        fontWeight: 600,
-                        color: 'var(--accent-primary)',
-                        minWidth: '3.5rem',
-                        textAlign: 'right',
-                        fontVariantNumeric: 'tabular-nums',
-                    }}
-                >
-                    {value.toFixed(2)}
-                </span>
-            </div>
-
-            <div style={{ position: 'relative', height: '24px', display: 'flex', alignItems: 'center' }}>
-                <div
-                    style={{
-                        position: 'absolute',
-                        width: '100%',
-                        height: '4px',
-                        borderRadius: '2px',
-                        background: 'var(--bg-tertiary)',
-                        overflow: 'hidden',
-                    }}
-                >
-                    <div
-                        style={{
-                            width: `${percent}%`,
-                            height: '100%',
-                            background: 'var(--accent-primary)',
-                            borderRadius: '2px',
-                            transition: 'width 0.15s ease',
-                        }}
-                    />
-                </div>
-                <input
-                    id={inputId}
-                    type="range"
-                    aria-label={label}
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    value={value}
-                    onChange={(event) => onChange(Number(event.target.value))}
-                    style={{
-                        position: 'absolute',
-                        width: '100%',
-                        height: '24px',
-                        opacity: 0,
-                        cursor: 'pointer',
-                        margin: 0,
-                        padding: 0,
-                        zIndex: 2,
-                    }}
-                />
-                <div
-                    style={{
-                        position: 'absolute',
-                        left: `calc(${percent}% - 8px)`,
-                        width: '16px',
-                        height: '16px',
-                        borderRadius: '50%',
-                        background: 'var(--accent-primary)',
-                        boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
-                        transition: 'left 0.15s ease',
-                        pointerEvents: 'none',
-                        zIndex: 1,
-                    }}
-                />
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.25rem' }}>
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>0.00</span>
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>1.00</span>
             </div>
         </div>
     );
@@ -512,131 +365,6 @@ function MaxHistorySlider({ value, onChange }: MaxHistorySliderProps) {
     );
 }
 
-interface TemporaryActorParamSliderProps {
-    paramKey: TemporaryActorParamKey;
-    value: number | null;
-    onChange: (value: number | null) => void;
-}
-
-function TemporaryActorParamSlider({ paramKey, value, onChange }: TemporaryActorParamSliderProps) {
-    const param = TEMPORARY_ACTOR_SLIDER_PARAMS[paramKey];
-    const displayValue = value ?? param.defaultValue;
-    const isCustom = value !== null;
-    const isInteger = param.step >= 1;
-    const percent = ((displayValue - param.min) / (param.max - param.min)) * 100;
-    const formatValue = (v: number) => isInteger ? String(Math.round(v)) : v.toFixed(3);
-
-    return (
-        <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.375rem', gap: '0.75rem' }}>
-                <label style={{ fontSize: '0.8125rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
-                    {param.label}
-                </label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <span
-                        style={{
-                            fontSize: '0.8125rem',
-                            fontWeight: 600,
-                            color: isCustom ? 'var(--accent-primary)' : 'var(--text-muted)',
-                            minWidth: '3.5rem',
-                            textAlign: 'right',
-                            fontVariantNumeric: 'tabular-nums',
-                        }}
-                    >
-                        {formatValue(displayValue)}
-                    </span>
-                    {isCustom && (
-                        <button
-                            type="button"
-                            onClick={() => onChange(null)}
-                            title="デフォルト値に戻す"
-                            style={{
-                                background: 'none',
-                                border: 'none',
-                                cursor: 'pointer',
-                                padding: '2px',
-                                color: 'var(--text-muted)',
-                                display: 'flex',
-                                alignItems: 'center',
-                                borderRadius: '4px',
-                                transition: 'color 0.15s ease',
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-secondary)'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
-                        >
-                            <RotateCcw size={12} />
-                        </button>
-                    )}
-                </div>
-            </div>
-
-            <div style={{ position: 'relative', height: '20px', display: 'flex', alignItems: 'center' }}>
-                <div
-                    style={{
-                        position: 'absolute',
-                        width: '100%',
-                        height: '4px',
-                        borderRadius: '2px',
-                        background: 'var(--bg-tertiary)',
-                        overflow: 'hidden',
-                    }}
-                >
-                    <div
-                        style={{
-                            width: `${percent}%`,
-                            height: '100%',
-                            background: isCustom ? 'var(--accent-primary)' : 'var(--text-muted)',
-                            borderRadius: '2px',
-                            transition: 'background 0.2s ease',
-                        }}
-                    />
-                </div>
-                <input
-                    type="range"
-                    aria-label={param.label}
-                    min={param.min}
-                    max={param.max}
-                    step={param.step}
-                    value={displayValue}
-                    onChange={(e) => {
-                        const next = Number(e.target.value);
-                        onChange(isInteger ? Math.round(next) : Number(next.toFixed(3)));
-                    }}
-                    style={{
-                        position: 'absolute',
-                        width: '100%',
-                        height: '20px',
-                        opacity: 0,
-                        cursor: 'pointer',
-                        margin: 0,
-                        padding: 0,
-                        zIndex: 2,
-                    }}
-                />
-                <div
-                    style={{
-                        position: 'absolute',
-                        left: `calc(${percent}% - 8px)`,
-                        width: '16px',
-                        height: '16px',
-                        borderRadius: '50%',
-                        background: isCustom ? 'var(--accent-primary)' : 'var(--text-muted)',
-                        boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
-                        transition: 'background 0.2s ease',
-                        pointerEvents: 'none',
-                        zIndex: 1,
-                    }}
-                />
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.25rem' }}>
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{formatValue(param.min)}</span>
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{formatValue(param.max)}</span>
-            </div>
-        </div>
-    );
-}
-
 interface TemporaryActorSettingsModalProps {
     actor: TemporaryActorDraft;
     isNew: boolean;
@@ -650,18 +378,13 @@ function TemporaryActorSettingsModal({
     onClose,
     onSave,
 }: TemporaryActorSettingsModalProps) {
-    const { defaultChatModel } = useStore();
     const [draft, setDraft] = useState<TemporaryActorDraft>(() => ({ ...actor }));
-    const [parametersOpen, setParametersOpen] = useState(false);
     const [generatorOpen, setGeneratorOpen] = useState(false);
     const [imageGenOpen, setImageGenOpen] = useState(false);
     const [expressionsOpen, setExpressionsOpen] = useState(false);
     // 左ペインのプレビュー選択。保存対象ではなく表示切替だけに使う。
     const [previewExpressionName, setPreviewExpressionName] = useState<string | null>(null);
     const modalRef = useRef<HTMLDivElement>(null);
-    const hasCustomParams = Boolean(draft.model?.model.trim()) || draft.reasoningEffort !== null
-        || draft.temperature !== null || draft.topP !== null || draft.topK !== null
-        || draft.frequencyPenalty !== null || draft.presencePenalty !== null || draft.repetitionPenalty !== null;
 
     // モバイルでは立ち絵を描画しない（VRM/画像の読み込み自体もスキップ）
     const [isMobile, setIsMobile] = useState(false);
@@ -925,108 +648,6 @@ function TemporaryActorSettingsModal({
                                 </div>
                             </div>
 
-                            {/* 高度な設定 (折りたたみ) */}
-                            <div style={sectionStyle}>
-                                <button
-                                    type="button"
-                                    onClick={() => setParametersOpen((open) => !open)}
-                                    aria-expanded={parametersOpen}
-                                    style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '0.375rem',
-                                        background: 'none',
-                                        border: 'none',
-                                        cursor: 'pointer',
-                                        padding: '0.375rem 0',
-                                        fontSize: '0.875rem',
-                                        fontWeight: 500,
-                                        color: 'var(--text-secondary)',
-                                        width: '100%',
-                                    }}
-                                >
-                                    {parametersOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                                    高度な設定
-                                    {hasCustomParams && !parametersOpen && (
-                                        <span style={{
-                                            marginLeft: '0.375rem',
-                                            fontSize: '0.7rem',
-                                            padding: '0.1rem 0.4rem',
-                                            borderRadius: '0.75rem',
-                                            background: 'rgba(var(--accent-primary-rgb), 0.15)',
-                                            color: 'var(--accent-primary)',
-                                            fontWeight: 600,
-                                        }}>
-                                            カスタム
-                                        </span>
-                                    )}
-                                </button>
-
-                                {parametersOpen && (
-                                    <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                                        <div className="global-settings-selector-row">
-                                            <label
-                                                htmlFor={`temporary-actor-model-${actor.id}`}
-                                                style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
-                                            >
-                                                モデル
-                                            </label>
-                                            <div
-                                                className="global-settings-selector-control global-settings-model-selector-control"
-                                                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-                                            >
-                                                <ModelSelector
-                                                    id={`temporary-actor-model-${actor.id}`}
-                                                    value={draft.model ?? { connectionId: DEFAULT_CONNECTION_ID, model: '' }}
-                                                    onChange={(model) => updateDraft({ model })}
-                                                    outputModality="text"
-                                                    placeholder={`例: ${defaultChatModel.model}`}
-                                                    style={{ flex: '0 1 auto', minWidth: 0 }}
-                                                />
-                                                <OptionSelector
-                                                    id={`temporary-actor-reasoning-effort-${actor.id}`}
-                                                    value={draft.reasoningEffort ?? ''}
-                                                    onChange={(value) => updateDraft({ reasoningEffort: isReasoningEffort(value) ? value : null })}
-                                                    options={REASONING_EFFORT_SELECT_OPTIONS}
-                                                    ariaLabel="推論レベル"
-                                                    title="推論レベル: 対応モデルで返答前の推論（Reasoning）を行います。空欄では全体設定を使用します。"
-                                                    style={{ flex: '0 1 auto', minWidth: 0 }}
-                                                />
-                                            </div>
-                                        </div>
-                                        <TemporaryActorParamSlider
-                                            paramKey="temperature"
-                                            value={draft.temperature}
-                                            onChange={(temperature) => updateDraft({ temperature })}
-                                        />
-                                        <TemporaryActorParamSlider
-                                            paramKey="topP"
-                                            value={draft.topP}
-                                            onChange={(topP) => updateDraft({ topP })}
-                                        />
-                                        <TemporaryActorParamSlider
-                                            paramKey="topK"
-                                            value={draft.topK}
-                                            onChange={(topK) => updateDraft({ topK })}
-                                        />
-                                        <TemporaryActorParamSlider
-                                            paramKey="frequencyPenalty"
-                                            value={draft.frequencyPenalty}
-                                            onChange={(frequencyPenalty) => updateDraft({ frequencyPenalty })}
-                                        />
-                                        <TemporaryActorParamSlider
-                                            paramKey="presencePenalty"
-                                            value={draft.presencePenalty}
-                                            onChange={(presencePenalty) => updateDraft({ presencePenalty })}
-                                        />
-                                        <TemporaryActorParamSlider
-                                            paramKey="repetitionPenalty"
-                                            value={draft.repetitionPenalty}
-                                            onChange={(repetitionPenalty) => updateDraft({ repetitionPenalty })}
-                                        />
-                                    </div>
-                                )}
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -1118,7 +739,6 @@ function TemporaryActorSettingsModal({
 function buildInitialState(
     situation: Situation | null | undefined,
     room: Room | null | undefined,
-    defaultDirectorModel: ModelRef,
 ) {
     const selectedCharacterIds = new Set<string>();
     const characterActorMeta: Record<string, CharacterActorMeta> = {};
@@ -1131,7 +751,6 @@ function buildInitialState(
                 id: actor.id,
                 costumeName: actor.costumeName,
                 rolePrompt: actor.rolePrompt,
-                directorDescription: actor.directorDescription,
             };
         } else {
             temporaryActors.push({
@@ -1140,17 +759,9 @@ function buildInitialState(
                 systemPrompt: actor.systemPrompt,
                 speechStyle: actor.speechStyle ?? '',
                 userConstraints: actor.userConstraints ?? '',
-                model: actor.model,
                 icon: actor.icon ?? null,
                 expressions: actor.expressions ?? [],
                 costumes: actor.costumes ?? [],
-                temperature: typeof actor.temperature === 'number' ? actor.temperature : null,
-                topP: typeof actor.topP === 'number' ? actor.topP : null,
-                topK: typeof actor.topK === 'number' ? actor.topK : null,
-                frequencyPenalty: actor.frequencyPenalty ?? null,
-                presencePenalty: actor.presencePenalty ?? null,
-                repetitionPenalty: actor.repetitionPenalty ?? null,
-                reasoningEffort: actor.reasoningEffort ?? null,
             });
         }
     }
@@ -1160,17 +771,6 @@ function buildInitialState(
         backgroundImage: situation?.backgroundImage ?? '',
         situationPrompt: situation?.situationPrompt ?? '',
         characterCommonRules: situation?.characterCommonRules ?? '',
-        directorModel: situation?.director?.model,
-        directorEngine: situation?.director?.engine === 'typesafe'
-            || isJevModelRef(situation?.director?.model ?? defaultDirectorModel)
-                ? 'typesafe' as const
-                : 'llm' as const,
-        continueThreshold: typeof situation?.director?.continueThreshold === 'number'
-            ? situation.director.continueThreshold
-            : 0.5,
-        protagonistThreshold: typeof situation?.director?.protagonistThreshold === 'number'
-            ? situation.director.protagonistThreshold
-            : 0.5,
         maxAutoTurns: String(getInitialMaxTurns(situation, room)),
         maxHistory: situation?.maxHistory != null ? String(situation.maxHistory) : '',
         memoryReadOnly: situation?.memoryMode === 'readOnly',
@@ -1187,10 +787,6 @@ function serializeSituationDraft(draft: ReturnType<typeof buildInitialState>) {
         backgroundImage: draft.backgroundImage,
         situationPrompt: draft.situationPrompt,
         characterCommonRules: draft.characterCommonRules,
-        directorModel: draft.directorModel,
-        directorEngine: draft.directorEngine,
-        continueThreshold: draft.continueThreshold,
-        protagonistThreshold: draft.protagonistThreshold,
         maxAutoTurns: draft.maxAutoTurns,
         maxHistory: draft.maxHistory,
         memoryReadOnly: draft.memoryReadOnly,
@@ -1535,8 +1131,6 @@ function TemporaryActorDeleteDialog({ actor, onCancel, onConfirm }: TemporaryAct
 function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omit<SituationSettingsModalProps, 'isOpen'>) {
     const {
         characters,
-        defaultChatModel,
-        defaultDirectorModel,
         defaultAutoGenerationModel,
         createSituationRoom,
         updateSituation,
@@ -1545,17 +1139,12 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
 
     const isEditing = !!situation;
     const sortedCharacters = useMemo(() => [...characters].sort((a, b) => b.updatedAt - a.updatedAt), [characters]);
-    const initial = buildInitialState(situation, room, defaultDirectorModel);
+    const initial = buildInitialState(situation, room);
     const initialDraftRef = useRef(initial);
     const [name, setName] = useState(initial.name);
     const [backgroundImage, setBackgroundImage] = useState(initial.backgroundImage);
     const [situationPrompt, setSituationPrompt] = useState(initial.situationPrompt);
     const [characterCommonRules, setCharacterCommonRules] = useState(initial.characterCommonRules);
-    const { connections } = useAiConnections();
-    const [directorModel, setDirectorModel] = useState<ModelRef | undefined>(initial.directorModel);
-    const [directorEngine, setDirectorEngine] = useState<'llm' | 'typesafe'>(initial.directorEngine);
-    const [continueThreshold, setContinueThreshold] = useState<number>(initial.continueThreshold);
-    const [protagonistThreshold, setProtagonistThreshold] = useState<number>(initial.protagonistThreshold);
     const [maxAutoTurns, setMaxAutoTurns] = useState(initial.maxAutoTurns);
     const [maxHistory, setMaxHistory] = useState(initial.maxHistory);
     const [memoryReadOnly, setMemoryReadOnly] = useState(initial.memoryReadOnly);
@@ -1587,17 +1176,10 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
     const costumeMenuCharacter = costumeMenu
         ? characters.find((character) => character.id === costumeMenu.characterId) ?? null
         : null;
-    const defaultJevModel = useMemo<ModelRef>(() => {
-        if (isJevModelRef(defaultDirectorModel)) return defaultDirectorModel;
-        const usable = (kind: 'typesafe' | 'openrouter') => connections.find(
-            (connection) => connection.kind === kind && connection.apiKey.configured,
-        )?.id;
-        return {
-            connectionId: usable('typesafe') ?? usable('openrouter') ?? 'typesafe',
-            model: 'jev-latest',
-        };
-    }, [connections, defaultDirectorModel]);
-    const parsedMaxTurns = Math.max(1, Math.min(10, Math.round(Number(maxAutoTurns) || 3)));
+    const parsedMaxTurns = Math.max(
+        MIN_SITUATION_MAX_TURNS,
+        Math.min(MAX_SITUATION_MAX_TURNS, Math.round(Number(maxAutoTurns) || DEFAULT_SITUATION_MAX_TURNS)),
+    );
     const effectiveMaxTurns = actorCount <= 1 ? 1 : parsedMaxTurns;
     const parsedMaxHistory = maxHistory ? Math.max(1, Math.min(100, Math.round(Number(maxHistory)))) : undefined;
     const participantNames = useMemo(() => [
@@ -1792,7 +1374,6 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                 characterId,
                 ...(meta?.costumeName ? { costumeName: meta.costumeName } : {}),
                 ...(meta?.rolePrompt ? { rolePrompt: meta.rolePrompt } : {}),
-                ...(meta?.directorDescription ? { directorDescription: meta.directorDescription } : {}),
             };
         }),
         ...validTemporaryActors.map((actor) => ({
@@ -1802,19 +1383,11 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
             systemPrompt: actor.systemPrompt.trim(),
             ...(actor.speechStyle.trim() ? { speechStyle: actor.speechStyle.trim() } : {}),
             ...(actor.userConstraints.trim() ? { userConstraints: actor.userConstraints.trim() } : {}),
-            model: actor.model?.model.trim() ? actor.model : defaultChatModel,
             ...(actor.icon ? { icon: actor.icon } : {}),
             ...(actor.expressions.length > 0 ? { expressions: actor.expressions } : {}),
             ...(actor.costumes.length > 0 ? { costumes: actor.costumes } : {}),
-            ...(actor.temperature !== null ? { temperature: actor.temperature } : {}),
-            ...(actor.topP !== null ? { topP: actor.topP } : {}),
-            ...(actor.topK !== null ? { topK: actor.topK } : {}),
-            ...(actor.frequencyPenalty !== null ? { frequencyPenalty: actor.frequencyPenalty } : {}),
-            ...(actor.presencePenalty !== null ? { presencePenalty: actor.presencePenalty } : {}),
-            ...(actor.repetitionPenalty !== null ? { repetitionPenalty: actor.repetitionPenalty } : {}),
-            ...(actor.reasoningEffort ? { reasoningEffort: actor.reasoningEffort } : {}),
         })),
-    ], [characterActorMeta, defaultChatModel, selectedCharacterIds, validTemporaryActors]);
+    ], [characterActorMeta, selectedCharacterIds, validTemporaryActors]);
 
     const saveAndClose = useCallback(() => {
         if (isEditing) {
@@ -1823,10 +1396,6 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                 backgroundImage,
                 situationPrompt,
                 characterCommonRules,
-                directorModel,
-                directorEngine,
-                continueThreshold,
-                protagonistThreshold,
                 maxAutoTurns,
                 maxHistory,
                 memoryReadOnly,
@@ -1841,19 +1410,6 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
             }
         }
 
-        const resolvedDirectorModel = directorModel?.model.trim()
-            ? directorModel
-            : directorEngine === 'typesafe' ? defaultJevModel : defaultDirectorModel;
-        // Jevモデルはdecisions APIでしか動かないため、モデル側からエンジンを推論する。
-        const typesafeDirector = directorEngine === 'typesafe' || isJevModelRef(resolvedDirectorModel);
-        const director: SituationDirector = {
-            enabled: true,
-            model: resolvedDirectorModel,
-            ...(situation?.director?.systemPrompt?.trim() ? { systemPrompt: situation.director.systemPrompt.trim() } : {}),
-            maxAutoTurns: effectiveMaxTurns,
-            stopPolicy: situation?.director?.stopPolicy === 'after-one' ? 'after-one' : 'max-turns',
-            ...(typesafeDirector ? { engine: 'typesafe' as const, continueThreshold, protagonistThreshold } : {}),
-        };
         const actors = buildActors();
         const effectiveActors = actors.length > 0 ? actors : situation?.actors ?? [];
         const validActorIds = new Set(effectiveActors.map((actor) => actor.id));
@@ -1876,7 +1432,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                 characterCommonRules: characterCommonRules.trim(),
                 priorMessages: priorMessagesForSave,
                 actors,
-                director,
+                maxTurns: effectiveMaxTurns,
                 memoryMode: memoryReadOnly ? 'readOnly' : 'off',
                 maxHistory: parsedMaxHistory,
             });
@@ -1891,7 +1447,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                 characterCommonRules: characterCommonRules.trim(),
                 priorMessages: priorMessagesForSave,
                 actors,
-                director,
+                maxTurns: effectiveMaxTurns,
                 memoryMode: memoryReadOnly ? 'readOnly' : 'off',
                 maxHistory: parsedMaxHistory,
             });
@@ -1899,7 +1455,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
         }
 
         onClose();
-    }, [actorCount, actorOptions, backgroundImage, buildActors, characterActorMeta, characterCommonRules, continueThreshold, createSituationRoom, defaultDirectorModel, defaultJevModel, directorEngine, directorModel, effectiveMaxTurns, isEditing, maxAutoTurns, maxHistory, memoryReadOnly, name, onClose, onCreated, parsedMaxHistory, priorMessages, protagonistThreshold, room, selectedCharacterIds, situation, situationPrompt, temporaryActors, updateRoomSettings, updateSituation]);
+    }, [actorCount, actorOptions, backgroundImage, buildActors, characterActorMeta, characterCommonRules, createSituationRoom, effectiveMaxTurns, isEditing, maxAutoTurns, maxHistory, memoryReadOnly, name, onClose, onCreated, parsedMaxHistory, priorMessages, room, selectedCharacterIds, situation, situationPrompt, temporaryActors, updateRoomSettings, updateSituation]);
 
     const modalRef = useRef<HTMLDivElement>(null);
     useModalKeyboard({
@@ -2002,7 +1558,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                             value={characterCommonRules}
                             onChange={(e) => setCharacterCommonRules(e.target.value)}
                             rows={4}
-                            placeholder="参加キャラクター全員に適用するルール（指揮役には渡されません）"
+                            placeholder="参加キャラクター全員に適用するルール"
                             style={{ ...fieldStyle, resize: 'vertical', minHeight: 96 }}
                         />
                     </div>
@@ -2485,54 +2041,6 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                                     <MaxAutoTurnsSlider value={parsedMaxTurns} onChange={setMaxAutoTurns} />
                                 )}
                                 <MaxHistorySlider value={maxHistory} onChange={setMaxHistory} />
-                                <div className="global-settings-selector-row">
-                                    <label style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>指揮役モデル</label>
-                                    <div className="global-settings-selector-control global-settings-model-selector-control">
-                                        <ModelSelector
-                                            value={directorModel ?? { connectionId: DEFAULT_CONNECTION_ID, model: '' }}
-                                            onChange={setDirectorModel}
-                                            outputModality={directorEngine === 'typesafe' ? 'decisions' : 'text'}
-                                            placeholder={directorEngine === 'typesafe'
-                                                ? `例: ${defaultJevModel.model}`
-                                                : `例: ${defaultDirectorModel.model}`}
-                                        />
-                                    </div>
-                                </div>
-                                <div className="global-settings-selector-row">
-                                    <label style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>指揮エンジン</label>
-                                    <div className="global-settings-selector-control global-settings-model-selector-control">
-                                        <OptionSelector
-                                            value={directorEngine}
-                                            onChange={(engine) => {
-                                                setDirectorEngine(engine as 'llm' | 'typesafe');
-                                                // The two engines draw from disjoint model lists; a
-                                                // leftover ref would be sent to the wrong API.
-                                                setDirectorModel(undefined);
-                                            }}
-                                            ariaLabel="指揮エンジン"
-                                            options={[
-                                                { value: 'llm', label: 'LLM' },
-                                                { value: 'typesafe', label: 'Decision' },
-                                            ]}
-                                        />
-                                    </div>
-                                </div>
-                                {directorEngine === 'typesafe' && (
-                                    <>
-                                        <ThresholdSlider
-                                            label="会話継続のしきい値"
-                                            inputId="situation-continue-threshold"
-                                            value={continueThreshold}
-                                            onChange={setContinueThreshold}
-                                        />
-                                        <ThresholdSlider
-                                            label="ユーザーに返す最低確率"
-                                            inputId="situation-protagonist-threshold"
-                                            value={protagonistThreshold}
-                                            onChange={setProtagonistThreshold}
-                                        />
-                                    </>
-                                )}
                             </div>
                         </section>
                     )}

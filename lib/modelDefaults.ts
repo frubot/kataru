@@ -40,7 +40,6 @@ export const DEFAULT_CONNECTION_ID = 'openrouter';
 
 export const DEFAULT_SUMMARY_MODEL = 'google/gemma-4-31b-it';
 export const DEFAULT_CHAT_MODEL = 'z-ai/glm-5.2';
-export const DEFAULT_DIRECTOR_MODEL = 'deepseek/deepseek-v4-flash-0731';
 export const DEFAULT_AUTO_GENERATION_MODEL = 'z-ai/glm-5.3-flash';
 export const DEFAULT_TITLE_GENERATION_MODEL = 'google/gemma-4-31b-it';
 export const DEFAULT_REPLY_SUGGESTION_MODEL = 'deepseek/deepseek-v4-flash-0731';
@@ -54,7 +53,6 @@ export const DEFAULT_ANTHROPIC_TEXT_MODEL = 'claude-sonnet-4-6';
 export interface ModelDefaults {
     summaryModel: ModelRef;
     defaultChatModel: ModelRef;
-    defaultDirectorModel: ModelRef;
     defaultAutoGenerationModel: ModelRef;
     titleGenerationModel: ModelRef;
     replySuggestionModel: ModelRef;
@@ -70,7 +68,6 @@ export type ModelRoleKey = keyof ModelDefaults;
 export const MODEL_DEFAULT_FIELDS: readonly ModelRoleKey[] = [
     'summaryModel',
     'defaultChatModel',
-    'defaultDirectorModel',
     'defaultAutoGenerationModel',
     'titleGenerationModel',
     'replySuggestionModel',
@@ -88,7 +85,6 @@ function defaultModelRef(model: string): ModelRef {
 export const DEFAULT_MODEL_DEFAULTS: ModelDefaults = {
     summaryModel: defaultModelRef(DEFAULT_SUMMARY_MODEL),
     defaultChatModel: defaultModelRef(DEFAULT_CHAT_MODEL),
-    defaultDirectorModel: defaultModelRef(DEFAULT_DIRECTOR_MODEL),
     defaultAutoGenerationModel: defaultModelRef(DEFAULT_AUTO_GENERATION_MODEL),
     titleGenerationModel: defaultModelRef(DEFAULT_TITLE_GENERATION_MODEL),
     replySuggestionModel: defaultModelRef(DEFAULT_REPLY_SUGGESTION_MODEL),
@@ -191,7 +187,6 @@ export function normalizeModelDefaults(
     return {
         summaryModel: normalizeModelRef(record.summaryModel, fallback.summaryModel),
         defaultChatModel: normalizeModelRef(record.defaultChatModel, fallback.defaultChatModel),
-        defaultDirectorModel: normalizeModelRef(record.defaultDirectorModel, fallback.defaultDirectorModel),
         defaultAutoGenerationModel: normalizeModelRef(record.defaultAutoGenerationModel, fallback.defaultAutoGenerationModel),
         titleGenerationModel: normalizeModelRef(record.titleGenerationModel, fallback.titleGenerationModel),
         replySuggestionModel: normalizeModelRef(record.replySuggestionModel, fallback.replySuggestionModel),
@@ -220,7 +215,6 @@ type RoleCapability = 'text' | 'image' | 'embeddings' | 'decisions';
 const ROLE_CAPABILITIES: Record<ModelRoleKey, RoleCapability> = {
     summaryModel: 'text',
     defaultChatModel: 'text',
-    defaultDirectorModel: 'text',
     defaultAutoGenerationModel: 'text',
     titleGenerationModel: 'text',
     replySuggestionModel: 'text',

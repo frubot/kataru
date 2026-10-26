@@ -10,7 +10,7 @@ import {
 } from '@/lib/store';
 import type { MemoryRecord, MessageAttachment, SituationPriorMessage } from '@/lib/store';
 import { capMessageAttachmentData, readChatAttachmentFiles } from '@/lib/chatAttachments';
-import { serializeModelRef, type ModelRef, type ReasoningEffort } from '@/lib/modelDefaults';
+import { serializeModelRef } from '@/lib/modelDefaults';
 import {
     ChatGenerationJobError,
     getChatErrorDebugInfo,
@@ -119,16 +119,8 @@ type ConversationCharacter = {
     speechStyle?: string;
     protagonistPrompt?: string;
     userConstraints?: string;
-    model: ModelRef;
     maxCharacters?: number;
     maxHistory?: number;
-    temperature?: number;
-    topP?: number;
-    topK?: number;
-    frequencyPenalty?: number;
-    presencePenalty?: number;
-    repetitionPenalty?: number;
-    reasoningEffort?: ReasoningEffort;
     enableMemory?: boolean;
     expressions?: { name: string }[];
     motions?: { name: string }[];
@@ -144,7 +136,6 @@ type ConversationParticipant = ConversationCharacter & {
     actorType: SituationParticipant['actorType'];
     sourceCharacterId?: string;
     rolePrompt?: string;
-    directorDescription?: string;
 };
 
 function toConversationCharacter(character: Character | null): ConversationCharacter | null {
@@ -156,16 +147,8 @@ function toConversationCharacter(character: Character | null): ConversationChara
         speechStyle: character.speechStyle,
         protagonistPrompt: character.protagonistPrompt,
         userConstraints: character.userConstraints,
-        model: serializeModelRef(character.model),
         maxCharacters: character.maxCharacters,
         maxHistory: character.maxHistory,
-        temperature: character.temperature,
-        topP: character.topP,
-        topK: character.topK,
-        frequencyPenalty: character.frequencyPenalty,
-        presencePenalty: character.presencePenalty,
-        repetitionPenalty: character.repetitionPenalty,
-        reasoningEffort: character.reasoningEffort,
         enableMemory: character.enableMemory,
         // Resolved through the default costume so a VRM avatar exposes its mapped names.
         expressions: getVisualNovelExpressionNames(character).map((name) => ({ name })),
@@ -186,7 +169,6 @@ function toConversationParticipant(participant: SituationParticipant): Conversat
         actorType: participant.actorType,
         sourceCharacterId: participant.sourceCharacterId,
         rolePrompt: participant.rolePrompt,
-        directorDescription: participant.directorDescription,
     };
 }
 
@@ -198,19 +180,7 @@ function toConversationSituation(situation: Situation | null | undefined) {
         situationPrompt: situation.situationPrompt,
         characterCommonRules: situation.characterCommonRules,
         priorMessages: situation.priorMessages,
-        director: {
-            model: serializeModelRef(situation.director.model),
-            systemPrompt: situation.director.systemPrompt,
-            maxAutoTurns: situation.director.maxAutoTurns,
-            stopPolicy: situation.director.stopPolicy,
-            ...(situation.director.engine ? { engine: situation.director.engine } : {}),
-            ...(situation.director.continueThreshold !== undefined
-                ? { continueThreshold: situation.director.continueThreshold }
-                : {}),
-            ...(situation.director.protagonistThreshold !== undefined
-                ? { protagonistThreshold: situation.director.protagonistThreshold }
-                : {}),
-        },
+        maxTurns: situation.maxTurns,
         memoryMode: situation.memoryMode,
         maxHistory: situation.maxHistory,
     };
@@ -355,6 +325,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         memoryExtractionModel,
         memoryEmbeddingModel,
         reasoningEffort,
+        chatSampling,
         generateTitleOnFirstReply,
         titleGenerationModel,
         replySuggestionsEnabled,
@@ -1126,6 +1097,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     memoryExtractionModel: serializeModelRef(memoryExtractionModel),
                     memoryEmbeddingModel: serializeModelRef(memoryEmbeddingModel),
                     reasoningEffort,
+                    chatSampling,
                     aiApiConfig: getAiApiConfig(),
                     streamingPreview: true,
                     generationMode,

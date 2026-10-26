@@ -95,19 +95,6 @@ pub(crate) fn model_string(value: &Value, field: &str) -> String {
         .unwrap_or_default()
 }
 
-/// Reads an entity-level connection override (`connectionId`, legacy
-/// `aiApiType`, or the entity's own model selection object).
-pub(crate) fn entity_connection_id(entity: &Value) -> Option<String> {
-    optional_trimmed_string(entity, "connectionId")
-        .or_else(|| optional_trimmed_string(entity, "aiApiType"))
-        .or_else(|| {
-            entity
-                .get("model")
-                .and_then(model_selection_parts)
-                .and_then(|(_, connection_id)| connection_id)
-        })
-}
-
 /// Per-role connection override carried on `aiApiConfig.roleApiTypes`.
 /// Keys are the `modelDefaults` field names (e.g. `summaryModel`) and values
 /// are connection ids.
@@ -376,24 +363,6 @@ mod tests {
         assert_eq!(model_string(&input, "model"), "claude-sonnet-4-6");
         assert_eq!(model_string(&input, "plain"), "plain-model");
         assert_eq!(model_string(&input, "missing"), "");
-    }
-
-    #[test]
-    fn entity_connection_id_accepts_new_and_legacy_fields() {
-        assert_eq!(
-            entity_connection_id(&json!({"connectionId": "cx_1"})).as_deref(),
-            Some("cx_1")
-        );
-        assert_eq!(
-            entity_connection_id(&json!({"aiApiType": "anthropic"})).as_deref(),
-            Some("anthropic")
-        );
-        assert_eq!(
-            entity_connection_id(&json!({"model": {"model": "m", "connectionId": "cx_2"}}))
-                .as_deref(),
-            Some("cx_2")
-        );
-        assert_eq!(entity_connection_id(&json!({"model": "m"})), None);
     }
 
     #[test]

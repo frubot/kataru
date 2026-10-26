@@ -8,10 +8,12 @@ import type { ModelOutputModality } from '@/lib/availableModels';
 import { createFullBackup, downloadJson, parseFullBackup, reassignIds, type ParsedBackup } from '@/lib/importExport';
 import { resizeToMaxEdgeAsJpeg } from '@/lib/imageUtils';
 import { isIrodoriTtsModel } from '@/lib/tts';
+import { CHAT_SAMPLING_KEYS } from '@/lib/chatSampling';
 import StatisticsPanel from '@/components/StatisticsPanel';
 import AiConnectionSettings from '@/components/AiConnectionSettings';
 import ModelSelector from '@/components/ModelSelector';
 import OptionSelector from '@/components/OptionSelector';
+import ParamSlider from '@/components/ParamSlider';
 import TtsVoiceField from '@/components/TtsVoiceField';
 import TtsSpeedSlider, { formatTtsSpeed } from '@/components/TtsSpeedSlider';
 import TtsVolumeSlider, { formatTtsVolume } from '@/components/TtsVolumeSlider';
@@ -341,9 +343,6 @@ interface RoleModelFieldProps {
     trailing?: ReactNode;
 }
 
-/** 指揮役は通常のLLMとJev（decisions）の両方を取りうる。 */
-const DIRECTOR_OUTPUT_MODALITIES: readonly ModelOutputModality[] = ['text', 'decisions'];
-
 function connectionSupportsCapability(
     kind: AiConnectionKind | null,
     connection: AiConnectionStatus | null,
@@ -417,7 +416,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         userName, setUserName,
         summaryModel, setSummaryModel,
         defaultChatModel, setDefaultChatModel,
-        defaultDirectorModel, setDefaultDirectorModel,
         defaultAutoGenerationModel, setDefaultAutoGenerationModel,
         titleGenerationModel, setTitleGenerationModel,
         replySuggestionModel, setReplySuggestionModel,
@@ -443,6 +441,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         ttsNarratorVoice, setTtsNarratorVoice,
         resetModelDefaults,
         reasoningEffort, setReasoningEffort,
+        chatSampling, setChatSampling,
         conversationCompressionEnabled, setConversationCompressionEnabled,
         generateTitleOnFirstReply, setGenerateTitleOnFirstReply,
         replySuggestionsEnabled, setReplySuggestionsEnabled,
@@ -473,7 +472,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         const current = {
             summaryModel,
             defaultChatModel,
-            defaultDirectorModel,
             defaultAutoGenerationModel,
             titleGenerationModel,
             replySuggestionModel,
@@ -1114,19 +1112,39 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                             onChange={(value) => setReasoningEffort(isReasoningEffort(value) ? value : 'none')}
                                             options={REASONING_EFFORT_OPTIONS}
                                             ariaLabel="会話の推論レベル"
-                                            title="推論レベル: OpenRouterの対応モデルのみ有効です。キャラクターごとに上書きできます。"
+                                            title="推論レベル: OpenRouterの対応モデルのみ有効です。"
                                             style={{ flex: '0 1 auto', minWidth: 0 }}
                                         />
                                     )}
                                 />
-                                <RoleModelField
-                                    role="defaultDirectorModel"
-                                    label="シチュエーション管理"
-                                    inputId="default-director-model-input"
-                                    value={defaultDirectorModel}
-                                    onChange={setDefaultDirectorModel}
-                                    outputModality={DIRECTOR_OUTPUT_MODALITIES}
-                                />
+                                <details className="global-settings-sampling">
+                                    <summary style={{
+                                        cursor: 'pointer',
+                                        fontSize: '0.8125rem',
+                                        fontWeight: 600,
+                                        color: 'var(--text-secondary)',
+                                    }}>
+                                        会話の生成パラメータ
+                                    </summary>
+                                    <p style={{ margin: '0.5rem 0 0.75rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                        1対1の会話とシチュエーションの両方に使います。未設定の項目はプロバイダの既定値に従います。
+                                    </p>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                                        {CHAT_SAMPLING_KEYS.map((key) => (
+                                            <ParamSlider
+                                                key={key}
+                                                paramKey={key}
+                                                value={chatSampling[key] ?? null}
+                                                onChange={(value) => {
+                                                    const next = { ...chatSampling };
+                                                    if (value === null) delete next[key];
+                                                    else next[key] = value;
+                                                    setChatSampling(next);
+                                                }}
+                                            />
+                                        ))}
+                                    </div>
+                                </details>
                                 <RoleModelField
                                     role="defaultAutoGenerationModel"
                                     label="設定の自動生成"

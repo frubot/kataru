@@ -76,7 +76,6 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
         defaultChatModel,
         defaultAutoGenerationModel,
         setDefaultChatModel,
-        setDefaultDirectorModel,
         setDefaultAutoGenerationModel,
         setTitleGenerationModel,
         setReplySuggestionModel,
@@ -289,7 +288,6 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
         if (!connection || !model) return;
         const modelRef = { connectionId: connection.id, model };
         setDefaultChatModel(modelRef);
-        setDefaultDirectorModel(modelRef);
         setDefaultAutoGenerationModel(modelRef);
         setTitleGenerationModel(modelRef);
         setReplySuggestionModel(modelRef);
@@ -390,7 +388,7 @@ export default function FirstRunGuide({ onOpenSidebar, onComplete, onSkip }: Fir
     const startConversation = () => {
         const trimmedName = name.trim();
         if (!trimmedName) return;
-        const characterId = createCharacter(trimmedName, description.trim(), defaultChatModel, {
+        const characterId = createCharacter(trimmedName, description.trim(), {
             speechStyle: speechStyle.trim() || undefined,
             protagonistPrompt: relationship.trim() || undefined,
         });

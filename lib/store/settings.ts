@@ -7,6 +7,7 @@ import {
     type ReasoningEffort,
 } from '../aiApi';
 import { getAiConnections } from '../aiConnections';
+import { normalizeChatSampling } from '../chatSampling';
 import * as db from '../db';
 import { generateId } from '../id';
 import {
@@ -41,12 +42,6 @@ export const DEFAULT_VN_TYPING_SPEED: VnTypingSpeed = 'default';
 export const DEFAULT_USER_NAME = 'ユーザー';
 export const DEFAULT_CHARACTER_MAX_CHARACTERS = 512;
 export const DEFAULT_CHARACTER_MAX_HISTORY: number | undefined = 7;
-export const DEFAULT_CHARACTER_TEMPERATURE = 1.0;
-export const DEFAULT_CHARACTER_TOP_P: number | undefined = 0.95;
-export const DEFAULT_CHARACTER_TOP_K = 0;
-export const DEFAULT_CHARACTER_FREQUENCY_PENALTY = 0;
-export const DEFAULT_CHARACTER_PRESENCE_PENALTY = 0;
-export const DEFAULT_CHARACTER_REPETITION_PENALTY = 1;
 export const DEFAULT_CONVERSATION_COMPRESSION_ENABLED = true;
 export const DEFAULT_MEMORY_GATE_ENABLED = true;
 export const DEFAULT_TTS_ENABLED = true;
@@ -173,7 +168,6 @@ export function modelDefaultsFromState(state: ModelDefaults): ModelDefaults {
     return normalizeModelDefaults({
         summaryModel: state.summaryModel,
         defaultChatModel: state.defaultChatModel,
-        defaultDirectorModel: state.defaultDirectorModel,
         defaultAutoGenerationModel: state.defaultAutoGenerationModel,
         titleGenerationModel: state.titleGenerationModel,
         replySuggestionModel: state.replySuggestionModel,
@@ -236,7 +230,6 @@ type SettingsSlice = Pick<
     | 'keyboardShortcuts'
     | 'summaryModel'
     | 'defaultChatModel'
-    | 'defaultDirectorModel'
     | 'defaultAutoGenerationModel'
     | 'titleGenerationModel'
     | 'replySuggestionModel'
@@ -249,6 +242,7 @@ type SettingsSlice = Pick<
     | 'memoryGateShadowMode'
     | 'conversationCompressionEnabled'
     | 'reasoningEffort'
+    | 'chatSampling'
     | 'generateTitleOnFirstReply'
     | 'replySuggestionsEnabled'
     | 'ttsEnabled'
@@ -284,7 +278,6 @@ type SettingsSlice = Pick<
     | 'refreshModelDefaults'
     | 'setSummaryModel'
     | 'setDefaultChatModel'
-    | 'setDefaultDirectorModel'
     | 'setDefaultAutoGenerationModel'
     | 'setTitleGenerationModel'
     | 'setReplySuggestionModel'
@@ -297,6 +290,7 @@ type SettingsSlice = Pick<
     | 'setMemoryGateShadowMode'
     | 'setConversationCompressionEnabled'
     | 'setReasoningEffort'
+    | 'setChatSampling'
     | 'setGenerateTitleOnFirstReply'
     | 'setReplySuggestionsEnabled'
     | 'setTtsEnabled'
@@ -335,6 +329,7 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         memoryGateShadowMode: false,
         conversationCompressionEnabled: DEFAULT_CONVERSATION_COMPRESSION_ENABLED,
         reasoningEffort: DEFAULT_REASONING_EFFORT,
+        chatSampling: {},
         generateTitleOnFirstReply: false,
         replySuggestionsEnabled: false,
         ttsEnabled: DEFAULT_TTS_ENABLED,
@@ -452,9 +447,6 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         setDefaultChatModel: (defaultChatModel) => {
             updateModelDefault(set, get, 'defaultChatModel', defaultChatModel);
         },
-        setDefaultDirectorModel: (defaultDirectorModel) => {
-            updateModelDefault(set, get, 'defaultDirectorModel', defaultDirectorModel);
-        },
         setDefaultAutoGenerationModel: (defaultAutoGenerationModel) => {
             updateModelDefault(set, get, 'defaultAutoGenerationModel', defaultAutoGenerationModel);
         },
@@ -495,6 +487,12 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
             const reasoningEffort: ReasoningEffort = isReasoningEffort(effort) ? effort : DEFAULT_REASONING_EFFORT;
             set({ reasoningEffort });
             fire(db.setMeta('reasoningEffort', reasoningEffort));
+        },
+
+        setChatSampling: (sampling) => {
+            const chatSampling = normalizeChatSampling(sampling);
+            set({ chatSampling });
+            fire(db.setMeta('chatSampling', chatSampling));
         },
         setGenerateTitleOnFirstReply: (generateTitleOnFirstReply) => {
             set({ generateTitleOnFirstReply });

@@ -1,4 +1,4 @@
-import { isAiConnectionKind, type ModelRef } from '../aiApi';
+import { isAiConnectionKind } from '../aiApi';
 import { createAiConnection, getAiConnections } from '../aiConnections';
 import * as db from '../db';
 import { clearAllPendingTurnRestores } from '../pendingTurnRestore';
@@ -13,17 +13,6 @@ type BackupSlice = Pick<AppState, 'mergeBackup' | 'restoreBackup'>;
 // 既存接続への対応付け・非秘密情報のみでの再作成を行い、IDを張り替える。
 async function remapBackupConnectionIds(data: ParsedBackup, get: StoreGet): Promise<void> {
     const referencedIds = new Set<string>();
-    for (const character of data.characters) {
-        referencedIds.add(character.model.connectionId);
-    }
-    for (const group of data.groups) {
-        referencedIds.add(group.director.model.connectionId);
-        for (const actor of group.actors) {
-            if (actor.type === 'temporary' && actor.model) {
-                referencedIds.add(actor.model.connectionId);
-            }
-        }
-    }
     for (const memory of data.memories) {
         const embeddingConnectionId = (memory as { embeddingConnectionId?: string }).embeddingConnectionId;
         if (embeddingConnectionId) referencedIds.add(embeddingConnectionId);
@@ -87,21 +76,6 @@ async function remapBackupConnectionIds(data: ParsedBackup, get: StoreGet): Prom
         remap.set(oldId, newId ?? fallbackId);
     }
 
-    const remapRef = (ref: ModelRef): ModelRef => {
-        const mapped = remap.get(ref.connectionId);
-        return mapped ? { ...ref, connectionId: mapped } : ref;
-    };
-    for (const character of data.characters) {
-        character.model = remapRef(character.model);
-    }
-    for (const group of data.groups) {
-        group.director = { ...group.director, model: remapRef(group.director.model) };
-        group.actors = group.actors.map((actor) => (
-            actor.type === 'temporary' && actor.model
-                ? { ...actor, model: remapRef(actor.model) }
-                : actor
-        ));
-    }
     for (const memory of data.memories) {
         const record = memory as { embeddingConnectionId?: string };
         const mapped = record.embeddingConnectionId ? remap.get(record.embeddingConnectionId) : undefined;
@@ -113,13 +87,11 @@ export function createBackupSlice(set: StoreSet, get: StoreGet): BackupSlice {
     return {
         mergeBackup: async (data) => {
             await remapBackupConnectionIds(data, get);
-            const characters = normalizeCharacters(data.characters, get().defaultChatModel);
+            const characters = normalizeCharacters(data.characters);
             const normalizedGroups = normalizeGroupData({
                 characters,
                 groups: data.groups,
                 rooms: data.rooms,
-                fallbackModel: get().defaultChatModel,
-                directorFallbackModel: get().defaultDirectorModel,
             });
             const normalizedData: ParsedBackup = {
                 ...data,
@@ -164,13 +136,11 @@ export function createBackupSlice(set: StoreSet, get: StoreGet): BackupSlice {
 
         restoreBackup: async (data) => {
             await remapBackupConnectionIds(data, get);
-            const characters = normalizeCharacters(data.characters, get().defaultChatModel);
+            const characters = normalizeCharacters(data.characters);
             const normalizedGroups = normalizeGroupData({
                 characters,
                 groups: data.groups,
                 rooms: data.rooms,
-                fallbackModel: get().defaultChatModel,
-                directorFallbackModel: get().defaultDirectorModel,
             });
             const normalizedData: ParsedBackup = {
                 ...data,

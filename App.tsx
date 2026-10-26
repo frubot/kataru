@@ -90,7 +90,6 @@ export default function Home() {
         currentRoomId,
         hydrated,
         hydrate,
-        defaultChatModel,
         onboardingVersion,
         completeOnboarding,
     } = useStore();
@@ -166,7 +165,7 @@ export default function Home() {
         ? characters.find((c) => c.id === currentRoom.characterId) || null
         : null;
     const situationParticipants = isSituation && currentSituation
-        ? resolveSituationParticipants(currentSituation, characters, defaultChatModel)
+        ? resolveSituationParticipants(currentSituation, characters)
         : null;
     const shouldShowFirstRunGuide = showOnboardingAgain || (
         onboardingVersion < CURRENT_ONBOARDING_VERSION &&

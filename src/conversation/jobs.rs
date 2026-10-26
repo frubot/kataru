@@ -372,6 +372,31 @@ impl ConversationJobs {
         job.updated_at = now_millis();
     }
 
+    /// シチュエーションの一括生成用。受信途中の出力から組み立てた発言の列で
+    /// プレビュー全体を置き換える。ロックが取れなければ次の更新に任せる。
+    pub(crate) fn replace_preview_turns(&self, job_id: &str, turns: Vec<Value>) {
+        if turns.is_empty() {
+            return;
+        }
+        let Ok(mut jobs) = self.inner.try_lock() else {
+            return;
+        };
+        if let Some(job) = jobs.get_mut(job_id) {
+            apply_preview_turns(job, turns);
+        }
+    }
+
+    /// 一括生成の確定版。途中の更新が取りこぼされていても、必ず最終形にそろえる。
+    pub(crate) async fn finalize_preview_turns(&self, job_id: &str, turns: Vec<Value>) {
+        if turns.is_empty() {
+            return;
+        }
+        let mut jobs = self.inner.lock().await;
+        if let Some(job) = jobs.get_mut(job_id) {
+            apply_preview_turns(job, turns);
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn finalize_preview(
         &self,
@@ -552,6 +577,29 @@ impl ConversationJobs {
             }
         }
     }
+}
+
+/// 発言の列をプレビューへ反映する。トップレベルの項目は最後の発言に合わせる。
+fn apply_preview_turns(job: &mut ConversationJob, turns: Vec<Value>) {
+    if job.status != JobStatus::Running {
+        return;
+    }
+    let Some(last) = turns.last() else {
+        return;
+    };
+    let mut preview = json!({
+        "content": last.get("content").cloned().unwrap_or(Value::String(String::new())),
+        "characterId": last.get("characterId").cloned().unwrap_or(Value::Null),
+        "characterName": last.get("characterName").cloned().unwrap_or(Value::Null),
+    });
+    for key in ["formattedMessages", "expression", "motion"] {
+        if let Some(value) = last.get(key) {
+            preview[key] = value.clone();
+        }
+    }
+    preview["turns"] = Value::Array(turns);
+    job.preview = Some(preview);
+    job.updated_at = now_millis();
 }
 
 fn recoverable_snapshots(jobs: &HashMap<String, ConversationJob>) -> Vec<Value> {

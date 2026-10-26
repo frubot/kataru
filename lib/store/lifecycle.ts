@@ -22,7 +22,6 @@ import {
     DEFAULT_ANTHROPIC_TEXT_MODEL,
     DEFAULT_AUTO_GENERATION_MODEL,
     DEFAULT_CHAT_MODEL,
-    DEFAULT_DIRECTOR_MODEL,
     DEFAULT_EXPRESSION_DETECTION_MODEL,
     DEFAULT_IMAGE_MODEL,
     DEFAULT_MEMORY_EMBEDDING_MODEL,
@@ -35,6 +34,7 @@ import {
     normalizeModelDefaults,
     rebaseModelDefaults,
 } from '../modelDefaults';
+import { normalizeChatSampling } from '../chatSampling';
 import { normalizeCharacters } from './characters';
 import { fire, nextRoomLoadSequence, persistGroup, toStoredRoom } from './persistence';
 import {
@@ -93,7 +93,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 const LEGACY_FLAT_MODEL_DEFAULTS: MigratableModelDefaults = {
     summaryModel: DEFAULT_SUMMARY_MODEL,
     defaultChatModel: DEFAULT_CHAT_MODEL,
-    defaultDirectorModel: DEFAULT_DIRECTOR_MODEL,
+    defaultDirectorModel: DEFAULT_CHAT_MODEL,
     defaultAutoGenerationModel: DEFAULT_AUTO_GENERATION_MODEL,
     titleGenerationModel: DEFAULT_TITLE_GENERATION_MODEL,
     replySuggestionModel: DEFAULT_REPLY_SUGGESTION_MODEL,
@@ -134,7 +134,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
         hydrate: async () => {
             if (get().hydrated) return;
             await db.migrateLegacyDatabase();
-            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, storedChatWallpaper, storedDefaultViewMode, currentRoomId, vnTypingSpeed, storedKeyboardShortcuts, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedModelDefaults, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedRoleApiTypes, storedConversationCompressionEnabled, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion, storedTtsEnabled, storedTtsConnectionId, storedTtsModel, storedTtsVoice, storedTtsSpeed, storedTtsVolume, storedTtsAutoPlay, storedTtsActionCaption, storedTtsCaptionCfgScale, storedTtsChunkMinChars, storedTtsFirstChunkMinChars, storedTtsNarrationEnabled, storedTtsNarratorVoice, storedMemoryGateEnabled, storedMemoryGateShadowMode, storedReasoningEffort, storedUserName] = await Promise.all([
+            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, storedChatWallpaper, storedDefaultViewMode, currentRoomId, vnTypingSpeed, storedKeyboardShortcuts, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedModelDefaults, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedRoleApiTypes, storedConversationCompressionEnabled, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion, storedTtsEnabled, storedTtsConnectionId, storedTtsModel, storedTtsVoice, storedTtsSpeed, storedTtsVolume, storedTtsAutoPlay, storedTtsActionCaption, storedTtsCaptionCfgScale, storedTtsChunkMinChars, storedTtsFirstChunkMinChars, storedTtsNarrationEnabled, storedTtsNarratorVoice, storedMemoryGateEnabled, storedMemoryGateShadowMode, storedReasoningEffort, storedUserName, storedChatSampling] = await Promise.all([
                 db.getAllCharacters(),
                 db.getAllGroups(),
                 db.getAllRooms(),
@@ -192,6 +192,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 db.getMeta<boolean>('memoryGateShadowMode'),
                 db.getMeta<unknown>('reasoningEffort'),
                 db.getMeta<string>('userName'),
+                db.getMeta<unknown>('chatSampling'),
             ]);
             // Drop any previously stored client-side API key from IndexedDB.
             if (legacyOpenAiCompatibleApiKey !== undefined) {
@@ -255,7 +256,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 : DEFAULT_CHAT_MODEL;
             const legacyDefaultDirectorModel = typeof storedDefaultDirectorModel === 'string' && storedDefaultDirectorModel.trim()
                 ? storedDefaultDirectorModel.trim()
-                : legacyDefaultChatModel || DEFAULT_DIRECTOR_MODEL;
+                : legacyDefaultChatModel;
             const legacyModelDefaults: MigratableModelDefaults = {
                 summaryModel: typeof storedSummaryModel === 'string' && storedSummaryModel.trim()
                     ? storedSummaryModel.trim()
@@ -311,7 +312,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
             const effectiveModelDefaults = connections
                 ? rebaseModelDefaults(resolvedModelDefaults, connections).defaults
                 : resolvedModelDefaults;
-            const characters = normalizeCharacters(loadedCharacters, effectiveModelDefaults.defaultChatModel);
+            const characters = normalizeCharacters(loadedCharacters);
             const changedCharacters = characters.filter((character, index) => character !== loadedCharacters[index]);
             if (changedCharacters.length > 0) {
                 await Promise.all(changedCharacters.map((character) => db.putCharacter(character)));
@@ -320,8 +321,6 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 characters,
                 groups: storedGroups,
                 rooms: storedRooms.map((r) => ({ ...r, messages: [] })),
-                fallbackModel: effectiveModelDefaults.defaultChatModel,
-                directorFallbackModel: effectiveModelDefaults.defaultDirectorModel,
             });
             const groups = normalized.groups;
             const rooms: Room[] = normalized.rooms;
@@ -468,6 +467,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 memoryGateShadowMode: storedMemoryGateShadowMode === true,
                 conversationCompressionEnabled: resolvedConversationCompressionEnabled,
                 reasoningEffort: resolvedReasoningEffort,
+                chatSampling: normalizeChatSampling(storedChatSampling),
                 generateTitleOnFirstReply: resolvedGenerateTitleOnFirstReply,
                 replySuggestionsEnabled: resolvedReplySuggestionsEnabled,
                 ttsEnabled: resolvedTtsEnabled,
@@ -525,6 +525,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 memoryGateShadowMode: false,
                 conversationCompressionEnabled: DEFAULT_CONVERSATION_COMPRESSION_ENABLED,
                 reasoningEffort: DEFAULT_REASONING_EFFORT,
+                chatSampling: {},
                 generateTitleOnFirstReply: false,
                 replySuggestionsEnabled: false,
                 ttsEnabled: DEFAULT_TTS_ENABLED,

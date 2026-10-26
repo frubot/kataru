@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, lazy, Suspense } from 'react';
-import { X, ChevronDown, ChevronRight, RotateCcw, User, Info, ImagePlus, Shirt, Smile } from 'lucide-react';
+import { X, ChevronDown, ChevronRight, RotateCcw, User, ImagePlus, Shirt, Smile } from 'lucide-react';
 import type { GeneratedCharacterDraft } from '@/lib/characterGeneration';
 import {
     useStore,
@@ -8,21 +8,13 @@ import {
     Expression,
     DEFAULT_CHARACTER_MAX_HISTORY,
     DEFAULT_CHARACTER_MAX_CHARACTERS,
-    DEFAULT_CHARACTER_TEMPERATURE,
-    DEFAULT_CHARACTER_TOP_P,
-    DEFAULT_CHARACTER_TOP_K,
-    DEFAULT_CHARACTER_FREQUENCY_PENALTY,
-    DEFAULT_CHARACTER_PRESENCE_PENALTY,
-    DEFAULT_CHARACTER_REPETITION_PENALTY,
 } from '@/lib/store';
-import { isReasoningEffort, modelRefsEqual, REASONING_EFFORT_OPTIONS, type ModelRef, type ReasoningEffort } from '@/lib/modelDefaults';
 import ImageGenerationModal from './ImageGenerationModal';
 import ExpressionDiffModal from './ExpressionDiffModal';
 import CostumeDiffModal from './CostumeDiffModal';
 import PromptSectionEditor from './PromptSectionEditor';
 import StoredImage from './StoredImage';
-import ModelSelector from './ModelSelector';
-import OptionSelector from './OptionSelector';
+import InfoButton from './InfoButton';
 import TtsVoiceField from './TtsVoiceField';
 import TtsSpeedSlider, { formatTtsSpeed } from './TtsSpeedSlider';
 import TtsVolumeSlider, { formatTtsVolume } from './TtsVolumeSlider';
@@ -41,11 +33,6 @@ const SPEECH_STYLE_SECTION_TITLE = '口調';
 const PROTAGONIST_PROMPT_SECTION_TITLE = '{{user}}について';
 const USER_CONSTRAINTS_SECTION_TITLE = '追加の制約';
 
-const REASONING_EFFORT_SELECT_OPTIONS = [
-    { value: '', label: '全体設定に従う' },
-    ...REASONING_EFFORT_OPTIONS,
-];
-
 interface CharacterSettingsModalProps {
     isOpen: boolean;
     onClose: () => void;
@@ -57,7 +44,6 @@ interface CharacterSettingsModalProps {
 
 function buildInitialCharacterDraft(
     character: Character | null,
-    defaultChatModel: ModelRef,
     generatedDraft?: GeneratedCharacterDraft | null,
 ) {
     return {
@@ -66,17 +52,9 @@ function buildInitialCharacterDraft(
         speechStyle: generatedDraft?.speechStyle ?? character?.speechStyle ?? '',
         protagonistPrompt: generatedDraft?.protagonistPrompt ?? character?.protagonistPrompt ?? '',
         userConstraints: character?.userConstraints ?? '',
-        model: character?.model.model.trim() ? character.model : defaultChatModel,
-        reasoningEffort: character?.reasoningEffort ?? null,
         enableMemory: character?.enableMemory ?? true,
         maxCharacters: character?.maxCharacters != null ? String(character.maxCharacters) : '',
         maxHistory: character?.maxHistory != null ? String(character.maxHistory) : '',
-        temperature: character?.temperature ?? null,
-        topP: character?.topP ?? null,
-        topK: character?.topK ?? null,
-        frequencyPenalty: character?.frequencyPenalty ?? null,
-        presencePenalty: character?.presencePenalty ?? null,
-        repetitionPenalty: character?.repetitionPenalty ?? null,
         icon: character?.icon ?? null,
         expressions: character?.expressions ?? [],
         costumes: character?.costumes ?? [],
@@ -85,25 +63,6 @@ function buildInitialCharacterDraft(
         ttsVolume: character?.tts?.volume,
     };
 }
-
-// ---- スライダーパラメータ定義 ----
-interface SliderParam {
-    label: string;
-    hint: string;
-    min: number;
-    max: number;
-    step: number;
-    defaultValue: number;
-}
-
-const SLIDER_PARAMS: Record<string, SliderParam> = {
-    temperature: { label: 'Temperature', hint: '値が高いほどランダム性が増します', min: 0, max: 2, step: 0.001, defaultValue: DEFAULT_CHARACTER_TEMPERATURE },
-    topP:        { label: 'Top P',        hint: '核サンプリングの確率閾値',          min: 0, max: 1, step: 0.001, defaultValue: DEFAULT_CHARACTER_TOP_P ?? 1.000 },
-    topK:        { label: 'Top K',        hint: '上位K個の候補からサンプリング。0で無効',         min: 0, max: 100, step: 1, defaultValue: DEFAULT_CHARACTER_TOP_K },
-    frequencyPenalty: { label: 'Frequency Penalty', hint: '出現回数に応じて同じ語句の繰り返しを抑えます。0で無効、負の値で繰り返しを促します。対応モデルのみ有効で、Anthropic APIでは使用しません。', min: -2, max: 2, step: 0.001, defaultValue: DEFAULT_CHARACTER_FREQUENCY_PENALTY },
-    presencePenalty: { label: 'Presence Penalty', hint: '一度出現した語句の再使用を抑えます。0で無効、負の値で再使用を促します。対応モデルのみ有効で、Anthropic APIでは使用しません。', min: -2, max: 2, step: 0.001, defaultValue: DEFAULT_CHARACTER_PRESENCE_PENALTY },
-    repetitionPenalty: { label: 'Repetition Penalty', hint: '1で無効、1より大きい値で繰り返しを抑え、1未満で促します。OpenRouterの対応モデルのみ有効です。', min: 0, max: 2, step: 0.001, defaultValue: DEFAULT_CHARACTER_REPETITION_PENALTY },
-};
 
 const MAX_HISTORY_SLIDER_MAX = 100;
 const DEFAULT_MAX_HISTORY_SLIDER_VALUE = DEFAULT_CHARACTER_MAX_HISTORY == null
@@ -116,218 +75,6 @@ const DEFAULT_MAX_HISTORY_LABEL = DEFAULT_CHARACTER_MAX_HISTORY == null
 const RESET_MAX_HISTORY_TITLE = DEFAULT_CHARACTER_MAX_HISTORY == null
     ? '無制限に戻す'
     : 'デフォルト値に戻す';
-
-interface InfoButtonProps {
-    text: string;
-    ariaLabel?: string;
-}
-
-function InfoButton({ text, ariaLabel = '説明を表示' }: InfoButtonProps) {
-    const [isOpen, setIsOpen] = useState(false);
-
-    return (
-        <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
-            <button
-                type="button"
-                aria-label={ariaLabel}
-                aria-expanded={isOpen}
-                title={ariaLabel}
-                onClick={(e) => {
-                    e.stopPropagation();
-                    setIsOpen((prev) => !prev);
-                }}
-                onBlur={() => setIsOpen(false)}
-                style={{
-                    width: '20px',
-                    height: '20px',
-                    borderRadius: '50%',
-                    border: '1px solid var(--border-color)',
-                    background: isOpen ? 'rgba(var(--accent-primary-rgb), 0.12)' : 'var(--bg-secondary)',
-                    color: isOpen ? 'var(--accent-primary)' : 'var(--text-muted)',
-                    cursor: 'pointer',
-                    padding: 0,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    transition: 'background 0.15s ease, color 0.15s ease, border-color 0.15s ease',
-                    flexShrink: 0,
-                }}
-            >
-                <Info size={13} />
-            </button>
-            {isOpen && (
-                <span
-                    role="tooltip"
-                    style={{
-                        position: 'absolute',
-                        top: 'calc(100% + 0.375rem)',
-                        left: 0,
-                        zIndex: 30,
-                        width: 'min(240px, 70vw)',
-                        padding: '0.625rem 0.75rem',
-                        borderRadius: '0.5rem',
-                        border: '1px solid var(--border-color)',
-                        background: 'var(--bg-primary)',
-                        color: 'var(--text-secondary)',
-                        boxShadow: '0 8px 24px rgba(0, 0, 0, 0.18)',
-                        fontSize: '0.75rem',
-                        lineHeight: 1.5,
-                        fontWeight: 400,
-                        textAlign: 'left',
-                        whiteSpace: 'normal',
-                    }}
-                >
-                    {text}
-                </span>
-            )}
-        </span>
-    );
-}
-
-// ---- スライダーコンポーネント ----
-interface ParamSliderProps {
-    paramKey: string;
-    value: number | null;
-    onChange: (v: number | null) => void;
-}
-
-function ParamSlider({ paramKey, value, onChange }: ParamSliderProps) {
-    const param = SLIDER_PARAMS[paramKey];
-    const displayValue = value ?? param.defaultValue;
-    const isCustom = value !== null;
-    const isInteger = param.step >= 1;
-    const formatValue = (v: number) => isInteger ? String(Math.round(v)) : v.toFixed(3);
-
-    const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const next = parseFloat(e.target.value);
-        onChange(isInteger ? Math.round(next) : parseFloat(next.toFixed(3)));
-    };
-
-    const handleReset = () => {
-        onChange(null);
-    };
-
-    const percent = ((displayValue - param.min) / (param.max - param.min)) * 100;
-
-    return (
-        <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.375rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
-                    <label style={{
-                        fontSize: '0.8125rem',
-                        fontWeight: 500,
-                        color: 'var(--text-secondary)',
-                    }}>
-                        {param.label}
-                    </label>
-                    <InfoButton text={param.hint} />
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <span style={{
-                        fontSize: '0.8125rem',
-                        fontWeight: 600,
-                        color: isCustom ? 'var(--accent-primary)' : 'var(--text-muted)',
-                        minWidth: '3.5rem',
-                        textAlign: 'right',
-                        fontVariantNumeric: 'tabular-nums',
-                    }}>
-                        {formatValue(displayValue)}
-                    </span>
-                    {isCustom && (
-                        <button
-                            type="button"
-                            onClick={handleReset}
-                            title="デフォルト値に戻す"
-                            style={{
-                                background: 'none',
-                                border: 'none',
-                                cursor: 'pointer',
-                                padding: '2px',
-                                color: 'var(--text-muted)',
-                                display: 'flex',
-                                alignItems: 'center',
-                                borderRadius: '4px',
-                                transition: 'color 0.15s ease',
-                            }}
-                            onMouseEnter={e => (e.currentTarget.style.color = 'var(--text-secondary)')}
-                            onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}
-                        >
-                            <RotateCcw size={12} />
-                        </button>
-                    )}
-                </div>
-            </div>
-
-            {/* スライダートラック */}
-            <div style={{ position: 'relative', height: '20px', display: 'flex', alignItems: 'center' }}>
-                {/* 背景トラック */}
-                <div style={{
-                    position: 'absolute',
-                    width: '100%',
-                    height: '4px',
-                    borderRadius: '2px',
-                    background: 'var(--bg-tertiary)',
-                    overflow: 'hidden',
-                }}>
-                    {/* 塗りつぶし部分 */}
-                    <div style={{
-                        width: `${percent}%`,
-                        height: '100%',
-                        background: isCustom
-                            ? 'var(--accent-primary)'
-                            : 'var(--text-muted)',
-                        borderRadius: '2px',
-                        transition: 'background 0.2s ease',
-                    }} />
-                </div>
-
-                {/* Native range input (透過して重ねる) */}
-                <input
-                    type="range"
-                    min={param.min}
-                    max={param.max}
-                    step={param.step}
-                    value={displayValue}
-                    onChange={handleSliderChange}
-                    style={{
-                        position: 'absolute',
-                        width: '100%',
-                        height: '20px',
-                        opacity: 0,
-                        cursor: 'pointer',
-                        margin: 0,
-                        padding: 0,
-                        zIndex: 2,
-                    }}
-                />
-
-                {/* サム（ハンドル） */}
-                <div style={{
-                    position: 'absolute',
-                    left: `calc(${percent}% - 8px)`,
-                    width: '16px',
-                    height: '16px',
-                    borderRadius: '50%',
-                    background: isCustom ? 'var(--accent-primary)' : 'var(--text-muted)',
-                    boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
-                    transition: 'background 0.2s ease, transform 0.1s ease',
-                    pointerEvents: 'none',
-                    zIndex: 1,
-                }} />
-            </div>
-
-            {/* 最小・最大ラベル */}
-            <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                marginTop: '0.25rem',
-            }}>
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{formatValue(param.min)}</span>
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{formatValue(param.max)}</span>
-            </div>
-        </div>
-    );
-}
 
 // ---- メインコンポーネント ----
 export default function CharacterSettingsModal(props: CharacterSettingsModalProps) {
@@ -347,10 +94,9 @@ function CharacterSettingsModalContent({
     initialGeneratedDraft,
     onOpenMemoryList,
 }: CharacterSettingsModalProps) {
-    const { createCharacter, updateCharacter, defaultChatModel, ttsEnabled, ttsConnectionId, ttsSpeed: defaultTtsSpeed, ttsVolume: defaultTtsVolume } = useStore();
+    const { createCharacter, updateCharacter, ttsEnabled, ttsConnectionId, ttsSpeed: defaultTtsSpeed, ttsVolume: defaultTtsVolume } = useStore();
     const [initialDraft] = useState(() => buildInitialCharacterDraft(
         character,
-        defaultChatModel,
         initialGeneratedDraft,
     ));
     const [name, setName] = useState(initialDraft.name);
@@ -358,10 +104,6 @@ function CharacterSettingsModalContent({
     const [speechStyle, setSpeechStyle] = useState(initialDraft.speechStyle);
     const [protagonistPrompt, setProtagonistPrompt] = useState(initialDraft.protagonistPrompt);
     const [userConstraints, setUserConstraints] = useState(initialDraft.userConstraints);
-    const [model, setModel] = useState<ModelRef>(initialDraft.model);
-
-    // Reasoning settings (null = 全体設定に従う)
-    const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | null>(initialDraft.reasoningEffort);
 
     // Memory settings
     const [enableMemory, setEnableMemory] = useState(initialDraft.enableMemory);
@@ -370,13 +112,6 @@ function CharacterSettingsModalContent({
     const [parametersOpen, setParametersOpen] = useState(false);
     const [maxCharacters, setMaxCharacters] = useState<string>(initialDraft.maxCharacters);
     const [maxHistory, setMaxHistory] = useState<string>(initialDraft.maxHistory);
-    // null = use code default, number = custom value
-    const [temperature, setTemperature] = useState<number | null>(initialDraft.temperature);
-    const [topP, setTopP] = useState<number | null>(initialDraft.topP);
-    const [topK, setTopK] = useState<number | null>(initialDraft.topK);
-    const [frequencyPenalty, setFrequencyPenalty] = useState<number | null>(initialDraft.frequencyPenalty);
-    const [presencePenalty, setPresencePenalty] = useState<number | null>(initialDraft.presencePenalty);
-    const [repetitionPenalty, setRepetitionPenalty] = useState<number | null>(initialDraft.repetitionPenalty);
 
     // Avatar
     const [icon, setIcon] = useState<string | null>(initialDraft.icon);
@@ -413,17 +148,9 @@ function CharacterSettingsModalContent({
             speechStyle,
             protagonistPrompt,
             userConstraints,
-            model,
-            reasoningEffort,
             enableMemory,
             maxCharacters,
             maxHistory,
-            temperature,
-            topP,
-            topK,
-            frequencyPenalty,
-            presencePenalty,
-            repetitionPenalty,
             icon,
             expressions,
             costumes,
@@ -444,24 +171,15 @@ function CharacterSettingsModalContent({
             return;
         }
 
-        const resolvedModel = model.model.trim() ? model : defaultChatModel;
         const updates = {
             name: trimmedName || character?.name || 'キャラクター',
             systemPrompt,
             speechStyle: speechStyle.trim() ? speechStyle : undefined,
             protagonistPrompt: protagonistPrompt.trim() ? protagonistPrompt : undefined,
             userConstraints: userConstraints.trim() ? userConstraints : undefined,
-            model: resolvedModel,
-            reasoningEffort: reasoningEffort ?? undefined,
             enableMemory,
             maxCharacters: maxCharacters ? Math.max(1, Math.round(Number(maxCharacters))) : undefined,
             maxHistory: maxHistory ? Math.min(100, Math.max(1, Number(maxHistory))) : undefined,
-            temperature: temperature ?? undefined,
-            topP: topP ?? undefined,
-            topK: topK != null ? Math.max(0, Math.round(topK)) : undefined,
-            frequencyPenalty: frequencyPenalty ?? undefined,
-            presencePenalty: presencePenalty ?? undefined,
-            repetitionPenalty: repetitionPenalty ?? undefined,
             icon: icon ?? undefined,
             expressions: expressions.length > 0 ? expressions : undefined,
             costumes: costumes.length > 0 ? costumes : undefined,
@@ -471,12 +189,12 @@ function CharacterSettingsModalContent({
         };
 
         if (isNew || !character) {
-            createCharacter(trimmedName, systemPrompt, resolvedModel, updates);
+            createCharacter(trimmedName, systemPrompt, updates);
         } else {
             updateCharacter(character.id, updates);
         }
         onClose();
-    }, [character, costumes, createCharacter, defaultChatModel, enableMemory, reasoningEffort, expressions, frequencyPenalty, icon, initialDraft, isNew, maxCharacters, maxHistory, model, name, onClose, presencePenalty, protagonistPrompt, repetitionPenalty, speechStyle, systemPrompt, temperature, topK, topP, ttsSpeed, ttsVoice, ttsVolume, updateCharacter, userConstraints]);
+    }, [character, costumes, createCharacter, enableMemory, expressions, icon, initialDraft, isNew, maxCharacters, maxHistory, name, onClose, protagonistPrompt, speechStyle, systemPrompt, ttsSpeed, ttsVoice, ttsVolume, updateCharacter, userConstraints]);
 
     const attemptClose = useCallback(() => {
         const currentDraft = {
@@ -485,17 +203,9 @@ function CharacterSettingsModalContent({
             speechStyle,
             protagonistPrompt,
             userConstraints,
-            model,
-            reasoningEffort,
             enableMemory,
             maxCharacters,
             maxHistory,
-            temperature,
-            topP,
-            topK,
-            frequencyPenalty,
-            presencePenalty,
-            repetitionPenalty,
             icon,
             expressions,
             costumes,
@@ -503,7 +213,7 @@ function CharacterSettingsModalContent({
             ttsSpeed,
             ttsVolume,
         };
-        const blankDraft = buildInitialCharacterDraft(null, defaultChatModel);
+        const blankDraft = buildInitialCharacterDraft(null);
         const hasInput = JSON.stringify(currentDraft) !== JSON.stringify(blankDraft);
 
         if ((isNew || !character)
@@ -513,7 +223,7 @@ function CharacterSettingsModalContent({
         }
 
         onClose();
-    }, [character, costumes, defaultChatModel, enableMemory, reasoningEffort, expressions, frequencyPenalty, icon, isNew, maxCharacters, maxHistory, model, name, onClose, presencePenalty, protagonistPrompt, repetitionPenalty, speechStyle, systemPrompt, temperature, topK, topP, ttsSpeed, ttsVoice, ttsVolume, userConstraints]);
+    }, [character, costumes, enableMemory, expressions, icon, isNew, maxCharacters, maxHistory, name, onClose, protagonistPrompt, speechStyle, systemPrompt, ttsSpeed, ttsVoice, ttsVolume, userConstraints]);
 
     const childModalOpen = imageGenOpen || expressionsOpen || costumesOpen;
     useModalKeyboard({
@@ -586,10 +296,7 @@ function CharacterSettingsModalContent({
         : previewExpressionPool.map((e) => ({ name: e.name, image: e.image }));
 
     // 高度な設定に何かカスタム値が設定されているか
-    const hasCustomParams = (model.model.trim() !== '' && !modelRefsEqual(model, defaultChatModel))
-        || maxCharacters || maxHistory || temperature !== null || topP !== null || topK !== null
-        || frequencyPenalty !== null || presencePenalty !== null || repetitionPenalty !== null
-        || reasoningEffort !== null
+    const hasCustomParams = maxCharacters || maxHistory
         || (ttsEnabled && (ttsVoice.trim() !== '' || ttsSpeed != null || ttsVolume != null));
     const promptSectionsStyle: React.CSSProperties = {
         display: 'flex',
@@ -916,32 +623,6 @@ function CharacterSettingsModalContent({
                                 flexDirection: 'column',
                                 gap: '1.25rem',
                             }}>
-                                {/* モデル */}
-                                <div className="global-settings-selector-row">
-                                    <label style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>モデル</label>
-                                    <div
-                                        className="global-settings-selector-control global-settings-model-selector-control"
-                                        style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-                                    >
-                                        <ModelSelector
-                                            value={model}
-                                            onChange={setModel}
-                                            outputModality="text"
-                                            placeholder={`例: ${defaultChatModel.model}`}
-                                            style={{ flex: '0 1 auto', minWidth: 0 }}
-                                        />
-                                        <OptionSelector
-                                            id="character-reasoning-effort-input"
-                                            value={reasoningEffort ?? ''}
-                                            onChange={(value) => setReasoningEffort(isReasoningEffort(value) ? value : null)}
-                                            options={REASONING_EFFORT_SELECT_OPTIONS}
-                                            ariaLabel="推論レベル"
-                                            title="推論レベル: 対応モデルで返答前の推論（Reasoning）を行います。空欄では全体設定を使用します。"
-                                            style={{ flex: '0 1 auto', minWidth: 0 }}
-                                        />
-                                    </div>
-                                </div>
-
                                 {ttsEnabled && (<>
                                 {/* 声 */}
                                 <div>
@@ -1226,42 +907,6 @@ function CharacterSettingsModalContent({
                                         </div>
                                     );
                                 })()}
-
-                                {/* Temperature スライダー */}
-                                <ParamSlider
-                                    paramKey="temperature"
-                                    value={temperature}
-                                    onChange={setTemperature}
-                                />
-
-                                {/* Top P スライダー */}
-                                <ParamSlider
-                                    paramKey="topP"
-                                    value={topP}
-                                    onChange={setTopP}
-                                />
-
-                                {/* Top K スライダー */}
-                                <ParamSlider
-                                    paramKey="topK"
-                                    value={topK}
-                                    onChange={setTopK}
-                                />
-                                <ParamSlider
-                                    paramKey="frequencyPenalty"
-                                    value={frequencyPenalty}
-                                    onChange={setFrequencyPenalty}
-                                />
-                                <ParamSlider
-                                    paramKey="presencePenalty"
-                                    value={presencePenalty}
-                                    onChange={setPresencePenalty}
-                                />
-                                <ParamSlider
-                                    paramKey="repetitionPenalty"
-                                    value={repetitionPenalty}
-                                    onChange={setRepetitionPenalty}
-                                />
                             </div>
                         )}
                     </div>

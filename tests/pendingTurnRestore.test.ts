@@ -187,13 +187,13 @@ describe('orphaned pending turn recovery', () => {
         expect(await getPendingTurnRestore(pending.roomId)).toBeUndefined();
     });
 
-    test('keeps only the regenerated first response after a model change and concurrent recovery', async () => {
+    test('keeps only the regenerated first response after a character edit and concurrent recovery', async () => {
         mockMetaStorage();
         const user = message('user-1', 1);
         const oldReply = message('old-job-message-0', 2, 'assistant');
         const newReply = message('new-job-message-0', 3, 'assistant');
         const room: Room = { id: 'room-1', characterId: 'actor', name: 'Room', viewMode: 'vn', messages: [user, oldReply], createdAt: 1, updatedAt: 1 };
-        const character: Character = { id: 'actor', name: 'Actor', systemPrompt: '', model: { connectionId: 'openrouter', model: 'model-a' }, createdAt: 1, updatedAt: 1 };
+        const character: Character = { id: 'actor', name: 'Actor', systemPrompt: '', createdAt: 1, updatedAt: 1 };
         const persisted = new Map(room.messages.map((message) => [message.id, message]));
         vi.spyOn(db, 'getMessagesByRoom').mockImplementation(async () => [...persisted.values()].sort((a, b) => a.timestamp - b.timestamp));
         vi.spyOn(db, 'deleteMessagesByIds').mockImplementation(async (ids) => { ids.forEach((id) => persisted.delete(id)); });
@@ -208,7 +208,7 @@ describe('orphaned pending turn recovery', () => {
         vi.spyOn(db, 'getAllRooms').mockResolvedValue([{ id: room.id, characterId: room.characterId, name: room.name, viewMode: 'vn', createdAt: 1, updatedAt: 1 }]);
         vi.spyOn(db, 'getAllUsageRecords').mockResolvedValue([]);
         useStore.setState({ rooms: [room], currentRoomId: room.id, characters: [character] });
-        useStore.getState().updateCharacter(character.id, { model: { connectionId: 'openrouter', model: 'model-b' } });
+        useStore.getState().updateCharacter(character.id, { name: 'Actor B' });
 
         const sourceRoom = useStore.getState().getCurrentRoom()!;
         const cutFrom = getChatRegenerationCutIndex(sourceRoom.messages, { allowEmptyReplyRound: false })!;
@@ -225,7 +225,7 @@ describe('orphaned pending turn recovery', () => {
         });
 
         expect(sourceRoom.messages.slice(0, cutFrom)).toEqual([user]);
-        expect(useStore.getState().characters[0].model.model).toBe('model-b');
+        expect(useStore.getState().characters[0].name).toBe('Actor B');
         persisted.set(newReply.id, newReply);
         await useStore.getState().refreshConversationRoom(room.id);
 

@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, ChevronRight, Loader2, Plus, Sparkles, Upload, User, X } from 'lucide-react';
 import type { GeneratedCharacterDraft } from '@/lib/characterGeneration';
-import { AI_CONNECTION_KINDS } from '@/lib/aiApi';
-import { getAiConnections } from '@/lib/aiConnections';
 import {
     importCharacterPackage,
     inspectCharacterPackage,
@@ -26,7 +24,7 @@ export default function CharacterAddModal({
     onCreate,
     onGenerated,
 }: CharacterAddModalProps) {
-    const { addImportedCharacter, defaultChatModel } = useStore();
+    const { addImportedCharacter } = useStore();
     const [packageFile, setPackageFile] = useState<{
         file: File;
         inspection: CharacterPackageInspection;
@@ -85,14 +83,7 @@ export default function CharacterAddModal({
         setImportError(null);
         setIsImporting(true);
         try {
-            const connectionIds = await getAiConnections()
-                .then((response) => response.connections.map((connection) => connection.id))
-                .catch(() => [] as string[]);
-            const character = await importCharacterPackage(packageFile.file, {
-                fallbackModel: defaultChatModel.model,
-                fallbackConnectionId: defaultChatModel.connectionId,
-                knownConnectionIds: [...AI_CONNECTION_KINDS, ...connectionIds],
-            });
+            const character = await importCharacterPackage(packageFile.file);
             addImportedCharacter(character);
             setIsImporting(false);
             onClose();

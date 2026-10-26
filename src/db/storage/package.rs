@@ -51,12 +51,6 @@ const SHARED_OPTIONAL_FIELDS: &[&str] = &[
     "icon",
     "maxCharacters",
     "maxHistory",
-    "temperature",
-    "topP",
-    "topK",
-    "frequencyPenalty",
-    "presencePenalty",
-    "repetitionPenalty",
     "enableMemory",
 ];
 
@@ -69,7 +63,8 @@ fn package_too_large() -> AppError {
 }
 
 /// 共有キャラクターのうち `copySharedCharacter` が引き継ぐフィールドだけを抜き出す
-/// （model・id・favorite・createdAt・updatedAt・reasoningEffort は呼び出し側で扱う）。
+/// （id・createdAt・updatedAt は呼び出し側で付ける）。モデルと生成パラメータは
+/// 全体設定で持つため、古いデータに残っていても書き出さない。
 fn shared_character_fields(character: &Value) -> Map<String, Value> {
     let mut shared = Map::new();
     let Some(object) = character.as_object() else {
@@ -92,39 +87,6 @@ fn shared_character_fields(character: &Value) -> Map<String, Value> {
         }
     }
     shared
-}
-
-/// `normalizeModelRef` (lib/modelDefaults.ts) の移植。(model, connectionId) を返す。
-fn normalize_model_ref(
-    value: &Value,
-    fallback_model: &str,
-    fallback_connection_id: &str,
-) -> (String, String) {
-    let fallback = || (fallback_model.to_owned(), fallback_connection_id.to_owned());
-    if let Some(model) = value.as_str() {
-        let model = model.trim();
-        return if model.is_empty() {
-            fallback()
-        } else {
-            (model.to_owned(), fallback_connection_id.to_owned())
-        };
-    }
-    let Some(object) = value.as_object() else {
-        return fallback();
-    };
-    let trimmed = |key: &str| {
-        object
-            .get(key)
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-    };
-    let connection_id = trimmed("connectionId")
-        .or_else(|| trimmed("aiApiType"))
-        .unwrap_or(fallback_connection_id)
-        .to_owned();
-    let model = trimmed("model").unwrap_or(fallback_model).to_owned();
-    (model, connection_id)
 }
 
 /// includeVrm=false のとき VRM衣装を画像衣装に落とす
@@ -405,8 +367,6 @@ pub fn build_character_package(
     connection: &Connection,
     character_id: &str,
     include_vrm: bool,
-    builtin_ids: &HashSet<String>,
-    fallback_connection_id: &str,
 ) -> AppResult<Vec<u8>> {
     let data_json = connection
         .query_row(
@@ -419,18 +379,6 @@ pub fn build_character_package(
     let character: Value = serde_json::from_str(&data_json)?;
 
     let mut shared = shared_character_fields(&character);
-    // カスタム接続（cx_*）は他環境に存在しないため、組み込み接続のIDだけを残し、
-    // それ以外はモデル名のみに落とす（copySharedCharacter と同じ規則）。
-    let (model, connection_id) =
-        normalize_model_ref(&character["model"], "", fallback_connection_id);
-    shared.insert(
-        "model".to_owned(),
-        if builtin_ids.contains(&connection_id) {
-            json!({ "model": model, "connectionId": connection_id })
-        } else {
-            Value::String(model)
-        },
-    );
     if !include_vrm {
         downgrade_vrm_costumes(&mut shared);
     }
@@ -727,13 +675,7 @@ fn parse_package(bytes: &[u8]) -> AppResult<ParsedPackage> {
     })
 }
 
-pub fn import_character_package(
-    connection: &mut Connection,
-    bytes: &[u8],
-    fallback_model: &str,
-    fallback_connection_id: &str,
-    known_ids: &HashSet<String>,
-) -> AppResult<Value> {
+pub fn import_character_package(connection: &mut Connection, bytes: &[u8]) -> AppResult<Value> {
     let parsed = parse_package(bytes)?;
     let transaction = connection.transaction()?;
     for asset_id in &parsed.referenced_ids {
@@ -742,21 +684,6 @@ pub fn import_character_package(
     }
 
     let mut shared = shared_character_fields(&parsed.character);
-    let (model, connection_id) = normalize_model_ref(
-        &parsed.character["model"],
-        fallback_model,
-        fallback_connection_id,
-    );
-    // この環境に存在しない接続はフォールバックの接続に置き換える。
-    let connection_id = if known_ids.contains(&connection_id) {
-        connection_id
-    } else {
-        fallback_connection_id.to_owned()
-    };
-    shared.insert(
-        "model".to_owned(),
-        json!({ "model": model, "connectionId": connection_id }),
-    );
     let now = now_millis();
     shared.insert(
         "id".to_owned(),
@@ -874,10 +801,6 @@ mod tests {
         characters::{get_character_with_images, put_character},
         test_support::open_test_database,
     };
-
-    fn id_set(values: &[&str]) -> HashSet<String> {
-        values.iter().map(|value| (*value).to_owned()).collect()
-    }
 
     fn model_data(json: Value) -> Vec<u8> {
         let mut payload = serde_json::to_vec(&json).expect("serialize model json");
@@ -1051,14 +974,8 @@ mod tests {
     fn exported_package_imports_into_a_fresh_database() {
         let mut source_db = open_test_database();
         put_character(&mut source_db, rich_character()).expect("store source character");
-        let package = build_character_package(
-            &source_db,
-            "character-1",
-            true,
-            &id_set(&["openrouter", "anthropic"]),
-            "openrouter",
-        )
-        .expect("build package");
+        let package =
+            build_character_package(&source_db, "character-1", true).expect("build package");
 
         // character.json は共有フィールドだけを持ち、バイナリはZIP内ファイルになる。
         let shared: Value = serde_json::from_slice(
@@ -1071,13 +988,11 @@ mod tests {
             "updatedAt",
             "favorite",
             "reasoningEffort",
+            "model",
+            "temperature",
         ] {
             assert!(shared.get(key).is_none(), "shared must not contain {key}");
         }
-        assert_eq!(
-            shared["model"],
-            json!({ "model": "z-ai/glm-5.2", "connectionId": "openrouter" })
-        );
         assert!(
             shared["icon"]
                 .as_str()
@@ -1121,14 +1036,7 @@ mod tests {
         }
 
         let mut target_db = open_test_database();
-        let stored = import_character_package(
-            &mut target_db,
-            &package,
-            "fallback/model",
-            "openrouter",
-            &id_set(&["openrouter", "anthropic"]),
-        )
-        .expect("import package");
+        let stored = import_character_package(&mut target_db, &package).expect("import package");
         // 返り値は asset: 参照を持つ保存済みキャラクター。
         assert!(
             stored["icon"]
@@ -1139,7 +1047,7 @@ mod tests {
         let imported_id = stored["id"].as_str().expect("imported id").to_owned();
         assert_ne!(imported_id, "character-1");
 
-        // 画像・モデルを含めて同じ内容で復元される。
+        // 画像・VRMを含めて同じ内容で復元される。モデルと生成パラメータは引き継がない。
         let mut expected = get_character_with_images(&source_db, "character-1")
             .expect("read source")
             .expect("source character");
@@ -1152,6 +1060,8 @@ mod tests {
             "updatedAt",
             "favorite",
             "reasoningEffort",
+            "model",
+            "temperature",
         ] {
             expected.as_object_mut().expect("object").remove(key);
             actual.as_object_mut().expect("object").remove(key);
@@ -1171,14 +1081,8 @@ mod tests {
     fn export_without_vrm_downgrades_vrm_costumes_to_image_costumes() {
         let mut source_db = open_test_database();
         put_character(&mut source_db, rich_character()).expect("store source character");
-        let package = build_character_package(
-            &source_db,
-            "character-1",
-            false,
-            &id_set(&["openrouter"]),
-            "openrouter",
-        )
-        .expect("build package without vrm");
+        let package = build_character_package(&source_db, "character-1", false)
+            .expect("build package without vrm");
 
         let names = zip_names(&package);
         assert!(!names.iter().any(|name| name.ends_with(".vrm")));
@@ -1204,68 +1108,10 @@ mod tests {
         assert!(!preview.has_vrm);
 
         let mut target_db = open_test_database();
-        let stored = import_character_package(
-            &mut target_db,
-            &package,
-            "fallback/model",
-            "openrouter",
-            &id_set(&["openrouter"]),
-        )
-        .expect("import downgraded package");
+        let stored =
+            import_character_package(&mut target_db, &package).expect("import downgraded package");
         assert_eq!(stored["costumes"][1]["kind"], "image");
         assert!(stored["costumes"][1].get("vrm").is_none());
-    }
-
-    #[test]
-    fn export_rewrites_model_connection_ids() {
-        let mut db = open_test_database();
-        for (id, model) in [
-            (
-                "custom",
-                json!({ "model": "acme/llm", "connectionId": "cx_123" }),
-            ),
-            (
-                "builtin",
-                json!({ "model": "acme/llm", "connectionId": "anthropic" }),
-            ),
-            (
-                "legacy",
-                json!({ "model": "acme/llm", "aiApiType": "anthropic" }),
-            ),
-            ("string", json!("acme/llm")),
-        ] {
-            put_character(
-                &mut db,
-                json!({ "id": id, "name": "N", "systemPrompt": "s", "model": model, "updatedAt": 1 }),
-            )
-            .expect("store character");
-        }
-        let builtin = id_set(&["openrouter", "anthropic"]);
-
-        let shared_of = |character_id: &str| {
-            let package = build_character_package(&db, character_id, true, &builtin, "openrouter")
-                .expect("build package");
-            let entry = zip_entry(&package, "character.json").expect("character entry");
-            serde_json::from_slice::<Value>(&entry).expect("parse shared")
-        };
-
-        // カスタム接続IDはモデル名だけに落とす。
-        assert_eq!(shared_of("custom")["model"], "acme/llm");
-        // 組み込み接続IDは {model, connectionId} のまま残す。
-        assert_eq!(
-            shared_of("builtin")["model"],
-            json!({ "model": "acme/llm", "connectionId": "anthropic" })
-        );
-        // 旧形式の aiApiType は connectionId として読み替える。
-        assert_eq!(
-            shared_of("legacy")["model"],
-            json!({ "model": "acme/llm", "connectionId": "anthropic" })
-        );
-        // 文字列モデルはフォールバック接続を付けた上で組み込み判定する。
-        assert_eq!(
-            shared_of("string")["model"],
-            json!({ "model": "acme/llm", "connectionId": "openrouter" })
-        );
     }
 
     #[test]
@@ -1467,71 +1313,13 @@ mod tests {
         let preview = inspect_character_package(&package).expect("inspect");
         assert_eq!(preview.asset_count, 1);
         let mut db = open_test_database();
-        import_character_package(
-            &mut db,
-            &package,
-            "fallback/model",
-            "openrouter",
-            &id_set(&["openrouter"]),
-        )
-        .expect("import");
+        import_character_package(&mut db, &package).expect("import");
         assert_eq!(
             db.query_row("SELECT COUNT(*) FROM image_assets", [], |row| {
                 row.get::<_, i64>(0)
             })
             .expect("count assets"),
             1
-        );
-    }
-
-    #[test]
-    fn import_normalizes_model_and_repairs_unknown_connection_ids() {
-        let mut db = open_test_database();
-        let known = id_set(&["openrouter", "anthropic"]);
-        let mut import_model = |character: &Value| {
-            let package = package_of(character, vec![]);
-            import_character_package(&mut db, &package, "fallback/model", "openrouter", &known)
-                .expect("import")["model"]
-                .clone()
-        };
-
-        // 既知の組み込み接続はそのまま。
-        assert_eq!(
-            import_model(
-                &json!({ "name": "N", "systemPrompt": "s", "model": { "model": "x", "connectionId": "anthropic" } })
-            ),
-            json!({ "model": "x", "connectionId": "anthropic" })
-        );
-        // 未知の接続IDはフォールバックに置き換える。
-        assert_eq!(
-            import_model(
-                &json!({ "name": "N", "systemPrompt": "s", "model": { "model": "x", "connectionId": "cx_gone" } })
-            ),
-            json!({ "model": "x", "connectionId": "openrouter" })
-        );
-        // 文字列モデルはフォールバック接続を使う。
-        assert_eq!(
-            import_model(&json!({ "name": "N", "systemPrompt": "s", "model": "vendor/x" })),
-            json!({ "model": "vendor/x", "connectionId": "openrouter" })
-        );
-        // 旧形式の aiApiType を読み替え、既知なら残る。
-        assert_eq!(
-            import_model(
-                &json!({ "name": "N", "systemPrompt": "s", "model": { "model": "x", "aiApiType": "anthropic" } })
-            ),
-            json!({ "model": "x", "connectionId": "anthropic" })
-        );
-        // 空のモデル名にはフォールバックモデルを使う。
-        assert_eq!(
-            import_model(
-                &json!({ "name": "N", "systemPrompt": "s", "model": { "model": " ", "connectionId": "anthropic" } })
-            ),
-            json!({ "model": "fallback/model", "connectionId": "anthropic" })
-        );
-        // model 自体が無くてもフォールバックに落ちる。
-        assert_eq!(
-            import_model(&json!({ "name": "N", "systemPrompt": "s" })),
-            json!({ "model": "fallback/model", "connectionId": "openrouter" })
         );
     }
 
@@ -1563,14 +1351,7 @@ mod tests {
             ],
         );
         let mut db = open_test_database();
-        let stored = import_character_package(
-            &mut db,
-            &package,
-            "fallback/model",
-            "openrouter",
-            &id_set(&["openrouter"]),
-        )
-        .expect("import vrm package");
+        let stored = import_character_package(&mut db, &package).expect("import vrm package");
         assert_eq!(
             stored["costumes"][0]["vrm"]["source"],
             format!("asset:{vrm_id}")
@@ -1583,13 +1364,7 @@ mod tests {
         });
         let bad_package = package_of(&bad_character, vec![asset_entry(&vrm, "vrm")]);
         assert_bad_request(
-            import_character_package(
-                &mut db,
-                &bad_package,
-                "fallback/model",
-                "openrouter",
-                &id_set(&["openrouter"]),
-            ),
+            import_character_package(&mut db, &bad_package),
             "vrm asset in image field",
         );
     }
@@ -1809,8 +1584,7 @@ mod tests {
                 "expressions": expressions(62) }),
         )
         .expect("store 62-asset character");
-        let package = build_character_package(&db, "fits", true, &id_set(&[]), "openrouter")
-            .expect("62 assets must fit");
+        let package = build_character_package(&db, "fits", true).expect("62 assets must fit");
         assert_eq!(zip_names(&package).len(), MAX_PACKAGE_ENTRIES);
         parse_package(&package).expect("62-asset package reimports");
 
@@ -1821,7 +1595,7 @@ mod tests {
         )
         .expect("store 63-asset character");
         assert_bad_request(
-            build_character_package(&db, "overflow", true, &id_set(&[]), "openrouter"),
+            build_character_package(&db, "overflow", true),
             "63 assets exceed the entry limit",
         );
 
@@ -1839,7 +1613,7 @@ mod tests {
         )
         .expect("store oversized icon");
         assert_bad_request(
-            build_character_package(&db, "huge", true, &id_set(&[]), "openrouter"),
+            build_character_package(&db, "huge", true),
             "oversized image asset",
         );
     }
@@ -1857,8 +1631,7 @@ mod tests {
                 "icon": format!("asset:{asset_id}") }),
         )
         .expect("store character");
-        let package = build_character_package(&db, "c", true, &id_set(&[]), "openrouter")
-            .expect("build package");
+        let package = build_character_package(&db, "c", true).expect("build package");
         let names = zip_names(&package);
         assert!(names.iter().any(|name| name.ends_with(".png")));
         let manifest: Value =
@@ -1867,7 +1640,6 @@ mod tests {
         assert_eq!(manifest["assets"][0]["mime"], "image/png");
 
         let mut target = open_test_database();
-        import_character_package(&mut target, &package, "f", "openrouter", &id_set(&[]))
-            .expect("import normalized package");
+        import_character_package(&mut target, &package).expect("import normalized package");
     }
 }

@@ -10,7 +10,7 @@ import {
     serializeModelRef,
 } from '../lib/aiApi';
 import { normalizeCharacters } from '../lib/store/characters';
-import { normalizeSituationActor, normalizeSituationDirector } from '../lib/store/situations';
+import { normalizeSituationActor } from '../lib/store/situations';
 import type { Character } from '../lib/store/types';
 
 const FALLBACK = { connectionId: DEFAULT_CONNECTION_ID, model: 'fallback-model' };
@@ -104,15 +104,18 @@ describe('normalizeAiApiConfig', () => {
     });
 });
 
-describe('legacy entity model migration', () => {
-    test('normalizeCharacters folds a legacy aiApiType into the model ref', () => {
-        const [folded, dropped] = normalizeCharacters([
+describe('legacy per-entity model settings', () => {
+    test('normalizeCharacters drops the per-character model and sampling settings', () => {
+        const [legacy, current] = normalizeCharacters([
             {
                 id: 'character-1',
                 name: '葵',
                 systemPrompt: '',
                 model: 'model-1',
                 aiApiType: 'anthropic',
+                temperature: 0.4,
+                topP: 0.9,
+                reasoningEffort: 'low',
                 createdAt: 1,
                 updatedAt: 1,
             } as unknown as Character,
@@ -120,62 +123,35 @@ describe('legacy entity model migration', () => {
                 id: 'character-2',
                 name: '蛍',
                 systemPrompt: '',
-                model: 'model-2',
-                aiApiType: 'bogus',
                 createdAt: 1,
                 updatedAt: 1,
-            } as unknown as Character,
-        ], FALLBACK);
+            },
+        ]);
 
-        expect(folded.model).toEqual({ connectionId: 'anthropic', model: 'model-1' });
-        expect(folded).not.toHaveProperty('aiApiType');
-        expect(dropped.model).toEqual({ connectionId: DEFAULT_CONNECTION_ID, model: 'model-2' });
-        expect(dropped).not.toHaveProperty('aiApiType');
+        for (const key of ['model', 'aiApiType', 'temperature', 'topP', 'reasoningEffort']) {
+            expect(legacy).not.toHaveProperty(key);
+        }
+        expect(legacy.name).toBe('葵');
+        // 変更のないキャラクターは同じオブジェクトのまま返し、書き戻しを避ける。
+        const input = { id: 'character-3', name: '凛', systemPrompt: '', createdAt: 1, updatedAt: 1 };
+        expect(normalizeCharacters([input])[0]).toBe(input);
+        expect(current).not.toHaveProperty('model');
     });
 
-    test('normalizeSituationActor folds aiApiType on temporary actors', () => {
+    test('normalizeSituationActor drops model settings on temporary actors', () => {
         const temporary = normalizeSituationActor({
             id: 'actor-1',
             type: 'temporary',
             name: '臨時',
             systemPrompt: '',
+            model: 'model-1',
             aiApiType: 'openai-compatible',
-        }, new Set(), FALLBACK);
-        expect(temporary?.type === 'temporary' && temporary.model).toEqual({
-            connectionId: 'openai-compatible',
-            model: 'fallback-model',
-        });
+            temperature: 0.4,
+            directorDescription: '指揮役向けの説明',
+        }, new Set());
+        expect(temporary).not.toHaveProperty('model');
         expect(temporary).not.toHaveProperty('aiApiType');
-
-        const invalid = normalizeSituationActor({
-            id: 'actor-2',
-            type: 'temporary',
-            name: '臨時2',
-            systemPrompt: '',
-            aiApiType: 'bogus',
-        }, new Set(), FALLBACK);
-        expect(invalid?.type === 'temporary' && invalid.model).toEqual(FALLBACK);
-        expect(invalid).not.toHaveProperty('aiApiType');
-    });
-
-    test('normalizeSituationDirector folds a valid legacy aiApiType', () => {
-        const director = normalizeSituationDirector({
-            enabled: true,
-            model: 'director-model',
-            aiApiType: 'anthropic',
-            maxAutoTurns: 3,
-            stopPolicy: 'max-turns',
-        } as unknown as Parameters<typeof normalizeSituationDirector>[0], FALLBACK);
-        expect(director.model).toEqual({ connectionId: 'anthropic', model: 'director-model' });
-        expect(director).not.toHaveProperty('aiApiType');
-
-        const invalid = normalizeSituationDirector({
-            enabled: true,
-            model: 'director-model',
-            aiApiType: 'bogus',
-            maxAutoTurns: 3,
-            stopPolicy: 'max-turns',
-        } as unknown as Parameters<typeof normalizeSituationDirector>[0], FALLBACK);
-        expect(invalid.model).toEqual({ connectionId: DEFAULT_CONNECTION_ID, model: 'director-model' });
+        expect(temporary).not.toHaveProperty('temperature');
+        expect(temporary).not.toHaveProperty('directorDescription');
     });
 });

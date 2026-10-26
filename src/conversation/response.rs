@@ -17,13 +17,6 @@ pub struct AssistantEnvelope {
     pub motion: Option<String>,
 }
 
-#[derive(Debug, Clone)]
-pub struct DirectorDecision {
-    pub actor_id: Option<String>,
-    pub reason: String,
-    pub candidates: Vec<(String, String)>,
-}
-
 pub fn parse_assistant_response(
     content: &str,
     expression_names: &[String],
@@ -374,52 +367,161 @@ pub(crate) fn plain_response_preview(content: &str, max_characters: usize) -> St
     truncate_to_character_limit(content, max_characters.max(1))
 }
 
-pub fn parse_director_decision(
+/// シチュエーションの一括生成で、話者1人ぶんの検証条件。
+#[derive(Debug, Clone)]
+pub(crate) struct EnsembleSpeaker {
+    pub id: String,
+    pub expression_names: Vec<String>,
+    pub motion_names: Vec<String>,
+    pub max_characters: usize,
+}
+
+/// 一括生成の出力から取り出した1発言。
+#[derive(Debug, Clone)]
+pub(crate) struct EnsembleTurn {
+    pub speaker: String,
+    pub envelope: AssistantEnvelope,
+}
+
+/// `{"turns": [...]}` を発言の列に変換する。参加者でない話者の発言は捨て、
+/// 表情・モーション・文字数は発言者自身の条件で検証する。
+pub(crate) fn parse_ensemble_response(
     content: &str,
-    valid_actor_ids: &[String],
-) -> AppResult<DirectorDecision> {
-    let value = parse_json_from_text(content).ok_or_else(|| {
+    speakers: &[EnsembleSpeaker],
+    message_mode: bool,
+    max_turns: usize,
+) -> AppResult<Vec<EnsembleTurn>> {
+    let invalid = || {
         AppError::Upstream(
-            "指揮役の応答がJSONではありません。".into(),
+            "AI応答が要求されたJSON形式ではありません。".into(),
             axum::http::StatusCode::BAD_GATEWAY,
         )
-    })?;
-    let record = value.as_object().ok_or_else(|| {
-        AppError::Upstream(
-            "指揮役の応答がJSONオブジェクトではありません。".into(),
-            axum::http::StatusCode::BAD_GATEWAY,
-        )
-    })?;
-    let valid = valid_actor_ids.iter().collect::<HashSet<_>>();
-    let mut seen = HashSet::new();
-    let candidates = record
-        .get("candidates")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|candidate| {
-            let actor_id = candidate.get("actorId")?.as_str()?.trim().to_owned();
-            if !valid.contains(&actor_id) || !seen.insert(actor_id.clone()) {
-                return None;
-            }
-            let reason = candidate
-                .get("reason")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .trim()
-                .to_owned();
-            Some((actor_id, reason))
-        })
+    };
+    let parsed = parse_json_from_text(content).ok_or_else(invalid)?;
+    let items = match &parsed {
+        Value::Array(items) => items.as_slice(),
+        Value::Object(record) => get(record, &["turns"])
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .ok_or_else(invalid)?,
+        _ => return Err(invalid()),
+    };
+    let turns = items
+        .iter()
+        .filter_map(|item| parse_ensemble_turn(item, speakers, message_mode))
+        .take(max_turns.max(1))
         .collect::<Vec<_>>();
-    let (actor_id, reason) = candidates
-        .first()
-        .map(|(id, reason)| (Some(id.clone()), reason.clone()))
-        .unwrap_or((None, "Director selected no candidate.".into()));
-    Ok(DirectorDecision {
-        actor_id,
-        reason,
-        candidates,
+    if turns.is_empty() {
+        return Err(AppError::Upstream(
+            "AI応答に有効な発言がありません。".into(),
+            axum::http::StatusCode::BAD_GATEWAY,
+        ));
+    }
+    Ok(turns)
+}
+
+fn find_speaker<'a>(speakers: &'a [EnsembleSpeaker], id: &str) -> Option<&'a EnsembleSpeaker> {
+    let id = id.trim();
+    speakers.iter().find(|speaker| speaker.id == id)
+}
+
+fn parse_ensemble_turn(
+    item: &Value,
+    speakers: &[EnsembleSpeaker],
+    message_mode: bool,
+) -> Option<EnsembleTurn> {
+    let record = item.as_object()?;
+    let speaker = find_speaker(
+        speakers,
+        get(record, &["speaker", "actorId", "characterId"])?.as_str()?,
+    )?;
+    let envelope = parse_assistant_response(
+        &item.to_string(),
+        &speaker.expression_names,
+        &speaker.motion_names,
+        message_mode,
+    )
+    .ok()?;
+    Some(EnsembleTurn {
+        speaker: speaker.id.clone(),
+        envelope: limit_assistant_reply_characters(envelope, speaker.max_characters),
     })
+}
+
+/// 生成途中の一括生成出力から見える1発言。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct EnsembleTurnPreview {
+    pub speaker: String,
+    /// この発言のJSONオブジェクトが閉じ、内容が確定しているか。
+    pub complete: bool,
+    pub content: String,
+    /// 完了した発言では最終的な吹き出し全部。途中の発言ではメッセージモードの確定済みの吹き出し。
+    pub messages: Vec<String>,
+    pub expression: Option<String>,
+    pub motion: Option<String>,
+}
+
+/// 受信途中の `{"turns": [...]}` から、話者が分かった発言だけを順に取り出す。
+/// 閉じた発言は確定版と同じ処理を通すので、プレビューと保存内容が一致する。
+pub(crate) fn ensemble_response_preview(
+    content: &str,
+    speakers: &[EnsembleSpeaker],
+    message_mode: bool,
+) -> Vec<EnsembleTurnPreview> {
+    let mut previews = Vec::new();
+    let Some(mut cursor) = json_property_value_start(content, &["turns"]) else {
+        return previews;
+    };
+    let bytes = content.as_bytes();
+    if bytes.get(cursor) != Some(&b'[') {
+        return previews;
+    }
+    cursor += 1;
+    while cursor < bytes.len() {
+        while cursor < bytes.len() && (bytes[cursor].is_ascii_whitespace() || bytes[cursor] == b',')
+        {
+            cursor += 1;
+        }
+        if bytes.get(cursor) != Some(&b'{') {
+            break;
+        }
+        if let Some(end) = balanced_json_end(content, cursor) {
+            if let Some(turn) = parse_json_value(&content[cursor..end])
+                .and_then(|value| parse_ensemble_turn(&value, speakers, message_mode))
+            {
+                previews.push(EnsembleTurnPreview {
+                    speaker: turn.speaker,
+                    complete: true,
+                    content: turn.envelope.message,
+                    messages: turn.envelope.messages,
+                    expression: turn.envelope.expression,
+                    motion: turn.envelope.motion,
+                });
+            }
+            cursor = end;
+            continue;
+        }
+        let partial = &content[cursor..];
+        let Some(speaker) = json_property_value_start(partial, &["speaker"])
+            .filter(|start| partial.as_bytes().get(*start) == Some(&b'"'))
+            .map(|start| json_string_at(partial, start))
+            .filter(|(_, _, complete)| *complete)
+            .and_then(|(id, _, _)| find_speaker(speakers, &id))
+        else {
+            break;
+        };
+        let preview = assistant_response_preview(partial, message_mode, speaker.max_characters);
+        previews.push(EnsembleTurnPreview {
+            speaker: speaker.id.clone(),
+            complete: false,
+            content: preview.content,
+            messages: preview.confirmed_messages,
+            expression: assistant_expression_preview(partial, &speaker.expression_names),
+            motion: assistant_motion_preview(partial, &speaker.motion_names),
+        });
+        break;
+    }
+    previews
 }
 
 pub fn strip_json_code_fence(content: &str) -> &str {
@@ -1212,5 +1314,98 @@ mod tests {
             parse_summary_response(r#"{"summary":"first\\\\nsecond *unfinished"}"#),
             "firstsecond unfinished"
         );
+    }
+
+    fn ensemble_speakers() -> Vec<EnsembleSpeaker> {
+        vec![
+            EnsembleSpeaker {
+                id: "aoi".into(),
+                expression_names: vec!["neutral".into(), "smile".into()],
+                motion_names: vec!["wave".into()],
+                max_characters: 512,
+            },
+            EnsembleSpeaker {
+                id: "rin".into(),
+                expression_names: vec!["neutral".into(), "angry".into()],
+                motion_names: Vec::new(),
+                max_characters: 5,
+            },
+        ]
+    }
+
+    #[test]
+    fn ensemble_response_validates_each_turn_against_its_speaker() {
+        let content = r#"{"turns": [
+            {"speaker": "aoi", "expression": "smile", "motion": "wave", "message": "おはよう！"},
+            {"speaker": "ghost", "expression": "smile", "motion": "none", "message": "誰？"},
+            {"speaker": "rin", "expression": "smile", "motion": "wave", "message": "おはよう、葵。"}
+        ]}"#;
+        let turns = parse_ensemble_response(content, &ensemble_speakers(), false, 3)
+            .expect("ensemble turns");
+        assert_eq!(turns.len(), 2);
+        assert_eq!(turns[0].speaker, "aoi");
+        assert_eq!(turns[0].envelope.expression.as_deref(), Some("smile"));
+        assert_eq!(turns[0].envelope.motion.as_deref(), Some("wave"));
+        assert_eq!(turns[1].speaker, "rin");
+        // 凛は smile を持たないので既定の表情へ戻り、モーションは登録がないので付かない。
+        assert_eq!(turns[1].envelope.expression.as_deref(), Some("neutral"));
+        assert_eq!(turns[1].envelope.motion, None);
+        // 文字数上限は発言者ごとに適用する。
+        assert_eq!(turns[1].envelope.message, "おはよう、");
+    }
+
+    #[test]
+    fn ensemble_response_respects_turn_limit_and_message_mode() {
+        let content = r#"{"turns": [
+            {"speaker": "aoi", "messages": ["おはよう", "今日も早いね"]},
+            {"speaker": "rin", "messages": ["おはよ"]}
+        ]}"#;
+        let turns = parse_ensemble_response(content, &ensemble_speakers(), true, 1)
+            .expect("ensemble turns");
+        assert_eq!(turns.len(), 1);
+        assert_eq!(turns[0].envelope.messages, vec!["おはよう", "今日も早いね"]);
+    }
+
+    #[test]
+    fn ensemble_response_without_valid_turns_is_an_error() {
+        assert!(parse_ensemble_response("not json", &ensemble_speakers(), false, 3).is_err());
+        assert!(
+            parse_ensemble_response(
+                r#"{"turns": [{"speaker": "ghost", "message": "誰？"}]}"#,
+                &ensemble_speakers(),
+                false,
+                3,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn ensemble_preview_streams_closed_turns_and_the_current_speaker() {
+        let speakers = ensemble_speakers();
+        assert!(ensemble_response_preview(r#"{"turns": [{"spea"#, &speakers, false).is_empty());
+
+        let partial = r#"{"turns": [{"speaker": "aoi", "expression": "smile", "motion": "none", "message": "おはよう！"}, {"speaker": "rin", "expression": "angry", "message": "お"#;
+        let previews = ensemble_response_preview(partial, &speakers, false);
+        assert_eq!(previews.len(), 2);
+        assert!(previews[0].complete);
+        assert_eq!(previews[0].speaker, "aoi");
+        assert_eq!(previews[0].content, "おはよう！");
+        assert_eq!(previews[0].messages, vec!["おはよう！"]);
+        assert_eq!(previews[0].expression.as_deref(), Some("smile"));
+        assert!(!previews[1].complete);
+        assert_eq!(previews[1].speaker, "rin");
+        assert_eq!(previews[1].content, "お");
+        assert_eq!(previews[1].expression.as_deref(), Some("angry"));
+    }
+
+    #[test]
+    fn ensemble_preview_tracks_confirmed_bubbles_in_message_mode() {
+        let partial = r#"{"turns": [{"speaker": "aoi", "messages": ["おはよう", "今日"#;
+        let previews = ensemble_response_preview(partial, &ensemble_speakers(), true);
+        assert_eq!(previews.len(), 1);
+        assert!(!previews[0].complete);
+        assert_eq!(previews[0].messages, vec!["おはよう"]);
+        assert_eq!(previews[0].content, "おはよう\n\n今日");
     }
 }

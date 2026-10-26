@@ -1,17 +1,17 @@
 import { generateId } from '../id';
-import { isAiConnectionKind, isJevModelRef, isReasoningEffort, normalizeModelRef, type ModelRef } from '../aiApi';
-import { DEFAULT_MODEL_DEFAULTS } from '../modelDefaults';
-import type {
-    Character,
-    Costume,
-    Expression,
-    Room,
-    Situation,
-    SituationActor,
-    SituationDirector,
-    SituationMemoryMode,
-    SituationParticipant,
-    SituationPriorMessage,
+import {
+    DEFAULT_SITUATION_MAX_TURNS,
+    MAX_SITUATION_MAX_TURNS,
+    MIN_SITUATION_MAX_TURNS,
+    type Character,
+    type Costume,
+    type Expression,
+    type Room,
+    type Situation,
+    type SituationActor,
+    type SituationMemoryMode,
+    type SituationParticipant,
+    type SituationPriorMessage,
 } from './types';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -26,69 +26,29 @@ export function defaultCharacterRoomName(characterName: string | undefined, inde
     return `${characterName?.trim() || 'Chat'} ${index}`;
 }
 
-/** A legacy `model` string plus an optional sibling `aiApiType` folds into a
- * single `ModelRef` source that `normalizeModelRef` understands. */
-function legacyModelRefSource(model: unknown, aiApiType: unknown): unknown {
-    if (model !== null && typeof model === 'object') return model;
-    if (typeof model === 'string' && model.trim()) {
-        return isAiConnectionKind(aiApiType) ? { model, aiApiType } : model;
-    }
-    return isAiConnectionKind(aiApiType) ? { aiApiType } : undefined;
-}
-
-export function createDefaultSituationDirector(model: ModelRef): SituationDirector {
-    return {
-        enabled: true,
-        model,
-        maxAutoTurns: 3,
-        stopPolicy: 'max-turns',
-        ...(isJevModelRef(model) ? { engine: 'typesafe' as const } : {}),
-    };
-}
-
 export function normalizeSituationMaxHistory(maxHistory: unknown): number | undefined {
     if (typeof maxHistory !== 'number' || !Number.isFinite(maxHistory)) return undefined;
     return Math.max(1, Math.min(100, Math.round(maxHistory)));
 }
 
-export function normalizeSituationDirector(
-    director: (Situation['director'] & { aiApiType?: unknown }) | undefined,
-    fallbackModel: ModelRef,
-): SituationDirector {
-    const maxAutoTurns = Number.isFinite(director?.maxAutoTurns)
-        ? Math.max(1, Math.min(10, Math.round(director!.maxAutoTurns)))
-        : 3;
-    const stopPolicy = director?.stopPolicy === 'after-one' ? 'after-one' : 'max-turns';
-    const model = normalizeModelRef(
-        legacyModelRefSource(director?.model, director?.aiApiType),
-        fallbackModel,
-    );
-    const continueThreshold = typeof director?.continueThreshold === 'number'
-        && Number.isFinite(director.continueThreshold)
-        ? Math.max(0, Math.min(1, director.continueThreshold))
-        : undefined;
-    const protagonistThreshold = typeof director?.protagonistThreshold === 'number'
-        && Number.isFinite(director.protagonistThreshold)
-        ? Math.max(0, Math.min(1, director.protagonistThreshold))
-        : undefined;
-    return {
-        enabled: director?.enabled !== false,
-        model,
-        ...(director?.systemPrompt?.trim() ? { systemPrompt: director.systemPrompt.trim() } : {}),
-        maxAutoTurns,
-        stopPolicy,
-        ...(director?.engine === 'typesafe' || isJevModelRef(model)
-            ? { engine: 'typesafe' as const }
-            : {}),
-        ...(continueThreshold !== undefined ? { continueThreshold } : {}),
-        ...(protagonistThreshold !== undefined ? { protagonistThreshold } : {}),
-    };
+export function normalizeSituationMaxTurns(maxTurns: unknown): number {
+    if (typeof maxTurns !== 'number' || !Number.isFinite(maxTurns)) return DEFAULT_SITUATION_MAX_TURNS;
+    return Math.max(MIN_SITUATION_MAX_TURNS, Math.min(MAX_SITUATION_MAX_TURNS, Math.round(maxTurns)));
+}
+
+/** 保存済みの最大発言数。旧形式の指揮役設定（`director.maxAutoTurns` と
+ * `stopPolicy: 'after-one'`）からも読み取る。 */
+function storedSituationMaxTurns(situation: Situation): number {
+    if (typeof situation.maxTurns === 'number') return normalizeSituationMaxTurns(situation.maxTurns);
+    const legacyDirector = (situation as { director?: unknown }).director;
+    if (!isRecord(legacyDirector)) return DEFAULT_SITUATION_MAX_TURNS;
+    if (legacyDirector.stopPolicy === 'after-one') return 1;
+    return normalizeSituationMaxTurns(legacyDirector.maxAutoTurns);
 }
 
 export function normalizeSituationActor(
     rawActor: unknown,
     validCharacterIds: Set<string>,
-    fallbackModel: ModelRef,
 ): SituationActor | null {
     if (!isRecord(rawActor)) return null;
     const type = rawActor.type;
@@ -104,9 +64,6 @@ export function normalizeSituationActor(
             ...(costumeName && costumeName.toLowerCase() !== 'default' ? { costumeName } : {}),
             ...(typeof rawActor.rolePrompt === 'string' && rawActor.rolePrompt.trim()
                 ? { rolePrompt: rawActor.rolePrompt.trim() }
-                : {}),
-            ...(typeof rawActor.directorDescription === 'string' && rawActor.directorDescription.trim()
-                ? { directorDescription: rawActor.directorDescription.trim() }
                 : {}),
         };
     }
@@ -126,28 +83,12 @@ export function normalizeSituationActor(
             ...(typeof rawActor.userConstraints === 'string' && rawActor.userConstraints.trim()
                 ? { userConstraints: rawActor.userConstraints.trim() }
                 : {}),
-            model: normalizeModelRef(legacyModelRefSource(rawActor.model, rawActor.aiApiType), fallbackModel),
             ...(typeof rawActor.icon === 'string' && rawActor.icon ? { icon: rawActor.icon } : {}),
             ...(typeof rawActor.rolePrompt === 'string' && rawActor.rolePrompt.trim()
                 ? { rolePrompt: rawActor.rolePrompt.trim() }
                 : {}),
-            ...(typeof rawActor.directorDescription === 'string' && rawActor.directorDescription.trim()
-                ? { directorDescription: rawActor.directorDescription.trim() }
-                : {}),
             ...(typeof rawActor.maxCharacters === 'number' ? { maxCharacters: rawActor.maxCharacters } : {}),
             ...(typeof rawActor.maxHistory === 'number' ? { maxHistory: rawActor.maxHistory } : {}),
-            ...(typeof rawActor.temperature === 'number' ? { temperature: rawActor.temperature } : {}),
-            ...(typeof rawActor.topP === 'number' ? { topP: rawActor.topP } : {}),
-            ...(typeof rawActor.topK === 'number' ? { topK: rawActor.topK } : {}),
-            ...(typeof rawActor.frequencyPenalty === 'number' ? { frequencyPenalty: rawActor.frequencyPenalty } : {}),
-            ...(typeof rawActor.presencePenalty === 'number' ? { presencePenalty: rawActor.presencePenalty } : {}),
-            ...(typeof rawActor.repetitionPenalty === 'number' ? { repetitionPenalty: rawActor.repetitionPenalty } : {}),
-            ...(isReasoningEffort(rawActor.reasoningEffort)
-                ? { reasoningEffort: rawActor.reasoningEffort }
-                // JSONのthoughtフィールドの「考える」はネイティブ推論（low）へ移行する。
-                : rawActor.enableThinking === true
-                    ? { reasoningEffort: 'low' as const }
-                    : {}),
             ...(Array.isArray(rawActor.expressions) ? { expressions: rawActor.expressions as Expression[] } : {}),
             ...(Array.isArray(rawActor.costumes) ? { costumes: rawActor.costumes as Costume[] } : {}),
         };
@@ -228,13 +169,11 @@ export function normalizeSituationPriorMessages(
 export function normalizeSituation(
     situation: Situation,
     validCharacterIds: Set<string>,
-    fallbackModel: ModelRef,
     now = Date.now(),
-    directorFallbackModel = fallbackModel,
 ): Situation | null {
     const actors = uniqueSituationActors(
         situation.actors
-            .map((actor) => normalizeSituationActor(actor, validCharacterIds, fallbackModel))
+            .map((actor) => normalizeSituationActor(actor, validCharacterIds))
             .filter((actor): actor is SituationActor => actor != null),
     );
     if (actors.length === 0) return null;
@@ -251,7 +190,7 @@ export function normalizeSituation(
         characterCommonRules: situation.characterCommonRules ?? '',
         priorMessages: normalizeSituationPriorMessages(situation.priorMessages, new Set(actorIds)),
         actors,
-        director: normalizeSituationDirector(situation.director, directorFallbackModel),
+        maxTurns: storedSituationMaxTurns(situation),
         memoryMode,
         maxHistory: normalizeSituationMaxHistory(situation.maxHistory),
         createdAt: situation.createdAt ?? now,
@@ -262,7 +201,6 @@ export function normalizeSituation(
 export function resolveSituationParticipants(
     situation: Situation | null | undefined,
     characters: Character[],
-    fallbackModel: ModelRef = DEFAULT_MODEL_DEFAULTS.defaultChatModel,
 ): SituationParticipant[] {
     if (!situation) return [];
     const byId = new Map(characters.map((character) => [character.id, character]));
@@ -278,7 +216,6 @@ export function resolveSituationParticipants(
                     actorType: 'character',
                     sourceCharacterId: character.id,
                     rolePrompt: actor.rolePrompt,
-                    directorDescription: actor.directorDescription,
                 };
             }
             const now = Date.now();
@@ -290,24 +227,15 @@ export function resolveSituationParticipants(
                 systemPrompt: actor.systemPrompt,
                 speechStyle: actor.speechStyle,
                 userConstraints: actor.userConstraints,
-                model: actor.model ?? fallbackModel,
                 icon: actor.icon,
                 maxCharacters: actor.maxCharacters,
                 maxHistory: actor.maxHistory,
-                temperature: actor.temperature,
-                topP: actor.topP,
-                topK: actor.topK,
-                frequencyPenalty: actor.frequencyPenalty,
-                presencePenalty: actor.presencePenalty,
-                repetitionPenalty: actor.repetitionPenalty,
-                reasoningEffort: actor.reasoningEffort,
                 enableMemory: false,
                 expressions: actor.expressions,
                 costumes: actor.costumes,
                 createdAt: situation.createdAt ?? now,
                 updatedAt: actor.id ? situation.updatedAt ?? now : now,
                 rolePrompt: actor.rolePrompt,
-                directorDescription: actor.directorDescription,
             };
         })
         .filter((participant): participant is SituationParticipant => participant != null);
@@ -317,27 +245,15 @@ export function normalizeGroupData(params: {
     characters: Character[];
     groups: Situation[];
     rooms: Room[];
-    fallbackModel?: ModelRef;
-    directorFallbackModel?: ModelRef;
 }): { groups: Situation[]; rooms: Room[]; changedGroups: Situation[]; changedRooms: Room[] } {
     const now = Date.now();
-    const fallbackModel = normalizeModelRef(params.fallbackModel, DEFAULT_MODEL_DEFAULTS.defaultChatModel);
-    const directorFallbackModel = params.directorFallbackModel
-        ? normalizeModelRef(params.directorFallbackModel, fallbackModel)
-        : fallbackModel;
     const validCharacterIds = new Set(params.characters.map((character) => character.id));
     const groupsById = new Map<string, Situation>();
     const changedGroups: Situation[] = [];
     const changedRooms: Room[] = [];
 
     for (const group of params.groups) {
-        const normalizedGroup = normalizeSituation(
-            group,
-            validCharacterIds,
-            fallbackModel,
-            now,
-            directorFallbackModel,
-        );
+        const normalizedGroup = normalizeSituation(group, validCharacterIds, now);
         if (!normalizedGroup) continue;
         groupsById.set(normalizedGroup.id, normalizedGroup);
         if (JSON.stringify(normalizedGroup) !== JSON.stringify(group)) changedGroups.push(normalizedGroup);

@@ -59,7 +59,6 @@ describe('rebaseModelDefaults', () => {
         for (const role of [
             'summaryModel',
             'defaultChatModel',
-            'defaultDirectorModel',
             'defaultAutoGenerationModel',
             'titleGenerationModel',
             'replySuggestionModel',
@@ -75,7 +74,7 @@ describe('rebaseModelDefaults', () => {
         expect(isEmptyModelRef(result.defaults.defaultImageModel)).toBe(true);
         expect(isEmptyModelRef(result.defaults.memoryEmbeddingModel)).toBe(true);
         expect(isEmptyModelRef(result.defaults.memoryGateModel)).toBe(true);
-        expect(result.changedRoles).toHaveLength(11);
+        expect(result.changedRoles).toHaveLength(10);
     });
 
     test('moves supported roles to a local compatible server without inventing a model name', () => {
@@ -165,7 +164,7 @@ describe('rebaseModelDefaults', () => {
         for (const role of MODEL_DEFAULT_FIELDS) {
             expect(isEmptyModelRef(result.defaults[role])).toBe(true);
         }
-        expect(result.changedRoles).toHaveLength(11);
+        expect(result.changedRoles).toHaveLength(10);
     });
 
     test('fills cleared roles once a capable connection is configured', () => {
@@ -174,7 +173,7 @@ describe('rebaseModelDefaults', () => {
         const result = rebaseModelDefaults(cleared, [openrouter]);
 
         expect(result.defaults).toEqual(getDefaultModelDefaults());
-        expect(result.changedRoles).toHaveLength(11);
+        expect(result.changedRoles).toHaveLength(10);
     });
 
     test('is idempotent', () => {

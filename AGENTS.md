@@ -21,7 +21,7 @@ cargo audit          # 依存関係の脆弱性監査（CIは週次、.github/wo
 - `src/main.rs`: Axumの起動、routing、loopback/Origin保護。
 - `src/db/`: SQLiteとストレージcommand。
 - `src/ai/`: OpenRouter/OpenAI互換APIクライアントと生成API。
-- `src/conversation/`: 会話、要約、指揮役、記憶検索・抽出。
+- `src/conversation/`: 会話（シチュエーションは1回の呼び出しで複数キャラをまとめて生成）、要約、記憶検索・抽出。
 - `migrations/`: SQLite migration。
 - `out/`: Viteの静的出力。Rustバイナリへ埋め込みます。
 

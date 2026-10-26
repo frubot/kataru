@@ -192,6 +192,8 @@ function parseFullBackupValue(parsed: unknown): ParsedBackup {
         for (const actorId of getSituationActorIds(group)) {
             validUsageCharacterIds.add(actorId);
         }
+        // シチュエーションの一括生成はシチュエーション単位で記録する。旧形式の指揮役の記録も残す。
+        validUsageCharacterIds.add(group.id);
         validUsageCharacterIds.add(`${group.id}:director`);
     }
 

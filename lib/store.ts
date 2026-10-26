@@ -12,7 +12,6 @@ import { createUsageSlice } from './store/usage';
 export {
     DEFAULT_AUTO_GENERATION_MODEL,
     DEFAULT_CHAT_MODEL,
-    DEFAULT_DIRECTOR_MODEL,
     DEFAULT_EXPRESSION_DETECTION_MODEL,
     DEFAULT_IMAGE_MODEL,
     DEFAULT_MEMORY_EMBEDDING_MODEL,
@@ -34,14 +33,13 @@ export {
     CURRENT_ONBOARDING_VERSION,
 } from './store/lifecycle';
 export {
+    DEFAULT_SITUATION_MAX_TURNS,
+    MAX_SITUATION_MAX_TURNS,
+    MIN_SITUATION_MAX_TURNS,
+} from './store/types';
+export {
     DEFAULT_CHARACTER_MAX_HISTORY,
     DEFAULT_CHARACTER_MAX_CHARACTERS,
-    DEFAULT_CHARACTER_TEMPERATURE,
-    DEFAULT_CHARACTER_TOP_K,
-    DEFAULT_CHARACTER_TOP_P,
-    DEFAULT_CHARACTER_FREQUENCY_PENALTY,
-    DEFAULT_CHARACTER_PRESENCE_PENALTY,
-    DEFAULT_CHARACTER_REPETITION_PENALTY,
     DEFAULT_CONVERSATION_COMPRESSION_ENABLED,
     DEFAULT_USER_NAME,
     TTS_CHUNK_MIN_CHARS_MAX,
@@ -79,9 +77,9 @@ export type {
     RoomViewMode,
     RoomCompressionSnapshot,
     RoomReplySuggestions,
+    ChatSampling,
     Situation,
     SituationActor,
-    SituationDirector,
     SituationMemoryMode,
     SituationParticipant,
     SituationPriorMessage,

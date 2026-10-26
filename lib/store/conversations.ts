@@ -23,13 +23,12 @@ import {
     toStoredRoom,
 } from './persistence';
 import {
-    createDefaultSituationDirector,
     defaultCharacterRoomName,
     defaultGroupRoomName,
     getSituationActorIds,
     getSituationCostumeSelections,
     normalizeSituationActor,
-    normalizeSituationDirector,
+    normalizeSituationMaxTurns,
     normalizeSituationMaxHistory,
     normalizeSituationPriorMessages,
     resolveSituationParticipants,
@@ -172,7 +171,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
             const validCharacterIds = new Set(get().characters.map((c) => c.id));
             const actors = uniqueSituationActors(
                 input.actors
-                    .map((actor) => normalizeSituationActor(actor, validCharacterIds, get().defaultChatModel))
+                    .map((actor) => normalizeSituationActor(actor, validCharacterIds))
                     .filter((actor): actor is SituationActor => actor != null)
             );
             if (actors.length === 0) return '';
@@ -197,10 +196,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
                 characterCommonRules: input.characterCommonRules?.trim() ?? '',
                 priorMessages: normalizeSituationPriorMessages(input.priorMessages, new Set(actorIds)),
                 actors,
-                director: normalizeSituationDirector({
-                    ...createDefaultSituationDirector(get().defaultDirectorModel),
-                    ...(input.director ?? {}),
-                }, get().defaultDirectorModel),
+                maxTurns: normalizeSituationMaxTurns(input.maxTurns),
                 memoryMode: input.memoryMode === 'readOnly' ? 'readOnly' : 'off',
                 maxHistory: normalizeSituationMaxHistory(input.maxHistory),
                 createdAt: now,
@@ -358,7 +354,6 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
                 id: newId,
                 name: `${baseName} (${n})`,
                 actors: source.actors.map((actor) => ({ ...actor })),
-                director: { ...source.director },
                 priorMessages: source.priorMessages?.map((message) => ({ ...message })),
                 createdAt: now,
                 updatedAt: now,
@@ -428,7 +423,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
                         const normalizedActors = updates.actors
                             ? uniqueSituationActors(
                                 updates.actors
-                                    .map((actor) => normalizeSituationActor(actor, validCharacterIds, state.defaultChatModel))
+                                    .map((actor) => normalizeSituationActor(actor, validCharacterIds))
                                     .filter((actor): actor is SituationActor => actor != null)
                             )
                             : g.actors;
@@ -438,7 +433,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
                             ...g,
                             ...updates,
                             actors: nextActors,
-                            ...(updates.director ? { director: normalizeSituationDirector(updates.director, state.defaultDirectorModel) } : {}),
+                            maxTurns: 'maxTurns' in updates ? normalizeSituationMaxTurns(updates.maxTurns) : g.maxTurns,
                             priorMessages: normalizeSituationPriorMessages(
                                 'priorMessages' in updates ? updates.priorMessages : g.priorMessages,
                                 nextActorIds,
@@ -1046,7 +1041,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
             const group = room.groupId
                 ? state.groups.find((g) => g.id === room.groupId)
                 : undefined;
-            if (group) return resolveSituationParticipants(group, state.characters, state.defaultChatModel);
+            if (group) return resolveSituationParticipants(group, state.characters);
             return [];
         },
     };

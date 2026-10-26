@@ -1,4 +1,3 @@
-import { AI_CONNECTION_KINDS } from './aiApi';
 import { fetchWithTransientRetry } from './fetchRetry';
 import type { Character } from './store/types';
 
@@ -30,13 +29,8 @@ function isCharacterPackageInspection(value: unknown): value is CharacterPackage
 export async function createCharacterPackage(
     characterId: string,
     includeVrm: boolean,
-    fallbackConnectionId: string,
 ): Promise<Blob> {
-    const params = new URLSearchParams({
-        includeVrm: String(includeVrm),
-        builtin: AI_CONNECTION_KINDS.join(','),
-        fallbackConnectionId,
-    });
+    const params = new URLSearchParams({ includeVrm: String(includeVrm) });
     const response = await fetchWithTransientRetry(
         `/api/characters/${encodeURIComponent(characterId)}/package?${params.toString()}`,
         { cache: 'no-store', credentials: 'same-origin' },
@@ -67,16 +61,8 @@ export async function inspectCharacterPackage(file: Blob): Promise<CharacterPack
 }
 
 /** `.kataru` パッケージをインポートする。サーバー側で永続化済みのCharacterが返る。 */
-export async function importCharacterPackage(
-    file: Blob,
-    params: { fallbackModel: string; fallbackConnectionId: string; knownConnectionIds: string[] },
-): Promise<Character> {
-    const query = new URLSearchParams({
-        fallbackModel: params.fallbackModel,
-        fallbackConnectionId: params.fallbackConnectionId,
-        knownConnectionIds: params.knownConnectionIds.join(','),
-    });
-    const response = await fetch(`/api/character-packages/import?${query.toString()}`, {
+export async function importCharacterPackage(file: Blob): Promise<Character> {
+    const response = await fetch('/api/character-packages/import', {
         method: 'POST',
         cache: 'no-store',
         credentials: 'same-origin',

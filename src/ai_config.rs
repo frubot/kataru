@@ -42,7 +42,6 @@ const KEYRING_SERVICE: &str = "Kataru";
 pub const OPENROUTER_CONNECTION_ID: &str = "openrouter";
 pub const OPENAI_COMPATIBLE_CONNECTION_ID: &str = "openai-compatible";
 pub const ANTHROPIC_CONNECTION_ID: &str = "anthropic";
-pub const TYPESAFE_CONNECTION_ID: &str = "typesafe";
 pub const DEFAULT_CONNECTION_ID: &str = OPENROUTER_CONNECTION_ID;
 const CUSTOM_ID_PREFIX: &str = "cx_";
 

@@ -22,8 +22,7 @@ pub use memory::extract_memories;
 pub use tts::{list_tts_speakers, synthesize_speech};
 
 pub(crate) use common::{
-    RoleSelection, entity_connection_id, model_string, optional_role_selection,
-    resolve_role_selection, role_connection, role_default_selection, upstream_error,
+    RoleSelection, model_string, optional_role_selection, resolve_role_selection, upstream_error,
 };
 pub(crate) use memory::{
     memory_extraction_guided_prompt, memory_extraction_prompt, memory_schema, parse_memory_updates,

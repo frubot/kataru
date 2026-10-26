@@ -27,7 +27,6 @@ function character(id: string, name: string): Character {
         id,
         name,
         systemPrompt: `${name}のシステムプロンプト`,
-        model: { connectionId: 'openrouter', model: 'test-model' },
         createdAt: 1,
         updatedAt: 2,
     };
@@ -43,12 +42,7 @@ function validBackup(): FullBackup {
             { id: 'actor-a', type: 'character', characterId: firstCharacter.id },
             { id: 'actor-b', type: 'character', characterId: secondCharacter.id },
         ],
-        director: {
-            enabled: false,
-            model: { connectionId: 'openrouter', model: 'director-model' },
-            maxAutoTurns: 3,
-            stopPolicy: 'after-one',
-        },
+        maxTurns: 1,
         memoryMode: 'off',
         createdAt: 1,
         updatedAt: 2,

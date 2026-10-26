@@ -15,7 +15,7 @@ interface ModelSelectorProps {
     value: ModelRef;
     onChange: (model: ModelRef) => void;
     /** One modality, or several whose catalogs are merged per connection
-     * (e.g. text + decisions for the director role). */
+     * (e.g. text + decisions). */
     outputModality: ModelOutputModality | readonly ModelOutputModality[];
     id?: string;
     disabled?: boolean;

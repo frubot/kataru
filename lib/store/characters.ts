@@ -1,7 +1,5 @@
 import * as db from '../db';
-import { isAiConnectionKind, isReasoningEffort, normalizeModelRef, type ModelRef } from '../aiApi';
 import { generateId } from '../id';
-import { isModelRefShape } from '../modelDefaults';
 import { normalizeCharactersForCostumeDiffs } from '../visualDiffMigration';
 import { duplicateDedicatedMemories } from './memories';
 import { fire, persistGroup, shouldPersistRoom, toStoredRoom } from './persistence';
@@ -16,70 +14,34 @@ import type {
     StoreSet,
 } from './types';
 
-/** A legacy `model` string plus an optional sibling `aiApiType` folds into a
- * single `ModelRef` source that `normalizeModelRef` understands. */
-function legacyModelRefSource(model: unknown, aiApiType: unknown): unknown {
-    if (model !== null && typeof model === 'object') return model;
-    if (typeof model === 'string' && model.trim()) {
-        return isAiConnectionKind(aiApiType) ? { model, aiApiType } : model;
-    }
-    return isAiConnectionKind(aiApiType) ? { aiApiType } : undefined;
+/** 保存データに残っている、もう使わない項目。モデルと生成パラメータは
+ * キャラクターごとではなく全体設定で持つようになった。 */
+const OBSOLETE_CHARACTER_KEYS = [
+    'model',
+    'aiApiType',
+    'temperature',
+    'topP',
+    'topK',
+    'frequencyPenalty',
+    'presencePenalty',
+    'repetitionPenalty',
+    'reasoningEffort',
+    'enableThinking',
+    'thinkModeEnabled',
+    'maxTokens',
+    'enableSummary',
+] as const;
+
+/** 旧形式の項目を取り除く。変更がなければ同じオブジェクトを返し、書き戻しを避ける。 */
+export function stripObsoleteCharacterFields<T extends object>(character: T): T {
+    if (!OBSOLETE_CHARACTER_KEYS.some((key) => key in character)) return character;
+    const next = { ...character } as Record<string, unknown>;
+    for (const key of OBSOLETE_CHARACTER_KEYS) delete next[key];
+    return next as T;
 }
 
-export function resolveCharacterModel(model: unknown, fallbackModel: ModelRef): ModelRef {
-    return normalizeModelRef(model, fallbackModel);
-}
-
-export function normalizeCharacterModel(character: Character, fallbackModel: ModelRef): Character {
-    const stored = character as Character & {
-        model?: unknown;
-        aiApiType?: unknown;
-        thinkModeEnabled?: boolean;
-        maxTokens?: number;
-        enableSummary?: boolean;
-    };
-    const model = normalizeModelRef(legacyModelRefSource(stored.model, stored.aiApiType), fallbackModel);
-    const normalized = { ...character } as Character & {
-        aiApiType?: unknown;
-        thinkModeEnabled?: boolean;
-        maxTokens?: number;
-        enableSummary?: boolean;
-        enableThinking?: unknown;
-        reasoningEffort?: unknown;
-    };
-    const hadLegacyThinkMode = 'thinkModeEnabled' in normalized;
-    const hadLegacyMaxTokens = 'maxTokens' in normalized;
-    const hadLegacyEnableSummary = 'enableSummary' in normalized;
-    const hadAiApiType = 'aiApiType' in normalized;
-    const hadEnableThinking = 'enableThinking' in normalized;
-    const hadInvalidReasoningEffort = 'reasoningEffort' in normalized && !isReasoningEffort(normalized.reasoningEffort);
-    // JSONのthoughtフィールドで考えていたキャラクターはネイティブ推論（low）へ移行する。
-    const migrateThinkingToReasoning = normalized.enableThinking === true
-        && !isReasoningEffort(normalized.reasoningEffort);
-    // モデル未選択（model が空）も正規化結果として保持し、毎回の書き戻しを避ける。
-    const modelUnchanged = isModelRefShape(stored.model)
-        && stored.model.model === model.model
-        && stored.model.connectionId === model.connectionId;
-    delete normalized.thinkModeEnabled;
-    delete normalized.maxTokens;
-    delete normalized.enableSummary;
-    delete normalized.aiApiType;
-    delete normalized.enableThinking;
-    if (!isReasoningEffort(normalized.reasoningEffort)) {
-        delete normalized.reasoningEffort;
-    }
-    const next = { ...normalized, model };
-    if (migrateThinkingToReasoning) {
-        next.reasoningEffort = 'low';
-    }
-    return modelUnchanged && !hadLegacyThinkMode && !hadLegacyMaxTokens && !hadLegacyEnableSummary && !hadAiApiType && !hadEnableThinking && !hadInvalidReasoningEffort
-        ? character
-        : next;
-}
-
-export function normalizeCharacters(characters: Character[], fallbackModel: ModelRef): Character[] {
-    return normalizeCharactersForCostumeDiffs(characters)
-        .map((character) => normalizeCharacterModel(character, fallbackModel));
+export function normalizeCharacters(characters: Character[]): Character[] {
+    return normalizeCharactersForCostumeDiffs(characters).map(stripObsoleteCharacterFields);
 }
 
 type CharacterSlice = Pick<
@@ -105,7 +67,7 @@ export function createCharacterSlice(set: StoreSet, get: StoreGet): CharacterSli
     return {
         characters: [],
 
-        createCharacter: (name, systemPrompt = '', model = get().defaultChatModel, extras) => {
+        createCharacter: (name, systemPrompt = '', extras) => {
             const id = generateId();
             const now = Date.now();
             const character: Character = {
@@ -113,7 +75,6 @@ export function createCharacterSlice(set: StoreSet, get: StoreGet): CharacterSli
                 name,
                 systemPrompt,
                 ...(extras ?? {}),
-                model: resolveCharacterModel(model, get().defaultChatModel),
                 createdAt: now,
                 updatedAt: now,
             };
@@ -124,13 +85,10 @@ export function createCharacterSlice(set: StoreSet, get: StoreGet): CharacterSli
 
         updateCharacter: (id, updates) => {
             let updated: Character | undefined;
-            const normalizedUpdates = 'model' in updates
-                ? { ...updates, model: resolveCharacterModel(updates.model, get().defaultChatModel) }
-                : updates;
             set((state) => ({
                 characters: state.characters.map((character) => {
                     if (character.id !== id) return character;
-                    updated = { ...character, ...normalizedUpdates, updatedAt: Date.now() };
+                    updated = { ...character, ...updates, updatedAt: Date.now() };
                     return updated;
                 }),
             }));
@@ -163,7 +121,7 @@ export function createCharacterSlice(set: StoreSet, get: StoreGet): CharacterSli
 
                 const remainingActors = group.actors
                     .filter((actor) => !(actor.type === 'character' && actor.characterId === id))
-                    .map((actor) => normalizeSituationActor(actor, validCharacterIds, get().defaultChatModel))
+                    .map((actor) => normalizeSituationActor(actor, validCharacterIds))
                     .filter((actor): actor is SituationActor => actor != null);
                 if (remainingActors.length > 0) {
                     const nextGroup = {
@@ -245,7 +203,6 @@ export function createCharacterSlice(set: StoreSet, get: StoreGet): CharacterSli
                 ...source,
                 id: newId,
                 name: `${baseName} (${index})`,
-                model: resolveCharacterModel(source.model, get().defaultChatModel),
                 createdAt: now,
                 updatedAt: now,
             };

@@ -101,7 +101,7 @@ interface ChatSidebarProps {
 }
 
 export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, onOpenCharacterAdd, isOpen, isDesktopOpen, onClose, onToggleDesktop }: ChatSidebarProps) {
-    const { characters, groups, rooms, currentRoomId, createRoom, createRoomForSituation, setCurrentRoom, deleteRoom, deleteSituation, duplicateSituation, deleteCharacter, duplicateCharacter, updateCharacter, updateSituation, defaultChatModel } = useStore();
+    const { characters, groups, rooms, currentRoomId, createRoom, createRoomForSituation, setCurrentRoom, deleteRoom, deleteSituation, duplicateSituation, deleteCharacter, duplicateCharacter, updateCharacter, updateSituation } = useStore();
     const [expandedCharacters, setExpandedCharacters] = useState<Set<string>>(new Set());
     const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set(groups.map((g) => g.id)));
     const [fullRoomLists, setFullRoomLists] = useState<Set<string>>(new Set());
@@ -286,7 +286,7 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, o
             return;
         }
         try {
-            const blob = await createCharacterPackage(character.id, includeVrm ?? true, defaultChatModel.connectionId);
+            const blob = await createCharacterPackage(character.id, includeVrm ?? true);
             const filename = createCharacterPackageFilename(character.name);
             await shareBlobFile(blob, filename, `${character.name} - Kataru`);
             setSharingCharacter(null);
@@ -477,7 +477,7 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, o
         const groupRooms = visibleRooms
             .filter((room) => room.groupId === group.id)
             .sort((a, b) => b.updatedAt - a.updatedAt);
-        const roomChars = resolveSituationParticipants(group, characters, defaultChatModel);
+        const roomChars = resolveSituationParticipants(group, characters);
         const isExpanded = !collapsedGroups.has(group.id);
 
         return (

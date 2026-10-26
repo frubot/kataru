@@ -11,18 +11,14 @@ use crate::{
     ai::{
         AiApiClient, AiApiConfig, ai_api_config_value,
         routes::{
-            RoleSelection, entity_connection_id, extract_message_reasoning, extract_message_text,
+            RoleSelection, extract_message_reasoning, extract_message_text,
             memory_extraction_guided_prompt, memory_extraction_prompt, memory_schema, model_string,
             optional_role_selection, parse_memory_updates, plain_text_completion,
-            plain_text_completion_streaming, resolve_role_selection, role_connection,
-            role_default_selection, structured_completion, structured_completion_streaming,
+            plain_text_completion_streaming, resolve_role_selection, structured_completion,
+            structured_completion_streaming,
         },
-        typesafe::{
-            ChoiceAnswer, DEFAULT_JEV_MODEL, SystemOneResponse, choice_answer, is_jev_model,
-            noul_answer, system_one,
-        },
+        typesafe::{SystemOneResponse, system_one},
     },
-    ai_config::TYPESAFE_CONNECTION_ID,
     error::{AppError, AppResult},
 };
 
@@ -36,19 +32,17 @@ use super::{
         evaluate_memory_gate, memory_gate_questions, memory_gate_state,
     },
     prompts::{
-        DIRECTOR_TRANSCRIPT_USER_HISTORY, InjectedMemory, JEV_CONVERSATION_COMPLETE_OPTION,
-        JEV_END_OPTION, JEV_PROTAGONIST_OPTION, ReplyFormat, SUMMARY_RECENT_USER_TURNS_TO_KEEP,
-        actor_id, assistant_schema, boolean, character_setting, character_system_prompt,
-        director_jev_first_questions, director_jev_safe_question, director_jev_state,
-        director_prompts, director_schema, message_image_attachment_urls,
-        message_text_with_attachments, string, summary_prompts, summary_schema,
+        EnsembleCast, InjectedMemory, ReplyFormat, SUMMARY_RECENT_USER_TURNS_TO_KEEP, actor_id,
+        assistant_schema, boolean, character_setting, character_system_prompt, ensemble_schema,
+        ensemble_system_prompt, message_image_attachment_urls, message_text_with_attachments,
+        string, summary_prompts, summary_schema,
     },
     response::{
-        AssistantEnvelope, DirectorDecision, assistant_expression_preview,
-        assistant_motion_preview, assistant_response_preview, limit_assistant_reply_characters,
-        parse_assistant_response, parse_director_decision, parse_summary_response,
-        plain_assistant_response, plain_response_preview, sanitize_assistant_reply_content,
-        sanitize_message_content,
+        AssistantEnvelope, EnsembleSpeaker, EnsembleTurnPreview, assistant_expression_preview,
+        assistant_motion_preview, assistant_response_preview, ensemble_response_preview,
+        limit_assistant_reply_characters, parse_assistant_response, parse_ensemble_response,
+        parse_summary_response, plain_assistant_response, plain_response_preview,
+        sanitize_assistant_reply_content, sanitize_message_content,
     },
 };
 
@@ -67,10 +61,6 @@ const MEMORY_MAX_CANDIDATES: usize = 5;
 const MEMORY_MIN_VECTOR_SIMILARITY: f64 = 0.35;
 const MEMORY_MIN_LEXICAL_SIMILARITY: f64 = 0.25;
 const CONTINATUION_TRIGGER: &str = "[内部指示] これは{{user}}の発言ではありません。{{user}}から新しい発言や行動はありません。直前の場面を繰り返さず、自然な続きを作成してください。もし前回のレスポンスが途中で途切れている場合、その続きから作成してください。";
-
-const JEV_CONTINUE_THRESHOLD: f64 = 0.5;
-const JEV_PROTAGONIST_THRESHOLD: f64 = 0.6;
-const DIRECTOR_JEV_TIMEOUT_SECS: u64 = 30;
 
 /// Lazily builds and caches one `AiApiClient` per connection id so a single
 /// turn can mix roles/characters pinned to different connections.
@@ -117,89 +107,6 @@ impl<'a> RequestClients<'a> {
     }
 }
 
-fn director_selection(
-    situation: &Value,
-    payload: &Value,
-    participants: &[Value],
-) -> AppResult<RoleSelection> {
-    let director = situation.get("director").filter(|value| value.is_object());
-    let director_model = director
-        .map(|value| model_string(value, "model"))
-        .filter(|model| !model.is_empty());
-    if let Some(model) = director_model {
-        let connection_id = director
-            .and_then(entity_connection_id)
-            .or_else(|| role_connection(payload, "defaultDirectorModel"));
-        return Ok(RoleSelection {
-            model,
-            connection_id,
-        });
-    }
-    if let Some(selection) = role_default_selection(payload, "defaultDirectorModel") {
-        return Ok(selection);
-    }
-    if let Some(actor) = participants.first() {
-        let model = model_string(actor, "model").to_owned();
-        if !model.is_empty() {
-            return Ok(RoleSelection {
-                model,
-                connection_id: entity_connection_id(actor),
-            });
-        }
-    }
-    Err(AppError::BadRequest(
-        "指揮役モデルが設定されていません。".into(),
-    ))
-}
-
-fn is_typesafe_director(situation: &Value, payload: &Value) -> bool {
-    let director = situation.get("director").filter(|value| value.is_object());
-    if director
-        .and_then(|value| value.get("engine"))
-        .and_then(Value::as_str)
-        .is_some_and(|engine| engine == "typesafe")
-    {
-        return true;
-    }
-    // A Jev model can only be served by the System One / Decisions API, so it
-    // implies the TypeSafe engine even without the flag — e.g. when the global
-    // director default names a Jev model.
-    director
-        .map(|value| model_string(value, "model"))
-        .filter(|model| !model.is_empty())
-        .or_else(|| {
-            role_default_selection(payload, "defaultDirectorModel").map(|selection| selection.model)
-        })
-        .is_some_and(|model| is_jev_model(&model))
-}
-
-/// Jev directors never fall back to an actor's chat model: the engine itself
-/// resolves to the built-in TypeSafe connection unless overridden explicitly.
-/// A Jev-typed `defaultDirectorModel` fills both the model and the connection.
-fn typesafe_director_selection(situation: &Value, payload: &Value) -> RoleSelection {
-    let director = situation.get("director").filter(|value| value.is_object());
-    let jev_default = role_default_selection(payload, "defaultDirectorModel")
-        .filter(|selection| is_jev_model(&selection.model));
-    let model = director
-        .map(|value| model_string(value, "model"))
-        .filter(|model| !model.is_empty())
-        .or_else(|| {
-            jev_default
-                .as_ref()
-                .map(|selection| selection.model.clone())
-        })
-        .unwrap_or_else(|| DEFAULT_JEV_MODEL.to_owned());
-    let connection_id = director
-        .and_then(entity_connection_id)
-        .or_else(|| jev_default.and_then(|selection| selection.connection_id))
-        .or_else(|| role_connection(payload, "defaultDirectorModel"))
-        .unwrap_or_else(|| TYPESAFE_CONNECTION_ID.to_owned());
-    RoleSelection {
-        model,
-        connection_id: Some(connection_id),
-    }
-}
-
 fn character_max_characters(character: &Value) -> usize {
     usize::try_from(number_u64(character, "maxCharacters", DEFAULT_MAX_CHARACTERS).max(1))
         .unwrap_or(usize::MAX)
@@ -217,13 +124,33 @@ fn situation_max_turns(room: &Value, situation: &Value, participant_count: usize
 
     room.get("maxMentionChain")
         .and_then(Value::as_u64)
-        .or_else(|| {
-            situation
-                .pointer("/director/maxAutoTurns")
-                .and_then(Value::as_u64)
-        })
+        .or_else(|| situation.get("maxTurns").and_then(Value::as_u64))
         .unwrap_or(3)
         .clamp(1, 10) as usize
+}
+
+/// 会話の生成に使うモデル。キャラクターごとの指定はなく、全体設定の既定チャットモデルを使う。
+fn chat_model_selection(payload: &Value) -> AppResult<RoleSelection> {
+    resolve_role_selection(payload, "chatModel", "defaultChatModel")
+}
+
+/// 最新のユーザー発言で名前を呼ばれた参加者。複数いれば、文中で最初に出てきた人。
+fn addressed_participant<'a>(history: &[Value], participants: &'a [Value]) -> Option<&'a Value> {
+    let latest = history
+        .last()
+        .filter(|message| string(message, "role") == "user")?;
+    let content = string(latest, "content");
+    participants
+        .iter()
+        .filter_map(|actor| {
+            let name = string(actor, "name");
+            (!name.is_empty())
+                .then(|| content.find(&name))
+                .flatten()
+                .map(|position| (position, actor))
+        })
+        .min_by_key(|(position, _)| *position)
+        .map(|(_, actor)| actor)
 }
 
 pub async fn turn(
@@ -442,104 +369,20 @@ async fn run_turn_inner(
 
     if let Some(situation) = situation {
         let max_turns = situation_max_turns(&room, situation, participants.len());
-        let stop_after_one = situation
-            .pointer("/director/stopPolicy")
-            .and_then(Value::as_str)
-            == Some("after-one");
-        let director_selection = if is_typesafe_director(situation, &payload) {
-            typesafe_director_selection(situation, &payload)
+        let selection = chat_model_selection(&payload)?;
+        let first_speaker = if generation_mode.is_continue() {
+            None
         } else {
-            director_selection(situation, &payload, &participants)?
+            addressed_participant(&active_history, &participants)
         };
-
-        for turn_index in 0..max_turns {
-            if cancellation.is_cancelled() {
-                break;
-            }
-            let mut combined = active_history.clone();
-            combined.extend(generated.clone());
-            let banned_actor_id = if turn_index > 0 && participants.len() > 1 {
-                combined
-                    .iter()
-                    .rev()
-                    .find(|message| string(message, "role") == "assistant")
-                    .and_then(|message| message.get("characterId"))
-                    .and_then(Value::as_str)
-                    .map(str::to_owned)
-            } else {
-                None
-            };
-
-            let decision = if participants.len() == 1 {
-                DirectorDecision {
-                    actor_id: Some(actor_id(&participants[0])),
-                    reason: "Only participant".into(),
-                    candidates: vec![(actor_id(&participants[0]), "Only participant".into())],
-                }
-            } else if is_typesafe_director(situation, &payload) {
-                tokio::select! {
-                    biased;
-                    () = cancellation.cancelled() => break,
-                    decision = request_director_typesafe(
-                        &mut clients,
-                        situation,
-                        &participants,
-                        &combined,
-                        turn_index,
-                        max_turns,
-                        banned_actor_id.as_deref(),
-                        generation_mode.is_continue(),
-                        &director_selection,
-                        secret_mode,
-                        &room,
-                        &mut usages,
-                        full_json_logs,
-                    ) => decision?,
-                }
-            } else {
-                tokio::select! {
-                    biased;
-                    () = cancellation.cancelled() => break,
-                    decision = request_director(
-                        &mut clients,
-                        situation,
-                        &participants,
-                        &combined,
-                        turn_index,
-                        max_turns,
-                        banned_actor_id.as_deref(),
-                        generation_mode.is_continue(),
-                        &director_selection,
-                        secret_mode,
-                        &room,
-                        &mut usages,
-                        full_json_logs,
-                    ) => decision?,
-                }
-            };
-
-            let selected_id = decision.actor_id.as_deref();
-            let Some(actor) = selected_id.and_then(|selected| {
-                participants
-                    .iter()
-                    .find(|actor| actor_id(actor) == selected)
-            }) else {
-                break;
-            };
-            let actor_history =
-                group_history_for_actor(&combined, actor, &participants, history_limit);
-            let memory_allowed = !secret_mode
-                && string(situation, "memoryMode") == "readOnly"
+        let ensemble_history = slice_by_user_history(&active_history, history_limit);
+        let memory_enabled = !secret_mode && string(situation, "memoryMode") == "readOnly";
+        let mut cast_memories = Vec::with_capacity(participants.len());
+        for actor in &participants {
+            let source_id = string(actor, "sourceCharacterId");
+            let memory_allowed = memory_enabled
                 && string(actor, "actorType") == "character"
-                && !string(actor, "sourceCharacterId").is_empty();
-            let memory_character_id = {
-                let source = string(actor, "sourceCharacterId");
-                if source.is_empty() {
-                    string(actor, "id")
-                } else {
-                    source
-                }
-            };
+                && !source_id.is_empty();
             let relevant = if memory_allowed {
                 // 埋め込みモデルが未設定でも記憶検索は字句類似度だけで続行する。
                 let embedding_selection = optional_role_selection(
@@ -549,14 +392,14 @@ async fn run_turn_inner(
                 );
                 tokio::select! {
                     biased;
-                    () = cancellation.cancelled() => break,
+                    () = cancellation.cancelled() => Vec::new(),
                     memories = search_memories(
                         &state,
                         &mut clients,
                         embedding_selection.as_ref(),
-                        &memory_character_id,
+                        &source_id,
                         &room_id,
-                        &actor_history,
+                        &ensemble_history,
                     ) => memories.unwrap_or_default(),
                 }
             } else {
@@ -566,35 +409,36 @@ async fn run_turn_inner(
                 &mut used_memory_ids,
                 relevant.iter().map(|memory| memory.id.clone()),
             );
-            let generation_history = with_continuation_trigger(
-                actor_history,
-                generation_mode.is_continue() && turn_index == 0,
-            );
-            let generated_messages = tokio::select! {
+            cast_memories.push(relevant);
+        }
+        if !cancellation.is_cancelled() {
+            let generation_history =
+                with_continuation_trigger(ensemble_history, generation_mode.is_continue());
+            generated = tokio::select! {
                 biased;
-                () = cancellation.cancelled() => break,
-                messages = generate_for_character(
+                () = cancellation.cancelled() => Vec::new(),
+                messages = generate_for_ensemble(
                     &mut clients,
-                    actor,
-                    &generation_history,
-                    &room,
-                    Some(situation),
-                    &participants,
-                    current_summary.as_deref(),
-                    &relevant,
-                    reply_format,
-                    secret_mode,
+                    EnsembleRequest {
+                        selection: &selection,
+                        sampling: chat_sampling(&payload),
+                        reasoning_effort: default_reasoning_effort,
+                        situation,
+                        participants: &participants,
+                        cast_memories: &cast_memories,
+                        history: &generation_history,
+                        room: &room,
+                        summary: current_summary.as_deref(),
+                        format: reply_format,
+                        max_turns,
+                        first_speaker,
+                        secret_mode,
+                        streaming_preview,
+                    },
                     &mut usages,
                     full_json_logs,
-                    generated.len(),
-                    streaming_preview,
-                    default_reasoning_effort,
                 ) => messages?,
             };
-            generated.extend(generated_messages);
-            if stop_after_one {
-                break;
-            }
         }
     } else if let Some(character) = character {
         let memory_allowed =
@@ -622,6 +466,7 @@ async fn run_turn_inner(
             &mut used_memory_ids,
             relevant.iter().map(|memory| memory.id.clone()),
         );
+        let selection = chat_model_selection(&payload)?;
         let character_history = with_continuation_trigger(
             slice_by_user_history(&active_history, history_limit),
             generation_mode.is_continue(),
@@ -631,11 +476,11 @@ async fn run_turn_inner(
             () = cancellation.cancelled() => Vec::new(),
             messages = generate_for_character(
                 &mut clients,
+                &selection,
+                chat_sampling(&payload),
                 character,
                 &character_history,
                 &room,
-                None,
-                &[],
                 current_summary.as_deref(),
                 &relevant,
                 reply_format,
@@ -1065,35 +910,42 @@ fn redact_base64_data_urls(text: &str) -> String {
     result
 }
 
-fn character_completion_body(
-    character: &Value,
+/// 会話用の生成パラメータ（全体設定の `chatSampling`）。未送信なら空のオブジェクト扱い。
+fn chat_sampling(payload: &Value) -> &Value {
+    static EMPTY: Value = Value::Null;
+    payload
+        .get("chatSampling")
+        .filter(|value| value.is_object())
+        .unwrap_or(&EMPTY)
+}
+
+fn chat_completion_body(
+    model: &str,
     messages: Vec<Value>,
-    default_reasoning_effort: Option<&str>,
+    sampling: &Value,
+    reasoning_effort: Option<&str>,
+    max_tokens: u64,
 ) -> Value {
     let mut body = json!({
-        "model": model_string(character, "model"),
+        "model": model,
         "messages": messages,
-        "max_tokens": CHAT_COMPLETION_MAX_TOKENS,
-        "temperature": number_f64(character, "temperature", DEFAULT_TEMPERATURE),
-        "top_p": number_f64(character, "topP", DEFAULT_TOP_P),
-        "top_k": number_u64(character, "topK", DEFAULT_TOP_K),
+        "max_tokens": max_tokens,
+        "temperature": number_f64(sampling, "temperature", DEFAULT_TEMPERATURE),
+        "top_p": number_f64(sampling, "topP", DEFAULT_TOP_P),
+        "top_k": number_u64(sampling, "topK", DEFAULT_TOP_K),
         "stream": false,
     });
-    // Omit unset penalties so existing characters keep the provider's defaults.
+    // 未設定のペナルティは送らず、プロバイダの既定値に任せる。
     for (setting, parameter) in [
         ("frequencyPenalty", "frequency_penalty"),
         ("presencePenalty", "presence_penalty"),
         ("repetitionPenalty", "repetition_penalty"),
     ] {
-        if let Some(value) = character.get(setting).filter(|value| value.is_number()) {
+        if let Some(value) = sampling.get(setting).filter(|value| value.is_number()) {
             body[parameter] = value.clone();
         }
     }
-    // キャラクター個別の推論レベルが全体設定を上書きする。
-    if let Some(effort) =
-        reasoning_effort_str(character.get("reasoningEffort").and_then(Value::as_str))
-            .or(default_reasoning_effort)
-    {
+    if let Some(effort) = reasoning_effort {
         body["reasoningEffort"] = json!(effort);
     }
     body
@@ -1102,11 +954,11 @@ fn character_completion_body(
 #[allow(clippy::too_many_arguments)]
 async fn generate_for_character(
     clients: &mut RequestClients<'_>,
+    selection: &RoleSelection,
+    sampling: &Value,
     character: &Value,
     history: &[Value],
     room: &Value,
-    situation: Option<&Value>,
-    participants: &[Value],
     summary: Option<&str>,
     memories: &[ScoredMemory],
     format: ReplyFormat,
@@ -1117,7 +969,7 @@ async fn generate_for_character(
     streaming_preview: Option<(&ConversationJobs, &str)>,
     default_reasoning_effort: Option<&str>,
 ) -> AppResult<Vec<Value>> {
-    let api_client = clients.for_connection(entity_connection_id(character).as_deref())?;
+    let api_client = clients.for_selection(selection)?;
     let message_mode = format.is_message();
     // ベーシックだけが構造化出力を使わない。ゲームの表情・モーションはJSON前提。
     let plain_text = format == ReplyFormat::PlainText;
@@ -1125,14 +977,7 @@ async fn generate_for_character(
     let expression_names = expression_names(character, room, visual_novel_mode);
     let motion_names = motion_names(character, room, visual_novel_mode);
     let max_characters = character_max_characters(character);
-    let injected_memories = memories
-        .iter()
-        .map(|memory| InjectedMemory {
-            content: memory.content.clone(),
-            date_label: memory_date::memory_occurred_at(&memory.data)
-                .and_then(|occurred_at| memory_date::date_label(occurred_at, now_ms() as i64)),
-        })
-        .collect::<Vec<_>>();
+    let injected_memories = injected_memories(memories);
     let system_prompt = character_system_prompt(
         character,
         format,
@@ -1140,8 +985,6 @@ async fn generate_for_character(
         &motion_names,
         summary,
         &injected_memories,
-        situation,
-        participants,
         selected_costume(character, room),
     );
     let mut request_messages = vec![json!({
@@ -1154,7 +997,13 @@ async fn generate_for_character(
             "content": history_message_content(message),
         })
     }));
-    let body = character_completion_body(character, request_messages, default_reasoning_effort);
+    let body = chat_completion_body(
+        &selection.model,
+        request_messages,
+        sampling,
+        default_reasoning_effort,
+        CHAT_COMPLETION_MAX_TOKENS,
+    );
     let prompt = api_client.resolve_user_placeholders(
         &serde_json::to_string_pretty(&body["messages"])
             .expect("completion messages must be serializable"),
@@ -1164,7 +1013,7 @@ async fn generate_for_character(
         room,
         character_id: actor_id(character),
         character_name: string(character, "name"),
-        model: model_string(character, "model"),
+        model: selection.model.clone(),
         prompt: &prompt,
     };
     let mut partial_content = String::new();
@@ -1270,25 +1119,25 @@ async fn generate_for_character(
         .await;
     }
     if !secret_mode {
-        push_usage(usages, &raw, character, "chat");
-        let elapsed_ms = now_ms().saturating_sub(started);
-        let mut log = json!({
-            "roomId": string(room, "id"),
-            "roomName": string(room, "name"),
-            "characterId": debug_context.character_id,
-            "characterName": debug_context.character_name,
-            "model": debug_context.model,
-            "status": "success",
-            "source": if plain_text { "assistant-text" } else { "assistant-json" },
-            "prompt": prompt,
-            "json": content,
-            "elapsedMs": elapsed_ms,
-        });
-        if let Some(reasoning) = extract_message_reasoning(&raw) {
-            log["reasoning"] = json!(reasoning);
-        }
-        insert_debug_usage(&mut log, "usage", completion_debug_usage(&raw, elapsed_ms));
-        push_debug_log(full_json_logs, log);
+        push_usage_with_id(
+            usages,
+            &raw,
+            &usage_character_id(character),
+            &selection.model,
+            "chat",
+        );
+        push_success_debug_log(
+            full_json_logs,
+            &debug_context,
+            &raw,
+            &content,
+            if plain_text {
+                "assistant-text"
+            } else {
+                "assistant-json"
+            },
+            started,
+        );
     }
     Ok(envelope_to_messages(
         envelope,
@@ -1300,6 +1149,386 @@ async fn generate_for_character(
             .map(|memory| memory.id.clone())
             .collect::<Vec<_>>(),
     ))
+}
+
+fn injected_memories(memories: &[ScoredMemory]) -> Vec<InjectedMemory> {
+    memories
+        .iter()
+        .map(|memory| InjectedMemory {
+            content: memory.content.clone(),
+            date_label: memory_date::memory_occurred_at(&memory.data)
+                .and_then(|occurred_at| memory_date::date_label(occurred_at, now_ms() as i64)),
+        })
+        .collect()
+}
+
+fn push_success_debug_log(
+    full_json_logs: &mut Vec<Value>,
+    context: &GenerationDebugContext<'_>,
+    raw: &Value,
+    content: &str,
+    source: &str,
+    started: u64,
+) {
+    let elapsed_ms = now_ms().saturating_sub(started);
+    let mut log = json!({
+        "roomId": string(context.room, "id"),
+        "roomName": string(context.room, "name"),
+        "characterId": context.character_id,
+        "characterName": context.character_name,
+        "model": context.model,
+        "status": "success",
+        "source": source,
+        "prompt": context.prompt,
+        "json": content,
+        "elapsedMs": elapsed_ms,
+    });
+    if let Some(reasoning) = extract_message_reasoning(raw) {
+        log["reasoning"] = json!(reasoning);
+    }
+    insert_debug_usage(&mut log, "usage", completion_debug_usage(raw, elapsed_ms));
+    push_debug_log(full_json_logs, log);
+}
+
+/// 一括生成1回分の入力。
+struct EnsembleRequest<'a> {
+    selection: &'a RoleSelection,
+    sampling: &'a Value,
+    reasoning_effort: Option<&'a str>,
+    situation: &'a Value,
+    participants: &'a [Value],
+    /// `participants` と同じ順の、参加者ごとの関連記憶。
+    cast_memories: &'a [Vec<ScoredMemory>],
+    history: &'a [Value],
+    room: &'a Value,
+    summary: Option<&'a str>,
+    format: ReplyFormat,
+    max_turns: usize,
+    first_speaker: Option<&'a Value>,
+    secret_mode: bool,
+    streaming_preview: Option<(&'a ConversationJobs, &'a str)>,
+}
+
+/// 発言数が増えるほど出力も長くなるので、上限トークンと待ち時間を発言数に合わせて広げる。
+fn ensemble_max_tokens(max_turns: usize) -> u64 {
+    let extra_turns = max_turns.saturating_sub(1) as u64;
+    (CHAT_COMPLETION_MAX_TOKENS + extra_turns * 1024).min(8192)
+}
+
+fn ensemble_timeout_secs(max_turns: usize) -> u64 {
+    let extra_turns = max_turns.saturating_sub(1) as u64;
+    (120 + extra_turns * 30).min(300)
+}
+
+fn unique_names(lists: impl IntoIterator<Item = Vec<String>>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    lists
+        .into_iter()
+        .flatten()
+        .filter(|name| seen.insert(name.clone()))
+        .collect()
+}
+
+/// 会話履歴を一括生成用のメッセージ列にする。続けて並ぶキャラクター発言は、
+/// 出力と同じ `{"turns": [...]}` 形式の1つの assistant メッセージにまとめて書き戻す。
+fn ensemble_request_history(history: &[Value], message_mode: bool) -> Vec<Value> {
+    fn flush(output: &mut Vec<Value>, turns: &mut Vec<Value>) {
+        if turns.is_empty() {
+            return;
+        }
+        let content = json!({ "turns": std::mem::take(turns) }).to_string();
+        output.push(json!({ "role": "assistant", "content": content }));
+    }
+
+    let mut output = Vec::new();
+    let mut turns: Vec<Value> = Vec::new();
+    for message in history {
+        if string(message, "role") != "assistant" {
+            flush(&mut output, &mut turns);
+            output.push(json!({
+                "role": string(message, "role"),
+                "content": history_message_content(message),
+            }));
+            continue;
+        }
+        let speaker = string(message, "characterId");
+        let content = history_content(message);
+        if content.is_empty() {
+            continue;
+        }
+        let same_speaker = turns
+            .last()
+            .is_some_and(|turn| turn.get("speaker").and_then(Value::as_str) == Some(&speaker));
+        match (same_speaker, message_mode) {
+            (true, true) => {
+                if let Some(messages) = turns
+                    .last_mut()
+                    .and_then(|turn| turn.get_mut("messages"))
+                    .and_then(Value::as_array_mut)
+                {
+                    messages.push(Value::String(content));
+                }
+            }
+            (true, false) => {
+                if let Some(Value::String(existing)) =
+                    turns.last_mut().and_then(|turn| turn.get_mut("message"))
+                {
+                    existing.push_str("\n\n");
+                    existing.push_str(&content);
+                }
+            }
+            (false, true) => turns.push(json!({ "speaker": speaker, "messages": [content] })),
+            (false, false) => turns.push(json!({ "speaker": speaker, "message": content })),
+        }
+    }
+    flush(&mut output, &mut turns);
+    output
+}
+
+fn ensemble_preview_turns(
+    previews: &[EnsembleTurnPreview],
+    names: &HashMap<String, String>,
+    message_mode: bool,
+) -> Vec<Value> {
+    previews
+        .iter()
+        .enumerate()
+        .map(|(index, preview)| {
+            let mut turn = json!({
+                "turnIndex": index,
+                "content": preview.content,
+                "characterId": preview.speaker,
+                "characterName": names.get(&preview.speaker).cloned().unwrap_or_default(),
+                "complete": preview.complete,
+            });
+            if preview.complete {
+                turn["formattedMessages"] = json!(preview.messages);
+            } else if message_mode {
+                turn["confirmedMessages"] = json!(preview.messages);
+            }
+            if let Some(expression) = &preview.expression {
+                turn["expression"] = Value::String(expression.clone());
+            }
+            if let Some(motion) = &preview.motion {
+                turn["motion"] = Value::String(motion.clone());
+            }
+            turn
+        })
+        .collect()
+}
+
+/// シチュエーションの1ターンを、1回の呼び出しで複数キャラクターぶんまとめて生成する。
+async fn generate_for_ensemble(
+    clients: &mut RequestClients<'_>,
+    request: EnsembleRequest<'_>,
+    usages: &mut Vec<Value>,
+    full_json_logs: &mut Vec<Value>,
+) -> AppResult<Vec<Value>> {
+    let EnsembleRequest {
+        selection,
+        sampling,
+        reasoning_effort,
+        situation,
+        participants,
+        cast_memories,
+        history,
+        room,
+        summary,
+        format,
+        max_turns,
+        first_speaker,
+        secret_mode,
+        streaming_preview,
+    } = request;
+    let api_client = clients.for_selection(selection)?;
+    let message_mode = format.is_message();
+    let visual_novel_mode = format.is_structured();
+    let speakers = participants
+        .iter()
+        .map(|actor| EnsembleSpeaker {
+            id: actor_id(actor),
+            expression_names: expression_names(actor, room, visual_novel_mode),
+            motion_names: motion_names(actor, room, visual_novel_mode),
+            max_characters: character_max_characters(actor),
+        })
+        .collect::<Vec<_>>();
+    let names = participants
+        .iter()
+        .map(|actor| (actor_id(actor), string(actor, "name")))
+        .collect::<HashMap<_, _>>();
+    let cast = participants
+        .iter()
+        .zip(&speakers)
+        .enumerate()
+        .map(|(index, (actor, speaker))| EnsembleCast {
+            actor,
+            expression_names: speaker.expression_names.clone(),
+            motion_names: speaker.motion_names.clone(),
+            memories: cast_memories
+                .get(index)
+                .map(|memories| injected_memories(memories))
+                .unwrap_or_default(),
+            costume: selected_costume(actor, room),
+        })
+        .collect::<Vec<_>>();
+    let system_prompt =
+        ensemble_system_prompt(situation, &cast, format, max_turns, first_speaker, summary);
+    let schema = ensemble_schema(
+        &speakers
+            .iter()
+            .map(|speaker| speaker.id.clone())
+            .collect::<Vec<_>>(),
+        &unique_names(
+            speakers
+                .iter()
+                .map(|speaker| speaker.expression_names.clone()),
+        ),
+        &unique_names(speakers.iter().map(|speaker| speaker.motion_names.clone())),
+        format,
+        speakers
+            .iter()
+            .map(|speaker| speaker.max_characters)
+            .max()
+            .unwrap_or(DEFAULT_MAX_CHARACTERS as usize),
+        max_turns,
+    );
+    let mut request_messages = vec![json!({
+        "role": "system",
+        "content": system_prompt,
+    })];
+    request_messages.extend(ensemble_request_history(history, message_mode));
+    let body = chat_completion_body(
+        &selection.model,
+        request_messages,
+        sampling,
+        reasoning_effort,
+        ensemble_max_tokens(max_turns),
+    );
+    let prompt = api_client.resolve_user_placeholders(
+        &serde_json::to_string_pretty(&body["messages"])
+            .expect("completion messages must be serializable"),
+    );
+    let started = now_ms();
+    let debug_context = GenerationDebugContext {
+        room,
+        character_id: string(situation, "id"),
+        character_name: string(situation, "name"),
+        model: selection.model.clone(),
+        prompt: &prompt,
+    };
+    let timeout = ensemble_timeout_secs(max_turns);
+    let mut partial_content = String::new();
+    let completion = if let Some((jobs, job_id)) = streaming_preview {
+        structured_completion_streaming(&api_client, body, schema, timeout, |partial| {
+            partial_content.clear();
+            partial_content.push_str(partial);
+            let previews = ensemble_response_preview(partial, &speakers, message_mode);
+            jobs.replace_preview_turns(
+                job_id,
+                ensemble_preview_turns(&previews, &names, message_mode),
+            );
+        })
+        .await
+    } else {
+        structured_completion(&api_client, body, schema, timeout).await
+    };
+    let raw = match completion {
+        Ok(raw) => raw,
+        Err(error) => {
+            if !secret_mode {
+                push_error_debug_log(
+                    full_json_logs,
+                    &debug_context,
+                    chat_error_source(&error),
+                    Some(&partial_content),
+                    None,
+                    &error,
+                    now_ms().saturating_sub(started),
+                );
+            }
+            return Err(error);
+        }
+    };
+    let content = extract_message_text(&raw);
+    let turns = match parse_ensemble_response(&content, &speakers, message_mode, max_turns) {
+        Ok(turns) => turns,
+        Err(error) => {
+            if !secret_mode {
+                push_error_debug_log(
+                    full_json_logs,
+                    &debug_context,
+                    "chat-response-parse-error",
+                    Some(&content),
+                    extract_message_reasoning(&raw).as_deref(),
+                    &error,
+                    now_ms().saturating_sub(started),
+                );
+            }
+            return Err(error);
+        }
+    };
+    if let Some((jobs, job_id)) = streaming_preview {
+        let previews = turns
+            .iter()
+            .map(|turn| EnsembleTurnPreview {
+                speaker: turn.speaker.clone(),
+                complete: true,
+                content: turn.envelope.message.clone(),
+                messages: turn.envelope.messages.clone(),
+                expression: turn.envelope.expression.clone(),
+                motion: turn.envelope.motion.clone(),
+            })
+            .collect::<Vec<_>>();
+        jobs.finalize_preview_turns(
+            job_id,
+            ensemble_preview_turns(&previews, &names, message_mode),
+        )
+        .await;
+    }
+    if !secret_mode {
+        push_usage_with_id(
+            usages,
+            &raw,
+            &string(situation, "id"),
+            &selection.model,
+            "chat",
+        );
+        push_success_debug_log(
+            full_json_logs,
+            &debug_context,
+            &raw,
+            &content,
+            "assistant-json",
+            started,
+        );
+    }
+    let mut messages = Vec::new();
+    for turn in turns {
+        let Some(index) = participants
+            .iter()
+            .position(|actor| actor_id(actor) == turn.speaker)
+        else {
+            continue;
+        };
+        let used_memory_ids = cast_memories
+            .get(index)
+            .map(|memories| {
+                memories
+                    .iter()
+                    .map(|memory| memory.id.clone())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let offset = messages.len();
+        messages.extend(envelope_to_messages(
+            turn.envelope,
+            &participants[index],
+            message_mode,
+            offset,
+            &used_memory_ids,
+        ));
+    }
+    Ok(messages)
 }
 
 fn envelope_to_messages(
@@ -1332,7 +1561,10 @@ fn envelope_to_messages(
             if !used_memory_ids.is_empty() {
                 message.insert("usedMemoryIds".into(), json!(used_memory_ids));
             }
-            message.insert("timestamp".into(), json!(timestamp + index as u64));
+            message.insert(
+                "timestamp".into(),
+                json!(timestamp + (id_offset + index) as u64),
+            );
             if index == 0
                 && let Some(expression) = &envelope.expression
             {
@@ -1346,498 +1578,6 @@ fn envelope_to_messages(
             Value::Object(message)
         })
         .collect()
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn request_director(
-    clients: &mut RequestClients<'_>,
-    situation: &Value,
-    actors: &[Value],
-    messages: &[Value],
-    turn_index: usize,
-    max_turns: usize,
-    banned_actor_id: Option<&str>,
-    continuation_generation: bool,
-    selection: &RoleSelection,
-    secret_mode: bool,
-    room: &Value,
-    usages: &mut Vec<Value>,
-    full_json_logs: &mut Vec<Value>,
-) -> AppResult<DirectorDecision> {
-    let actor_ids = actors.iter().map(actor_id).collect::<Vec<_>>();
-    let eligible_ids = actor_ids
-        .iter()
-        .filter(|id| Some(id.as_str()) != banned_actor_id)
-        .cloned()
-        .collect::<Vec<_>>();
-    if eligible_ids.is_empty() {
-        return Ok(DirectorDecision {
-            actor_id: None,
-            reason: "No eligible actor".into(),
-            candidates: Vec::new(),
-        });
-    }
-    let require_actor = continuation_generation && turn_index == 0;
-    let transcript_messages = slice_by_user_history(messages, DIRECTOR_TRANSCRIPT_USER_HISTORY);
-    let transcript = director_transcript(&transcript_messages, actors);
-    let (system, user) = director_prompts(
-        situation,
-        actors,
-        &transcript,
-        turn_index,
-        max_turns,
-        banned_actor_id,
-        continuation_generation,
-    );
-    let api_client = clients.for_selection(selection)?;
-    let schema = director_schema(&eligible_ids, require_actor);
-    let mut request = json!({
-        "model": selection.model,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        "max_tokens": 768,
-        "temperature": 0.2,
-        "stream": false,
-    });
-    if api_client.is_openrouter() {
-        request["reasoning"] = json!({"effort": "low"});
-    }
-    let prompt = api_client.resolve_user_placeholders(
-        &serde_json::to_string_pretty(&request["messages"])
-            .expect("director messages must be serializable"),
-    );
-    let started = now_ms();
-    let debug_context = GenerationDebugContext {
-        room,
-        character_id: format!("{}:director", string(situation, "id")),
-        character_name: "指揮役".to_owned(),
-        model: selection.model.clone(),
-        prompt: &prompt,
-    };
-    let raw = match structured_completion(&api_client, request, schema, 120).await {
-        Ok(raw) => raw,
-        Err(error) => {
-            if !secret_mode {
-                push_error_debug_log(
-                    full_json_logs,
-                    &debug_context,
-                    "director-error",
-                    None,
-                    None,
-                    &error,
-                    now_ms().saturating_sub(started),
-                );
-            }
-            return Err(error);
-        }
-    };
-    let content = extract_message_text(&raw);
-    let mut decision = match parse_director_decision(&content, &eligible_ids) {
-        Ok(decision) => decision,
-        Err(error) => {
-            if !secret_mode {
-                push_error_debug_log(
-                    full_json_logs,
-                    &debug_context,
-                    "director-error",
-                    Some(&content),
-                    extract_message_reasoning(&raw).as_deref(),
-                    &error,
-                    now_ms().saturating_sub(started),
-                );
-            }
-            return Err(error);
-        }
-    };
-    if let Some(banned) = banned_actor_id {
-        decision.candidates.retain(|(id, _)| id != banned);
-        if decision.actor_id.as_deref() == Some(banned) {
-            decision.actor_id = decision.candidates.first().map(|value| value.0.clone());
-            decision.reason = decision
-                .candidates
-                .first()
-                .map(|value| value.1.clone())
-                .unwrap_or_else(|| "直前の発言者の連続発言を防止".into());
-        }
-    }
-    if require_actor && decision.actor_id.is_none() {
-        decision.actor_id = eligible_ids.first().cloned();
-        decision.reason = "場面の継続要求のため先頭の候補を採用".into();
-    }
-    if !secret_mode {
-        push_usage_with_id(
-            usages,
-            &raw,
-            &format!("{}:director", string(situation, "id")),
-            &selection.model,
-            "director",
-        );
-        let elapsed_ms = now_ms().saturating_sub(started);
-        let mut log = json!({
-            "roomId": string(room, "id"),
-            "roomName": string(room, "name"),
-            "characterId": debug_context.character_id,
-            "characterName": debug_context.character_name,
-            "model": debug_context.model,
-            "status": "success",
-            "source": "director-json",
-            "prompt": prompt,
-            "json": content,
-            "elapsedMs": elapsed_ms,
-        });
-        if let Some(reasoning) = extract_message_reasoning(&raw) {
-            log["reasoning"] = json!(reasoning);
-        }
-        insert_debug_usage(&mut log, "usage", completion_debug_usage(&raw, elapsed_ms));
-        push_debug_log(full_json_logs, log);
-    }
-    Ok(decision)
-}
-
-/// Jev (System One) director. The first call picks the next speaker among the
-/// eligible actors, the protagonist, a scene that finished but could continue,
-/// or a hard stop. When the scene merely finished but continuing still feels
-/// natural (Noul probability >= threshold), a second call picks an actor whose
-/// entrance would not break the scene; that call has no stop options.
-#[allow(clippy::too_many_arguments)]
-async fn request_director_typesafe(
-    clients: &mut RequestClients<'_>,
-    situation: &Value,
-    actors: &[Value],
-    messages: &[Value],
-    turn_index: usize,
-    max_turns: usize,
-    banned_actor_id: Option<&str>,
-    continuation_generation: bool,
-    selection: &RoleSelection,
-    secret_mode: bool,
-    room: &Value,
-    usages: &mut Vec<Value>,
-    full_json_logs: &mut Vec<Value>,
-) -> AppResult<DirectorDecision> {
-    let actor_ids = actors.iter().map(actor_id).collect::<Vec<_>>();
-    let eligible_ids = actor_ids
-        .iter()
-        .filter(|id| Some(id.as_str()) != banned_actor_id)
-        .cloned()
-        .collect::<Vec<_>>();
-    if eligible_ids.is_empty() {
-        return Ok(DirectorDecision {
-            actor_id: None,
-            reason: "No eligible actor".into(),
-            candidates: Vec::new(),
-        });
-    }
-    let api_client = clients.for_selection(selection)?;
-    if !api_client.is_typesafe() && !api_client.is_openrouter() {
-        return Err(AppError::BadRequest(
-            "TypeSafeエンジンの指揮役にはTypeSafe AIまたはOpenRouter接続が必要です。".into(),
-        ));
-    }
-
-    let require_actor = continuation_generation && turn_index == 0;
-    let transcript_messages = slice_by_user_history(messages, DIRECTOR_TRANSCRIPT_USER_HISTORY);
-    let transcript = director_transcript(&transcript_messages, actors);
-    let state = director_jev_state(situation, actors, &transcript, turn_index, max_turns);
-    let first_questions = director_jev_first_questions(actors, &eligible_ids, !require_actor);
-    let prompt = api_client.resolve_user_placeholders(
-        &serde_json::to_string_pretty(&json!({
-            "state": state,
-            "questions": first_questions,
-        }))
-        .expect("director request must be serializable"),
-    );
-    let started = now_ms();
-    let debug_context = GenerationDebugContext {
-        room,
-        character_id: format!("{}:director", string(situation, "id")),
-        character_name: "指揮役".to_owned(),
-        model: selection.model.clone(),
-        prompt: &prompt,
-    };
-    let response = match system_one(
-        &api_client,
-        &selection.model,
-        &state,
-        &first_questions,
-        DIRECTOR_JEV_TIMEOUT_SECS,
-    )
-    .await
-    {
-        Ok(response) => response,
-        Err(error) => {
-            if !secret_mode {
-                push_error_debug_log(
-                    full_json_logs,
-                    &debug_context,
-                    "director-error",
-                    None,
-                    None,
-                    &error,
-                    now_ms().saturating_sub(started),
-                );
-            }
-            return Err(error);
-        }
-    };
-    // 1回目のJev呼び出しの実測時間。2回目を呼ぶ場合は全体の elapsedMs とは
-    // 別に測らないと、1回目の tok/s が二重に待ち時間を含んでしまう。
-    let first_elapsed_ms = now_ms().saturating_sub(started);
-    let next = match choice_answer(&response, "next_speaker") {
-        Ok(next) => next,
-        Err(error) => {
-            if !secret_mode {
-                push_error_debug_log(
-                    full_json_logs,
-                    &debug_context,
-                    "director-error",
-                    None,
-                    None,
-                    &error,
-                    now_ms().saturating_sub(started),
-                );
-            }
-            return Err(error);
-        }
-    };
-
-    let continue_threshold = situation
-        .pointer("/director/continueThreshold")
-        .and_then(Value::as_f64)
-        .unwrap_or(JEV_CONTINUE_THRESHOLD)
-        .clamp(0.0, 1.0);
-    let protagonist_threshold = situation
-        .pointer("/director/protagonistThreshold")
-        .and_then(Value::as_f64)
-        .unwrap_or(JEV_PROTAGONIST_THRESHOLD)
-        .clamp(0.0, 1.0);
-
-    let next_choice = next.choice.as_str();
-    let mut effective_choice =
-        resolve_jev_effective_choice(&next, &eligible_ids, protagonist_threshold);
-    if require_actor && !eligible_ids.contains(&effective_choice) {
-        effective_choice = next
-            .probabilities
-            .iter()
-            .filter(|(id, _)| eligible_ids.contains(*id))
-            .max_by(|a, b| a.1.total_cmp(b.1))
-            .map(|(id, _)| id.clone())
-            .unwrap_or_else(|| eligible_ids[0].clone());
-    }
-    let mut selected_actor: Option<String> = None;
-    let mut second_response: Option<SystemOneResponse> = None;
-    let mut second_elapsed_ms: Option<u64> = None;
-
-    if eligible_ids.contains(&effective_choice) {
-        selected_actor = Some(effective_choice.clone());
-    } else if effective_choice == JEV_PROTAGONIST_OPTION || effective_choice == JEV_END_OPTION {
-        selected_actor = None;
-    } else if effective_choice == JEV_CONVERSATION_COMPLETE_OPTION {
-        let noul = match noul_answer(&response, "continue_naturally") {
-            Ok(noul) => noul,
-            Err(error) => {
-                if !secret_mode {
-                    push_error_debug_log(
-                        full_json_logs,
-                        &debug_context,
-                        "director-error",
-                        None,
-                        None,
-                        &error,
-                        now_ms().saturating_sub(started),
-                    );
-                }
-                return Err(error);
-            }
-        };
-        if noul.noul >= continue_threshold {
-            let safe_question = director_jev_safe_question(actors, &eligible_ids);
-            let second_started = now_ms();
-            let second = match system_one(
-                &api_client,
-                &selection.model,
-                &state,
-                &safe_question,
-                DIRECTOR_JEV_TIMEOUT_SECS,
-            )
-            .await
-            {
-                Ok(second) => second,
-                Err(error) => {
-                    if !secret_mode {
-                        push_error_debug_log(
-                            full_json_logs,
-                            &debug_context,
-                            "director-error",
-                            None,
-                            None,
-                            &error,
-                            now_ms().saturating_sub(started),
-                        );
-                    }
-                    return Err(error);
-                }
-            };
-            second_elapsed_ms = Some(now_ms().saturating_sub(second_started));
-            let safe = match choice_answer(&second, "safe_speaker") {
-                Ok(safe) => safe,
-                Err(error) => {
-                    if !secret_mode {
-                        push_error_debug_log(
-                            full_json_logs,
-                            &debug_context,
-                            "director-error",
-                            None,
-                            None,
-                            &error,
-                            now_ms().saturating_sub(started),
-                        );
-                    }
-                    return Err(error);
-                }
-            };
-            if !eligible_ids.iter().any(|id| id == safe.choice.as_str()) {
-                let error = AppError::Upstream(
-                    format!("Decisionモデルが不明な発言者を返しました: {}", safe.choice),
-                    axum::http::StatusCode::BAD_GATEWAY,
-                );
-                if !secret_mode {
-                    push_error_debug_log(
-                        full_json_logs,
-                        &debug_context,
-                        "director-error",
-                        None,
-                        None,
-                        &error,
-                        now_ms().saturating_sub(started),
-                    );
-                }
-                return Err(error);
-            }
-            selected_actor = Some(safe.choice);
-            second_response = Some(second);
-        }
-    } else {
-        let error = AppError::Upstream(
-            format!("Decisionモデルが不明な選択肢を返しました: {next_choice}"),
-            axum::http::StatusCode::BAD_GATEWAY,
-        );
-        if !secret_mode {
-            push_error_debug_log(
-                full_json_logs,
-                &debug_context,
-                "director-error",
-                None,
-                None,
-                &error,
-                now_ms().saturating_sub(started),
-            );
-        }
-        return Err(error);
-    }
-
-    let mut probabilities: Vec<(String, f64)> = next
-        .probabilities
-        .iter()
-        .filter(|(id, _)| eligible_ids.contains(id))
-        .map(|(id, probability)| (id.clone(), *probability))
-        .collect();
-    probabilities.sort_by(|a, b| b.1.total_cmp(&a.1));
-    let candidates = probabilities
-        .into_iter()
-        .map(|(id, probability)| (id, format!("{probability:.3}")))
-        .collect::<Vec<_>>();
-
-    if !secret_mode {
-        let situation_id = format!("{}:director", string(situation, "id"));
-        push_jev_usage(
-            usages,
-            &response,
-            &situation_id,
-            &selection.model,
-            "director",
-        );
-        if let Some(second) = &second_response {
-            push_jev_usage(usages, second, &situation_id, &selection.model, "director");
-        }
-        let elapsed_ms = now_ms().saturating_sub(started);
-        let mut log = json!({
-            "roomId": string(room, "id"),
-            "roomName": string(room, "name"),
-            "characterId": debug_context.character_id,
-            "characterName": debug_context.character_name,
-            "model": debug_context.model,
-            "status": "success",
-            "source": "director-jev",
-            "prompt": prompt,
-            "json": serde_json::to_string_pretty(&response)
-                .expect("Jev response must be serializable"),
-            "effectiveChoice": effective_choice,
-            "elapsedMs": elapsed_ms,
-        });
-        insert_debug_usage(
-            &mut log,
-            "usage",
-            jev_debug_usage(&response, first_elapsed_ms),
-        );
-        if let Some(second) = &second_response {
-            log["secondJson"] = Value::String(
-                serde_json::to_string_pretty(second).expect("Jev response must be serializable"),
-            );
-            insert_debug_usage(
-                &mut log,
-                "secondUsage",
-                jev_debug_usage(second, second_elapsed_ms.unwrap_or(elapsed_ms)),
-            );
-        }
-        push_debug_log(full_json_logs, log);
-    }
-
-    Ok(DirectorDecision {
-        actor_id: selected_actor,
-        reason: "Jev".into(),
-        candidates,
-    })
-}
-
-/// Resolves which Jev option the turn actually follows. A `protagonist` argmax
-/// only returns control to the user when its probability mass (or confidence
-/// when the distribution is absent) clears the threshold; a weak pick falls
-/// through to the runner-up option so another actor can still speak.
-fn resolve_jev_effective_choice(
-    answer: &ChoiceAnswer,
-    eligible_ids: &[String],
-    protagonist_threshold: f64,
-) -> String {
-    let choice = answer.choice.as_str();
-    if choice != JEV_PROTAGONIST_OPTION {
-        return choice.to_owned();
-    }
-    let strength = answer
-        .probabilities
-        .get(JEV_PROTAGONIST_OPTION)
-        .copied()
-        .or(answer.confidence);
-    let Some(strength) = strength else {
-        return choice.to_owned();
-    };
-    if strength >= protagonist_threshold {
-        return choice.to_owned();
-    }
-    answer
-        .probabilities
-        .iter()
-        .filter(|(id, _)| id.as_str() != JEV_PROTAGONIST_OPTION)
-        .filter(|(id, _)| {
-            eligible_ids.contains(*id)
-                || id.as_str() == JEV_CONVERSATION_COMPLETE_OPTION
-                || id.as_str() == JEV_END_OPTION
-        })
-        .max_by(|a, b| a.1.total_cmp(b.1))
-        .map(|(id, _)| id.clone())
-        .unwrap_or_else(|| choice.to_owned())
 }
 
 fn push_jev_usage(
@@ -2486,72 +2226,6 @@ async fn extract_memory_candidates(
     Ok(candidates)
 }
 
-fn group_history_for_actor(
-    messages: &[Value],
-    actor: &Value,
-    participants: &[Value],
-    history_limit: usize,
-) -> Vec<Value> {
-    let actor_key = actor_id(actor);
-    let names = participants
-        .iter()
-        .map(|participant| (actor_id(participant), string(participant, "name")))
-        .collect::<HashMap<_, _>>();
-    let converted = messages
-        .iter()
-        .map(|message| {
-            let role = string(message, "role");
-            let mut content = string(message, "content");
-            let message_actor = string(message, "characterId");
-            let output_role = if role == "assistant" && message_actor == actor_key {
-                "assistant"
-            } else {
-                if role == "assistant" {
-                    let name = names
-                        .get(&message_actor)
-                        .map(String::as_str)
-                        .unwrap_or("???");
-                    content = format!("{name}: {content}");
-                }
-                "user"
-            };
-            let mut converted = json!({
-                "id": message.get("id").cloned().unwrap_or(Value::Null),
-                "role": output_role,
-                "content": content,
-            });
-            if let Some(attachments) = message.get("attachments").filter(|value| value.is_array()) {
-                converted["attachments"] = attachments.clone();
-            }
-            converted
-        })
-        .collect::<Vec<_>>();
-    slice_by_user_history(&converted, history_limit)
-}
-
-fn director_transcript(messages: &[Value], actors: &[Value]) -> String {
-    let names = actors
-        .iter()
-        .map(|actor| (actor_id(actor), string(actor, "name")))
-        .collect::<HashMap<_, _>>();
-    messages
-        .iter()
-        .map(|message| {
-            let content = message_text_with_attachments(message, true);
-            if string(message, "role") == "user" {
-                format!("{{{{user}}}}: {content}")
-            } else {
-                let id = string(message, "characterId");
-                format!(
-                    "{}: {content}",
-                    names.get(&id).map(String::as_str).unwrap_or("???"),
-                )
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n\n")
-}
-
 fn with_speaker_names(
     messages: &[Value],
     participants: &[Value],
@@ -3085,31 +2759,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn character_completion_preserves_explicit_penalties_and_omits_unset_values() {
-        let body = character_completion_body(
-            &json!({
-                "model": "test-model",
-                "frequencyPenalty": 0,
-                "presencePenalty": -0.5,
-                "repetitionPenalty": 1.15,
-            }),
-            Vec::new(),
-            None,
-        );
+    fn chat_completion_preserves_explicit_penalties_and_omits_unset_values() {
+        let sampling = json!({
+            "frequencyPenalty": 0,
+            "presencePenalty": -0.5,
+            "repetitionPenalty": 1.15,
+        });
+        let body = chat_completion_body("test-model", Vec::new(), &sampling, None, 2048);
+        assert_eq!(body["model"], "test-model");
         assert_eq!(body["frequency_penalty"], 0);
         assert_eq!(body["presence_penalty"], -0.5);
         assert_eq!(body["repetition_penalty"], 1.15);
 
-        for character in [
-            json!({"model": "test-model"}),
+        for sampling in [
+            Value::Null,
             json!({
-                "model": "test-model",
                 "frequencyPenalty": null,
                 "presencePenalty": null,
                 "repetitionPenalty": null,
             }),
         ] {
-            let body = character_completion_body(&character, Vec::new(), None);
+            let body = chat_completion_body("test-model", Vec::new(), &sampling, None, 2048);
             for key in [
                 "frequency_penalty",
                 "presence_penalty",
@@ -3117,33 +2787,121 @@ mod tests {
             ] {
                 assert!(body.get(key).is_none(), "unset {key} must be omitted");
             }
+            assert_eq!(body["temperature"], DEFAULT_TEMPERATURE);
+            assert_eq!(body["top_p"], DEFAULT_TOP_P);
         }
     }
 
     #[test]
-    fn character_completion_resolves_reasoning_effort_with_character_priority() {
-        let with_character_effort = character_completion_body(
-            &json!({"model": "test-model", "reasoningEffort": "high"}),
+    fn chat_completion_uses_global_sampling_and_reasoning_effort() {
+        let payload = json!({"chatSampling": {"temperature": 0.3, "topP": 0.9, "topK": 40}});
+        let body = chat_completion_body(
+            "test-model",
             Vec::new(),
+            chat_sampling(&payload),
             Some("low"),
+            4096,
         );
-        assert_eq!(with_character_effort["reasoningEffort"], "high");
+        assert_eq!(body["temperature"], 0.3);
+        assert_eq!(body["top_p"], 0.9);
+        assert_eq!(body["top_k"], 40);
+        assert_eq!(body["max_tokens"], 4096);
+        assert_eq!(body["reasoningEffort"], "low");
 
-        let with_default_effort =
-            character_completion_body(&json!({"model": "test-model"}), Vec::new(), Some("low"));
-        assert_eq!(with_default_effort["reasoningEffort"], "low");
-
-        // 無効なキャラクター値は全体設定へフォールバックする。
-        let with_invalid_effort = character_completion_body(
-            &json!({"model": "test-model", "reasoningEffort": "ultra"}),
+        let without_effort = chat_completion_body(
+            "test-model",
             Vec::new(),
-            Some("medium"),
+            chat_sampling(&json!({})),
+            None,
+            2048,
         );
-        assert_eq!(with_invalid_effort["reasoningEffort"], "medium");
-
-        let without_effort =
-            character_completion_body(&json!({"model": "test-model"}), Vec::new(), None);
         assert!(without_effort.get("reasoningEffort").is_none());
+    }
+
+    #[test]
+    fn chat_model_comes_from_the_global_default() {
+        let payload = json!({
+            "aiApiConfig": {
+                "modelDefaults": {
+                    "defaultChatModel": {"model": "chat-model", "connectionId": "cx_1"}
+                }
+            },
+            "character": {"model": "ignored-character-model"},
+        });
+        let selection = chat_model_selection(&payload).expect("chat model");
+        assert_eq!(selection.model, "chat-model");
+        assert_eq!(selection.connection_id.as_deref(), Some("cx_1"));
+    }
+
+    #[test]
+    fn addressed_participant_is_the_first_name_in_the_latest_user_message() {
+        let participants = vec![
+            json!({"actorId": "a", "name": "葵"}),
+            json!({"actorId": "b", "name": "凛"}),
+        ];
+        let history = vec![json!({"role": "user", "content": "ねえ凛、葵はどう思う？"})];
+        let addressed = addressed_participant(&history, &participants).expect("addressed");
+        assert_eq!(actor_id(addressed), "b");
+
+        let nobody = vec![json!({"role": "user", "content": "みんな元気？"})];
+        assert!(addressed_participant(&nobody, &participants).is_none());
+
+        let after_reply = vec![
+            json!({"role": "user", "content": "凛、おはよう"}),
+            json!({"role": "assistant", "characterId": "b", "content": "おはよう"}),
+        ];
+        assert!(addressed_participant(&after_reply, &participants).is_none());
+    }
+
+    #[test]
+    fn ensemble_history_groups_consecutive_character_turns() {
+        let history = vec![
+            json!({"role": "user", "content": "おはよう"}),
+            json!({"role": "assistant", "characterId": "a", "content": "*手を振る* おはよう！"}),
+            json!({"role": "assistant", "characterId": "a", "content": "今日も早いね"}),
+            json!({"role": "assistant", "characterId": "b", "content": "おはよ"}),
+            json!({"role": "user", "content": "眠い"}),
+        ];
+        let messages = ensemble_request_history(&history, false);
+        assert_eq!(messages.len(), 3);
+        assert_eq!(messages[0]["role"], "user");
+        assert_eq!(messages[1]["role"], "assistant");
+        let turns: Value =
+            serde_json::from_str(messages[1]["content"].as_str().expect("turns json"))
+                .expect("valid json");
+        assert_eq!(
+            turns,
+            json!({"turns": [
+                {"speaker": "a", "message": "*手を振る* おはよう！\n\n今日も早いね"},
+                {"speaker": "b", "message": "おはよ"},
+            ]})
+        );
+        assert_eq!(messages[2]["content"], "眠い");
+
+        let message_mode = ensemble_request_history(&history, true);
+        let turns: Value =
+            serde_json::from_str(message_mode[1]["content"].as_str().expect("turns json"))
+                .expect("valid json");
+        assert_eq!(
+            turns["turns"][0],
+            json!({"speaker": "a", "messages": ["*手を振る* おはよう！", "今日も早いね"]})
+        );
+        // speaker が先頭に来ると、出力スキーマと同じ並びのお手本になる。
+        assert!(
+            message_mode[1]["content"]
+                .as_str()
+                .expect("turns json")
+                .starts_with(r#"{"turns":[{"speaker":"a""#)
+        );
+    }
+
+    #[test]
+    fn ensemble_budget_grows_with_turns_and_is_capped() {
+        assert_eq!(ensemble_max_tokens(1), CHAT_COMPLETION_MAX_TOKENS);
+        assert_eq!(ensemble_max_tokens(3), CHAT_COMPLETION_MAX_TOKENS + 2048);
+        assert_eq!(ensemble_max_tokens(10), 8192);
+        assert_eq!(ensemble_timeout_secs(1), 120);
+        assert_eq!(ensemble_timeout_secs(10), 300);
     }
 
     #[test]
@@ -3755,14 +3513,14 @@ mod tests {
     #[test]
     fn single_participant_situation_is_limited_to_one_turn() {
         let room = json!({"maxMentionChain": 8});
-        let situation = json!({"director": {"maxAutoTurns": 6}});
+        let situation = json!({"maxTurns": 6});
 
         assert_eq!(situation_max_turns(&room, &situation, 1), 1);
     }
 
     #[test]
     fn multi_participant_situation_uses_configured_turn_limit() {
-        let situation = json!({"director": {"maxAutoTurns": 6}});
+        let situation = json!({"maxTurns": 6});
 
         assert_eq!(situation_max_turns(&json!({}), &situation, 2), 6);
         assert_eq!(
@@ -3839,263 +3597,6 @@ mod tests {
         ] {
             assert_eq!(motion_names(&character, &room, true), vec!["wave", "jump"]);
         }
-    }
-
-    #[test]
-    fn typesafe_engine_is_detected_from_director_config() {
-        assert!(is_typesafe_director(
-            &json!({
-                "director": {"engine": "typesafe"}
-            }),
-            &json!({})
-        ));
-        assert!(!is_typesafe_director(
-            &json!({
-                "director": {"engine": "llm"}
-            }),
-            &json!({})
-        ));
-        assert!(!is_typesafe_director(&json!({}), &json!({})));
-    }
-
-    #[test]
-    fn typesafe_engine_is_inferred_from_jev_models() {
-        for model in ["jev-latest", "typesafe/jev-1.13", "~typesafe/jev-latest"] {
-            assert!(is_typesafe_director(
-                &json!({"director": {"model": model}}),
-                &json!({})
-            ));
-        }
-        assert!(!is_typesafe_director(
-            &json!({"director": {"model": "deepseek/deepseek-v4-flash-0731"}}),
-            &json!({})
-        ));
-        // An explicit non-Jev director model wins over a Jev global default.
-        assert!(!is_typesafe_director(
-            &json!({"director": {"model": "deepseek/deepseek-v4-flash-0731"}}),
-            &json!({
-                "aiApiConfig": {
-                    "modelDefaults": {
-                        "defaultDirectorModel": {
-                            "model": "typesafe/jev-1.13",
-                            "connectionId": "openrouter"
-                        }
-                    }
-                }
-            })
-        ));
-        // The global default alone can select the TypeSafe engine.
-        assert!(is_typesafe_director(
-            &json!({}),
-            &json!({
-                "aiApiConfig": {
-                    "modelDefaults": {
-                        "defaultDirectorModel": {
-                            "model": "typesafe/jev-1.13",
-                            "connectionId": "openrouter"
-                        }
-                    }
-                }
-            })
-        ));
-    }
-
-    #[test]
-    fn typesafe_director_selection_defaults_to_builtin_connection() {
-        let selection = typesafe_director_selection(&json!({}), &json!({}));
-        assert_eq!(selection.model, "jev-latest");
-        assert_eq!(
-            selection.connection_id.as_deref(),
-            Some(TYPESAFE_CONNECTION_ID)
-        );
-    }
-
-    #[test]
-    fn typesafe_director_selection_honors_overrides() {
-        let situation = json!({
-            "director": {
-                "engine": "typesafe",
-                "model": "jev-preview",
-                "connectionId": "cx_custom"
-            }
-        });
-        let selection = typesafe_director_selection(&situation, &json!({}));
-        assert_eq!(selection.model, "jev-preview");
-        assert_eq!(selection.connection_id.as_deref(), Some("cx_custom"));
-
-        let payload = json!({
-            "aiApiConfig": {"roleApiTypes": {"defaultDirectorModel": "cx_role"}}
-        });
-        let selection = typesafe_director_selection(&json!({}), &payload);
-        assert_eq!(selection.connection_id.as_deref(), Some("cx_role"));
-    }
-
-    #[test]
-    fn typesafe_director_selection_uses_jev_global_default() {
-        let payload = json!({
-            "aiApiConfig": {
-                "modelDefaults": {
-                    "defaultDirectorModel": {
-                        "model": "typesafe/jev-1.13",
-                        "connectionId": "openrouter"
-                    }
-                }
-            }
-        });
-        let selection = typesafe_director_selection(&json!({}), &payload);
-        assert_eq!(selection.model, "typesafe/jev-1.13");
-        assert_eq!(selection.connection_id.as_deref(), Some("openrouter"));
-
-        // A non-Jev default does not leak into the TypeSafe selection.
-        let payload = json!({
-            "aiApiConfig": {
-                "modelDefaults": {
-                    "defaultDirectorModel": {
-                        "model": "deepseek/deepseek-v4-flash-0731",
-                        "connectionId": "openrouter"
-                    }
-                }
-            }
-        });
-        let selection = typesafe_director_selection(&json!({}), &payload);
-        assert_eq!(selection.model, "jev-latest");
-        assert_eq!(
-            selection.connection_id.as_deref(),
-            Some(TYPESAFE_CONNECTION_ID)
-        );
-    }
-
-    fn jev_choice_answer(
-        choice: &str,
-        probabilities: &[(&str, f64)],
-        confidence: Option<f64>,
-    ) -> ChoiceAnswer {
-        ChoiceAnswer {
-            choice: choice.to_owned(),
-            probabilities: probabilities
-                .iter()
-                .map(|(id, p)| (id.to_string(), *p))
-                .collect(),
-            confidence,
-        }
-    }
-
-    #[test]
-    fn jev_effective_choice_passes_non_protagonist_through() {
-        let eligible = vec!["actor-a".to_owned(), "actor-b".to_owned()];
-        let answer = jev_choice_answer("actor-a", &[("actor-a", 0.9), ("actor-b", 0.1)], None);
-        assert_eq!(
-            resolve_jev_effective_choice(&answer, &eligible, 0.5),
-            "actor-a"
-        );
-    }
-
-    #[test]
-    fn jev_effective_choice_keeps_confident_protagonist() {
-        let eligible = vec!["actor-a".to_owned(), "actor-b".to_owned()];
-        let answer = jev_choice_answer(
-            JEV_PROTAGONIST_OPTION,
-            &[
-                (JEV_PROTAGONIST_OPTION, 0.6),
-                ("actor-b", 0.3),
-                (JEV_END_OPTION, 0.1),
-            ],
-            Some(0.7),
-        );
-        assert_eq!(
-            resolve_jev_effective_choice(&answer, &eligible, 0.5),
-            JEV_PROTAGONIST_OPTION
-        );
-    }
-
-    #[test]
-    fn jev_effective_choice_falls_through_to_runner_up_actor() {
-        let eligible = vec!["actor-a".to_owned(), "actor-b".to_owned()];
-        let answer = jev_choice_answer(
-            JEV_PROTAGONIST_OPTION,
-            &[
-                (JEV_PROTAGONIST_OPTION, 0.35),
-                ("actor-b", 0.3),
-                ("actor-a", 0.2),
-                (JEV_END_OPTION, 0.15),
-            ],
-            Some(0.4),
-        );
-        assert_eq!(
-            resolve_jev_effective_choice(&answer, &eligible, 0.5),
-            "actor-b"
-        );
-    }
-
-    #[test]
-    fn jev_effective_choice_runner_up_can_stop_or_continue() {
-        let eligible = vec!["actor-a".to_owned(), "actor-b".to_owned()];
-
-        let ending = jev_choice_answer(
-            JEV_PROTAGONIST_OPTION,
-            &[
-                (JEV_PROTAGONIST_OPTION, 0.3),
-                (JEV_END_OPTION, 0.29),
-                ("actor-b", 0.25),
-            ],
-            None,
-        );
-        assert_eq!(
-            resolve_jev_effective_choice(&ending, &eligible, 0.5),
-            JEV_END_OPTION
-        );
-
-        let continuing = jev_choice_answer(
-            JEV_PROTAGONIST_OPTION,
-            &[
-                (JEV_PROTAGONIST_OPTION, 0.3),
-                (JEV_CONVERSATION_COMPLETE_OPTION, 0.29),
-                ("actor-b", 0.25),
-            ],
-            None,
-        );
-        assert_eq!(
-            resolve_jev_effective_choice(&continuing, &eligible, 0.5),
-            JEV_CONVERSATION_COMPLETE_OPTION
-        );
-    }
-
-    #[test]
-    fn jev_effective_choice_without_probabilities_keeps_protagonist() {
-        let eligible = vec!["actor-a".to_owned()];
-        let answer = jev_choice_answer(JEV_PROTAGONIST_OPTION, &[], None);
-        assert_eq!(
-            resolve_jev_effective_choice(&answer, &eligible, 0.5),
-            JEV_PROTAGONIST_OPTION
-        );
-    }
-
-    #[test]
-    fn jev_effective_choice_uses_confidence_when_distribution_missing() {
-        let eligible = vec!["actor-a".to_owned(), "actor-b".to_owned()];
-        let answer = jev_choice_answer(JEV_PROTAGONIST_OPTION, &[("actor-b", 0.7)], Some(0.3));
-        assert_eq!(
-            resolve_jev_effective_choice(&answer, &eligible, 0.5),
-            "actor-b"
-        );
-    }
-
-    #[test]
-    fn jev_effective_choice_ignores_ineligible_runner_up() {
-        let eligible = vec!["actor-a".to_owned()];
-        let answer = jev_choice_answer(
-            JEV_PROTAGONIST_OPTION,
-            &[
-                (JEV_PROTAGONIST_OPTION, 0.3),
-                ("actor-banned", 0.6),
-                ("actor-a", 0.1),
-            ],
-            None,
-        );
-        assert_eq!(
-            resolve_jev_effective_choice(&answer, &eligible, 0.5),
-            "actor-a"
-        );
     }
 
     #[test]

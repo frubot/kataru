@@ -28,9 +28,6 @@ import {
     resolveSituationParticipants,
 } from '../lib/store/situations';
 
-const TEST_MODEL = { connectionId: 'openrouter', model: 'model-1' };
-const FALLBACK_MODEL = { connectionId: 'openrouter', model: 'fallback-model' };
-const DIRECTOR_MODEL = { connectionId: 'openrouter', model: 'director-model' };
 
 describe('store pure helpers', () => {
     test('removes the legacy character token limit without reusing it as a character limit', () => {
@@ -38,11 +35,10 @@ describe('store pure helpers', () => {
             id: 'character-1',
             name: '葵',
             systemPrompt: '',
-            model: TEST_MODEL,
             maxTokens: 1024,
             createdAt: 1,
             updatedAt: 1,
-        } as Parameters<typeof normalizeCharacters>[0][number] & { maxTokens: number }], FALLBACK_MODEL);
+        } as Parameters<typeof normalizeCharacters>[0][number] & { maxTokens: number }]);
 
         expect(character).not.toHaveProperty('maxTokens');
         expect(character.maxCharacters).toBeUndefined();
@@ -53,11 +49,10 @@ describe('store pure helpers', () => {
             id: 'character-1',
             name: '葵',
             systemPrompt: '',
-            model: TEST_MODEL,
             enableSummary: false,
             createdAt: 1,
             updatedAt: 1,
-        } as Character & { enableSummary: boolean }], FALLBACK_MODEL);
+        } as Character & { enableSummary: boolean }]);
 
         expect(character).not.toHaveProperty('enableSummary');
     });
@@ -155,7 +150,6 @@ describe('store pure helpers', () => {
             id: 'character-1',
             name: '葵',
             systemPrompt: '',
-            model: TEST_MODEL,
             costumes: [{ name: '制服', image: 'uniform-image' }],
             createdAt: 1,
             updatedAt: 1,
@@ -165,7 +159,7 @@ describe('store pure helpers', () => {
             type: 'character',
             characterId: character.id,
             costumeName: ' 制服 ',
-        }, new Set([character.id]), FALLBACK_MODEL);
+        }, new Set([character.id]));
         expect(actor).toMatchObject({ costumeName: '制服' });
         if (!actor) throw new Error('Expected a normalized actor');
 
@@ -173,12 +167,7 @@ describe('store pure helpers', () => {
             id: 'situation-1',
             name: '放課後',
             actors: [actor],
-            director: {
-                enabled: true,
-                model: TEST_MODEL,
-                maxAutoTurns: 1,
-                stopPolicy: 'max-turns',
-            },
+            maxTurns: 1,
             memoryMode: 'off',
             createdAt: 1,
             updatedAt: 1,
@@ -208,21 +197,14 @@ describe('store pure helpers', () => {
             id: 'character-1',
             name: '葵',
             systemPrompt: '',
-            model: TEST_MODEL,
             createdAt: 1,
             updatedAt: 1,
-        };
-        const director = {
-            enabled: true,
-            model: TEST_MODEL,
-            maxAutoTurns: 1,
-            stopPolicy: 'max-turns' as const,
         };
         const withRules: Situation = {
             id: 'situation-1',
             name: '放課後',
             actors: [{ id: 'actor-1', type: 'character', characterId: character.id }],
-            director,
+            maxTurns: 1,
             memoryMode: 'off',
             characterCommonRules: '全員、敬語で話す',
             createdAt: 1,
@@ -249,7 +231,6 @@ describe('store pure helpers', () => {
             id: 'character-1',
             name: '葵',
             systemPrompt: '',
-            model: TEST_MODEL,
             createdAt: 1,
             updatedAt: 1,
         };
@@ -301,7 +282,7 @@ describe('store pure helpers', () => {
         }]);
     });
 
-    test('preserves generation settings for temporary situation actors and participants', () => {
+    test('temporary actors and participants carry no per-actor generation settings', () => {
         const actor = normalizeSituationActor({
             id: 'actor-1',
             type: 'temporary',
@@ -309,68 +290,69 @@ describe('store pure helpers', () => {
             systemPrompt: '街角に立っている。',
             reasoningEffort: 'low',
             frequencyPenalty: 0,
-            presencePenalty: -0.5,
-            repetitionPenalty: 1.15,
-        }, new Set(), FALLBACK_MODEL);
+            enableThinking: true,
+        }, new Set());
 
-        expect(actor).toMatchObject({
-            type: 'temporary',
-            reasoningEffort: 'low',
-            frequencyPenalty: 0,
-            presencePenalty: -0.5,
-            repetitionPenalty: 1.15,
-        });
+        expect(actor).not.toHaveProperty('reasoningEffort');
+        expect(actor).not.toHaveProperty('frequencyPenalty');
+        expect(actor).not.toHaveProperty('enableThinking');
         if (!actor) throw new Error('Expected a normalized actor');
 
         const participants = resolveSituationParticipants({
             id: 'situation-1',
             name: '街角',
             actors: [actor],
-            director: {
-                enabled: true,
-                model: DIRECTOR_MODEL,
-                maxAutoTurns: 1,
-                stopPolicy: 'max-turns',
-            },
+            maxTurns: 1,
             memoryMode: 'off',
             createdAt: 1,
             updatedAt: 1,
-        }, [], FALLBACK_MODEL);
+        }, []);
 
-        expect(participants[0]).toMatchObject({
-            actorId: 'actor-1',
-            actorType: 'temporary',
-            reasoningEffort: 'low',
-            frequencyPenalty: 0,
-            presencePenalty: -0.5,
-            repetitionPenalty: 1.15,
-        });
+        expect(participants[0]).toMatchObject({ actorId: 'actor-1', actorType: 'temporary' });
+        expect(participants[0]).not.toHaveProperty('model');
     });
 
-    test('migrates the former thinking toggle to a low reasoning effort', () => {
+    test('drops the former thinking toggle and reasoning level from characters', () => {
         const [character] = normalizeCharacters([{
             id: 'character-1',
             name: '葵',
             systemPrompt: '',
-            model: TEST_MODEL,
             enableThinking: true,
+            reasoningEffort: 'high',
             createdAt: 1,
             updatedAt: 1,
-        } as Character & { enableThinking: boolean }], FALLBACK_MODEL);
+        } as Character & { enableThinking: boolean; reasoningEffort: string }]);
 
         expect(character).not.toHaveProperty('enableThinking');
-        expect(character.reasoningEffort).toBe('low');
+        expect(character).not.toHaveProperty('reasoningEffort');
+    });
 
-        const actor = normalizeSituationActor({
-            id: 'actor-1',
-            type: 'temporary',
-            name: '通行人',
-            systemPrompt: '街角に立っている。',
-            enableThinking: true,
-        }, new Set(), FALLBACK_MODEL);
+    test('migrates the former director turn limit into the situation turn limit', () => {
+        const character: Character = { id: 'character-1', name: '葵', systemPrompt: '', createdAt: 1, updatedAt: 1 };
+        const legacy = (director: Record<string, unknown>, id: string) => ({
+            id,
+            name: '放課後',
+            actors: [{ id: 'actor-1', type: 'character', characterId: character.id }],
+            director,
+            memoryMode: 'off',
+            createdAt: 1,
+            updatedAt: 1,
+        }) as unknown as Situation;
 
-        expect(actor).toMatchObject({ reasoningEffort: 'low' });
-        expect(actor).not.toHaveProperty('enableThinking');
+        const normalized = normalizeGroupData({
+            characters: [character],
+            groups: [
+                legacy({ enabled: true, model: 'm', maxAutoTurns: 5, stopPolicy: 'max-turns' }, 'situation-1'),
+                legacy({ enabled: true, model: 'm', maxAutoTurns: 5, stopPolicy: 'after-one' }, 'situation-2'),
+                legacy({ enabled: true, model: 'm', maxAutoTurns: 40, stopPolicy: 'max-turns' }, 'situation-3'),
+            ],
+            rooms: [],
+        });
+
+        expect(normalized.groups.map((group) => group.maxTurns)).toEqual([5, 1, 10]);
+        for (const group of normalized.groups) expect(group).not.toHaveProperty('director');
+        // 旧形式から変換したシチュエーションは保存し直す。
+        expect(normalized.changedGroups).toHaveLength(3);
     });
 
     test('passes the trimmed user name to AI requests and omits blank names', () => {

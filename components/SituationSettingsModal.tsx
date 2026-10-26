@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, ChevronDown, ChevronRight, ChevronUp, EllipsisVertical, Image as ImageIcon, MessagesSquare, Plus, RotateCcw, Search, Shirt, Smile, Sparkles, Trash2, User, Users, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, ChevronUp, EllipsisVertical, Image as ImageIcon, ImagePlus, MessagesSquare, Plus, RotateCcw, Search, Shirt, Smile, Sparkles, Trash2, User, Users, X } from 'lucide-react';
 import {
     Character,
     Costume,
@@ -34,8 +34,12 @@ import SituationBackgroundModal from './SituationBackgroundModal';
 import SituationDescriptionGeneratorModal from './SituationDescriptionGeneratorModal';
 import StoredImage from './StoredImage';
 import ModelSelector from './ModelSelector';
+import PromptSectionEditor from './PromptSectionEditor';
 import OptionSelector from './OptionSelector';
 import { useModalKeyboard } from './useModalKeyboard';
+import { getVrmExpressionNames } from '@/lib/vrm';
+
+const VrmAvatarView = lazy(() => import('./VrmAvatarView'));
 
 type TemporaryActorDraft = {
     id: string;
@@ -652,9 +656,21 @@ function TemporaryActorSettingsModal({
     const [generatorOpen, setGeneratorOpen] = useState(false);
     const [imageGenOpen, setImageGenOpen] = useState(false);
     const [expressionsOpen, setExpressionsOpen] = useState(false);
+    // 左ペインのプレビュー選択。保存対象ではなく表示切替だけに使う。
+    const [previewExpressionName, setPreviewExpressionName] = useState<string | null>(null);
     const modalRef = useRef<HTMLDivElement>(null);
-    const hasCustomParams = draft.temperature !== null || draft.topP !== null || draft.topK !== null
+    const hasCustomParams = Boolean(draft.model?.model.trim()) || draft.reasoningEffort !== null
+        || draft.temperature !== null || draft.topP !== null || draft.topK !== null
         || draft.frequencyPenalty !== null || draft.presencePenalty !== null || draft.repetitionPenalty !== null;
+
+    // モバイルでは立ち絵を描画しない（VRM/画像の読み込み自体もスキップ）
+    const [isMobile, setIsMobile] = useState(false);
+    useEffect(() => {
+        const checkMobile = () => setIsMobile(window.innerWidth <= 720);
+        checkMobile();
+        window.addEventListener('resize', checkMobile);
+        return () => window.removeEventListener('resize', checkMobile);
+    }, []);
 
     const updateDraft = (updates: Partial<TemporaryActorDraft>) => {
         setDraft((current) => ({ ...current, ...updates }));
@@ -679,14 +695,27 @@ function TemporaryActorSettingsModal({
         canClose: !generatorOpen && !imageGenOpen && !expressionsOpen,
     });
 
-    const labelStyle: CSSProperties = {
-        display: 'block',
-        fontSize: '0.875rem',
-        fontWeight: 500,
-        marginBottom: '0.5rem',
-        color: 'var(--text-secondary)',
-    };
     const sectionStyle: CSSProperties = { marginBottom: '1.25rem' };
+    const promptLabelStyle: CSSProperties = {
+        fontSize: '0.875rem',
+        fontWeight: 600,
+        color: 'var(--text-primary)',
+        marginBottom: '0.5rem',
+        letterSpacing: '0.02em',
+    };
+
+    // 左ペインの立ち絵プレビュー（衣装差分は扱わず、デフォルト衣装と表情だけを表示する）
+    const defaultCostume = draft.costumes.find((costume) => costume.name.toLowerCase() === DEFAULT_COSTUME_NAME) ?? null;
+    const defaultNeutralImage = defaultCostume?.image
+        ?? draft.expressions.find((expression) => expression.name === NEUTRAL_EXPRESSION_NAME)?.image;
+    const previewVrm = defaultCostume?.kind === 'vrm' ? defaultCostume.vrm : undefined;
+    const previewExpression = previewExpressionName && !previewVrm
+        ? draft.expressions.find((expression) => expression.name === previewExpressionName) ?? null
+        : null;
+    const portraitImage = previewExpression?.image ?? defaultNeutralImage ?? null;
+    const expressionThumbs: { name: string; image?: string }[] = previewVrm
+        ? getVrmExpressionNames(previewVrm).map((name) => ({ name }))
+        : draft.expressions.map((expression) => ({ name: expression.name, image: expression.image }));
 
     return (
         <>
@@ -703,7 +732,7 @@ function TemporaryActorSettingsModal({
             >
                 <div
                     ref={modalRef}
-                    className="modal-content settings-form-modal"
+                    className="modal-content settings-form-modal character-profile-modal"
                     onClick={(event) => event.stopPropagation()}
                     role="dialog"
                     aria-modal="true"
@@ -743,215 +772,261 @@ function TemporaryActorSettingsModal({
                         )}
                     </div>
 
-                    <div className="modal-body">
-                        <div style={{ ...sectionStyle, display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                            <button
-                                type="button"
-                                onClick={() => setImageGenOpen(true)}
-                                title={draft.icon ? 'アイコンを変更' : 'アイコンを追加'}
-                                aria-label={draft.icon ? 'アイコンを変更' : 'アイコンを追加'}
-                                style={{
-                                    width: '72px',
-                                    height: '72px',
-                                    borderRadius: '50%',
-                                    border: '2px dashed var(--border-color)',
-                                    background: 'var(--bg-secondary)',
-                                    cursor: 'pointer',
-                                    overflow: 'hidden',
-                                    flexShrink: 0,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    padding: 0,
-                                }}
-                            >
-                                {draft.icon ? (
-                                    <StoredImage
-                                        src={draft.icon}
-                                        alt={`${draft.name || 'キャラクター'}のアイコン`}
-                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                    />
-                                ) : (
-                                    <User size={28} style={{ color: 'var(--text-muted)' }} />
-                                )}
-                            </button>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ ...labelStyle, marginBottom: '0.25rem' }}>アイコン画像</div>
-                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                    クリックして画像を追加・変更できます
-                                </div>
-                                {draft.icon && (
-                                    <button
-                                        type="button"
-                                        onClick={() => updateDraft({ icon: null })}
-                                        style={{
-                                            fontSize: '0.75rem',
-                                            color: 'var(--error)',
-                                            background: 'none',
-                                            border: 'none',
-                                            cursor: 'pointer',
-                                            padding: 0,
-                                            marginTop: '0.375rem',
-                                        }}
-                                    >
-                                        削除
-                                    </button>
-                                )}
-                            </div>
-                            <button
-                                type="button"
-                                className="btn btn-secondary"
-                                onClick={() => setExpressionsOpen(true)}
-                                title={!draft.expressions.some((expression) => expression.name === NEUTRAL_EXPRESSION_NAME)
-                                    ? 'デフォルトの立ち絵が登録されていない場合でも追加できます'
-                                    : undefined}
-                                style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8125rem', flexShrink: 0 }}
-                            >
-                                <Smile size={14} />
-                                表情差分
-                                {draft.expressions.length > 0 && (
-                                    <span style={{ fontSize: '0.6875rem', opacity: 0.7 }}>({draft.expressions.length})</span>
-                                )}
-                            </button>
-                        </div>
-
-                        <div style={sectionStyle}>
-                            <label htmlFor={`temporary-actor-name-${actor.id}`} style={labelStyle}>キャラクター名</label>
-                            <input
-                                id={`temporary-actor-name-${actor.id}`}
-                                type="text"
-                                className="input"
-                                value={draft.name}
-                                onChange={(event) => updateDraft({ name: event.target.value })}
-                                placeholder="キャラクターの名前"
-                                autoFocus={isNew}
-                            />
-                        </div>
-
-                        <div style={sectionStyle}>
-                            <label htmlFor={`temporary-actor-model-${actor.id}`} style={labelStyle}>モデル</label>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                <ModelSelector
-                                    id={`temporary-actor-model-${actor.id}`}
-                                    value={draft.model ?? { connectionId: DEFAULT_CONNECTION_ID, model: '' }}
-                                    onChange={(model) => updateDraft({ model })}
-                                    outputModality="text"
-                                    placeholder={`例: ${defaultChatModel.model}`}
-                                    style={{ flex: '1 1 0', minWidth: 0 }}
-                                />
-                                <OptionSelector
-                                    id={`temporary-actor-reasoning-effort-${actor.id}`}
-                                    value={draft.reasoningEffort ?? ''}
-                                    onChange={(value) => updateDraft({ reasoningEffort: isReasoningEffort(value) ? value : null })}
-                                    options={REASONING_EFFORT_SELECT_OPTIONS}
-                                    ariaLabel="推論レベル"
-                                    title="推論レベル: 対応モデルで返答前の推論（Reasoning）を行います。空欄では全体設定を使用します。"
-                                    style={{ flex: '0 0 auto', width: 'fit-content' }}
-                                    menuStyle={{ right: 0, left: 'auto' }}
-                                />
-                            </div>
-                        </div>
-
-                        <div style={sectionStyle}>
-                            <label htmlFor={`temporary-actor-prompt-${actor.id}`} style={labelStyle}>キャラクターについて</label>
-                            <textarea
-                                id={`temporary-actor-prompt-${actor.id}`}
-                                className="input"
-                                value={draft.systemPrompt}
-                                onChange={(event) => updateDraft({ systemPrompt: event.target.value })}
-                                rows={6}
-                                placeholder="キャラクターに関する詳細を記述してください..."
-                                style={{ resize: 'vertical', minHeight: '7.5rem' }}
-                            />
-                        </div>
-
-                        <div style={sectionStyle}>
-                            <label htmlFor={`temporary-actor-speech-style-${actor.id}`} style={labelStyle}>口調</label>
-                            <textarea
-                                id={`temporary-actor-speech-style-${actor.id}`}
-                                className="input"
-                                value={draft.speechStyle}
-                                onChange={(event) => updateDraft({ speechStyle: event.target.value })}
-                                rows={4}
-                                placeholder="例: 丁寧語で話す。親しい相手には少しくだけた表現を使う。"
-                                style={{ resize: 'vertical', minHeight: '6rem' }}
-                            />
-                        </div>
-
-                        <div style={sectionStyle}>
-                            <label htmlFor={`temporary-actor-user-constraints-${actor.id}`} style={labelStyle}>追加の制約</label>
-                            <textarea
-                                id={`temporary-actor-user-constraints-${actor.id}`}
-                                className="input"
-                                value={draft.userConstraints}
-                                onChange={(event) => updateDraft({ userConstraints: event.target.value })}
-                                rows={4}
-                                placeholder="キャラクターに守らせたい制約を記述してください..."
-                                style={{ resize: 'vertical', minHeight: '6rem' }}
-                            />
-                        </div>
-
-                        <div style={sectionStyle}>
-                            <button
-                                type="button"
-                                onClick={() => setParametersOpen((open) => !open)}
-                                aria-expanded={parametersOpen}
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                    gap: '0.75rem',
-                                    width: '100%',
-                                    padding: '0.625rem 0',
-                                    border: 'none',
-                                    background: 'transparent',
-                                    color: 'var(--text-secondary)',
-                                    cursor: 'pointer',
-                                    textAlign: 'left',
-                                }}
-                            >
-                                <span style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
-                                    {parametersOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-                                    <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>生成パラメータ</span>
-                                </span>
-                                {hasCustomParams && (
-                                    <span style={{ fontSize: '0.75rem', color: 'var(--accent-primary)' }}>カスタム</span>
-                                )}
-                            </button>
-                            {parametersOpen && (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', paddingTop: '0.75rem' }}>
-                                    <TemporaryActorParamSlider
-                                        paramKey="temperature"
-                                        value={draft.temperature}
-                                        onChange={(temperature) => updateDraft({ temperature })}
-                                    />
-                                    <TemporaryActorParamSlider
-                                        paramKey="topP"
-                                        value={draft.topP}
-                                        onChange={(topP) => updateDraft({ topP })}
-                                    />
-                                    <TemporaryActorParamSlider
-                                        paramKey="topK"
-                                        value={draft.topK}
-                                        onChange={(topK) => updateDraft({ topK })}
-                                    />
-                                    <TemporaryActorParamSlider
-                                        paramKey="frequencyPenalty"
-                                        value={draft.frequencyPenalty}
-                                        onChange={(frequencyPenalty) => updateDraft({ frequencyPenalty })}
-                                    />
-                                    <TemporaryActorParamSlider
-                                        paramKey="presencePenalty"
-                                        value={draft.presencePenalty}
-                                        onChange={(presencePenalty) => updateDraft({ presencePenalty })}
-                                    />
-                                    <TemporaryActorParamSlider
-                                        paramKey="repetitionPenalty"
-                                        value={draft.repetitionPenalty}
-                                        onChange={(repetitionPenalty) => updateDraft({ repetitionPenalty })}
-                                    />
+                    <div className="modal-body character-profile-body">
+                        {/* 立ち絵ペイン */}
+                        <aside className="character-profile-portrait">
+                            {!isMobile && expressionThumbs.length > 0 && (
+                                <div className="character-profile-thumbs">
+                                    {expressionThumbs.map((thumb) => {
+                                        const isNeutral = thumb.name.toLowerCase() === NEUTRAL_EXPRESSION_NAME;
+                                        const selected = previewExpressionName === thumb.name
+                                            || (previewExpressionName === null && isNeutral);
+                                        return (
+                                            <button
+                                                key={`expression:${thumb.name}`}
+                                                type="button"
+                                                className={`character-profile-thumb${selected ? ' selected' : ''}`}
+                                                title={`表情: ${thumb.name}`}
+                                                onClick={() => setPreviewExpressionName(
+                                                    previewExpressionName === thumb.name || isNeutral ? null : thumb.name,
+                                                )}
+                                            >
+                                                {thumb.image ? <StoredImage src={thumb.image} alt="" /> : thumb.name}
+                                            </button>
+                                        );
+                                    })}
                                 </div>
                             )}
+                            {!isMobile && previewExpressionName && (
+                                <div className="character-profile-preview-label">{previewExpressionName}</div>
+                            )}
+                            {!isMobile && (
+                                <div className="character-profile-visual">
+                                    {previewVrm ? (
+                                        <Suspense fallback={(
+                                            <div className="character-profile-placeholder">
+                                                <span className="character-profile-placeholder-label">3D表示を準備中…</span>
+                                            </div>
+                                        )}>
+                                            <VrmAvatarView
+                                                avatar={previewVrm}
+                                                expression={previewExpressionName}
+                                                name={draft.name || 'キャラクター'}
+                                                fallbackImage={defaultCostume?.image ?? defaultNeutralImage ?? draft.icon ?? undefined}
+                                                interactive
+                                                lipSync
+                                            />
+                                        </Suspense>
+                                    ) : portraitImage ? (
+                                        <StoredImage src={portraitImage} alt={draft.name || 'キャラクター'} loading="eager" />
+                                    ) : (
+                                        <div className="character-profile-placeholder">
+                                            <div className="character-profile-placeholder-initial">
+                                                {draft.icon ? (
+                                                    <StoredImage src={draft.icon} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 'inherit' }} />
+                                                ) : (
+                                                    draft.name.trim().charAt(0) || '?'
+                                                )}
+                                            </div>
+                                            <span className="character-profile-placeholder-label">立ち絵が未登録です</span>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                            <div className="character-profile-actions">
+                                <button
+                                    type="button"
+                                    className="btn"
+                                    onClick={() => setImageGenOpen(true)}
+                                    title="アバターと立ち絵を登録します。表情差分にも使用されます"
+                                >
+                                    <ImagePlus size={13} />
+                                    立ち絵
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn"
+                                    onClick={() => setExpressionsOpen(true)}
+                                >
+                                    <Smile size={13} />
+                                    表情
+                                </button>
+                            </div>
+                        </aside>
+
+                        <div className="character-profile-fields">
+                            {/* アイコン + キャラクター名 */}
+                            <div className="character-profile-name-row">
+                                <div style={{ position: 'relative', flexShrink: 0 }}>
+                                    <button
+                                        type="button"
+                                        className="character-profile-icon-button"
+                                        onClick={() => setImageGenOpen(true)}
+                                        title="アバター画像を変更"
+                                    >
+                                        {draft.icon ? (
+                                            <StoredImage src={draft.icon} alt="avatar" />
+                                        ) : (
+                                            <User size={22} />
+                                        )}
+                                    </button>
+                                    {draft.icon && (
+                                        <button
+                                            type="button"
+                                            className="character-profile-icon-remove"
+                                            onClick={() => updateDraft({ icon: null })}
+                                            title="アバターを削除"
+                                            aria-label="アバターを削除"
+                                        >
+                                            <X size={11} />
+                                        </button>
+                                    )}
+                                </div>
+                                <input
+                                    type="text"
+                                    className="character-profile-name-input"
+                                    value={draft.name}
+                                    onChange={(event) => updateDraft({ name: event.target.value })}
+                                    placeholder="キャラクターの名前"
+                                    aria-label="キャラクター名"
+                                    autoFocus={isNew}
+                                />
+                            </div>
+
+                            {/* プロンプト */}
+                            <div style={sectionStyle}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                                    <div>
+                                        <div style={promptLabelStyle}>プロフィール</div>
+                                        <PromptSectionEditor
+                                            markdown={draft.systemPrompt}
+                                            onChange={(systemPrompt) => updateDraft({ systemPrompt })}
+                                            placeholder="キャラクターに関する詳細を記述してください..."
+                                        />
+                                    </div>
+                                    <div>
+                                        <div style={promptLabelStyle}>口調</div>
+                                        <PromptSectionEditor
+                                            markdown={draft.speechStyle}
+                                            onChange={(speechStyle) => updateDraft({ speechStyle })}
+                                            placeholder="例: 「それ、めっちゃいいじゃん！あとで私にも分けて？」"
+                                            plain
+                                        />
+                                    </div>
+                                    <div>
+                                        <div style={promptLabelStyle}>追加の制約</div>
+                                        <PromptSectionEditor
+                                            markdown={draft.userConstraints}
+                                            onChange={(userConstraints) => updateDraft({ userConstraints })}
+                                            placeholder="キャラクターに守らせたい制約を記述してください..."
+                                            plain
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* 高度な設定 (折りたたみ) */}
+                            <div style={sectionStyle}>
+                                <button
+                                    type="button"
+                                    onClick={() => setParametersOpen((open) => !open)}
+                                    aria-expanded={parametersOpen}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '0.375rem',
+                                        background: 'none',
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                        padding: '0.375rem 0',
+                                        fontSize: '0.875rem',
+                                        fontWeight: 500,
+                                        color: 'var(--text-secondary)',
+                                        width: '100%',
+                                    }}
+                                >
+                                    {parametersOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                                    高度な設定
+                                    {hasCustomParams && !parametersOpen && (
+                                        <span style={{
+                                            marginLeft: '0.375rem',
+                                            fontSize: '0.7rem',
+                                            padding: '0.1rem 0.4rem',
+                                            borderRadius: '0.75rem',
+                                            background: 'rgba(var(--accent-primary-rgb), 0.15)',
+                                            color: 'var(--accent-primary)',
+                                            fontWeight: 600,
+                                        }}>
+                                            カスタム
+                                        </span>
+                                    )}
+                                </button>
+
+                                {parametersOpen && (
+                                    <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                                        <div className="global-settings-selector-row">
+                                            <label
+                                                htmlFor={`temporary-actor-model-${actor.id}`}
+                                                style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
+                                            >
+                                                モデル
+                                            </label>
+                                            <div
+                                                className="global-settings-selector-control global-settings-model-selector-control"
+                                                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                                            >
+                                                <ModelSelector
+                                                    id={`temporary-actor-model-${actor.id}`}
+                                                    value={draft.model ?? { connectionId: DEFAULT_CONNECTION_ID, model: '' }}
+                                                    onChange={(model) => updateDraft({ model })}
+                                                    outputModality="text"
+                                                    placeholder={`例: ${defaultChatModel.model}`}
+                                                    style={{ flex: '0 1 auto', minWidth: 0 }}
+                                                />
+                                                <OptionSelector
+                                                    id={`temporary-actor-reasoning-effort-${actor.id}`}
+                                                    value={draft.reasoningEffort ?? ''}
+                                                    onChange={(value) => updateDraft({ reasoningEffort: isReasoningEffort(value) ? value : null })}
+                                                    options={REASONING_EFFORT_SELECT_OPTIONS}
+                                                    ariaLabel="推論レベル"
+                                                    title="推論レベル: 対応モデルで返答前の推論（Reasoning）を行います。空欄では全体設定を使用します。"
+                                                    style={{ flex: '0 1 auto', minWidth: 0 }}
+                                                />
+                                            </div>
+                                        </div>
+                                        <TemporaryActorParamSlider
+                                            paramKey="temperature"
+                                            value={draft.temperature}
+                                            onChange={(temperature) => updateDraft({ temperature })}
+                                        />
+                                        <TemporaryActorParamSlider
+                                            paramKey="topP"
+                                            value={draft.topP}
+                                            onChange={(topP) => updateDraft({ topP })}
+                                        />
+                                        <TemporaryActorParamSlider
+                                            paramKey="topK"
+                                            value={draft.topK}
+                                            onChange={(topK) => updateDraft({ topK })}
+                                        />
+                                        <TemporaryActorParamSlider
+                                            paramKey="frequencyPenalty"
+                                            value={draft.frequencyPenalty}
+                                            onChange={(frequencyPenalty) => updateDraft({ frequencyPenalty })}
+                                        />
+                                        <TemporaryActorParamSlider
+                                            paramKey="presencePenalty"
+                                            value={draft.presencePenalty}
+                                            onChange={(presencePenalty) => updateDraft({ presencePenalty })}
+                                        />
+                                        <TemporaryActorParamSlider
+                                            paramKey="repetitionPenalty"
+                                            value={draft.repetitionPenalty}
+                                            onChange={(repetitionPenalty) => updateDraft({ repetitionPenalty })}
+                                        />
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>

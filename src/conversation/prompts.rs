@@ -192,33 +192,33 @@ pub fn character_system_prompt(
                 .collect::<Vec<_>>()
                 .join(", ");
             prompt.push_str(&format!(
-                "\n\nこのロールプレイには複数人が参加しています。あなたは「{}」としてのみ発言します。参加者: {{{{user}}}}, {names}\n発言順は指揮役が決めます。他キャラクターの台詞を代弁しないでください。",
+                "\n\nYou shall speak only as \"{}\" and must not portray any other characters. Characters other than you: {{{{user}}}}, {names}",
                 character_name
             ));
         }
         let situation_prompt = string(situation, "situationPrompt");
         if !situation_prompt.is_empty() {
-            prompt.push_str(&format!("\n\n## シチュエーション\n{situation_prompt}"));
+            prompt.push_str(&format!("\n\n## Situation\n{situation_prompt}"));
         }
         // 参加キャラクター全員に共通で適用するルール。指揮役の判断材料にはしない。
         let common_rules = string(situation, "characterCommonRules");
         if !common_rules.is_empty() {
             prompt.push_str(&format!(
-                "\n\n## キャラクターの共通ルール\n以下は参加キャラクター全員に適用されるルールです。必ず従ってください。\n\n{common_rules}"
+                "\n\n## General Rules for Characters\nThe following rules apply to all participating characters. Please ensure you follow them.\n\n{common_rules}"
             ));
         }
         let role_prompt = string(character, "rolePrompt");
         if !role_prompt.is_empty() {
-            prompt.push_str(&format!("\n\n# あなたについて\n{role_prompt}"));
+            prompt.push_str(&format!("\n\n# About You\n{role_prompt}"));
         }
     }
     if let Some(summary) = summary.filter(|value| !value.trim().is_empty()) {
-        prompt.push_str(&format!("\n\n# これまでの会話の要約\n{}", summary.trim()));
+        prompt.push_str(&format!("\n\n# Summary of the conversation so far\n{}", summary.trim()));
     }
     if !relevant_memories.is_empty() {
-        prompt.push_str("\n\n## 関連するメモリ\n");
+        prompt.push_str("\n\n## List of Related Memories\n");
         prompt.push_str(
-            "各行の [日付・経過] はその記憶を知った時期です。古い記憶を最近の出来事として扱わないでください。\n",
+            "The [Date/Elapsed Time] entry in each row indicates the date on which the event was recorded.\n",
         );
         for (index, memory) in relevant_memories.iter().enumerate() {
             let number = index + 1;
@@ -232,13 +232,13 @@ pub fn character_system_prompt(
     }
     let setting = character_setting(character);
     if !setting.is_empty() {
-        prompt.push_str(&format!("\n\n# {}の設定\n{setting}", character_name));
+        prompt.push_str(&format!("\n\n# {}'s Profile'\n{setting}", character_name));
     }
     if let Some(costume) = active_costume {
         let description = string(costume, "description");
         if !description.is_empty() {
             prompt.push_str(&format!(
-                "\n\n# 現在の衣装\nあなたの現在の外観は次のとおりです: 「{}」\n{description}",
+                "\n\n# Current outfit\nYour current appearance is as follows: 「{}」\n{description}",
                 string(costume, "name"),
             ));
         }

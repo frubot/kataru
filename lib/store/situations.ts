@@ -137,13 +137,16 @@ export function normalizeSituationPriorMessages(
         if (!rawMessage || typeof rawMessage !== 'object') continue;
         const message = rawMessage as Partial<SituationPriorMessage>;
         const content = typeof message.content === 'string' ? message.content.trim() : '';
-        if (!content || (message.role !== 'user' && message.role !== 'assistant')) continue;
+        if (
+            !content
+            || (message.role !== 'user' && message.role !== 'assistant' && message.role !== 'narration')
+        ) continue;
 
         const rawId = typeof message.id === 'string' ? message.id.trim() : '';
         const id = rawId && !usedIds.has(rawId) ? rawId : generateId();
         usedIds.add(id);
-        if (message.role === 'user') {
-            normalized.push({ id, role: 'user', content });
+        if (message.role === 'user' || message.role === 'narration') {
+            normalized.push({ id, role: message.role, content });
             continue;
         }
 

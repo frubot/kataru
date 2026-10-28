@@ -49,7 +49,7 @@ function SituationPriorMessageBubble({
     return (
         <MessageBubble
             messageId={`prior-display:${message.id}`}
-            role={message.role}
+            role={message.role === 'user' ? 'user' : 'assistant'}
             content={message.content}
             displayContent={message.content}
             index={index}
@@ -68,6 +68,7 @@ function SituationPriorMessageBubble({
             characterIcon={character?.icon}
             characterName={character?.name}
             isGroupRoom
+            isNarration={message.role === 'narration'}
             onMouseEnter={NOOP}
             onMouseLeave={NOOP}
             onTouchStart={NOOP}
@@ -317,7 +318,7 @@ export default function ChatMessagesView({
             if (measuredHeight != null) return measuredHeight;
             const message = item.kind === 'prior' ? item.presentation.message : item.presentation;
             const content = item.kind === 'prior' ? message.content : item.presentation.displayContent;
-            return estimateChatMessageHeight(content, message.role);
+            return estimateChatMessageHeight(content, message.role === 'user' ? 'user' : 'assistant');
         });
     }, [historyItems, measuredHeights]);
     const layout = useMemo(() => buildVirtualLayout(itemSizes), [itemSizes]);

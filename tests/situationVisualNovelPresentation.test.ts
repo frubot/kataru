@@ -335,6 +335,25 @@ describe('situation visual novel presentation', () => {
         ])).toBe('actor-a');
     });
 
+    test('plays prior narration as a narrator line without changing the portrait', () => {
+        const priorItems = buildSituationVisualNovelPriorItems([
+            { id: 'prior-assistant', role: 'assistant', actorId: 'actor-a', content: 'こんにちは。' },
+            { id: 'prior-narration', role: 'narration', content: '窓の外で雨が降り始めた。' },
+        ]);
+        expect(priorItems[1]).toMatchObject({ role: 'assistant', characterId: 'narrator', content: '窓の外で雨が降り始めた。' });
+
+        let state = createSituationVisualNovelPresentationState({
+            hasRoomHistory: false,
+            priorItems,
+            roomItems: [],
+            isLoading: false,
+        });
+        state = completeSituationVisualNovelItem(state, state.current!.key);
+        state = advanceSituationVisualNovelPresentation(state, false);
+        expect(state.current).toMatchObject({ characterId: 'narrator' });
+        expect(state.sceneCharacterId).toBe('actor-a');
+    });
+
     test('plays every prior message from the beginning and keeps the actor on protagonist lines', () => {
         const priorItems = buildSituationVisualNovelPriorItems(priorMessages);
         let state = createSituationVisualNovelPresentationState({

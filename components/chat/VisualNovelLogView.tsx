@@ -98,7 +98,8 @@ export default function VisualNovelLogView({
     const entries = useMemo<VisualNovelLogEntry[]>(() => {
         const priorEntries = priorMessages.map(({ message, character: priorCharacter }) => ({
             id: `prior:${message.id}`,
-            role: message.role,
+            role: message.role === 'user' ? 'user' as const : 'assistant' as const,
+            isNarration: message.role === 'narration',
             content: message.content,
             speakerName: message.role === 'user'
                 ? 'あなた'

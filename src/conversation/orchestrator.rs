@@ -2497,6 +2497,13 @@ fn prepend_situation_prior_messages(
                         })
                     })
                 }
+                // 生成されたナレーションと同じく、`narrator` の発言として履歴に入れる。
+                "narration" => Some(json!({
+                    "id": id,
+                    "role": "assistant",
+                    "content": content,
+                    "characterId": NARRATOR_ID,
+                })),
                 _ => None,
             }
         })
@@ -3470,6 +3477,25 @@ mod tests {
         assert_eq!(history[1]["role"], "assistant");
         assert_eq!(history[1]["characterId"], "actor-1");
         assert_eq!(history[2]["id"], "current");
+    }
+
+    #[test]
+    fn situation_prior_narration_becomes_a_narrator_message() {
+        let situation = json!({
+            "priorMessages": [
+                {"id": "prior-narration", "role": "narration", "content": "放課後の教室。"},
+                {"id": "prior-assistant", "role": "assistant", "content": "以前の返答", "actorId": "actor-1"}
+            ]
+        });
+        let mut history = vec![json!({"id": "current", "role": "user", "content": "現在の発言"})];
+
+        let count = prepend_situation_prior_messages(&mut history, &situation, "");
+
+        assert_eq!(count, 2);
+        assert_eq!(history[0]["role"], "assistant");
+        assert_eq!(history[0]["characterId"], NARRATOR_ID);
+        assert_eq!(history[0]["content"], "放課後の教室。");
+        assert_eq!(history[1]["characterId"], "actor-1");
     }
 
     #[test]

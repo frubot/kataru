@@ -282,6 +282,17 @@ describe('store pure helpers', () => {
         }]);
     });
 
+    test('keeps prior narration without an actor', () => {
+        expect(normalizeSituationPriorMessages([
+            { id: 'prior-narration', role: 'narration', content: '  放課後の教室。  ', actorId: 'ignored' },
+            { id: 'prior-empty', role: 'narration', content: '   ' },
+        ], new Set(['actor-1']))).toEqual([{
+            id: 'prior-narration',
+            role: 'narration',
+            content: '放課後の教室。',
+        }]);
+    });
+
     test('temporary actors and participants carry no per-actor generation settings', () => {
         const actor = normalizeSituationActor({
             id: 'actor-1',

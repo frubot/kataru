@@ -1660,6 +1660,42 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                                         直前の会話は設定されていません。
                                     </div>
                                 ) : priorMessages.map((message, index) => {
+                                    if (message.role === 'narration') {
+                                        return (
+                                            <div key={message.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                                                    <span style={{ marginRight: 'auto', paddingLeft: '0.25rem', color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 500 }}>
+                                                        ナレーション
+                                                    </span>
+                                                    {renderPriorMessageActions(message.id, index)}
+                                                </div>
+                                                <div className="situation-narration" style={{ maxWidth: '100%', margin: 0 }}>
+                                                    <textarea
+                                                        value={message.content}
+                                                        onChange={(event) => updatePriorMessageContent(message.id, event.target.value)}
+                                                        rows={3}
+                                                        placeholder="場面全体の描写"
+                                                        aria-label={`${index + 1}件目のナレーション`}
+                                                        style={{
+                                                            display: 'block',
+                                                            width: '100%',
+                                                            minHeight: 72,
+                                                            padding: 0,
+                                                            resize: 'vertical',
+                                                            border: 'none',
+                                                            outline: 'none',
+                                                            background: 'transparent',
+                                                            color: 'inherit',
+                                                            font: 'inherit',
+                                                            lineHeight: 1.6,
+                                                            textAlign: 'left',
+                                                        }}
+                                                    />
+                                                </div>
+                                            </div>
+                                        );
+                                    }
+
                                     if (message.role === 'user') {
                                         return (
                                             <div key={message.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.25rem' }}>
@@ -1800,6 +1836,10 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                                 >
                                     <Plus size={15} />
                                     キャラクターの発言
+                                </button>
+                                <button type="button" className="btn btn-secondary" onClick={() => addPriorMessage('narration')}>
+                                    <Plus size={15} />
+                                    ナレーション
                                 </button>
                             </div>
                         </div>

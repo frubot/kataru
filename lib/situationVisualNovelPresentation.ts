@@ -6,7 +6,7 @@ import {
     updateStreamingVisualNovelPagination,
     type StreamingVisualNovelPagination,
 } from './visualNovelPresentation';
-import { isNarratorCharacterId } from './narration';
+import { isNarratorCharacterId, NARRATOR_CHARACTER_ID } from './narration';
 
 export type SituationVisualNovelItem = {
     key: string;
@@ -98,11 +98,13 @@ export function buildSituationVisualNovelPriorItems(
             key: `prior:${message.id}`,
             id: message.id,
             source: 'prior' as const,
-            role: message.role,
+            role: message.role === 'user' ? 'user' as const : 'assistant' as const,
             content: message.content,
             ...(message.role === 'assistant' ? {
                 characterId: message.actorId,
                 expression: message.expression,
+            } : message.role === 'narration' ? {
+                characterId: NARRATOR_CHARACTER_ID,
             } : {}),
         }));
 }

@@ -198,6 +198,12 @@ export type SituationPriorMessage =
         content: string;
         actorId: string;
         expression?: string;
+    }
+    | {
+        /** 場面全体のナレーション。会話では `narrator` の発言として扱う。 */
+        id: string;
+        role: 'narration';
+        content: string;
     };
 
 export interface Situation {

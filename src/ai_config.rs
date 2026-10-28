@@ -1970,7 +1970,16 @@ mod tests {
         )
         .unwrap();
 
-        let manager = AiConfigManager::open(directory.path()).unwrap();
+        // Do not use `open`: it reads real environment variables such as
+        // ANTHROPIC_BASE_URL and the OS keyring, which would make this test
+        // depend on the machine it runs on.
+        let manager = AiConfigManager::with_parts(
+            path.clone(),
+            load_persisted_config(&path).unwrap(),
+            EnvironmentConfig::default(),
+            Arc::new(MemorySecretStore::default()),
+        )
+        .unwrap();
         let effective = manager.effective();
         assert_eq!(effective.connections.len(), 6);
         assert_eq!(

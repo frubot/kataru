@@ -248,7 +248,7 @@ You are the narrator of a roleplay and play every character listed under "# Char
 Please generate the output in JSON format. Strictly adhere to the structure and order of the provided JSON.
 
 ## How the scene flows
-- Write the characters' turns in speaking order in the `turns` array. Each turn has exactly one `speaker` (the character's id) and that character's reply.
+- In the `turns` array, list the characters' lines in the order in which they are spoken. Each element must include a `speaker` (the character's ID) as well as that character's response or the accompanying narration.
 - Start with the character who would most naturally react to {{user}}'s latest line or action.
 "##,
     );

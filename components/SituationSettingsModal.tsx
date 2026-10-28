@@ -772,6 +772,7 @@ function buildInitialState(
         situationPrompt: situation?.situationPrompt ?? '',
         characterCommonRules: situation?.characterCommonRules ?? '',
         maxAutoTurns: String(getInitialMaxTurns(situation, room)),
+        limitTurns: situation?.limitTurns === true,
         maxHistory: situation?.maxHistory != null ? String(situation.maxHistory) : '',
         memoryReadOnly: situation?.memoryMode === 'readOnly',
         // 新規作成時はナレーションを分ける。既存のシチュエーションは保存済みの設定に従う。
@@ -790,6 +791,7 @@ function serializeSituationDraft(draft: ReturnType<typeof buildInitialState>) {
         situationPrompt: draft.situationPrompt,
         characterCommonRules: draft.characterCommonRules,
         maxAutoTurns: draft.maxAutoTurns,
+        limitTurns: draft.limitTurns,
         maxHistory: draft.maxHistory,
         memoryReadOnly: draft.memoryReadOnly,
         separateNarration: draft.separateNarration,
@@ -1200,6 +1202,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
     const [situationPrompt, setSituationPrompt] = useState(initial.situationPrompt);
     const [characterCommonRules, setCharacterCommonRules] = useState(initial.characterCommonRules);
     const [maxAutoTurns, setMaxAutoTurns] = useState(initial.maxAutoTurns);
+    const [limitTurns, setLimitTurns] = useState(initial.limitTurns);
     const [maxHistory, setMaxHistory] = useState(initial.maxHistory);
     const [memoryReadOnly, setMemoryReadOnly] = useState(initial.memoryReadOnly);
     const [separateNarration, setSeparateNarration] = useState(initial.separateNarration);
@@ -1452,6 +1455,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                 situationPrompt,
                 characterCommonRules,
                 maxAutoTurns,
+                limitTurns,
                 maxHistory,
                 memoryReadOnly,
                 separateNarration,
@@ -1489,6 +1493,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                 priorMessages: priorMessagesForSave,
                 actors,
                 maxTurns: effectiveMaxTurns,
+                limitTurns,
                 memoryMode: memoryReadOnly ? 'readOnly' : 'off',
                 separateNarration,
                 maxHistory: parsedMaxHistory,
@@ -1505,6 +1510,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                 priorMessages: priorMessagesForSave,
                 actors,
                 maxTurns: effectiveMaxTurns,
+                limitTurns,
                 memoryMode: memoryReadOnly ? 'readOnly' : 'off',
                 separateNarration,
                 maxHistory: parsedMaxHistory,
@@ -1513,7 +1519,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
         }
 
         onClose();
-    }, [actorCount, actorOptions, backgroundImage, buildActors, characterActorMeta, characterCommonRules, createSituationRoom, effectiveMaxTurns, isEditing, maxAutoTurns, maxHistory, memoryReadOnly, name, onClose, onCreated, parsedMaxHistory, priorMessages, room, selectedCharacterIds, separateNarration, situation, situationPrompt, temporaryActors, updateRoomSettings, updateSituation]);
+    }, [actorCount, actorOptions, backgroundImage, buildActors, characterActorMeta, characterCommonRules, createSituationRoom, effectiveMaxTurns, isEditing, limitTurns, maxAutoTurns, maxHistory, memoryReadOnly, name, onClose, onCreated, parsedMaxHistory, priorMessages, room, selectedCharacterIds, separateNarration, situation, situationPrompt, temporaryActors, updateRoomSettings, updateSituation]);
 
     const modalRef = useRef<HTMLDivElement>(null);
     useModalKeyboard({
@@ -2071,7 +2077,17 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                         >
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                                 {actorCount > 1 && (
-                                    <MaxAutoTurnsSlider value={parsedMaxTurns} onChange={setMaxAutoTurns} />
+                                    <>
+                                        <SwitchRow
+                                            label="会話の連鎖上限を設定"
+                                            description="OFFのときは、場面に応じて発言数をAIが決めます。"
+                                            checked={limitTurns}
+                                            onToggle={() => setLimitTurns((value) => !value)}
+                                        />
+                                        {limitTurns && (
+                                            <MaxAutoTurnsSlider value={parsedMaxTurns} onChange={setMaxAutoTurns} />
+                                        )}
+                                    </>
                                 )}
                                 <MaxHistorySlider value={maxHistory} onChange={setMaxHistory} />
                             </div>

@@ -182,6 +182,7 @@ function toConversationSituation(situation: Situation | null | undefined) {
         characterCommonRules: situation.characterCommonRules,
         priorMessages: situation.priorMessages,
         maxTurns: situation.maxTurns,
+        limitTurns: situation.limitTurns === true,
         memoryMode: situation.memoryMode,
         separateNarration: situation.separateNarration === true,
         maxHistory: situation.maxHistory,

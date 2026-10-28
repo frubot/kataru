@@ -117,16 +117,26 @@ fn reasoning_effort_str(value: Option<&str>) -> Option<&str> {
     value.filter(|effort| matches!(*effort, "none" | "low" | "medium" | "high"))
 }
 
-fn situation_max_turns(room: &Value, situation: &Value, participant_count: usize) -> usize {
+/// 連鎖上限をOFFにしたときも、出力が長くなりすぎないように内部で使う発言数の上限。
+const SITUATION_TURN_CAP: usize = 10;
+
+/// シチュエーションの1ターンでキャラクターが話せる発言数の上限。`None` は上限なし。
+/// 上限は `limitTurns` がONのときだけ使い、既定はOFF。
+fn situation_max_turns(room: &Value, situation: &Value, participant_count: usize) -> Option<usize> {
     if participant_count <= 1 {
-        return 1;
+        return Some(1);
+    }
+    if !boolean(situation, "limitTurns") {
+        return None;
     }
 
-    room.get("maxMentionChain")
-        .and_then(Value::as_u64)
-        .or_else(|| situation.get("maxTurns").and_then(Value::as_u64))
-        .unwrap_or(3)
-        .clamp(1, 10) as usize
+    Some(
+        room.get("maxMentionChain")
+            .and_then(Value::as_u64)
+            .or_else(|| situation.get("maxTurns").and_then(Value::as_u64))
+            .unwrap_or(3)
+            .clamp(1, SITUATION_TURN_CAP as u64) as usize,
+    )
 }
 
 /// 会話の生成に使うモデル。キャラクターごとの指定はなく、全体設定の既定チャットモデルを使う。
@@ -1208,7 +1218,8 @@ struct EnsembleRequest<'a> {
     room: &'a Value,
     summary: Option<&'a str>,
     format: ReplyFormat,
-    max_turns: usize,
+    /// `None` は上限なし（内部では `SITUATION_TURN_CAP` まで）。
+    max_turns: Option<usize>,
     first_speaker: Option<&'a Value>,
     /// 場面全体のナレーションを `narrator` のturnに分けるか。
     narration: bool,
@@ -1364,6 +1375,7 @@ async fn generate_for_ensemble(
         streaming_preview,
     } = request;
     let api_client = clients.for_selection(selection)?;
+    let turn_cap = max_turns.unwrap_or(SITUATION_TURN_CAP);
     let message_mode = format.is_message();
     let visual_novel_mode = format.is_structured();
     let mut speakers = participants
@@ -1431,7 +1443,7 @@ async fn generate_for_ensemble(
         &unique_names(speakers.iter().map(|speaker| speaker.motion_names.clone())),
         format,
         max_characters,
-        ensemble_max_items(max_turns, narration),
+        ensemble_max_items(turn_cap, narration),
     );
     let mut request_messages = vec![json!({
         "role": "system",
@@ -1443,7 +1455,7 @@ async fn generate_for_ensemble(
         request_messages,
         sampling,
         reasoning_effort,
-        ensemble_max_tokens(max_turns, narration),
+        ensemble_max_tokens(turn_cap, narration),
     );
     let prompt = api_client.resolve_user_placeholders(
         &serde_json::to_string_pretty(&body["messages"])
@@ -1457,7 +1469,7 @@ async fn generate_for_ensemble(
         model: selection.model.clone(),
         prompt: &prompt,
     };
-    let timeout = ensemble_timeout_secs(max_turns);
+    let timeout = ensemble_timeout_secs(turn_cap);
     let mut partial_content = String::new();
     let completion = if let Some((jobs, job_id)) = streaming_preview {
         structured_completion_streaming(&api_client, body, schema, timeout, |partial| {
@@ -1491,7 +1503,7 @@ async fn generate_for_ensemble(
         }
     };
     let content = extract_message_text(&raw);
-    let turns = match parse_ensemble_response(&content, &speakers, message_mode, max_turns) {
+    let turns = match parse_ensemble_response(&content, &speakers, message_mode, turn_cap) {
         Ok(turns) => turns,
         Err(error) => {
             if !secret_mode {
@@ -3577,17 +3589,28 @@ mod tests {
         let room = json!({"maxMentionChain": 8});
         let situation = json!({"maxTurns": 6});
 
-        assert_eq!(situation_max_turns(&room, &situation, 1), 1);
+        assert_eq!(situation_max_turns(&room, &situation, 1), Some(1));
     }
 
     #[test]
     fn multi_participant_situation_uses_configured_turn_limit() {
-        let situation = json!({"maxTurns": 6});
+        let situation = json!({"maxTurns": 6, "limitTurns": true});
 
-        assert_eq!(situation_max_turns(&json!({}), &situation, 2), 6);
+        assert_eq!(situation_max_turns(&json!({}), &situation, 2), Some(6));
         assert_eq!(
             situation_max_turns(&json!({"maxMentionChain": 4}), &situation, 2),
-            4
+            Some(4)
+        );
+    }
+
+    #[test]
+    fn situation_turn_limit_is_off_by_default() {
+        let room = json!({"maxMentionChain": 4});
+
+        assert_eq!(situation_max_turns(&room, &json!({"maxTurns": 6}), 2), None);
+        assert_eq!(
+            situation_max_turns(&room, &json!({"maxTurns": 6, "limitTurns": false}), 2),
+            None
         );
     }
 

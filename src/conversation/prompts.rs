@@ -253,12 +253,12 @@ pub(crate) fn ensemble_system_prompt(
     situation: &Value,
     cast: &[EnsembleCast<'_>],
     format: ReplyFormat,
-    max_turns: usize,
+    max_turns: Option<usize>,
     first_speaker: Option<&Value>,
     summary: Option<&str>,
     narration: bool,
 ) -> String {
-    let max_turns = max_turns.max(1);
+    let max_turns = max_turns.map(|turns| turns.max(1));
     let narration = narration && !format.is_message();
     let mut prompt = String::from(
         r##"# Instructions
@@ -273,16 +273,28 @@ Please generate the output in JSON format. Strictly adhere to the structure and 
         prompt.push_str(&format!(
             r#"- In the `turns` array, list the narration and the characters' lines in the order in which they happen. Each element must include a `speaker` and its `message`.
 - Use `"speaker": "{NARRATOR_ID}"` for narration of the whole scene. Use a character's ID for that character's own turn.
-- Write at most {max_turns} character turn(s). Narrator turns do not count toward this limit, but use them only when needed and never place two in a row.
 "#
         ));
+        match max_turns {
+            Some(max_turns) => prompt.push_str(&format!(
+                "- Write at most {max_turns} character turn(s). Narrator turns do not count toward this limit, but use them only when needed and never place two in a row.\n"
+            )),
+            None => prompt.push_str(
+                "- Write as many character turns as the scene naturally calls for, and stop once it is {{user}}'s turn to respond. Use narrator turns only when needed and never place two in a row.\n",
+            ),
+        }
     } else {
         prompt.push_str(
             r#"- In the `turns` array, list the characters' lines in the order in which they are spoken. Each element must include a `speaker` (the character's ID) as well as that character's response or the accompanying narration.
 - Start with the character who would most naturally react to {{user}}'s latest line or action.
 "#,
         );
-        prompt.push_str(&format!("- Write at most {max_turns} turn(s).\n"));
+        match max_turns {
+            Some(max_turns) => prompt.push_str(&format!("- Write at most {max_turns} turn(s).\n")),
+            None => prompt.push_str(
+                "- Write as many turns as the scene naturally calls for, and stop once it is {{user}}'s turn to respond.\n",
+            ),
+        }
     }
     if let Some(actor) = first_speaker {
         let turn = if narration {
@@ -1114,7 +1126,7 @@ mod tests {
             &situation,
             &ensemble_cast(&aoi, &rin),
             ReplyFormat::Structured,
-            3,
+            Some(3),
             Some(&rin),
             Some("これまでの要約"),
             false,
@@ -1151,7 +1163,7 @@ mod tests {
             &json!({}),
             &ensemble_cast(&aoi, &rin),
             ReplyFormat::Message,
-            2,
+            Some(2),
             None,
             None,
             true,
@@ -1165,6 +1177,25 @@ mod tests {
     }
 
     #[test]
+    fn ensemble_prompt_without_turn_limit_lets_scene_decide_length() {
+        let aoi = json!({"actorId": "aoi", "name": "葵"});
+        let rin = json!({"actorId": "rin", "name": "凛"});
+        for narration in [false, true] {
+            let prompt = ensemble_system_prompt(
+                &json!({}),
+                &ensemble_cast(&aoi, &rin),
+                ReplyFormat::Structured,
+                None,
+                None,
+                None,
+                narration,
+            );
+            assert!(!prompt.contains("Write at most"));
+            assert!(prompt.contains("as the scene naturally calls for"));
+        }
+    }
+
+    #[test]
     fn ensemble_prompt_separates_scene_narration_from_character_turns() {
         let aoi = json!({"actorId": "aoi", "name": "葵"});
         let rin = json!({"actorId": "rin", "name": "凛"});
@@ -1172,7 +1203,7 @@ mod tests {
             &json!({}),
             &ensemble_cast(&aoi, &rin),
             ReplyFormat::Structured,
-            3,
+            Some(3),
             Some(&rin),
             None,
             true,

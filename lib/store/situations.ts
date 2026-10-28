@@ -191,6 +191,7 @@ export function normalizeSituation(
         priorMessages: normalizeSituationPriorMessages(situation.priorMessages, new Set(actorIds)),
         actors,
         maxTurns: storedSituationMaxTurns(situation),
+        ...(situation.limitTurns === true ? { limitTurns: true } : {}),
         memoryMode,
         ...(situation.separateNarration === true ? { separateNarration: true } : {}),
         maxHistory: normalizeSituationMaxHistory(situation.maxHistory),

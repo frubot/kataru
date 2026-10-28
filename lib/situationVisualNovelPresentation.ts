@@ -685,3 +685,73 @@ export function syncSituationVisualNovelRoomItems(
     }
     return nextState;
 }
+
+/**
+ * ゲームモードの立ち絵の並び。`slots`は画面上の左からの並び、`recency`は
+ * 直近に話した順（先頭が最新）。
+ */
+export type SituationVisualNovelStageRoster = {
+    slots: string[];
+    recency: string[];
+};
+
+export const EMPTY_SITUATION_VISUAL_NOVEL_STAGE_ROSTER: SituationVisualNovelStageRoster = {
+    slots: [],
+    recency: [],
+};
+
+function sameIds(a: string[], b: string[]): boolean {
+    return a.length === b.length && a.every((id, index) => id === b[index]);
+}
+
+/**
+ * 表示人数の上限に合わせて立ち絵の並びを更新する。話したキャラが舞台に
+ * いなければ、最も長く話していないキャラの位置に入れ替えて登場させる。
+ * 他のキャラの位置は動かさない。`maxSprites`が0以下なら全員を表示する。
+ */
+export function updateSituationVisualNovelStageRoster(
+    roster: SituationVisualNovelStageRoster,
+    participantIds: string[],
+    activeId: string | undefined,
+    maxSprites: number,
+): SituationVisualNovelStageRoster {
+    const participants = new Set(participantIds);
+    let recency = roster.recency.filter((id) => participants.has(id));
+    if (activeId && participants.has(activeId) && recency[0] !== activeId) {
+        recency = [activeId, ...recency.filter((id) => id !== activeId)];
+    }
+
+    let slots: string[];
+    if (maxSprites <= 0 || maxSprites >= participantIds.length) {
+        slots = participantIds;
+    } else {
+        const rank = (id: string) => {
+            const index = recency.indexOf(id);
+            return index < 0 ? Number.POSITIVE_INFINITY : index;
+        };
+        const leastRecentIndex = (ids: string[]) => ids.reduce(
+            (worst, id, index) => (rank(id) >= rank(ids[worst]) ? index : worst),
+            0,
+        );
+        slots = roster.slots.filter((id) => participants.has(id));
+        while (slots.length > maxSprites) {
+            slots = slots.filter((_, index) => index !== leastRecentIndex(slots));
+        }
+        if (activeId && participants.has(activeId) && !slots.includes(activeId)) {
+            if (slots.length < maxSprites) {
+                slots = [...slots, activeId];
+            } else {
+                const replaceIndex = leastRecentIndex(slots);
+                slots = slots.map((id, index) => (index === replaceIndex ? activeId : id));
+            }
+        }
+        // 空きは直近に話したキャラ、次に参加者の並び順で埋める。
+        for (const id of [...recency, ...participantIds]) {
+            if (slots.length >= maxSprites) break;
+            if (!slots.includes(id)) slots = [...slots, id];
+        }
+    }
+
+    if (sameIds(slots, roster.slots) && sameIds(recency, roster.recency)) return roster;
+    return { slots, recency };
+}

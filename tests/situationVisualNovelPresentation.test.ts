@@ -17,6 +17,8 @@ import {
     syncSituationVisualNovelPreviewItems,
     syncSituationVisualNovelRoomItems,
     unlockSituationVisualNovelPresentation,
+    updateSituationVisualNovelStageRoster,
+    EMPTY_SITUATION_VISUAL_NOVEL_STAGE_ROSTER,
 } from '../lib/situationVisualNovelPresentation';
 import { VN_MESSAGE_PAGE_MAX_CHARS } from '../lib/visualNovelPresentation';
 
@@ -849,5 +851,45 @@ describe('situation visual novel presentation', () => {
             bufferedContent: '新しい返答',
         });
         expect(state.pending).toEqual([]);
+    });
+});
+
+describe('updateSituationVisualNovelStageRoster', () => {
+    const participants = ['a', 'b', 'c', 'd'];
+
+    test('shows everyone when unlimited or the cap covers the cast', () => {
+        expect(updateSituationVisualNovelStageRoster(EMPTY_SITUATION_VISUAL_NOVEL_STAGE_ROSTER, participants, 'c', 0).slots)
+            .toEqual(participants);
+        expect(updateSituationVisualNovelStageRoster(EMPTY_SITUATION_VISUAL_NOVEL_STAGE_ROSTER, participants, 'c', 4).slots)
+            .toEqual(participants);
+    });
+
+    test('starts with the speaker and fills the rest in cast order', () => {
+        const roster = updateSituationVisualNovelStageRoster(EMPTY_SITUATION_VISUAL_NOVEL_STAGE_ROSTER, participants, 'c', 2);
+        expect(roster.slots).toEqual(['c', 'a']);
+    });
+
+    test('a new speaker replaces whoever spoke least recently, keeping positions', () => {
+        let roster = updateSituationVisualNovelStageRoster(EMPTY_SITUATION_VISUAL_NOVEL_STAGE_ROSTER, participants, 'a', 2);
+        roster = updateSituationVisualNovelStageRoster(roster, participants, 'b', 2);
+        expect(roster.slots).toEqual(['a', 'b']);
+        roster = updateSituationVisualNovelStageRoster(roster, participants, 'c', 2);
+        expect(roster.slots).toEqual(['c', 'b']);
+        roster = updateSituationVisualNovelStageRoster(roster, participants, 'b', 2);
+        roster = updateSituationVisualNovelStageRoster(roster, participants, 'd', 2);
+        expect(roster.slots).toEqual(['d', 'b']);
+    });
+
+    test('keeps the same object when nothing changes', () => {
+        const roster = updateSituationVisualNovelStageRoster(EMPTY_SITUATION_VISUAL_NOVEL_STAGE_ROSTER, participants, 'a', 2);
+        expect(updateSituationVisualNovelStageRoster(roster, participants, 'a', 2)).toBe(roster);
+        expect(updateSituationVisualNovelStageRoster(roster, participants, undefined, 2)).toBe(roster);
+    });
+
+    test('drops least recent sprites when the cap shrinks', () => {
+        let roster = updateSituationVisualNovelStageRoster(EMPTY_SITUATION_VISUAL_NOVEL_STAGE_ROSTER, participants, 'a', 3);
+        roster = updateSituationVisualNovelStageRoster(roster, participants, 'c', 3);
+        roster = updateSituationVisualNovelStageRoster(roster, participants, undefined, 1);
+        expect(roster.slots).toEqual(['c']);
     });
 });

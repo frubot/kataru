@@ -38,6 +38,8 @@ export const THEME_LS_KEY = 'kataru-theme';
 export const DEFAULT_THEME_SELECTION: ThemeSelection = { mode: 'dark', palette: 'mono' };
 export const DEFAULT_VIEW_MODE: RoomViewMode = 'chat';
 export const DEFAULT_VN_TYPING_SPEED: VnTypingSpeed = 'default';
+export const DEFAULT_VN_MAX_STAGE_SPRITES = 0;
+export const MAX_VN_MAX_STAGE_SPRITES = 10;
 /** `{{user}}` が空のときに使う表示名。 */
 export const DEFAULT_USER_NAME = 'ユーザー';
 export const DEFAULT_CHARACTER_MAX_CHARACTERS = 512;
@@ -97,6 +99,11 @@ function isThemePalette(value: unknown): value is ThemePalette {
 
 export function isVnTypingSpeed(value: unknown): value is VnTypingSpeed {
     return value === 'slow' || value === 'default' || value === 'fast';
+}
+
+export function normalizeVnMaxStageSprites(value: unknown): number {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_VN_MAX_STAGE_SPRITES;
+    return Math.min(MAX_VN_MAX_STAGE_SPRITES, Math.max(0, Math.floor(value)));
 }
 
 export function isRoomViewMode(value: unknown): value is RoomViewMode {
@@ -226,6 +233,7 @@ type SettingsSlice = Pick<
     | 'chatWallpaper'
     | 'defaultViewMode'
     | 'vnTypingSpeed'
+    | 'vnMaxStageSprites'
     | 'userName'
     | 'keyboardShortcuts'
     | 'summaryModel'
@@ -270,6 +278,7 @@ type SettingsSlice = Pick<
     | 'toggleThemeMode'
     | 'toggleTheme'
     | 'setVnTypingSpeed'
+    | 'setVnMaxStageSprites'
     | 'setUserName'
     | 'setKeyboardShortcut'
     | 'resetKeyboardShortcut'
@@ -322,6 +331,7 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         chatWallpaper: undefined,
         defaultViewMode: DEFAULT_VIEW_MODE,
         vnTypingSpeed: DEFAULT_VN_TYPING_SPEED,
+        vnMaxStageSprites: DEFAULT_VN_MAX_STAGE_SPRITES,
         userName: '',
         keyboardShortcuts: createDefaultKeyboardShortcuts(),
         ...getDefaultModelDefaults(),
@@ -382,6 +392,11 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         setVnTypingSpeed: (vnTypingSpeed) => {
             set({ vnTypingSpeed });
             fire(db.setMeta('vnTypingSpeed', vnTypingSpeed));
+        },
+        setVnMaxStageSprites: (max) => {
+            const vnMaxStageSprites = normalizeVnMaxStageSprites(max);
+            set({ vnMaxStageSprites });
+            fire(db.setMeta('vnMaxStageSprites', vnMaxStageSprites));
         },
         setUserName: (userName) => {
             set({ userName });

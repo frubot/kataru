@@ -375,6 +375,8 @@ export interface AppState {
     chatWallpaper?: string;
     defaultViewMode: RoomViewMode;
     vnTypingSpeed: VnTypingSpeed;
+    /** シチュエーションのゲームモードで同時に表示する立ち絵の上限。0なら制限なし。 */
+    vnMaxStageSprites: number;
     /** プロンプト内の `{{user}}` を置き換える名前。空なら `ユーザー`。 */
     userName: string;
     keyboardShortcuts: KeyboardShortcutSettings;
@@ -441,6 +443,7 @@ export interface AppState {
     toggleThemeMode: () => void;
     toggleTheme: () => void;
     setVnTypingSpeed: (speed: VnTypingSpeed) => void;
+    setVnMaxStageSprites: (max: number) => void;
     setUserName: (name: string) => void;
     setKeyboardShortcut: (action: KeyboardShortcutAction, shortcut: KeyboardShortcut) => void;
     resetKeyboardShortcut: (action: KeyboardShortcutAction) => void;

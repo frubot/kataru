@@ -172,6 +172,11 @@ interface VnSpeedSliderProps {
     onChange: (speed: VnTypingSpeed) => void;
 }
 
+const VN_MAX_STAGE_SPRITE_OPTIONS = [
+    { value: '0', label: '制限なし' },
+    ...[1, 2, 3, 4, 5].map((count) => ({ value: String(count), label: `${count}人` })),
+];
+
 function VnSpeedSlider({ value, onChange }: VnSpeedSliderProps) {
     const index = VN_SPEED_INDEX[value];
     const percent = (index / (VN_SPEED_OPTIONS.length - 1)) * 100;
@@ -412,7 +417,7 @@ function RoleModelField({
 
 export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding }: GlobalSettingsModalProps) {
     const {
-        themeMode, themePalette, chatWallpaper, defaultViewMode, vnTypingSpeed,
+        themeMode, themePalette, chatWallpaper, defaultViewMode, vnTypingSpeed, vnMaxStageSprites,
         userName, setUserName,
         summaryModel, setSummaryModel,
         defaultChatModel, setDefaultChatModel,
@@ -447,7 +452,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         replySuggestionsEnabled, setReplySuggestionsEnabled,
         fullJsonDebugEnabled, detailedErrorLoggingEnabled, fullJsonDebugLogs,
         memoryInspectorEnabled, summaryInspectorEnabled,
-        setThemeMode, setThemePalette, setChatWallpaper, setDefaultViewMode, setVnTypingSpeed,
+        setThemeMode, setThemePalette, setChatWallpaper, setDefaultViewMode, setVnTypingSpeed, setVnMaxStageSprites,
         setFullJsonDebugEnabled, setDetailedErrorLoggingEnabled, clearFullJsonDebugLogs,
         setMemoryInspectorEnabled, setSummaryInspectorEnabled,
         clearAllHistory, resetApplication, mergeBackup, restoreBackup,
@@ -980,6 +985,20 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                 </div>
 
                                 <VnSpeedSlider value={vnTypingSpeed} onChange={setVnTypingSpeed} />
+
+                                <div className="global-settings-selector-row">
+                                    <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
+                                        ゲームモードの最大表示人数
+                                    </span>
+                                    <div className="global-settings-selector-control global-settings-model-selector-control">
+                                        <OptionSelector
+                                            ariaLabel="ゲームモードの最大表示人数"
+                                            value={String(vnMaxStageSprites)}
+                                            onChange={(id) => setVnMaxStageSprites(Number(id))}
+                                            options={VN_MAX_STAGE_SPRITE_OPTIONS}
+                                        />
+                                    </div>
+                                </div>
 
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>

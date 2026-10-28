@@ -49,7 +49,13 @@ import {
     isChatContinuationAvailable,
 } from '@/lib/chatContinuation';
 import { formatAssistantMarkdown } from '@/lib/markdownUtils';
-import { getSituationVisualNovelTypingKey, resolveSituationVisualNovelInitialCharacterId } from '@/lib/situationVisualNovelPresentation';
+import {
+    EMPTY_SITUATION_VISUAL_NOVEL_STAGE_ROSTER,
+    getSituationVisualNovelTypingKey,
+    resolveSituationVisualNovelInitialCharacterId,
+    updateSituationVisualNovelStageRoster,
+} from '@/lib/situationVisualNovelPresentation';
+import type { SituationVisualNovelStageRoster } from '@/lib/situationVisualNovelPresentation';
 import { buildNarrationSpeechSegments, buildSpeechText } from '@/lib/tts';
 import { useTtsEntry } from '@/lib/ttsPlayer';
 import {
@@ -320,6 +326,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         createRoomForSituation,
         branchRoomFromMessage,
         vnTypingSpeed,
+        vnMaxStageSprites,
         summaryModel: globalSummaryModel,
         conversationCompressionEnabled,
         memoryGateModel,
@@ -1840,13 +1847,44 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const vnActiveSpriteId = situationVnCurrentItem && isNarrationMessage(situationVnCurrentItem)
         ? undefined
         : situationVnPresentation.sceneCharacterId ?? situationVnInitialCharacterId;
+
+    // 表示人数の上限を超える場合は、直近に話したキャラだけを舞台に残す。
+    const vnStageParticipantIds = useMemo(
+        () => (groupCharacters ?? []).map((participant) => participant.id),
+        [groupCharacters],
+    );
+    const [vnStageRosterState, setVnStageRosterState] = useState<{
+        roomId?: string;
+        roster: SituationVisualNovelStageRoster;
+    }>({ roster: EMPTY_SITUATION_VISUAL_NOVEL_STAGE_ROSTER });
+    const vnStageRosterBase = vnStageRosterState.roomId === currentRoomId
+        ? vnStageRosterState.roster
+        : EMPTY_SITUATION_VISUAL_NOVEL_STAGE_ROSTER;
+    const vnStageRoster = isSituationVisualNovelMode
+        ? updateSituationVisualNovelStageRoster(
+            vnStageRosterBase,
+            vnStageParticipantIds,
+            vnActiveSpriteId,
+            vnMaxStageSprites,
+        )
+        : vnStageRosterBase;
+    if (vnStageRosterState.roomId !== currentRoomId || vnStageRoster !== vnStageRosterState.roster) {
+        setVnStageRosterState({ roomId: currentRoomId, roster: vnStageRoster });
+    }
+    const vnStageSlots = vnStageRoster.slots;
+
     const vnStageSprites = useMemo<VisualNovelStageSprite[] | undefined>(() => {
         if (!isSituationVisualNovelMode || !groupCharacters || groupCharacters.length === 0) {
             return undefined;
         }
         const expressions = situationVnPresentation.sceneExpressions ?? {};
         const sceneMotion = situationVnPresentation.sceneMotion;
-        return groupCharacters.map((participant) => {
+        const participantsById = new Map(groupCharacters.map((participant) => [participant.id, participant]));
+        const stageParticipants = vnStageSlots.flatMap((id) => {
+            const participant = participantsById.get(id);
+            return participant ? [participant] : [];
+        });
+        return stageParticipants.map((participant) => {
             const costumeName = resolveVisualNovelCostumeName(room, participant);
             const costume = findVisualNovelCostume(participant, costumeName);
             const vrm = costume?.kind === 'vrm' ? costume.vrm : undefined;
@@ -1875,6 +1913,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         situationVnPresentation.sceneMotion,
         vnActiveSpriteId,
         vnBounceActive,
+        vnStageSlots,
     ]);
 
     // Solo mode shows a single character, so the scene motion always targets it.

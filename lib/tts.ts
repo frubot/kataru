@@ -107,6 +107,17 @@ export function buildSpeechSegments(
     return segments;
 }
 
+/** シチュエーションの場面ナレーションは全文が地の文なので、`*...*` の有無に関係なく
+ * 1つの 'narration' セグメントとして読む。地の文の読み上げが無効なら何も読まない。 */
+export function buildNarrationSpeechSegments(
+    content: string,
+    includeNarration = false,
+): TtsSpeechSegment[] {
+    if (!includeNarration) return [];
+    const text = stripSpeechMarkdown(content);
+    return text ? [{ text, kind: 'narration' }] : [];
+}
+
 /** Speech text = speakable segments joined by newlines, markdown stripped to
  * plain text. Returns '' when nothing speakable remains. */
 export function buildSpeechText(content: string, includeNarration = false): string {

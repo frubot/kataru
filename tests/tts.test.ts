@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import { buildSpeechSegments, buildSpeechText } from '../lib/tts';
+import { buildNarrationSpeechSegments, buildSpeechSegments, buildSpeechText } from '../lib/tts';
 
 describe('buildSpeechSegments', () => {
     test('drops action segments by default and keeps them as captions', () => {
@@ -52,5 +52,15 @@ describe('buildSpeechText', () => {
 
     test('includes narration text when enabled', () => {
         expect(buildSpeechText('*夜が更けていく。*', true)).toBe('夜が更けていく。');
+    });
+});
+
+describe('buildNarrationSpeechSegments', () => {
+    test('reads the whole scene narration with the narrator voice only when narration is enabled', () => {
+        expect(buildNarrationSpeechSegments('雨が**降り始めた**。', true)).toEqual([
+            { text: '雨が降り始めた。', kind: 'narration' },
+        ]);
+        expect(buildNarrationSpeechSegments('雨が降り始めた。', false)).toEqual([]);
+        expect(buildNarrationSpeechSegments('  ', true)).toEqual([]);
     });
 });

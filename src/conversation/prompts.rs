@@ -231,7 +231,24 @@ const ENSEMBLE_ROLEPLAY_JSON_EXAMPLE: &str = r#"{"turns": [{"speaker": "taro", "
 
 const ENSEMBLE_MESSAGE_JSON_EXAMPLE: &str = r#"{"turns": [{"speaker": "taro", "messages": ["確かに。", "じゃあ10時にハチ公前集合ね👍"]}, {"speaker": "hanako", "messages": ["了解！楽しみ笑"]}]}"#;
 
+const ENSEMBLE_NARRATED_JSON_EXAMPLE: &str = r#"{"turns": [{"speaker": "narrator", "message": "放課後の教室。西日が窓から斜めに差し込み、並んだ机の天板をオレンジ色に染めている。廊下の向こうからは、吹奏楽部のチューニングの音が途切れ途切れに聞こえてくる。"}, {"speaker": "misaki", "message": "*机に両手をついて身を乗り出し、目をきらきらと輝かせる* ねえ聞いて！昨日の夜、裏山の上に変な光が浮かんでたの！*スマホを取り出し、ぶれた写真を花子の顔の前に突きつける* ほら、これ！絶対UFOだって！"}, {"speaker": "hanako", "message": "*頬杖をついたまま画面をちらりと見て、小さくため息をつく* …どう見ても街灯でしょ、それ。*指先で前髪をくるくるといじりながら、視線を窓の外へ逸らす*"}, {"speaker": "narrator", "message": "そのとき、教室の蛍光灯が一瞬だけ小さく瞬いた。窓の外では、夕焼けを背にした裏山の稜線が黒く浮かび上がっている。風でカーテンがふわりとふくらみ、机の上のプリントが一枚、音もなく床へ滑り落ちた。"}, {"speaker": "misaki", "message": "*落ちたプリントには目もくれず、ぱっと窓の方を振り返る* い、今の見た！？やっぱり何かいるんだって！*花子の袖をつかんで、ぐいぐいと引っ張る* 今晩一緒に確かめに行こうよ！"}, {"speaker": "hanako", "message": "*引っ張られて体を傾けながらも、むっとした顔で腕を引き戻す* ただの電圧の問題でしょ。…絶対行かないから。*そう言いつつも、もう一度だけ窓の外の裏山へ目をやる*"}, {"speaker": "narrator", "message": "下校を告げるチャイムが鳴り響く。日はみるみる傾き、教室の隅から少しずつ薄闇が広がっていく。美咲の言う「光」が現れた時刻が、刻一刻と近づいていた。"}]}"#;
+
+/// シチュエーションで、物語全体のナレーションを担当する仮の話者のid。
+/// キャラクターの発言と同じ `turns` に並び、保存時は `characterId` にこのidが入る。
+pub const NARRATOR_ID: &str = "narrator";
+
+/// ナレーションを分けるときの `turns` の上限。キャラクターの発言の前後に1つずつ入れられる。
+pub(crate) fn ensemble_max_items(max_turns: usize, narration: bool) -> usize {
+    let max_turns = max_turns.max(1);
+    if narration {
+        max_turns * 2 + 1
+    } else {
+        max_turns
+    }
+}
+
 /// シチュエーション会話を1回の呼び出しでまとめて書かせるためのシステムプロンプト。
+/// `narration` が真なら、場面全体の描写を `narrator` のturnに分けさせる（メッセージ形式では無効）。
 pub(crate) fn ensemble_system_prompt(
     situation: &Value,
     cast: &[EnsembleCast<'_>],
@@ -239,8 +256,10 @@ pub(crate) fn ensemble_system_prompt(
     max_turns: usize,
     first_speaker: Option<&Value>,
     summary: Option<&str>,
+    narration: bool,
 ) -> String {
     let max_turns = max_turns.max(1);
+    let narration = narration && !format.is_message();
     let mut prompt = String::from(
         r##"# Instructions
 You are the narrator of a roleplay and play every character listed under "# Characters".
@@ -248,14 +267,31 @@ You are the narrator of a roleplay and play every character listed under "# Char
 Please generate the output in JSON format. Strictly adhere to the structure and order of the provided JSON.
 
 ## How the scene flows
-- In the `turns` array, list the characters' lines in the order in which they are spoken. Each element must include a `speaker` (the character's ID) as well as that character's response or the accompanying narration.
-- Start with the character who would most naturally react to {{user}}'s latest line or action.
 "##,
     );
-    prompt.push_str(&format!("- Write at most {max_turns} turn(s).\n"));
-    if let Some(actor) = first_speaker {
+    if narration {
         prompt.push_str(&format!(
-            "- {{{{user}}}} is addressing {} (id: {}). The first turn must be {}'s.\n",
+            r#"- In the `turns` array, list the narration and the characters' lines in the order in which they happen. Each element must include a `speaker` and its `message`.
+- Use `"speaker": "{NARRATOR_ID}"` for narration of the whole scene. Use a character's ID for that character's own turn.
+- Write at most {max_turns} character turn(s). Narrator turns do not count toward this limit, but use them only when needed and never place two in a row.
+"#
+        ));
+    } else {
+        prompt.push_str(
+            r#"- In the `turns` array, list the characters' lines in the order in which they are spoken. Each element must include a `speaker` (the character's ID) as well as that character's response or the accompanying narration.
+- Start with the character who would most naturally react to {{user}}'s latest line or action.
+"#,
+        );
+        prompt.push_str(&format!("- Write at most {max_turns} turn(s).\n"));
+    }
+    if let Some(actor) = first_speaker {
+        let turn = if narration {
+            "The first character turn"
+        } else {
+            "The first turn"
+        };
+        prompt.push_str(&format!(
+            "- {{{{user}}}} is addressing {} (id: {}). {turn} must be {}'s.\n",
             string(actor, "name"),
             actor_id(actor),
             string(actor, "name"),
@@ -277,6 +313,30 @@ The `[photo description]` provided by {{{{user}}}} is a brief explanation of the
 
 ### Output example
 `{ENSEMBLE_MESSAGE_JSON_EXAMPLE}`
+"#
+        ));
+    } else if narration {
+        prompt.push_str(&format!(
+            r#"
+## Reply format
+### Narrator turns (`"speaker": "{NARRATOR_ID}"`)
+  - Please actively provide narration describing the overall scene. This includes the setting, the passage of time, weather and environmental conditions, events, characters not previously mentioned, and activities the group is engaged in together.
+  - Write plain prose without `*`. Never write any character's spoken lines, and never write {{{{user}}}}'s actions or thoughts.
+  - Keep the narration's style neutral and independent of any character's profile.
+
+### Character turns
+  - Write only that character's own dialogue and their own actions, expressions, and feelings as stage directions.
+  - Always format stage directions as `*descriptive text*`.
+  - Do not describe the scene as a whole or other characters' actions here; leave those to the narrator.
+  - You do not need to include every detail from the character profile; feel free to naturally fill in any missing information based on the context.
+
+Refer to each character by name, and use `{{{{user}}}}` to refer to the user. If a full name is provided, use only the first name.
+
+### Output example
+`{ENSEMBLE_NARRATED_JSON_EXAMPLE}`
+
+## Regarding user input format
+Users may include not only spoken lines but also stage directions—such as `*starts walking*`—to describe {{{{user}}}}'s own actions or other such details.
 "#
         ));
     } else {
@@ -301,6 +361,11 @@ Users may include not only spoken lines but also stage directions—such as `*st
         prompt.push_str(
             "\nFor `expression`, choose one of the expressions listed in the speaker's own section. For `motion`, choose one of the speaker's motions only when you want to add a body movement, otherwise use none.\n",
         );
+        if narration {
+            prompt.push_str(
+                "For narrator turns, `expression` and `motion` are ignored: use any listed expression and `none`.\n",
+            );
+        }
     }
 
     let situation_prompt = string(situation, "situationPrompt");
@@ -370,14 +435,15 @@ Users may include not only spoken lines but also stage directions—such as `*st
 
 /// 一括生成の出力スキーマ。キャラクターごとに異なる制約（表情の候補・文字数上限）は
 /// strictなスキーマでは要素ごとに変えられないため、和集合・最大値で緩めておき、
-/// 受け取った後にキャラクター単位で検証する。
+/// 受け取った後にキャラクター単位で検証する。`max_items` はナレーションを含めた `turns` の上限
+/// （[`ensemble_max_items`]）。
 pub(crate) fn ensemble_schema(
     speaker_ids: &[String],
     expression_names: &[String],
     motion_names: &[String],
     format: ReplyFormat,
     max_characters: usize,
-    max_turns: usize,
+    max_items: usize,
 ) -> Value {
     let max_characters = max_characters.max(1);
     let mut properties = serde_json::Map::new();
@@ -453,7 +519,7 @@ pub(crate) fn ensemble_schema(
                     "turns": {
                         "type": "array",
                         "minItems": 1,
-                        "maxItems": max_turns.max(1),
+                        "maxItems": max_items.max(1),
                         "items": {
                             "type": "object",
                             "properties": properties,
@@ -1051,6 +1117,7 @@ mod tests {
             3,
             Some(&rin),
             Some("これまでの要約"),
+            false,
         );
 
         assert!(prompt.starts_with("# Instructions"));
@@ -1087,11 +1154,42 @@ mod tests {
             2,
             None,
             None,
+            true,
         );
+        // メッセージ形式ではナレーションを分けない。
+        assert!(!prompt.contains(r#""speaker": "narrator""#));
         assert!(!prompt.contains("is addressing"));
         assert!(!prompt.contains("For `expression`"));
         assert!(prompt.contains("**social media**"));
         assert!(prompt.contains(r#""messages": ["確かに。""#));
+    }
+
+    #[test]
+    fn ensemble_prompt_separates_scene_narration_from_character_turns() {
+        let aoi = json!({"actorId": "aoi", "name": "葵"});
+        let rin = json!({"actorId": "rin", "name": "凛"});
+        let prompt = ensemble_system_prompt(
+            &json!({}),
+            &ensemble_cast(&aoi, &rin),
+            ReplyFormat::Structured,
+            3,
+            Some(&rin),
+            None,
+            true,
+        );
+        assert!(prompt.contains(r#"Use `"speaker": "narrator"` for narration of the whole scene."#));
+        assert!(prompt.contains("Write at most 3 character turn(s)."));
+        assert!(prompt.contains("The first character turn must be 凛's."));
+        assert!(prompt.contains("### Narrator turns"));
+        assert!(prompt.contains("For narrator turns, `expression` and `motion` are ignored"));
+        assert!(!prompt.contains("Write at most 3 turn(s)."));
+    }
+
+    #[test]
+    fn ensemble_max_items_leaves_room_for_narration_around_each_turn() {
+        assert_eq!(ensemble_max_items(3, false), 3);
+        assert_eq!(ensemble_max_items(3, true), 7);
+        assert_eq!(ensemble_max_items(0, true), 3);
     }
 
     #[test]

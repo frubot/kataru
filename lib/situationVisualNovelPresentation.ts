@@ -6,6 +6,7 @@ import {
     updateStreamingVisualNovelPagination,
     type StreamingVisualNovelPagination,
 } from './visualNovelPresentation';
+import { isNarratorCharacterId } from './narration';
 
 export type SituationVisualNovelItem = {
     key: string;
@@ -293,7 +294,8 @@ function sceneFromItems(items: SituationVisualNovelItem[]): {
     let sceneMotion: { characterId?: string; name: string; nonce: string } | undefined;
     const sceneExpressions: Record<string, string | undefined> = {};
     for (const item of items) {
-        if (item.role !== 'assistant') continue;
+        // ナレーションは立ち絵を持たないので、直前のキャラクターをそのまま残す。
+        if (item.role !== 'assistant' || isNarratorCharacterId(item.characterId)) continue;
         if (item.characterId) {
             sceneExpressions[item.characterId] = item.expression ?? sceneExpressions[item.characterId];
         }
@@ -327,7 +329,12 @@ function syncCurrentTyping(state: SituationVisualNovelPresentationState, item: S
 function sceneForVisibleItem(state: SituationVisualNovelPresentationState, item: SituationVisualNovelItem) {
     // Metadata can arrive before the first displayable sentence. Keep the previous
     // portrait until dialogue begins, which is also when the character bounces.
-    if (item.role !== 'assistant' || (item.source === 'preview' && !item.content.trim())) {
+    // Narration has no portrait either, so the last speaking character stays on screen.
+    if (
+        item.role !== 'assistant'
+        || isNarratorCharacterId(item.characterId)
+        || (item.source === 'preview' && !item.content.trim())
+    ) {
         return {
             sceneCharacterId: state.sceneCharacterId,
             sceneExpression: state.sceneExpression,

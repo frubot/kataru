@@ -192,6 +192,7 @@ export function normalizeSituation(
         actors,
         maxTurns: storedSituationMaxTurns(situation),
         memoryMode,
+        ...(situation.separateNarration === true ? { separateNarration: true } : {}),
         maxHistory: normalizeSituationMaxHistory(situation.maxHistory),
         createdAt: situation.createdAt ?? now,
         updatedAt: situation.updatedAt ?? now,

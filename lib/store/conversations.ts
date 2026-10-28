@@ -198,6 +198,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
                 actors,
                 maxTurns: normalizeSituationMaxTurns(input.maxTurns),
                 memoryMode: input.memoryMode === 'readOnly' ? 'readOnly' : 'off',
+                ...(input.separateNarration === true ? { separateNarration: true } : {}),
                 maxHistory: normalizeSituationMaxHistory(input.maxHistory),
                 createdAt: now,
                 updatedAt: now,

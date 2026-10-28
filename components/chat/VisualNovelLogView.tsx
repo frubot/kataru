@@ -9,6 +9,7 @@ import type {
     PriorMessagePresentation,
 } from '@/lib/chatMessagePresentation';
 import { formatAssistantMarkdown } from '@/lib/markdownUtils';
+import { isNarrationMessage, isNarratorCharacterId } from '@/lib/narration';
 import StoredImage from '../StoredImage';
 import WaitingEllipsis from './WaitingEllipsis';
 
@@ -33,9 +34,14 @@ type VisualNovelLogEntry = {
     speakerName: string;
     characterIcon?: string;
     isStreaming?: boolean;
+    /** シチュエーションの場面ナレーション。話者名とアイコンを出さない。 */
+    isNarration?: boolean;
 };
 
 function LogAvatar({ entry }: { entry: VisualNovelLogEntry }) {
+    if (entry.isNarration) {
+        return <div aria-hidden="true" />;
+    }
     if (entry.role === 'user') {
         return (
             <div className="vn-log-avatar user" aria-hidden="true">
@@ -58,11 +64,11 @@ function LogAvatar({ entry }: { entry: VisualNovelLogEntry }) {
 function LogEntry({ entry }: { entry: VisualNovelLogEntry }) {
     return (
         <article
-            className={`vn-log-entry ${entry.role}${entry.isStreaming ? ' streaming' : ''}`}
+            className={`vn-log-entry ${entry.role}${entry.isNarration ? ' narration' : ''}${entry.isStreaming ? ' streaming' : ''}`}
         >
             <LogAvatar entry={entry} />
             <div className="vn-log-entry-body">
-                <div className="vn-log-speaker">{entry.speakerName}</div>
+                {!entry.isNarration && <div className="vn-log-speaker">{entry.speakerName}</div>}
                 <div
                     className="vn-log-content"
                     {...(entry.isStreaming ? { role: 'status', 'aria-live': 'polite' as const } : {})}
@@ -103,6 +109,7 @@ export default function VisualNovelLogView({
         }));
         const roomEntries = messages.filter((message) => !message.mergedIntoPrevious).map((message) => ({
             id: message.id,
+            isNarration: isNarrationMessage(message),
             role: message.role,
             content: message.displayContent.trim()
                 ? message.displayContent
@@ -126,6 +133,7 @@ export default function VisualNovelLogView({
                     .map((content, index) => ({
                         id: `preview:${activeStreamingPreview.jobId}:${turn.turnIndex}:${index}`,
                         role: 'assistant' as const,
+                        isNarration: isNarratorCharacterId(turn.characterId),
                         content,
                         speakerName: turn.characterName
                             ?? activeStreamingPreview.characterName

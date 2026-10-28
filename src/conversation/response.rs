@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::conversation::prompts::NARRATOR_ID;
 use crate::error::{AppError, AppResult};
 
 #[derive(Debug, Clone, Serialize)]
@@ -406,11 +407,34 @@ pub(crate) fn parse_ensemble_response(
             .ok_or_else(invalid)?,
         _ => return Err(invalid()),
     };
-    let turns = items
+    let max_turns = max_turns.max(1);
+    let mut turns: Vec<EnsembleTurn> = Vec::new();
+    let mut character_turns = 0;
+    for turn in items
         .iter()
         .filter_map(|item| parse_ensemble_turn(item, speakers, message_mode))
-        .take(max_turns.max(1))
-        .collect::<Vec<_>>();
+    {
+        if turn.speaker == NARRATOR_ID {
+            // ナレーションはキャラクターの発言数に数えない。続けて並んだら1つにまとめ、
+            // 上限に達した後の締めのナレーションは1つまで残す。
+            match turns.last_mut() {
+                Some(last) if last.speaker == NARRATOR_ID => {
+                    last.envelope.message.push_str("\n\n");
+                    last.envelope.message.push_str(&turn.envelope.message);
+                }
+                _ => turns.push(turn),
+            }
+            if character_turns >= max_turns {
+                break;
+            }
+            continue;
+        }
+        if character_turns >= max_turns {
+            break;
+        }
+        character_turns += 1;
+        turns.push(turn);
+    }
     if turns.is_empty() {
         return Err(AppError::Upstream(
             "AI応答に有効な発言がありません。".into(),
@@ -1364,6 +1388,40 @@ mod tests {
             .expect("ensemble turns");
         assert_eq!(turns.len(), 1);
         assert_eq!(turns[0].envelope.messages, vec!["おはよう", "今日も早いね"]);
+    }
+
+    fn narrated_speakers() -> Vec<EnsembleSpeaker> {
+        let mut speakers = ensemble_speakers();
+        speakers.push(EnsembleSpeaker {
+            id: NARRATOR_ID.into(),
+            expression_names: Vec::new(),
+            motion_names: Vec::new(),
+            max_characters: 512,
+        });
+        speakers
+    }
+
+    #[test]
+    fn ensemble_narration_does_not_count_toward_the_turn_limit() {
+        let content = r#"{"turns": [
+            {"speaker": "narrator", "expression": "smile", "motion": "wave", "message": "雨が降り始めた。"},
+            {"speaker": "narrator", "message": "窓が曇る。"},
+            {"speaker": "aoi", "expression": "smile", "motion": "none", "message": "降ってきたね"},
+            {"speaker": "narrator", "message": "遠くで雷が鳴った。"},
+            {"speaker": "rin", "message": "傘ない"},
+            {"speaker": "narrator", "message": "これは残らない。"}
+        ]}"#;
+        let turns = parse_ensemble_response(content, &narrated_speakers(), false, 1)
+            .expect("ensemble turns");
+        let speakers = turns.iter().map(|turn| turn.speaker.as_str()).collect::<Vec<_>>();
+        assert_eq!(speakers, vec!["narrator", "aoi", "narrator"]);
+        // 続けて並んだナレーションは1つにまとめ、表情・モーションは付かない。
+        assert_eq!(turns[0].envelope.message, "雨が降り始めた。
+
+窓が曇る。");
+        assert_eq!(turns[0].envelope.expression, None);
+        assert_eq!(turns[0].envelope.motion, None);
+        assert_eq!(turns[2].envelope.message, "遠くで雷が鳴った。");
     }
 
     #[test]

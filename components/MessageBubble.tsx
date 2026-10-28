@@ -36,6 +36,8 @@ interface MessageBubbleProps {
     characterIcon?: string;
     characterName?: string;
     isGroupRoom?: boolean;
+    /** シチュエーションの場面ナレーション。アイコンと名前を出さず、地の文として表示する。 */
+    isNarration?: boolean;
     onMouseEnter: (id: string) => void;
     onMouseLeave: (e: React.MouseEvent) => void;
     onTouchStart: (id: string) => void;
@@ -79,6 +81,7 @@ export default memo(function MessageBubble({
     characterIcon,
     characterName,
     isGroupRoom,
+    isNarration = false,
     onMouseEnter,
     onMouseLeave,
     onTouchStart,
@@ -327,6 +330,7 @@ export default memo(function MessageBubble({
                     }}
                     style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}
                 >
+                    {isNarration ? null : (
                     <div
                         aria-hidden={!showsCharacterHeader}
                         style={{
@@ -351,13 +355,24 @@ export default memo(function MessageBubble({
                             )
                         )}
                     </div>
-                    <div className="assistant-message-content">
-                    {isGroupRoom && characterName && showsCharacterHeader && (
+                    )}
+                    <div className={isNarration ? 'assistant-message-content situation-narration-content' : 'assistant-message-content'}>
+                    {isNarration ? (
+                        <div
+                            className={`situation-narration${disableEntranceAnimation ? '' : ' animate-slide-up'}`}
+                            onClick={isTypewriterActive ? onRevealTypewriter : undefined}
+                            title={isTypewriterActive ? '全文表示' : undefined}
+                            style={{ cursor: isTypewriterActive ? 'pointer' : undefined }}
+                        >
+                            <ReactMarkdown>{assistantContent}</ReactMarkdown>
+                        </div>
+                    ) : null}
+                    {!isNarration && isGroupRoom && characterName && showsCharacterHeader && (
                         <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.125rem', marginLeft: '0.25rem', fontWeight: 500 }}>
                             {characterName}
                         </div>
                     )}
-                    {assistantSegments.map((segment, segmentIndex) => (
+                    {!isNarration && assistantSegments.map((segment, segmentIndex) => (
                         segment.type === 'action' ? (
                             <div
                                 key={`${messageId}-segment-${segmentIndex}`}

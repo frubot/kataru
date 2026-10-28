@@ -1,5 +1,6 @@
 import { serializeModelRef, type AiApiConfig, type ModelRef } from './aiApi';
 import { formatMessageTextWithAttachments } from './chatAttachments';
+import { isNarrationMessage } from './narration';
 import type { Message, SituationParticipant } from './store/types';
 
 export type PromptRequestMessage = {
@@ -18,9 +19,11 @@ export function buildPromptRequestMessages(
         .flatMap((message) => {
             const content = formatMessageTextWithAttachments(message.content, message.attachments);
             if (!content) return [];
-            const name = message.role === 'assistant' && message.characterId
-                ? nameById.get(message.characterId)
-                : undefined;
+            const name = isNarrationMessage(message)
+                ? nameById.get(message.characterId ?? '') ?? 'Narrator'
+                : message.role === 'assistant' && message.characterId
+                    ? nameById.get(message.characterId)
+                    : undefined;
             return [{
                 role: message.role,
                 content,

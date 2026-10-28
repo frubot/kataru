@@ -81,6 +81,23 @@ describe('situation visual novel presentation', () => {
         ])).sceneExpression).toBeUndefined();
     });
 
+    test('keeps the last speaking portrait while scene narration is shown', () => {
+        const initial = createSituationVisualNovelPresentationState({
+            hasRoomHistory: true, priorItems: [], isLoading: false,
+            roomItems: buildSituationVisualNovelRoomItems([
+                roomMessage('previous', 'assistant', 'こんにちは', 'actor-a', 'happy'),
+                roomMessage('narration', 'assistant', '雨が降り始めた。', 'narrator'),
+            ]),
+        });
+        expect(initial).toMatchObject({ sceneCharacterId: 'actor-a', sceneExpression: 'happy' });
+        const waiting = beginSituationVisualNovelResponse(initial);
+        const narrated = appendSituationVisualNovelItems(waiting, buildSituationVisualNovelPreviewItems('job', [
+            { turnIndex: 0, content: '窓の外で雷が鳴った。', characterId: 'narrator', complete: true },
+        ]));
+        expect(narrated.current?.characterId).toBe('narrator');
+        expect(narrated).toMatchObject({ sceneCharacterId: 'actor-a', sceneExpression: 'happy' });
+    });
+
     test('extends the previous pagination for a flagged continuation', () => {
         const head = `${'あ'.repeat(100)}。`;
         const tail = `${'い'.repeat(80)}。`;

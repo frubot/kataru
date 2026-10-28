@@ -16,6 +16,7 @@ import type {
     ChatStreamingPreviewBubble,
     PriorMessagePresentation,
 } from '@/lib/chatMessagePresentation';
+import { isNarrationMessage, isNarratorCharacterId } from '@/lib/narration';
 import MessageBubble from '../MessageBubble';
 import StoredImage from '../StoredImage';
 import {
@@ -488,6 +489,7 @@ export default function ChatMessagesView({
                 characterIcon={message.msgCharacterIcon}
                 characterName={message.msgCharacterName}
                 isGroupRoom={isGroupRoom}
+                isNarration={isNarrationMessage(message)}
                 onMouseEnter={onMouseEnter}
                 onMouseLeave={onMouseLeave}
                 onTouchStart={onTouchStart}
@@ -562,7 +564,18 @@ export default function ChatMessagesView({
                 )
             )}
             {streamingPreviewBubbles.map((bubble, index) => (
-                bubble.streaming ? (
+                bubble.streaming && isNarratorCharacterId(bubble.characterId) ? (
+                    <div key={bubble.key} className="assistant-message-content situation-narration-content">
+                        <div
+                            className="situation-narration animate-slide-up streaming-preview-bubble"
+                            role="status"
+                            aria-live="polite"
+                            style={{ whiteSpace: 'pre-wrap' }}
+                        >
+                            {bubble.content}
+                        </div>
+                    </div>
+                ) : bubble.streaming ? (
                     <div key={bubble.key} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
                         <Avatar
                             character={bubble.character}
@@ -608,6 +621,7 @@ export default function ChatMessagesView({
                         characterIcon={bubble.character?.icon}
                         characterName={bubble.characterName ?? bubble.character?.name}
                         isGroupRoom={isGroupRoom}
+                        isNarration={isNarratorCharacterId(bubble.characterId)}
                         onMouseEnter={NOOP}
                         onMouseLeave={NOOP}
                         onTouchStart={NOOP}

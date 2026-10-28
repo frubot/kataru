@@ -2489,6 +2489,38 @@ body {
   border-radius: 1rem;
 }
 
+.situation-narration-content {
+  width: 100%;
+  max-width: 100%;
+  align-items: center;
+}
+
+.situation-narration-content .assistant-btn-row {
+  align-self: center;
+}
+
+.situation-narration {
+  width: 100%;
+  max-width: 36rem;
+  margin: 0.5rem auto;
+  padding: 0.5rem 0.75rem;
+  border-top: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.7;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.situation-narration p {
+  margin-bottom: 0.375rem;
+}
+
+.situation-narration p:last-child {
+  margin-bottom: 0;
+}
+
 .assistant-action-description {
   max-width: 100%;
   margin: 0.35rem 0.25rem;
@@ -3662,6 +3694,10 @@ body {
   height: 1px;
   background: var(--accent-primary);
   opacity: 0.65;
+}
+
+.vn-log-entry.narration .vn-log-content {
+  color: var(--text-secondary);
 }
 
 .vn-log-avatar {

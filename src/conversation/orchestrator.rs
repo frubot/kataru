@@ -32,9 +32,9 @@ use super::{
         evaluate_memory_gate, memory_gate_questions, memory_gate_state,
     },
     prompts::{
-        EnsembleCast, InjectedMemory, ReplyFormat, SUMMARY_RECENT_USER_TURNS_TO_KEEP, actor_id,
-        assistant_schema, boolean, character_setting, character_system_prompt, ensemble_schema,
-        ensemble_system_prompt, message_image_attachment_urls, message_text_with_attachments,
+        EnsembleCast, InjectedMemory, NARRATOR_ID, ReplyFormat, SUMMARY_RECENT_USER_TURNS_TO_KEEP,
+        actor_id, assistant_schema, boolean, character_setting, character_system_prompt,
+        ensemble_max_items, ensemble_schema, ensemble_system_prompt, message_image_attachment_urls, message_text_with_attachments,
         string, summary_prompts, summary_schema,
     },
     response::{
@@ -432,6 +432,11 @@ async fn run_turn_inner(
                         format: reply_format,
                         max_turns,
                         first_speaker,
+                        narration: situation_narration_enabled(
+                            situation,
+                            &participants,
+                            reply_format,
+                        ),
                         secret_mode,
                         streaming_preview,
                     },
@@ -1205,14 +1210,31 @@ struct EnsembleRequest<'a> {
     format: ReplyFormat,
     max_turns: usize,
     first_speaker: Option<&'a Value>,
+    /// 場面全体のナレーションを `narrator` のturnに分けるか。
+    narration: bool,
     secret_mode: bool,
     streaming_preview: Option<(&'a ConversationJobs, &'a str)>,
 }
 
 /// 発言数が増えるほど出力も長くなるので、上限トークンと待ち時間を発言数に合わせて広げる。
-fn ensemble_max_tokens(max_turns: usize) -> u64 {
+fn ensemble_max_tokens(max_turns: usize, narration: bool) -> u64 {
     let extra_turns = max_turns.saturating_sub(1) as u64;
-    (CHAT_COMPLETION_MAX_TOKENS + extra_turns * 1024).min(8192)
+    let narration_tokens = if narration { 512 } else { 0 };
+    (CHAT_COMPLETION_MAX_TOKENS + extra_turns * 1024 + narration_tokens).min(8192)
+}
+
+/// シチュエーションでナレーションを分けるか。メッセージ形式では使わず、
+/// 参加者のidが予約idと重なる場合も区別できないので無効にする。
+fn situation_narration_enabled(
+    situation: &Value,
+    participants: &[Value],
+    format: ReplyFormat,
+) -> bool {
+    boolean(situation, "separateNarration")
+        && !format.is_message()
+        && participants
+            .iter()
+            .all(|actor| actor_id(actor) != NARRATOR_ID)
 }
 
 fn ensemble_timeout_secs(max_turns: usize) -> u64 {
@@ -1337,13 +1359,14 @@ async fn generate_for_ensemble(
         format,
         max_turns,
         first_speaker,
+        narration,
         secret_mode,
         streaming_preview,
     } = request;
     let api_client = clients.for_selection(selection)?;
     let message_mode = format.is_message();
     let visual_novel_mode = format.is_structured();
-    let speakers = participants
+    let mut speakers = participants
         .iter()
         .map(|actor| EnsembleSpeaker {
             id: actor_id(actor),
@@ -1352,9 +1375,24 @@ async fn generate_for_ensemble(
             max_characters: character_max_characters(actor),
         })
         .collect::<Vec<_>>();
+    let max_characters = speakers
+        .iter()
+        .map(|speaker| speaker.max_characters)
+        .max()
+        .unwrap_or(DEFAULT_MAX_CHARACTERS as usize);
+    if narration {
+        // 参加者の後ろに置くので、参加者と順に対応させる `cast` には含まれない。
+        speakers.push(EnsembleSpeaker {
+            id: NARRATOR_ID.to_owned(),
+            expression_names: Vec::new(),
+            motion_names: Vec::new(),
+            max_characters,
+        });
+    }
     let names = participants
         .iter()
         .map(|actor| (actor_id(actor), string(actor, "name")))
+        .chain(narration.then(|| (NARRATOR_ID.to_owned(), String::new())))
         .collect::<HashMap<_, _>>();
     let cast = participants
         .iter()
@@ -1371,8 +1409,15 @@ async fn generate_for_ensemble(
             costume: selected_costume(actor, room),
         })
         .collect::<Vec<_>>();
-    let system_prompt =
-        ensemble_system_prompt(situation, &cast, format, max_turns, first_speaker, summary);
+    let system_prompt = ensemble_system_prompt(
+        situation,
+        &cast,
+        format,
+        max_turns,
+        first_speaker,
+        summary,
+        narration,
+    );
     let schema = ensemble_schema(
         &speakers
             .iter()
@@ -1385,12 +1430,8 @@ async fn generate_for_ensemble(
         ),
         &unique_names(speakers.iter().map(|speaker| speaker.motion_names.clone())),
         format,
-        speakers
-            .iter()
-            .map(|speaker| speaker.max_characters)
-            .max()
-            .unwrap_or(DEFAULT_MAX_CHARACTERS as usize),
-        max_turns,
+        max_characters,
+        ensemble_max_items(max_turns, narration),
     );
     let mut request_messages = vec![json!({
         "role": "system",
@@ -1402,7 +1443,7 @@ async fn generate_for_ensemble(
         request_messages,
         sampling,
         reasoning_effort,
-        ensemble_max_tokens(max_turns),
+        ensemble_max_tokens(max_turns, narration),
     );
     let prompt = api_client.resolve_user_placeholders(
         &serde_json::to_string_pretty(&body["messages"])
@@ -1503,7 +1544,22 @@ async fn generate_for_ensemble(
         );
     }
     let mut messages = Vec::new();
+    let narrator = json!({ "id": NARRATOR_ID });
     for turn in turns {
+        if turn.speaker == NARRATOR_ID {
+            let offset = messages.len();
+            let mut envelope = turn.envelope;
+            envelope.expression = None;
+            envelope.motion = None;
+            messages.extend(envelope_to_messages(
+                envelope,
+                &narrator,
+                message_mode,
+                offset,
+                &[],
+            ));
+            continue;
+        }
         let Some(index) = participants
             .iter()
             .position(|actor| actor_id(actor) == turn.speaker)
@@ -2241,7 +2297,12 @@ fn with_speaker_names(
             let mut value = message.clone();
             if string(message, "role") == "assistant" {
                 let id = string(message, "characterId");
-                value["name"] = Value::String(names.get(&id).cloned().unwrap_or_default());
+                let name = if id == NARRATOR_ID && !names.contains_key(&id) {
+                    "Narrator".to_owned()
+                } else {
+                    names.get(&id).cloned().unwrap_or_default()
+                };
+                value["name"] = Value::String(name);
             }
             value
         })
@@ -2897,9 +2958,10 @@ mod tests {
 
     #[test]
     fn ensemble_budget_grows_with_turns_and_is_capped() {
-        assert_eq!(ensemble_max_tokens(1), CHAT_COMPLETION_MAX_TOKENS);
-        assert_eq!(ensemble_max_tokens(3), CHAT_COMPLETION_MAX_TOKENS + 2048);
-        assert_eq!(ensemble_max_tokens(10), 8192);
+        assert_eq!(ensemble_max_tokens(1, false), CHAT_COMPLETION_MAX_TOKENS);
+        assert_eq!(ensemble_max_tokens(3, false), CHAT_COMPLETION_MAX_TOKENS + 2048);
+        assert_eq!(ensemble_max_tokens(3, true), CHAT_COMPLETION_MAX_TOKENS + 2560);
+        assert_eq!(ensemble_max_tokens(10, true), 8192);
         assert_eq!(ensemble_timeout_secs(1), 120);
         assert_eq!(ensemble_timeout_secs(10), 300);
     }

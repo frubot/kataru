@@ -213,6 +213,8 @@ export interface Situation {
     /** 1ターンでキャラクターが話せる最大発言数。部屋の maxMentionChain で上書きできる。 */
     maxTurns: number;
     memoryMode: SituationMemoryMode;
+    /** 場面全体のナレーションを、キャラクターの発言とは別のメッセージに分けて生成するか。 */
+    separateNarration?: boolean;
     maxHistory?: number;
     createdAt: number;
     updatedAt: number;
@@ -234,6 +236,7 @@ export type CreateSituationInput = {
     actors: SituationActor[];
     maxTurns?: number;
     memoryMode?: SituationMemoryMode;
+    separateNarration?: boolean;
     maxHistory?: number;
     roomName?: string;
 };
@@ -502,7 +505,7 @@ export interface AppState {
     deleteSituation: (id: string) => void;
     duplicateSituation: (id: string) => string;
     setCurrentRoom: (id: string | null) => Promise<void>;
-    updateSituation: (id: string, updates: Partial<Pick<Situation, 'name' | 'favorite' | 'backgroundImage' | 'situationPrompt' | 'characterCommonRules' | 'priorMessages' | 'actors' | 'maxTurns' | 'memoryMode' | 'maxHistory'>>) => void;
+    updateSituation: (id: string, updates: Partial<Pick<Situation, 'name' | 'favorite' | 'backgroundImage' | 'situationPrompt' | 'characterCommonRules' | 'priorMessages' | 'actors' | 'maxTurns' | 'memoryMode' | 'separateNarration' | 'maxHistory'>>) => void;
     updateRoomName: (id: string, name: string) => void;
     updateRoomSettings: (id: string, updates: Partial<Pick<Room, 'maxMentionChain' | 'viewMode' | 'costumeSelections'>>) => void;
     setRoomReplySuggestions: (id: string, replySuggestions?: RoomReplySuggestions) => void;

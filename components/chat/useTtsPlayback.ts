@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef } from 'react';
 
 import { useStore } from '@/lib/store';
-import { buildSpeechSegments, isTtsProfilePlayable, resolveTtsProfile } from '@/lib/tts';
+import { isNarratorCharacterId } from '@/lib/narration';
+import { buildNarrationSpeechSegments, buildSpeechSegments, isTtsProfilePlayable, resolveTtsProfile } from '@/lib/tts';
 import {
     clearAllTts,
     clearTtsRoom,
@@ -96,7 +97,9 @@ export function useTtsPlayback({
         const narratorVoice = narrationEnabled
             ? state.ttsNarratorVoice.trim() || profile.voice.trim()
             : '';
-        const segments = buildSpeechSegments(content, state.ttsActionCaption, narrationEnabled)
+        const segments = (isNarratorCharacterId(characterId)
+            ? buildNarrationSpeechSegments(content, narrationEnabled)
+            : buildSpeechSegments(content, state.ttsActionCaption, narrationEnabled))
             // ナレーターvoiceが解決できないナレーションは読めないので落とす。
             .filter((segment) => segment.kind !== 'narration' || narratorVoice !== '');
         if (segments.length === 0) return { reason: 'empty' };

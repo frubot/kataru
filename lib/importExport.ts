@@ -15,6 +15,7 @@ import { downloadBlob, shareBlobFile } from './characterPackage';
 import { normalizeCharactersForCostumeDiffs } from './visualDiffMigration';
 import { generateId } from './id';
 import { isVrmSource, isVrmaSource, vrmMotionNameError } from './vrm';
+import { isNarratorCharacterId } from './narration';
 
 export type { ExportedConnection, ParsedBackup } from './store/types';
 
@@ -221,7 +222,9 @@ function parseFullBackupValue(parsed: unknown): ParsedBackup {
                 const validSpeakerIds = r.groupId
                     ? actorIdsByGroup.get(r.groupId) ?? new Set<string>()
                     : characterIds;
-                return (m.characterId && !validSpeakerIds.has(m.characterId)) ||
+                // シチュエーションの場面ナレーションは参加者ではない予約idで保存される。
+                const isNarration = !!r.groupId && isNarratorCharacterId(m.characterId);
+                return (m.characterId && !isNarration && !validSpeakerIds.has(m.characterId)) ||
                     (m.toCharacterIds ?? []).some((id) => !validSpeakerIds.has(id));
             })
             .map((m) => ({ roomId: r.id, messageId: m.id }))

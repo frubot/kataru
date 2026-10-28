@@ -774,6 +774,8 @@ function buildInitialState(
         maxAutoTurns: String(getInitialMaxTurns(situation, room)),
         maxHistory: situation?.maxHistory != null ? String(situation.maxHistory) : '',
         memoryReadOnly: situation?.memoryMode === 'readOnly',
+        // 新規作成時はナレーションを分ける。既存のシチュエーションは保存済みの設定に従う。
+        separateNarration: situation ? situation.separateNarration === true : true,
         priorMessages: (situation?.priorMessages ?? []).map((message) => ({ ...message })),
         selectedCharacterIds,
         characterActorMeta,
@@ -790,11 +792,63 @@ function serializeSituationDraft(draft: ReturnType<typeof buildInitialState>) {
         maxAutoTurns: draft.maxAutoTurns,
         maxHistory: draft.maxHistory,
         memoryReadOnly: draft.memoryReadOnly,
+        separateNarration: draft.separateNarration,
         priorMessages: draft.priorMessages,
         selectedCharacterIds: Array.from(draft.selectedCharacterIds),
         characterActorMeta: draft.characterActorMeta,
         temporaryActors: draft.temporaryActors,
     });
+}
+
+function SwitchRow({ label, description, checked, onToggle }: {
+    label: string;
+    description?: string;
+    checked: boolean;
+    onToggle: () => void;
+}) {
+    return (
+        <div style={{ display: 'flex', alignItems: 'center', minHeight: 38 }}>
+            <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: '0.75rem', fontSize: '0.875rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                <span style={{ display: 'flex', flexDirection: 'column', gap: '0.125rem' }}>
+                    {label}
+                    {description && (
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{description}</span>
+                    )}
+                </span>
+                <button
+                    type="button"
+                    role="switch"
+                    aria-checked={checked}
+                    aria-label={label}
+                    onClick={onToggle}
+                    style={{
+                        position: 'relative',
+                        width: '44px',
+                        height: '24px',
+                        borderRadius: '12px',
+                        border: 'none',
+                        cursor: 'pointer',
+                        background: checked ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
+                        transition: 'background 0.2s ease',
+                        padding: 0,
+                        flexShrink: 0,
+                    }}
+                >
+                    <span style={{
+                        position: 'absolute',
+                        top: '2px',
+                        left: checked ? '22px' : '2px',
+                        width: '20px',
+                        height: '20px',
+                        borderRadius: '50%',
+                        background: '#fff',
+                        transition: 'left 0.2s ease',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                    }} />
+                </button>
+            </label>
+        </div>
+    );
 }
 
 interface CharacterSelectionModalProps {
@@ -1148,6 +1202,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
     const [maxAutoTurns, setMaxAutoTurns] = useState(initial.maxAutoTurns);
     const [maxHistory, setMaxHistory] = useState(initial.maxHistory);
     const [memoryReadOnly, setMemoryReadOnly] = useState(initial.memoryReadOnly);
+    const [separateNarration, setSeparateNarration] = useState(initial.separateNarration);
     const [priorMessages, setPriorMessages] = useState<SituationPriorMessage[]>(initial.priorMessages);
     const [selectedCharacterIds, setSelectedCharacterIds] = useState<Set<string>>(initial.selectedCharacterIds);
     const [characterActorMeta, setCharacterActorMeta] = useState<Record<string, CharacterActorMeta>>(initial.characterActorMeta);
@@ -1399,6 +1454,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                 maxAutoTurns,
                 maxHistory,
                 memoryReadOnly,
+                separateNarration,
                 priorMessages,
                 selectedCharacterIds,
                 characterActorMeta,
@@ -1434,6 +1490,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                 actors,
                 maxTurns: effectiveMaxTurns,
                 memoryMode: memoryReadOnly ? 'readOnly' : 'off',
+                separateNarration,
                 maxHistory: parsedMaxHistory,
             });
             if (room?.id) {
@@ -1449,13 +1506,14 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                 actors,
                 maxTurns: effectiveMaxTurns,
                 memoryMode: memoryReadOnly ? 'readOnly' : 'off',
+                separateNarration,
                 maxHistory: parsedMaxHistory,
             });
             onCreated?.();
         }
 
         onClose();
-    }, [actorCount, actorOptions, backgroundImage, buildActors, characterActorMeta, characterCommonRules, createSituationRoom, effectiveMaxTurns, isEditing, maxAutoTurns, maxHistory, memoryReadOnly, name, onClose, onCreated, parsedMaxHistory, priorMessages, room, selectedCharacterIds, situation, situationPrompt, temporaryActors, updateRoomSettings, updateSituation]);
+    }, [actorCount, actorOptions, backgroundImage, buildActors, characterActorMeta, characterCommonRules, createSituationRoom, effectiveMaxTurns, isEditing, maxAutoTurns, maxHistory, memoryReadOnly, name, onClose, onCreated, parsedMaxHistory, priorMessages, room, selectedCharacterIds, separateNarration, situation, situationPrompt, temporaryActors, updateRoomSettings, updateSituation]);
 
     const modalRef = useRef<HTMLDivElement>(null);
     useModalKeyboard({
@@ -1741,42 +1799,17 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                         </div>
                     </section>
 
-                    <div style={{ display: 'flex', alignItems: 'center', minHeight: 38 }}>
-                        <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: '0.75rem', fontSize: '0.875rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
-                            メモリの参照
-                            <button
-                                type="button"
-                                role="switch"
-                                aria-checked={memoryReadOnly}
-                                aria-label="メモリの参照"
-                                onClick={() => setMemoryReadOnly((value) => !value)}
-                                style={{
-                                    position: 'relative',
-                                    width: '44px',
-                                    height: '24px',
-                                    borderRadius: '12px',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    background: memoryReadOnly ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
-                                    transition: 'background 0.2s ease',
-                                    padding: 0,
-                                    flexShrink: 0,
-                                }}
-                            >
-                                <span style={{
-                                    position: 'absolute',
-                                    top: '2px',
-                                    left: memoryReadOnly ? '22px' : '2px',
-                                    width: '20px',
-                                    height: '20px',
-                                    borderRadius: '50%',
-                                    background: '#fff',
-                                    transition: 'left 0.2s ease',
-                                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-                                }} />
-                            </button>
-                        </label>
-                    </div>
+                    <SwitchRow
+                        label="メモリの参照"
+                        checked={memoryReadOnly}
+                        onToggle={() => setMemoryReadOnly((value) => !value)}
+                    />
+                    <SwitchRow
+                        label="ナレーションを分ける"
+                        description="場面全体の描写を、キャラクターの発言とは別のナレーションとして生成します（メッセージ形式では無効）。"
+                        checked={separateNarration}
+                        onToggle={() => setSeparateNarration((value) => !value)}
+                    />
 
                     <section style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>

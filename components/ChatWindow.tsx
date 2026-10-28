@@ -10,6 +10,7 @@ import {
 } from '@/lib/store';
 import type { MemoryRecord, MessageAttachment, SituationPriorMessage } from '@/lib/store';
 import { capMessageAttachmentData, readChatAttachmentFiles } from '@/lib/chatAttachments';
+import { isNarrationMessage, isNarratorCharacterId } from '@/lib/narration';
 import { serializeModelRef } from '@/lib/modelDefaults';
 import {
     ChatGenerationJobError,
@@ -49,7 +50,7 @@ import {
 } from '@/lib/chatContinuation';
 import { formatAssistantMarkdown } from '@/lib/markdownUtils';
 import { getSituationVisualNovelTypingKey, resolveSituationVisualNovelInitialCharacterId } from '@/lib/situationVisualNovelPresentation';
-import { buildSpeechText } from '@/lib/tts';
+import { buildNarrationSpeechSegments, buildSpeechText } from '@/lib/tts';
 import { useTtsEntry } from '@/lib/ttsPlayer';
 import {
     DEFAULT_COSTUME_NAME,
@@ -182,6 +183,7 @@ function toConversationSituation(situation: Situation | null | undefined) {
         priorMessages: situation.priorMessages,
         maxTurns: situation.maxTurns,
         memoryMode: situation.memoryMode,
+        separateNarration: situation.separateNarration === true,
         maxHistory: situation.maxHistory,
     };
 }
@@ -1697,7 +1699,9 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         && !!vnTtsItem
         && vnTtsItem.role === 'assistant'
         && vnTtsItem.final
-        && !!buildSpeechText(vnTtsItem.content, ttsNarrationEnabled)
+        && (isNarratorCharacterId(vnTtsItem.characterId)
+            ? buildNarrationSpeechSegments(vnTtsItem.content, ttsNarrationEnabled).length > 0
+            : !!buildSpeechText(vnTtsItem.content, ttsNarrationEnabled))
     ), [vnTtsItem, ttsEnabled, ttsNarrationEnabled]);
     useVisualNovelAutoPlay({
         enabled: vnAutoPlay && isVisualNovelMode && !isVisualNovelLogOpen,
@@ -1735,7 +1739,9 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             vnSelectedCostumeName,
         ],
     );
+    // ナレーションでは立ち絵のキャラクターが話しているわけではないので跳ねさせない。
     const situationVnAssistantBounceKey = situationVnCurrentItem?.role === 'assistant'
+        && !isNarrationMessage(situationVnCurrentItem)
         ? situationVnCurrentItem.utteranceKey ?? `${situationVnCurrentItem.source}:${situationVnCurrentItem.id}`
         : null;
     const vnBounceContextKey = isVisualNovelMode && !isVisualNovelLogOpen && currentRoomId
@@ -1813,6 +1819,8 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const vnSpeakerName = isSituationVisualNovelMode
         ? situationVnCurrentItem?.role === 'user'
             ? 'あなた'
+            : situationVnCurrentItem && isNarrationMessage(situationVnCurrentItem)
+                ? ''
             : situationVnCurrentItem?.role === 'assistant'
                 ? (situationVnCurrentItem.characterId && characterMap?.get(situationVnCurrentItem.characterId)?.name)
                     ?? situationVnCurrentItem.characterName
@@ -1827,7 +1835,10 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         ? groupCharacters ?? []
         : undefined;
 
-    const vnActiveSpriteId = situationVnPresentation.sceneCharacterId ?? situationVnInitialCharacterId;
+    // ナレーションの間は誰も話していないので、どの立ち絵も強調しない。
+    const vnActiveSpriteId = situationVnCurrentItem && isNarrationMessage(situationVnCurrentItem)
+        ? undefined
+        : situationVnPresentation.sceneCharacterId ?? situationVnInitialCharacterId;
     const vnStageSprites = useMemo<VisualNovelStageSprite[] | undefined>(() => {
         if (!isSituationVisualNovelMode || !groupCharacters || groupCharacters.length === 0) {
             return undefined;

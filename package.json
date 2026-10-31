@@ -23,14 +23,14 @@
     "@pixiv/three-vrm": "^3.5.5",
     "@pixiv/three-vrm-animation": "^3.5.5",
     "clsx": "^2.1.1",
-    "framer-motion": "^14.5.0",
-    "lucide-react": "^1.61.0",
+    "framer-motion": "^14.7.1",
+    "lucide-react": "^1.63.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "react-markdown": "^10.1.0",
     "tailwind-merge": "^3.7.0",
     "three": "^0.186.1",
-    "zustand": "^5.0.15"
+    "zustand": "^5.0.16"
   },
   "devDependencies": {
     "@emnapi/runtime": "^1.11.3",
@@ -46,8 +46,8 @@
     "eslint-plugin-react-refresh": "^0.5.7",
     "globals": "^17.13.0",
     "tailwindcss": "^4",
-    "typescript": "^6",
-    "typescript-eslint": "^8.72.0",
+    "typescript": "^7",
+    "typescript-eslint": "^8.72.1",
     "vite": "^8.1.5",
     "vitest": "^5.0.5"
   }

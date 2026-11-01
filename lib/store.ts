@@ -78,6 +78,7 @@ export type {
     RoomCompressionSnapshot,
     RoomReplySuggestions,
     ChatSampling,
+    WordReplacement,
     Situation,
     SituationActor,
     SituationMemoryMode,

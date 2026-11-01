@@ -2,7 +2,7 @@ import { memo, useEffect, useRef } from 'react';
 import { ArrowUp, Brain, Pencil, Copy, Check, FileText, GitBranch, Loader2, RefreshCw, Square, Volume2, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { formatMessageTextWithAttachments } from '@/lib/chatAttachments';
-import { formatAssistantMarkdown, splitAssistantMarkdownActions } from '@/lib/markdownUtils';
+import { formatAssistantMarkdown, hideAssistantDialogueBrackets, splitAssistantMarkdownActions } from '@/lib/markdownUtils';
 import type { MessageAttachment } from '@/lib/store';
 import { stopTtsPlayback, useTtsEntry } from '@/lib/ttsPlayer';
 import StoredImage from './StoredImage';
@@ -108,7 +108,7 @@ export default memo(function MessageBubble({
     const isContinuationRow = isAssistantContinuation && !isMessageMode;
     const showRegenerateBtn = isLastMessage && role === 'assistant' && !isLoading;
 
-    const assistantContent = displayContent || '...';
+    const assistantContent = hideAssistantDialogueBrackets(displayContent) || '...';
     const assistantSegments = splitAssistantMarkdownActions(assistantContent);
     const hasAttachments = (attachments?.length ?? 0) > 0;
     const userSegments = content.trim() || !hasAttachments

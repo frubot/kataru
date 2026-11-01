@@ -53,10 +53,10 @@ The user's name is "{{{{user}}}}".
 }
 
 /// 構造化出力のときに使う、JSONで包んだ出力例。
-const ROLEPLAY_JSON_OUTPUT_EXAMPLE: &str = r#"{"message": "*夕焼けの光が窓から差し込む誰もいない教室の隅で、あなたの発言を聞いて太郎は興奮した様子で話す* そうなんだよ！それでさ、寝る前に裏庭のほうを見たらUFOみたいに光る物体が止まってたんだよ。その日は全く眠れなかったぜ。 *目を輝かせてそのまま勢いで机に手を付き、顔を近づける。そして真っすぐな目で見つめる。* わかってくれる人がいて嬉しすぎるぜ！"}"#;
+const ROLEPLAY_JSON_OUTPUT_EXAMPLE: &str = r#"{"message": "*夕焼けの光が窓から差し込む誰もいない教室の隅で、あなたの発言を聞いて太郎は興奮した様子で話す* 「そうなんだよ！それでさ、寝る前に裏庭のほうを見たらUFOみたいに光る物体が止まってたんだよ。その日は全く眠れなかったぜ。」 *目を輝かせてそのまま勢いで机に手を付き、顔を近づける。そして真っすぐな目で見つめる。* 「わかってくれる人がいて嬉しすぎるぜ！」"}"#;
 
 /// 平文出力のときに使う、包みのない出力例。
-const ROLEPLAY_PLAIN_OUTPUT_EXAMPLE: &str = "*夕焼けの光が窓から差し込む誰もいない教室の隅で、あなたの発言を聞いて太郎は興奮した様子で話す* そうなんだよ！それでさ、寝る前に裏庭のほうを見たらUFOみたいに光る物体が止まってたんだよ。その日は全く眠れなかったぜ。 *目を輝かせてそのまま勢いで机に手を付き、顔を近づける。そして真っすぐな目で見つめる。* わかってくれる人がいて嬉しすぎるぜ！";
+const ROLEPLAY_PLAIN_OUTPUT_EXAMPLE: &str = "*夕焼けの光が窓から差し込む誰もいない教室の隅で、あなたの発言を聞いて太郎は興奮した様子で話す* 「そうなんだよ！それでさ、寝る前に裏庭のほうを見たらUFOみたいに光る物体が止まってたんだよ。その日は全く眠れなかったぜ。」 *目を輝かせてそのまま勢いで机に手を付き、顔を近づける。そして真っすぐな目で見つめる。* 「わかってくれる人がいて嬉しすぎるぜ！」";
 
 fn roleplay_reply_instruction(character_name: &str, format: ReplyFormat) -> String {
     let (heading, example) = if format.uses_json() {
@@ -76,6 +76,7 @@ fn roleplay_reply_instruction(character_name: &str, format: ReplyFormat) -> Stri
 In addition to {character_name}, you must also provide narration using stage directions (e.g., `*narration*`).
 
 ### Character's response
+   - Always enclose {character_name}'s spoken lines in Japanese corner brackets, like `「spoken line」`.
    - You do not necessarily need to include the information provided in the settings in your response.
    - You may fill in missing information in a natural way.
 
@@ -227,11 +228,11 @@ pub(crate) struct EnsembleCast<'a> {
     pub costume: Option<&'a Value>,
 }
 
-const ENSEMBLE_ROLEPLAY_JSON_EXAMPLE: &str = r#"{"turns": [{"speaker": "taro", "message": "*夕焼けの光が差し込む教室で、太郎は身を乗り出す* そうなんだよ！昨日の夜、裏庭にUFOみたいな光が止まってたんだ！*花子を見つめて、なにかひらめいたように*そうだ花子…今晩、俺の裏庭に来ないか！？今日ならまた現れるかも。"}, {"speaker": "hanako", "message": "*花子は呆れたように肩をすくめる* また始まった…。それ、どうせ街灯でしょ？絶対、絶対行かないから。*心底呆れたように太郎を見ながら、髪をいじる*"}]}"#;
+const ENSEMBLE_ROLEPLAY_JSON_EXAMPLE: &str = r#"{"turns": [{"speaker": "taro", "message": "*夕焼けの光が差し込む教室で、太郎は身を乗り出す* 「そうなんだよ！昨日の夜、裏庭にUFOみたいな光が止まってたんだ！」 *花子を見つめて、なにかひらめいたように* 「そうだ花子…今晩、俺の裏庭に来ないか！？今日ならまた現れるかも。」"}, {"speaker": "hanako", "message": "*花子は呆れたように肩をすくめる* 「また始まった…。それ、どうせ街灯でしょ？絶対、絶対行かないから。」 *心底呆れたように太郎を見ながら、髪をいじる*"}]}"#;
 
 const ENSEMBLE_MESSAGE_JSON_EXAMPLE: &str = r#"{"turns": [{"speaker": "taro", "messages": ["確かに。", "じゃあ10時にハチ公前集合ね👍"]}, {"speaker": "hanako", "messages": ["了解！楽しみ笑"]}]}"#;
 
-const ENSEMBLE_NARRATED_JSON_EXAMPLE: &str = r#"{"turns": [{"speaker": "narrator", "message": "放課後の教室。西日が窓から斜めに差し込み、並んだ机の天板をオレンジ色に染めている。廊下の向こうからは、吹奏楽部のチューニングの音が途切れ途切れに聞こえてくる。"}, {"speaker": "misaki", "message": "*机に両手をついて身を乗り出し、目をきらきらと輝かせる* ねえ聞いて！昨日の夜、裏山の上に変な光が浮かんでたの！*スマホを取り出し、ぶれた写真を花子の顔の前に突きつける* ほら、これ！絶対UFOだって！"}, {"speaker": "hanako", "message": "*頬杖をついたまま画面をちらりと見て、小さくため息をつく* …どう見ても街灯でしょ、それ。*指先で前髪をくるくるといじりながら、視線を窓の外へ逸らす*"}, {"speaker": "narrator", "message": "そのとき、教室の蛍光灯が一瞬だけ小さく瞬いた。窓の外では、夕焼けを背にした裏山の稜線が黒く浮かび上がっている。風でカーテンがふわりとふくらみ、机の上のプリントが一枚、音もなく床へ滑り落ちた。"}, {"speaker": "misaki", "message": "*落ちたプリントには目もくれず、ぱっと窓の方を振り返る* い、今の見た！？やっぱり何かいるんだって！*花子の袖をつかんで、ぐいぐいと引っ張る* 今晩一緒に確かめに行こうよ！"}, {"speaker": "hanako", "message": "*引っ張られて体を傾けながらも、むっとした顔で腕を引き戻す* ただの電圧の問題でしょ。…絶対行かないから。*そう言いつつも、もう一度だけ窓の外の裏山へ目をやる*"}, {"speaker": "narrator", "message": "下校を告げるチャイムが鳴り響く。日はみるみる傾き、教室の隅から少しずつ薄闇が広がっていく。美咲の言う「光」が現れた時刻が、刻一刻と近づいていた。"}]}"#;
+const ENSEMBLE_NARRATED_JSON_EXAMPLE: &str = r#"{"turns": [{"speaker": "narrator", "message": "放課後の教室。西日が窓から斜めに差し込み、並んだ机の天板をオレンジ色に染めている。廊下の向こうからは、吹奏楽部のチューニングの音が途切れ途切れに聞こえてくる。"}, {"speaker": "misaki", "message": "*机に両手をついて身を乗り出し、目をきらきらと輝かせる* 「ねえ聞いて！昨日の夜、裏山の上に変な光が浮かんでたの！」 *スマホを取り出し、ぶれた写真を花子の顔の前に突きつける* 「ほら、これ！絶対UFOだって！」"}, {"speaker": "hanako", "message": "*頬杖をついたまま画面をちらりと見て、小さくため息をつく* 「…どう見ても街灯でしょ、それ。」 *指先で前髪をくるくるといじりながら、視線を窓の外へ逸らす*"}, {"speaker": "narrator", "message": "そのとき、教室の蛍光灯が一瞬だけ小さく瞬いた。窓の外では、夕焼けを背にした裏山の稜線が黒く浮かび上がっている。風でカーテンがふわりとふくらみ、机の上のプリントが一枚、音もなく床へ滑り落ちた。"}, {"speaker": "misaki", "message": "*落ちたプリントには目もくれず、ぱっと窓の方を振り返る* 「い、今の見た！？やっぱり何かいるんだって！」 *花子の袖をつかんで、ぐいぐいと引っ張る* 「今晩一緒に確かめに行こうよ！」"}, {"speaker": "hanako", "message": "*引っ張られて体を傾けながらも、むっとした顔で腕を引き戻す* 「ただの電圧の問題でしょ。…絶対行かないから。」 *そう言いつつも、もう一度だけ窓の外の裏山へ目をやる*"}, {"speaker": "narrator", "message": "下校を告げるチャイムが鳴り響く。日はみるみる傾き、教室の隅から少しずつ薄闇が広がっていく。美咲の言う「光」が現れた時刻が、刻一刻と近づいていた。"}]}"#;
 
 /// シチュエーションで、物語全体のナレーションを担当する仮の話者のid。
 /// キャラクターの発言と同じ `turns` に並び、保存時は `characterId` にこのidが入る。
@@ -338,6 +339,7 @@ The `[photo description]` provided by {{{{user}}}} is a brief explanation of the
 
 ### Character turns
   - Write only that character's own dialogue and their own actions, expressions, and feelings as stage directions.
+  - Always enclose spoken lines in Japanese corner brackets, like `「spoken line」`.
   - Always format stage directions as `*descriptive text*`.
   - Do not describe the scene as a whole or other characters' actions here; leave those to the narrator.
   - You do not need to include every detail from the character profile; feel free to naturally fill in any missing information based on the context.
@@ -357,6 +359,7 @@ Users may include not only spoken lines but also stage directions—such as `*st
 ## Reply format
 The output should include character dialogue and stage directions (e.g., `*narration*`).
   - Use stage directions (narration) to describe emotions, movements, actions, situations, and the like. The writing style is independent of the character's specific profile.
+  - Always enclose spoken lines in Japanese corner brackets, like `「spoken line」`.
   - Always format stage directions as `*descriptive text*`.
   - Refer to each character by name, and use `{{{{user}}}}` to refer to the user. If a full name is provided, use only the first name.
   - You do not need to include every detail from the character profile; feel free to naturally fill in any missing information based on the context.

@@ -8,6 +8,7 @@ import {
 } from '../aiApi';
 import { getAiConnections } from '../aiConnections';
 import { normalizeChatSampling } from '../chatSampling';
+import { normalizeWordReplacements } from '../wordReplacements';
 import * as db from '../db';
 import { generateId } from '../id';
 import {
@@ -251,6 +252,7 @@ type SettingsSlice = Pick<
     | 'conversationCompressionEnabled'
     | 'reasoningEffort'
     | 'chatSampling'
+    | 'wordReplacements'
     | 'generateTitleOnFirstReply'
     | 'replySuggestionsEnabled'
     | 'ttsEnabled'
@@ -300,6 +302,7 @@ type SettingsSlice = Pick<
     | 'setConversationCompressionEnabled'
     | 'setReasoningEffort'
     | 'setChatSampling'
+    | 'setWordReplacements'
     | 'setGenerateTitleOnFirstReply'
     | 'setReplySuggestionsEnabled'
     | 'setTtsEnabled'
@@ -340,6 +343,7 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         conversationCompressionEnabled: DEFAULT_CONVERSATION_COMPRESSION_ENABLED,
         reasoningEffort: DEFAULT_REASONING_EFFORT,
         chatSampling: {},
+        wordReplacements: [],
         generateTitleOnFirstReply: false,
         replySuggestionsEnabled: false,
         ttsEnabled: DEFAULT_TTS_ENABLED,
@@ -508,6 +512,11 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
             const chatSampling = normalizeChatSampling(sampling);
             set({ chatSampling });
             fire(db.setMeta('chatSampling', chatSampling));
+        },
+        setWordReplacements: (rules) => {
+            const wordReplacements = normalizeWordReplacements(rules);
+            set({ wordReplacements });
+            fire(db.setMeta('wordReplacements', wordReplacements));
         },
         setGenerateTitleOnFirstReply: (generateTitleOnFirstReply) => {
             set({ generateTitleOnFirstReply });

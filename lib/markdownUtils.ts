@@ -39,6 +39,61 @@ function pushSegment(segments: AssistantMarkdownSegment[], type: AssistantMarkdo
     segments.push({ type, content: normalized });
 }
 
+const DIALOGUE_OPEN = '「';
+const DIALOGUE_CLOSE = '」';
+
+/** Drops the 「」 that wrap one dialogue run (text between `*...*` actions).
+ * A run that is cut off — still streaming, typing, or split across VN pages —
+ * loses only its unmatched opening or closing bracket, so the visible prefix
+ * stays stable while the text grows. */
+function hideDialogueRunBrackets(run: string): string {
+    const first = run.search(/\S/);
+    if (first < 0) return run;
+    const last = run.search(/\S\s*$/);
+    const strip = (from: number, to: number) => run.slice(0, from) + run.slice(from + 1, to) + run.slice(to + 1);
+
+    let depth = 0;
+    for (let i = first; i <= last; i++) {
+        if (run[i] === DIALOGUE_OPEN) {
+            depth++;
+        } else if (run[i] === DIALOGUE_CLOSE) {
+            depth--;
+            if (depth < 0) {
+                // Only a lone closing bracket at the very end belongs to a
+                // quote that started on an earlier page.
+                return i === last ? run.slice(0, last) + run.slice(last + 1) : run;
+            }
+            if (depth === 0 && run[first] === DIALOGUE_OPEN) {
+                return i === last ? strip(first, last) : run;
+            }
+        }
+    }
+    if (run[first] !== DIALOGUE_OPEN) return run;
+    // The opening bracket never closed: the rest of the quote is not here yet.
+    return run.slice(0, first) + run.slice(first + 1);
+}
+
+/** Display-only form of an assistant reply. Replies are stored as
+ * `*narration* 「dialogue」 *narration*`; the brackets around each dialogue
+ * run are hidden on screen, while 「」 quoted inside narration or in the
+ * middle of a line stay visible. */
+export function hideAssistantDialogueBrackets(content: string): string {
+    if (!content.includes(DIALOGUE_OPEN) && !content.includes(DIALOGUE_CLOSE)) return content;
+    let result = '';
+    let runStart = 0;
+    let inAction = false;
+    for (let i = 0; i < content.length; i++) {
+        if (!isSingleItalicMarker(content, i)) continue;
+        const run = content.slice(runStart, i);
+        result += inAction ? run : hideDialogueRunBrackets(run);
+        result += '*';
+        runStart = i + 1;
+        inAction = !inAction;
+    }
+    const tail = content.slice(runStart);
+    return result + (inAction ? tail : hideDialogueRunBrackets(tail));
+}
+
 export function formatAssistantMarkdown(content: string): string {
     return content
         .replace(/([^*\s])\*\s+\*(?!\s|\*)/g, '$1 ')

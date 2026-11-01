@@ -12,6 +12,7 @@ import type { MemoryRecord, MessageAttachment, SituationPriorMessage } from '@/l
 import { capMessageAttachmentData, readChatAttachmentFiles } from '@/lib/chatAttachments';
 import { isNarrationMessage, isNarratorCharacterId } from '@/lib/narration';
 import { serializeModelRef } from '@/lib/modelDefaults';
+import { activeWordReplacements } from '@/lib/wordReplacements';
 import {
     ChatGenerationJobError,
     getChatErrorDebugInfo,
@@ -48,7 +49,7 @@ import {
     getLatestActiveChatMessage,
     isChatContinuationAvailable,
 } from '@/lib/chatContinuation';
-import { formatAssistantMarkdown } from '@/lib/markdownUtils';
+import { formatAssistantMarkdown, hideAssistantDialogueBrackets } from '@/lib/markdownUtils';
 import {
     EMPTY_SITUATION_VISUAL_NOVEL_STAGE_ROSTER,
     getSituationVisualNovelTypingKey,
@@ -336,6 +337,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         memoryEmbeddingModel,
         reasoningEffort,
         chatSampling,
+        wordReplacements,
         generateTitleOnFirstReply,
         titleGenerationModel,
         replySuggestionsEnabled,
@@ -1108,6 +1110,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     memoryEmbeddingModel: serializeModelRef(memoryEmbeddingModel),
                     reasoningEffort,
                     chatSampling,
+                    wordReplacements: activeWordReplacements(wordReplacements),
                     aiApiConfig: getAiApiConfig(),
                     streamingPreview: true,
                     generationMode,
@@ -1789,12 +1792,17 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const isWaitingForAssistant = isVisualNovelMode
         ? situationVnPresentation.isWaitingForResponse
         : isLoading && lastRoomMessage?.role !== 'assistant' && !activeStreamingPreview;
-    const situationVnDialogueContent = situationVnCurrentItem
+    const situationVnItemContent = situationVnCurrentItem
         ? getSituationVisualNovelTypingKey(situationVnCurrentItem) === typingMessageId
             ? typedContent
             : situationVnPresentation.currentComplete
                 ? situationVnCurrentItem.content
                 : ''
+        : '';
+    const situationVnDialogueContent = situationVnCurrentItem
+        ? situationVnCurrentItem.role === 'assistant'
+            ? hideAssistantDialogueBrackets(situationVnItemContent)
+            : situationVnItemContent
         : isWaitingForAssistant
             ? '...'
             : '...（話しかけてみよう）';

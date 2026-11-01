@@ -8,7 +8,7 @@ import type {
     ChatStreamingPreview,
     PriorMessagePresentation,
 } from '@/lib/chatMessagePresentation';
-import { formatAssistantMarkdown } from '@/lib/markdownUtils';
+import { formatAssistantMarkdown, hideAssistantDialogueBrackets } from '@/lib/markdownUtils';
 import { isNarrationMessage, isNarratorCharacterId } from '@/lib/narration';
 import StoredImage from '../StoredImage';
 import WaitingEllipsis from './WaitingEllipsis';
@@ -73,7 +73,9 @@ function LogEntry({ entry }: { entry: VisualNovelLogEntry }) {
                     className="vn-log-content"
                     {...(entry.isStreaming ? { role: 'status', 'aria-live': 'polite' as const } : {})}
                 >
-                    <ReactMarkdown>{formatAssistantMarkdown(entry.content)}</ReactMarkdown>
+                    <ReactMarkdown>{formatAssistantMarkdown(
+                        entry.role === 'assistant' ? hideAssistantDialogueBrackets(entry.content) : entry.content,
+                    )}</ReactMarkdown>
                 </div>
             </div>
         </article>

@@ -5,6 +5,7 @@ mod memory_gate;
 mod orchestrator;
 mod prompts;
 mod response;
+mod word_filter;
 
 use serde_json::Value;
 

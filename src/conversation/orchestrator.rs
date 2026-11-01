@@ -44,6 +44,7 @@ use super::{
         parse_summary_response, plain_assistant_response, plain_response_preview,
         sanitize_assistant_reply_content, sanitize_message_content,
     },
+    word_filter::WordFilter,
 };
 
 const DEFAULT_MAX_HISTORY: usize = 20;
@@ -371,6 +372,7 @@ async fn run_turn_inner(
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty());
     let streaming_preview = preview_job_id.map(|job_id| (&state.conversation_jobs, job_id));
+    let word_filter = WordFilter::from_payload(&payload);
 
     let mut generated = Vec::new();
     let mut usages = Vec::new();
@@ -449,6 +451,7 @@ async fn run_turn_inner(
                         ),
                         secret_mode,
                         streaming_preview,
+                        word_filter: &word_filter,
                     },
                     &mut usages,
                     full_json_logs,
@@ -505,6 +508,7 @@ async fn run_turn_inner(
                 0,
                 streaming_preview,
                 default_reasoning_effort,
+                &word_filter,
             ) => messages?,
         };
         if memory_allowed && !cancellation.is_cancelled() {
@@ -983,6 +987,7 @@ async fn generate_for_character(
     id_offset: usize,
     streaming_preview: Option<(&ConversationJobs, &str)>,
     default_reasoning_effort: Option<&str>,
+    word_filter: &WordFilter,
 ) -> AppResult<Vec<Value>> {
     let api_client = clients.for_selection(selection)?;
     let message_mode = format.is_message();
@@ -1039,7 +1044,7 @@ async fn generate_for_character(
             if let Some((jobs, job_id)) = streaming_preview {
                 jobs.update_preview(
                     job_id,
-                    &plain_response_preview(partial, max_characters),
+                    &word_filter.apply_partial(&plain_response_preview(partial, max_characters)),
                     &debug_context.character_id,
                     &debug_context.character_name,
                     None,
@@ -1065,14 +1070,15 @@ async fn generate_for_character(
                 partial_content.clear();
                 partial_content.push_str(partial);
                 let preview = assistant_response_preview(partial, message_mode, max_characters);
+                let confirmed_messages = word_filter.apply_messages(&preview.confirmed_messages);
                 jobs.update_preview(
                     job_id,
-                    &preview.content,
+                    &word_filter.apply_partial(&preview.content),
                     &debug_context.character_id,
                     &debug_context.character_name,
                     // メッセージモードでは閉じたバブルを確定済みとして流し、
                     // 一文字ずつの更新ではなく送信済みメッセージとして見せる。
-                    message_mode.then_some(preview.confirmed_messages.as_slice()),
+                    message_mode.then_some(confirmed_messages.as_slice()),
                     assistant_expression_preview(partial, &expression_names).as_deref(),
                     assistant_motion_preview(partial, &motion_names).as_deref(),
                 );
@@ -1121,6 +1127,7 @@ async fn generate_for_character(
             }
         }
     };
+    let envelope = word_filter.apply_envelope(envelope);
     if let Some((jobs, job_id)) = streaming_preview {
         jobs.finalize_preview(
             job_id,
@@ -1225,6 +1232,8 @@ struct EnsembleRequest<'a> {
     narration: bool,
     secret_mode: bool,
     streaming_preview: Option<(&'a ConversationJobs, &'a str)>,
+    /// 全体設定の禁止ワード。プレビューと保存する返答の両方に使う。
+    word_filter: &'a WordFilter,
 }
 
 /// 発言数が増えるほど出力も長くなるので、上限トークンと待ち時間を発言数に合わせて広げる。
@@ -1373,6 +1382,7 @@ async fn generate_for_ensemble(
         narration,
         secret_mode,
         streaming_preview,
+        word_filter,
     } = request;
     let api_client = clients.for_selection(selection)?;
     let turn_cap = max_turns.unwrap_or(SITUATION_TURN_CAP);
@@ -1475,7 +1485,8 @@ async fn generate_for_ensemble(
         structured_completion_streaming(&api_client, body, schema, timeout, |partial| {
             partial_content.clear();
             partial_content.push_str(partial);
-            let previews = ensemble_response_preview(partial, &speakers, message_mode);
+            let mut previews = ensemble_response_preview(partial, &speakers, message_mode);
+            word_filter.apply_ensemble_previews(&mut previews);
             jobs.replace_preview_turns(
                 job_id,
                 ensemble_preview_turns(&previews, &names, message_mode),
@@ -1504,7 +1515,13 @@ async fn generate_for_ensemble(
     };
     let content = extract_message_text(&raw);
     let turns = match parse_ensemble_response(&content, &speakers, message_mode, turn_cap) {
-        Ok(turns) => turns,
+        Ok(turns) => turns
+            .into_iter()
+            .map(|mut turn| {
+                turn.envelope = word_filter.apply_envelope(turn.envelope);
+                turn
+            })
+            .collect::<Vec<_>>(),
         Err(error) => {
             if !secret_mode {
                 push_error_debug_log(

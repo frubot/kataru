@@ -14,6 +14,7 @@ import AiConnectionSettings from '@/components/AiConnectionSettings';
 import ModelSelector from '@/components/ModelSelector';
 import OptionSelector from '@/components/OptionSelector';
 import ParamSlider from '@/components/ParamSlider';
+import WordReplacementEditor from '@/components/WordReplacementEditor';
 import TtsVoiceField from '@/components/TtsVoiceField';
 import TtsSpeedSlider, { formatTtsSpeed } from '@/components/TtsSpeedSlider';
 import TtsVolumeSlider, { formatTtsVolume } from '@/components/TtsVolumeSlider';
@@ -447,6 +448,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         resetModelDefaults,
         reasoningEffort, setReasoningEffort,
         chatSampling, setChatSampling,
+        wordReplacements, setWordReplacements,
         conversationCompressionEnabled, setConversationCompressionEnabled,
         generateTitleOnFirstReply, setGenerateTitleOnFirstReply,
         replySuggestionsEnabled, setReplySuggestionsEnabled,
@@ -1163,6 +1165,20 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                             />
                                         ))}
                                     </div>
+                                </details>
+                                <details className="global-settings-sampling">
+                                    <summary style={{
+                                        cursor: 'pointer',
+                                        fontSize: '0.8125rem',
+                                        fontWeight: 600,
+                                        color: 'var(--text-secondary)',
+                                    }}>
+                                        禁止ワード
+                                    </summary>
+                                    <p style={{ margin: '0.5rem 0 0.75rem', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                                        会話の返答に含まれる語を置き換えます。置き換え後を空欄にすると削除します。生成中の表示と保存される返答の両方に使い、プロンプトには含めません。
+                                    </p>
+                                    <WordReplacementEditor value={wordReplacements} onChange={setWordReplacements} />
                                 </details>
                                 <RoleModelField
                                     role="defaultAutoGenerationModel"

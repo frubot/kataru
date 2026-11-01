@@ -581,108 +581,12 @@ pub(crate) fn sanitize_message_content(content: &str) -> String {
         .to_owned()
 }
 
-/// Removes Japanese corner brackets only when they wrap a dialogue segment.
+/// Normalizes a character reply before it is persisted or reused as context.
 ///
-/// Text between `*...*` action blocks is treated as dialogue. This keeps quoted text inside
-/// narration intact while normalizing model output such as
-/// `*narration*「response」*narration*`.
+/// Japanese corner brackets around dialogue (`*narration*「response」*narration*`) are kept
+/// as written; the UI hides them when rendering.
 pub(crate) fn sanitize_assistant_reply_content(content: &str) -> String {
-    strip_dialogue_wrapping_brackets(&sanitize_message_content(content))
-        .trim()
-        .to_owned()
-}
-
-fn strip_dialogue_wrapping_brackets(content: &str) -> String {
-    let bytes = content.as_bytes();
-    let mut result = String::with_capacity(content.len());
-    let mut segment_start = 0;
-    let mut index = 0;
-
-    while index < bytes.len() {
-        if !is_single_asterisk_marker(bytes, index) {
-            index += 1;
-            continue;
-        }
-
-        let opening = index;
-        let mut closing = opening + 1;
-        while closing < bytes.len() && !is_single_asterisk_marker(bytes, closing) {
-            closing += 1;
-        }
-        if closing >= bytes.len() || closing == opening + 1 {
-            index = opening + 1;
-            continue;
-        }
-
-        result.push_str(&strip_dialogue_segment_brackets(
-            &content[segment_start..opening],
-        ));
-        result.push_str(&content[opening..=closing]);
-        segment_start = closing + 1;
-        index = segment_start;
-    }
-
-    result.push_str(&strip_dialogue_segment_brackets(&content[segment_start..]));
-    result
-}
-
-fn strip_dialogue_segment_brackets(segment: &str) -> String {
-    let Some((opening_index, '「')) = segment
-        .char_indices()
-        .find(|(_, character)| !character.is_whitespace())
-    else {
-        return segment.to_owned();
-    };
-    let Some((closing_index, '」')) = segment
-        .char_indices()
-        .rev()
-        .find(|(_, character)| !character.is_whitespace())
-    else {
-        return segment.to_owned();
-    };
-    if opening_index >= closing_index {
-        return segment.to_owned();
-    }
-
-    let mut depth = 0;
-    for (index, character) in segment[opening_index..closing_index + '」'.len_utf8()].char_indices()
-    {
-        match character {
-            '「' => depth += 1,
-            '」' => {
-                depth -= 1;
-                if depth < 0 || (depth == 0 && opening_index + index != closing_index) {
-                    return segment.to_owned();
-                }
-            }
-            _ => {}
-        }
-    }
-    if depth != 0 {
-        return segment.to_owned();
-    }
-
-    let mut result = String::with_capacity(segment.len() - '「'.len_utf8() - '」'.len_utf8());
-    result.push_str(&segment[..opening_index]);
-    result.push_str(&segment[opening_index + '「'.len_utf8()..closing_index]);
-    result.push_str(&segment[closing_index + '」'.len_utf8()..]);
-    result
-}
-
-fn is_single_asterisk_marker(bytes: &[u8], index: usize) -> bool {
-    if bytes.get(index) != Some(&b'*')
-        || bytes.get(index.wrapping_sub(1)) == Some(&b'*')
-        || bytes.get(index + 1) == Some(&b'*')
-    {
-        return false;
-    }
-
-    let preceding_backslashes = bytes[..index]
-        .iter()
-        .rev()
-        .take_while(|byte| **byte == b'\\')
-        .count();
-    preceding_backslashes % 2 == 0
+    sanitize_message_content(content)
 }
 
 fn remove_escaped_line_breaks(content: &str) -> String {
@@ -1162,7 +1066,7 @@ mod tests {
         assert_eq!(mid.confirmed_messages, ["一つ目"]);
         // サニタイズ・結束した配列の上限も確定済みリストへ反映する。
         let sanitized =
-            assistant_response_preview(r#"{"messages":["「一つ目」","二つ目","三"#, true, 5);
+            assistant_response_preview(r#"{"messages":["一つ目*","二つ目","三"#, true, 5);
         assert_eq!(sanitized.confirmed_messages, ["一つ目", "二つ"]);
         // 完成後 (`limit_assistant_reply_characters`) と同じ結果になること。
         let finalized = limit_assistant_reply_characters(
@@ -1218,8 +1122,11 @@ mod tests {
     }
 
     #[test]
-    fn plain_reply_reuses_the_structured_reply_normalization() {
-        assert_eq!(plain_assistant_response("「返答」", 512).message, "返答");
+    fn plain_reply_keeps_dialogue_brackets() {
+        assert_eq!(
+            plain_assistant_response("「返答」", 512).message,
+            "「返答」"
+        );
     }
 
     #[test]
@@ -1288,35 +1195,15 @@ mod tests {
     }
 
     #[test]
-    fn removes_brackets_wrapping_assistant_dialogue_segments() {
-        assert_eq!(sanitize_assistant_reply_content("「返答」"), "返答");
+    fn keeps_corner_brackets_in_assistant_replies() {
+        assert_eq!(sanitize_assistant_reply_content("「返答」"), "「返答」");
         assert_eq!(
-            sanitize_assistant_reply_content("*ナレーション*「返答」*ナレーション*"),
-            "*ナレーション*返答*ナレーション*"
+            sanitize_assistant_reply_content("*ナレーション* 「返答」 *ナレーション*"),
+            "*ナレーション* 「返答」 *ナレーション*"
         );
         assert_eq!(
             sanitize_assistant_reply_content("*前*「一つ目」*中*「二つ目」*後*"),
-            "*前*一つ目*中*二つ目*後*"
-        );
-    }
-
-    #[test]
-    fn keeps_brackets_inside_narration_or_dialogue() {
-        assert_eq!(
-            sanitize_assistant_reply_content(
-                "*葵は「おはよ」とメッセージを打った*返答*ナレーション*"
-            ),
-            "*葵は「おはよ」とメッセージを打った*返答*ナレーション*"
-        );
-        assert_eq!(
-            sanitize_assistant_reply_content(
-                "*ナレーション*だよね！私の友達も「おいしかった」って。"
-            ),
-            "*ナレーション*だよね！私の友達も「おいしかった」って。"
-        );
-        assert_eq!(
-            sanitize_assistant_reply_content("「一つ目」と「二つ目」"),
-            "「一つ目」と「二つ目」"
+            "*前*「一つ目」*中*「二つ目」*後*"
         );
     }
 

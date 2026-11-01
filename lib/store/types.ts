@@ -367,6 +367,12 @@ export interface ChatSampling {
     repetitionPenalty?: number;
 }
 
+/** 生成された返答から置き換える語。`to` が空なら削除する。 */
+export interface WordReplacement {
+    from: string;
+    to: string;
+}
+
 export interface AppState {
     hydrated: boolean;
     onboardingVersion: number;
@@ -397,6 +403,8 @@ export interface AppState {
     reasoningEffort: ReasoningEffort;
     /** 会話生成の生成パラメータ。 */
     chatSampling: ChatSampling;
+    /** 全体設定の禁止ワード。生成結果とプレビューにだけ適用し、プロンプトには入れない。 */
+    wordReplacements: WordReplacement[];
     generateTitleOnFirstReply: boolean;
     replySuggestionsEnabled: boolean;
     /** 音声合成機能全体のオン・オフ。OFFでは読み上げ・試聴・自動再生を全て止める。 */
@@ -465,6 +473,7 @@ export interface AppState {
     setConversationCompressionEnabled: (enabled: boolean) => void;
     setReasoningEffort: (effort: ReasoningEffort) => void;
     setChatSampling: (sampling: ChatSampling) => void;
+    setWordReplacements: (rules: WordReplacement[]) => void;
     setGenerateTitleOnFirstReply: (enabled: boolean) => void;
     setReplySuggestionsEnabled: (enabled: boolean) => void;
     setTtsEnabled: (enabled: boolean) => void;

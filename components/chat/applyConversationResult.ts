@@ -75,6 +75,35 @@ function debugLogUsage(value: unknown): DebugLogUsage | undefined {
     return Object.keys(usage).length > 0 ? usage : undefined;
 }
 
+type ServerDebugLog = NonNullable<RustTurnResponse['fullJsonLogs']>[number];
+
+/** サーバーが返したデバッグログ1件を、保存する形に整える。出力が空なら捨てる。 */
+export function toFullJsonDebugLog(
+    log: ServerDebugLog,
+    room: { id: string; name: string },
+): Omit<FullJsonDebugLog, 'id' | 'createdAt'> | null {
+    const json = debugLogText(log.json);
+    if (!json?.trim()) return null;
+    return {
+        roomId: room.id,
+        roomName: room.name,
+        characterId: log.characterId,
+        characterName: log.characterName,
+        model: log.model,
+        status: log.status,
+        source: log.source,
+        prompt: log.prompt,
+        json,
+        reasoning: debugLogText(log.reasoning),
+        secondJson: debugLogText(log.secondJson),
+        httpStatus: log.httpStatus,
+        elapsedMs: log.elapsedMs,
+        errorName: log.errorName,
+        usage: debugLogUsage(log.usage),
+        secondUsage: debugLogUsage(log.secondUsage),
+    };
+}
+
 export function recordConversationDebugLogs(
     options: RecordConversationDebugLogsOptions,
     operations: RecordConversationDebugLogsOperations,
@@ -85,26 +114,8 @@ export function recordConversationDebugLogs(
     const currentRoom = operations.getCurrentRoom();
     const roomName = currentRoom?.id === sourceRoom.id ? currentRoom.name : sourceRoom.name;
     for (const log of data.fullJsonLogs ?? []) {
-        const json = debugLogText(log.json);
-        if (!json?.trim()) continue;
-        operations.addFullJsonDebugLog({
-            roomId: sourceRoom.id,
-            roomName,
-            characterId: log.characterId,
-            characterName: log.characterName,
-            model: log.model,
-            status: log.status,
-            source: log.source,
-            prompt: log.prompt,
-            json,
-            reasoning: debugLogText(log.reasoning),
-            secondJson: debugLogText(log.secondJson),
-            httpStatus: log.httpStatus,
-            elapsedMs: log.elapsedMs,
-            errorName: log.errorName,
-            usage: debugLogUsage(log.usage),
-            secondUsage: debugLogUsage(log.secondUsage),
-        });
+        const entry = toFullJsonDebugLog(log, { id: sourceRoom.id, name: roomName });
+        if (entry) operations.addFullJsonDebugLog(entry);
     }
 }
 

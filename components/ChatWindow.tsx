@@ -86,6 +86,7 @@ import DebugLogModal from './chat/DebugLogModal';
 import DeveloperInspectorsModal from './chat/DeveloperInspectorsModal';
 import ReplySuggestions from './chat/ReplySuggestions';
 import { applyConversationResult, applySecretConversationMessages, recordConversationDebugLogs } from './chat/applyConversationResult';
+import { useBackgroundTasks } from './chat/useBackgroundTasks';
 import { useChatGenerationSessions } from './chat/useChatGenerationSessions';
 import type { ChatGenerationSession } from './chat/useChatGenerationSessions';
 import { useChatMentions } from './chat/useChatMentions';
@@ -562,6 +563,13 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const debugPanelEnabled = fullJsonDebugEnabled;
     const developerInspectorEnabled = memoryInspectorEnabled || summaryInspectorEnabled;
     const visibleDebugLogCount = fullJsonDebugLogs.length;
+    const getAllRooms = useCallback(() => useStore.getState().rooms, []);
+    const { tasks: backgroundTasks, checkedAt: backgroundTasksCheckedAt } = useBackgroundTasks({
+        enabled: debugPanelEnabled,
+        addFullJsonDebugLog,
+        getRooms: getAllRooms,
+    });
+    const runningBackgroundTaskCount = backgroundTasks.filter((task) => task.status === 'running').length;
     const {
         state: replySuggestionState,
         setState: setReplySuggestionState,
@@ -2173,6 +2181,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     onOpenSidebar={onOpenSidebar}
                     debugEnabled={debugPanelEnabled}
                     debugLogCount={visibleDebugLogCount}
+                    runningBackgroundTaskCount={runningBackgroundTaskCount}
                     onOpenDebug={() => setDebugLogOpen(true)}
                     inspectorEnabled={developerInspectorEnabled}
                     onOpenInspector={() => setDeveloperInspectorOpen(true)}
@@ -2401,6 +2410,9 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             {debugLogOpen && debugPanelEnabled && (
                 <DebugLogModal
                     logs={fullJsonDebugLogs}
+                    backgroundTasks={backgroundTasks}
+                    backgroundTasksCheckedAt={backgroundTasksCheckedAt}
+                    rooms={getAllRooms()}
                     onClose={() => setDebugLogOpen(false)}
                     onClear={handleClearActiveDebugLogs}
                 />

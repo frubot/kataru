@@ -13,6 +13,7 @@ use crate::{
 };
 
 use super::{
+    background::{BackgroundTaskKind, BackgroundTaskStart},
     memory::prepare_conversation_memories,
     orchestrator::{BatchExtractionInput, extract_batch_memories},
     prompts::{boolean, message_text_with_attachments, string},
@@ -78,12 +79,12 @@ pub(crate) async fn run_memory_batches_after_turn(
     if mode == MemoryBatchMode::Off || !batch_memory_allowed(payload) {
         return;
     }
-    let trigger = if summarized {
-        MemoryBatchTrigger::Flush
+    let (trigger, reason) = if summarized {
+        (MemoryBatchTrigger::Flush, "要約後")
     } else {
-        MemoryBatchTrigger::Threshold
+        (MemoryBatchTrigger::Threshold, "ターン後")
     };
-    run_room_memory_batch(state, payload, mode, room_id, trigger).await;
+    run_room_memory_batch(state, payload, mode, room_id, trigger, reason).await;
 
     let character_id = payload
         .get("character")
@@ -107,6 +108,7 @@ pub(crate) async fn run_memory_batches_after_turn(
             mode,
             other_room_id,
             MemoryBatchTrigger::Flush,
+            "別ルームの未反映分",
         )
         .await;
     }
@@ -118,7 +120,15 @@ pub(crate) async fn run_memory_flush(state: &AppState, payload: &Value, room_id:
     if mode == MemoryBatchMode::Off || !batch_memory_allowed(payload) {
         return;
     }
-    run_room_memory_batch(state, payload, mode, room_id, MemoryBatchTrigger::Flush).await;
+    run_room_memory_batch(
+        state,
+        payload,
+        mode,
+        room_id,
+        MemoryBatchTrigger::Flush,
+        "ルーム離脱",
+    )
+    .await;
 }
 
 /// 単体会話で、キャラクターの記憶が有効なときだけバッチ抽出する。
@@ -142,6 +152,7 @@ async fn run_room_memory_batch(
     mode: MemoryBatchMode,
     room_id: &str,
     trigger: MemoryBatchTrigger,
+    reason: &str,
 ) {
     let Some(_running) = state.conversation_jobs.begin_memory_batch(room_id) else {
         return;
@@ -166,18 +177,39 @@ async fn run_room_memory_batch(
     let Some(character) = payload.get("character").filter(|value| value.is_object()) else {
         return;
     };
+    let task = state
+        .conversation_jobs
+        .background_tasks()
+        .start(BackgroundTaskStart {
+            kind: BackgroundTaskKind::MemoryBatch,
+            reason,
+            room_id,
+            character: Some(character),
+        });
+    let chunk_total = pending
+        .len()
+        .div_ceil(MEMORY_BATCH_MAX_MESSAGES)
+        .min(MEMORY_BATCH_MAX_CHUNKS_PER_RUN);
+    let mut totals = BatchTotals::default();
     // 別のルームを処理するときも、記憶の sourceRoomId がそのルームになるようにする。
     let mut batch_payload = payload.clone();
     batch_payload["room"] = json!({"id": room_id});
 
     let mut context = context;
-    for chunk in pending
+    for (chunk_index, chunk) in pending
         .chunks(MEMORY_BATCH_MAX_MESSAGES)
         .take(MEMORY_BATCH_MAX_CHUNKS_PER_RUN)
+        .enumerate()
     {
         let Some(cursor) = chunk.last().map(cursor_of) else {
             break;
         };
+        task.set_detail(format!(
+            "{}/{chunk_total} 回目を抽出中（発言 {} 件）",
+            chunk_index + 1,
+            chunk.len()
+        ));
+        let mut full_json_logs = Vec::new();
         let extraction = extract_batch_memories(
             state,
             &batch_payload,
@@ -188,8 +220,10 @@ async fn run_room_memory_batch(
                 context_messages: &context,
                 messages: chunk,
             },
+            &mut full_json_logs,
         )
         .await;
+        task.push_logs(full_json_logs);
         let (candidates, mut usages) = match extraction {
             Ok(extraction) => extraction,
             Err(error) => {
@@ -199,6 +233,7 @@ async fn run_room_memory_batch(
                     classification = error.diagnostic_class(),
                     "Memory batch extraction failed"
                 );
+                task.fail(totals.failure("記憶のバッチ抽出に失敗しました", &error));
                 return;
             }
         };
@@ -222,6 +257,7 @@ async fn run_room_memory_batch(
                         classification = error.diagnostic_class(),
                         "Memory batch could not be prepared"
                     );
+                    task.fail(totals.failure("記憶の保存の準備に失敗しました", &error));
                     return;
                 }
             }
@@ -238,6 +274,7 @@ async fn run_room_memory_batch(
                     classification = error.diagnostic_class(),
                     "Memory batch could not be persisted"
                 );
+                task.fail(totals.failure("記憶の保存に失敗しました", &error));
                 return;
             }
         };
@@ -257,7 +294,41 @@ async fn run_room_memory_batch(
                 "Memory batch persisted"
             );
         }
+        totals.messages += chunk.len();
+        totals.candidates += candidate_count;
+        totals.saved += saved;
         context = context_before(chunk, chunk.len());
+    }
+    task.complete(totals.summary(mode));
+}
+
+/// デバッグログ画面に出す、1回の実行で処理した件数。
+#[derive(Default)]
+struct BatchTotals {
+    messages: usize,
+    candidates: usize,
+    saved: usize,
+}
+
+impl BatchTotals {
+    fn summary(&self, mode: MemoryBatchMode) -> String {
+        let counts = format!("発言 {} 件 / 候補 {} 件", self.messages, self.candidates);
+        if mode == MemoryBatchMode::Shadow {
+            format!("{counts}（シャドーモードのため保存なし）")
+        } else {
+            format!("{counts} / 保存 {} 件", self.saved)
+        }
+    }
+
+    fn failure(&self, message: &str, error: &crate::error::AppError) -> String {
+        if self.messages == 0 {
+            format!("{message}: {error}")
+        } else {
+            format!(
+                "{message}: {error}（それまでに発言 {} 件を処理）",
+                self.messages
+            )
+        }
     }
 }
 

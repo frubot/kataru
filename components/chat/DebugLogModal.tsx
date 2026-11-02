@@ -1,7 +1,8 @@
 import { useRef } from 'react';
 import type { CSSProperties } from 'react';
-import { Trash2, X } from 'lucide-react';
-import type { DebugLogUsage, FullJsonDebugLog } from '@/lib/store';
+import { Loader2, Trash2, X } from 'lucide-react';
+import { backgroundTaskKindLabel, type BackgroundTask } from '@/lib/backgroundTasks';
+import type { DebugLogUsage, FullJsonDebugLog, Room } from '@/lib/store';
 import { useModalKeyboard } from '../useModalKeyboard';
 
 const metaChipStyle: CSSProperties = {
@@ -95,18 +96,125 @@ function getDebugSourceLabel(source: string): string {
             return 'メモリ保存の判定';
         case 'memory-gate-error':
             return 'メモリ保存判定のエラー';
+        case 'memory-extraction-json':
+            return '記憶の抽出（裏タスク）';
+        case 'memory-extraction-error':
+            return '記憶の抽出のエラー（裏タスク）';
+        case 'memory-batch-json':
+            return '記憶のバッチ抽出（裏タスク）';
+        case 'memory-batch-error':
+            return '記憶のバッチ抽出のエラー（裏タスク）';
         default:
             return source;
     }
 }
 
+const TASK_STATUS_STYLE: Record<BackgroundTask['status'], { label: string; color: string }> = {
+    running: { label: '実行中', color: 'var(--accent-primary)' },
+    completed: { label: '完了', color: 'var(--success)' },
+    failed: { label: '失敗', color: 'var(--error)' },
+};
+
+function taskTimeLabel(task: BackgroundTask, now: number): string {
+    const started = new Date(task.startedAt).toLocaleTimeString();
+    const elapsed = Math.max(0, (task.finishedAt ?? now) - task.startedAt);
+    return `${started} / ${formatDuration(elapsed)}${task.finishedAt ? '' : ' 経過'}`;
+}
+
+function BackgroundTaskList({ tasks, rooms, now }: { tasks: BackgroundTask[]; rooms: Room[]; now: number }) {
+    const runningCount = tasks.filter((task) => task.status === 'running').length;
+    return (
+        <section aria-label="裏で動いているタスク" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <h3 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                    裏で動いているタスク
+                </h3>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    {runningCount > 0 ? `${runningCount} 件実行中` : '実行中のタスクはありません'}
+                </span>
+            </div>
+            {tasks.length === 0 ? (
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
+                    返信のあとに記憶の抽出などが走ると、ここに表示されます。
+                </p>
+            ) : (
+                <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '0.375rem', maxHeight: '15rem', overflowY: 'auto' }}>
+                    {tasks.map((task) => {
+                        const status = TASK_STATUS_STYLE[task.status] ?? TASK_STATUS_STYLE.failed;
+                        const roomName = rooms.find((room) => room.id === task.roomId)?.name;
+                        const message = task.status === 'failed' ? task.error : task.detail;
+                        return (
+                            <li
+                                key={task.id}
+                                style={{
+                                    padding: '0.5rem 0.75rem',
+                                    borderRadius: '0.5rem',
+                                    border: '1px solid var(--border-color)',
+                                    background: 'var(--bg-secondary)',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: '0.25rem',
+                                }}
+                            >
+                                <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.375rem 0.5rem', minWidth: 0 }}>
+                                    <span style={{
+                                        flexShrink: 0,
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '0.25rem',
+                                        fontSize: '0.6875rem',
+                                        fontWeight: 600,
+                                        color: status.color,
+                                        border: `1px solid ${status.color}`,
+                                        borderRadius: '999px',
+                                        padding: '0.125rem 0.375rem',
+                                    }}>
+                                        {task.status === 'running' && <Loader2 size={11} className="animate-spin" aria-hidden="true" />}
+                                        {status.label}
+                                    </span>
+                                    <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>
+                                        {backgroundTaskKindLabel(task.kind)}
+                                    </span>
+                                    {task.reason ? <span style={metaChipStyle}>{task.reason}</span> : null}
+                                    <span style={{ marginLeft: 'auto', flexShrink: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                        {taskTimeLabel(task, now)}
+                                    </span>
+                                </div>
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {[task.characterName, roomName ?? task.roomId].filter(Boolean).join(' / ')}
+                                </div>
+                                {message ? (
+                                    <div style={{ fontSize: '0.8125rem', color: task.status === 'failed' ? 'var(--error)' : 'var(--text-secondary)', wordBreak: 'break-word' }}>
+                                        {message}
+                                    </div>
+                                ) : null}
+                            </li>
+                        );
+                    })}
+                </ul>
+            )}
+        </section>
+    );
+}
+
 type DebugLogModalProps = {
     logs: FullJsonDebugLog[];
+    backgroundTasks: BackgroundTask[];
+    /** 一覧を受け取った時刻。数秒ごとに更新される。 */
+    backgroundTasksCheckedAt: number;
+    rooms: Room[];
     onClose: () => void;
     onClear: () => void;
 };
 
-export default function DebugLogModal({ logs, onClose, onClear }: DebugLogModalProps) {
+export default function DebugLogModal({
+    logs,
+    backgroundTasks,
+    backgroundTasksCheckedAt,
+    rooms,
+    onClose,
+    onClear,
+}: DebugLogModalProps) {
     const modalRef = useRef<HTMLDivElement>(null);
     useModalKeyboard({ isOpen: true, containerRef: modalRef, onClose });
 
@@ -132,6 +240,7 @@ export default function DebugLogModal({ logs, onClose, onClear }: DebugLogModalP
                     </button>
                 </div>
                 <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    <BackgroundTaskList tasks={backgroundTasks} rooms={rooms} now={backgroundTasksCheckedAt} />
                     {logs.length === 0 ? (
                         <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
                             まだログはありません。

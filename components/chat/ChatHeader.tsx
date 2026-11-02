@@ -6,6 +6,7 @@ import {
     ChevronDown,
     Gamepad2,
     HatGlasses,
+    Loader2,
     Menu,
     MessagesSquare,
     SquarePen,
@@ -41,6 +42,8 @@ type ChatHeaderProps = {
     onOpenSidebar: () => void;
     debugEnabled: boolean;
     debugLogCount: number;
+    /** 裏で実行中のタスク数。0 より多いとデバッグボタンに印を出す。 */
+    runningBackgroundTaskCount: number;
     onOpenDebug: () => void;
     inspectorEnabled: boolean;
     onOpenInspector: () => void;
@@ -67,6 +70,7 @@ export default function ChatHeader({
     onOpenSidebar,
     debugEnabled,
     debugLogCount,
+    runningBackgroundTaskCount,
     onOpenDebug,
     inspectorEnabled,
     onOpenInspector,
@@ -138,8 +142,17 @@ export default function ChatHeader({
             <div className="chat-header-actions">
                 <KeyboardShortcutsHelp />
                 {debugEnabled && (
-                    <button type="button" className="btn btn-ghost" onClick={onOpenDebug} title="デバッグログを表示">
-                        <Bug size={18} />
+                    <button
+                        type="button"
+                        className="btn btn-ghost"
+                        onClick={onOpenDebug}
+                        title={runningBackgroundTaskCount > 0
+                            ? `デバッグログを表示（裏で ${runningBackgroundTaskCount} 件実行中）`
+                            : 'デバッグログを表示'}
+                    >
+                        {runningBackgroundTaskCount > 0
+                            ? <Loader2 size={18} className="animate-spin" aria-hidden="true" />
+                            : <Bug size={18} />}
                         <span className="desktop-only" style={{ fontSize: '0.75rem' }}>
                             {debugLogCount}
                         </span>

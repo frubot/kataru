@@ -1,3 +1,4 @@
+mod background;
 pub mod jobs;
 mod memory;
 mod memory_batch;

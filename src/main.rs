@@ -287,6 +287,10 @@ fn api_router() -> Router<AppState> {
             post(conversation::jobs::flush_memory),
         )
         .route(
+            "/conversation/background-tasks",
+            get(conversation::jobs::background_tasks),
+        )
+        .route(
             "/conversation/jobs/{job_id}",
             get(conversation::jobs::get).delete(conversation::jobs::cancel),
         )

@@ -180,14 +180,20 @@ pub async fn turn(
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
+    let mut memory_logs = Vec::new();
     let extraction = match memory {
-        Some(follow_up) => extract_turn_memories(&state, &payload, follow_up, &generated)
-            .await
-            .unwrap_or_default(),
+        Some(follow_up) => {
+            extract_turn_memories(&state, &payload, follow_up, &generated, &mut memory_logs)
+                .await
+                .unwrap_or_default()
+        }
         None => MemoryExtraction::default(),
     };
     if let Some(usages) = result.get_mut("usages").and_then(Value::as_array_mut) {
         usages.extend(extraction.usages);
+    }
+    if let Some(logs) = result.get_mut("fullJsonLogs").and_then(Value::as_array_mut) {
+        logs.extend(memory_logs);
     }
     result["memoryCandidates"] = Value::Array(extraction.candidates);
     Ok(Json(result))
@@ -1983,6 +1989,13 @@ pub(crate) struct MemoryFollowUp {
     shadow: Option<ShadowGate>,
 }
 
+impl MemoryFollowUp {
+    /// 記憶を作る対象のキャラクター。
+    pub(crate) fn character(&self) -> &Value {
+        &self.context.character
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct MemoryExtraction {
     pub(crate) candidates: Vec<Value>,
@@ -2193,14 +2206,12 @@ pub(crate) async fn extract_turn_memories(
     payload: &Value,
     follow_up: MemoryFollowUp,
     generated: &[Value],
+    full_json_logs: &mut Vec<Value>,
 ) -> AppResult<MemoryExtraction> {
     let mut clients = RequestClients::new(state, request_api_config(payload)?);
     let selection =
         resolve_role_selection(payload, "memoryExtractionModel", "memoryExtractionModel")?;
-    let room_id = payload
-        .pointer("/room/id")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
+    let room = payload.get("room").unwrap_or(&Value::Null);
     let mut usages = Vec::new();
     let candidates = extract_memory_candidates(
         &mut clients,
@@ -2208,8 +2219,9 @@ pub(crate) async fn extract_turn_memories(
         follow_up.context,
         follow_up.guidance.as_ref(),
         generated,
-        room_id,
+        room,
         &mut usages,
+        full_json_logs,
     )
     .await?;
     Ok(MemoryExtraction {
@@ -2276,6 +2288,80 @@ fn memory_extraction_request(
     (memory_extraction_guided_prompt().to_owned(), input)
 }
 
+/// 裏で走る抽出のデバッグログに載せる情報。`source` には `-json` / `-error` を付けて記録する。
+struct BackgroundDebug<'a> {
+    room: &'a Value,
+    character: &'a Value,
+    source: &'a str,
+}
+
+/// リクエストの messages を、デバッグログで読みやすいプロンプト表記にする。
+fn request_debug_prompt(body: &Value) -> String {
+    body.get("messages")
+        .and_then(Value::as_array)
+        .map(|messages| {
+            messages
+                .iter()
+                .map(|message| {
+                    let content = string(message, "content");
+                    let content = serde_json::from_str::<Value>(&content)
+                        .ok()
+                        .filter(Value::is_object)
+                        .and_then(|value| serde_json::to_string_pretty(&value).ok())
+                        .unwrap_or(content);
+                    format!("[{}]\n{content}", string(message, "role"))
+                })
+                .collect::<Vec<_>>()
+                .join("\n\n")
+        })
+        .unwrap_or_default()
+}
+
+/// 構造化出力を呼び、成否をデバッグログに残す。
+async fn logged_structured_completion(
+    api_client: &AiApiClient,
+    body: Value,
+    schema: Value,
+    timeout_secs: u64,
+    debug: BackgroundDebug<'_>,
+    full_json_logs: &mut Vec<Value>,
+) -> AppResult<Value> {
+    let prompt = request_debug_prompt(&body);
+    let context = GenerationDebugContext {
+        room: debug.room,
+        character_id: actor_id(debug.character),
+        character_name: string(debug.character, "name"),
+        model: string(&body, "model"),
+        prompt: &prompt,
+    };
+    let started = now_ms();
+    match structured_completion(api_client, body, schema, timeout_secs).await {
+        Ok(raw) => {
+            push_success_debug_log(
+                full_json_logs,
+                &context,
+                &raw,
+                &extract_message_text(&raw),
+                &format!("{}-json", debug.source),
+                started,
+            );
+            Ok(raw)
+        }
+        Err(error) => {
+            push_error_debug_log(
+                full_json_logs,
+                &context,
+                &format!("{}-error", debug.source),
+                None,
+                None,
+                &error,
+                now_ms().saturating_sub(started),
+            );
+            Err(error)
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn extract_memory_candidates(
     clients: &mut RequestClients<'_>,
@@ -2283,9 +2369,12 @@ async fn extract_memory_candidates(
     context: ExtractionContext,
     guidance: Option<&ExtractionGuidance>,
     generated: &[Value],
-    room_id: &str,
+    room: &Value,
     usages: &mut Vec<Value>,
+    full_json_logs: &mut Vec<Value>,
 ) -> AppResult<Vec<Value>> {
+    let room_id = string(room, "id");
+    let room_id = room_id.as_str();
     let api_client = clients.for_selection(selection)?;
     let (system_prompt, mut input) = memory_extraction_request(&context, guidance, generated);
     // ユーザー設定に書いてあることを記憶として保存し直さないよう、キャラクター設定と一緒に渡す。
@@ -2307,7 +2396,19 @@ async fn extract_memory_candidates(
         "temperature": 0.1,
         "stream": false,
     });
-    let raw = structured_completion(&api_client, body, memory_schema(), 60).await?;
+    let raw = logged_structured_completion(
+        &api_client,
+        body,
+        memory_schema(),
+        60,
+        BackgroundDebug {
+            room,
+            character: &context.character,
+            source: "memory-extraction",
+        },
+        full_json_logs,
+    )
+    .await?;
     push_usage(usages, &raw, &context.character, "memory-extraction");
     let content = extract_message_text(&raw);
     let setting = api_client.resolve_user_placeholders(&setting_with_profile);
@@ -2421,6 +2522,7 @@ pub(crate) async fn extract_batch_memories(
     state: &AppState,
     payload: &Value,
     input: BatchExtractionInput<'_>,
+    full_json_logs: &mut Vec<Value>,
 ) -> AppResult<(Vec<Value>, Vec<Value>)> {
     let mut clients = RequestClients::new(state, request_api_config(payload)?);
     let selection =
@@ -2488,11 +2590,18 @@ pub(crate) async fn extract_batch_memories(
         "temperature": 0.1,
         "stream": false,
     });
-    let raw = structured_completion(
+    let debug_room = json!({"id": input.room_id});
+    let raw = logged_structured_completion(
         &api_client,
         body,
         memory_batch_schema(),
         MEMORY_BATCH_TIMEOUT_SECS,
+        BackgroundDebug {
+            room: &debug_room,
+            character: input.character,
+            source: "memory-batch",
+        },
+        full_json_logs,
     )
     .await?;
     let mut usages = Vec::new();

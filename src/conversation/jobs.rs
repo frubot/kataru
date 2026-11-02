@@ -30,6 +30,7 @@ use crate::{
 
 use super::{
     GenerationMode,
+    background::{BackgroundTaskKind, BackgroundTaskStart, BackgroundTasks},
     memory::{MEMORY_SAVE_MAX_UPDATES, prepare_conversation_memories},
     memory_batch::{run_memory_batches_after_turn, run_memory_flush},
     orchestrator::{
@@ -84,6 +85,7 @@ pub struct ConversationJobs {
     history_persistence: Arc<Mutex<()>>,
     memory_persistence: Arc<Mutex<()>>,
     memory_batches: Arc<StdMutex<HashSet<String>>>,
+    background_tasks: BackgroundTasks,
 }
 
 /// 実行中のバッチ抽出の印。drop で外れる。
@@ -252,6 +254,11 @@ impl ConversationJobs {
     }
 
     /// 同じルームのバッチ抽出が二重に走らないようにする。既に実行中なら `None`。
+    /// 返信のあとに裏で走るタスクの記録。
+    pub(crate) fn background_tasks(&self) -> &BackgroundTasks {
+        &self.background_tasks
+    }
+
     pub(crate) fn begin_memory_batch(&self, room_id: &str) -> Option<MemoryBatchGuard> {
         let mut rooms = self.memory_batches.lock().ok()?;
         if !rooms.insert(room_id.to_owned()) {
@@ -935,6 +942,13 @@ pub async fn list(State(state): State<AppState>) -> Json<Value> {
     }))
 }
 
+/// 裏で走るタスク（記憶の抽出など）の一覧。デバッグログ画面が読む。
+pub async fn background_tasks(State(state): State<AppState>) -> Json<Value> {
+    Json(json!({
+        "tasks": state.conversation_jobs.background_tasks().list(),
+    }))
+}
+
 pub async fn cancel(
     Path(job_id): Path<String>,
     State(state): State<AppState>,
@@ -988,11 +1002,29 @@ async fn persist_turn_memories(
         stage = "memory_extraction_started",
         "Conversation memory extraction started"
     );
+    let room_id = payload
+        .pointer("/room/id")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let task = state
+        .conversation_jobs
+        .background_tasks()
+        .start(BackgroundTaskStart {
+            kind: BackgroundTaskKind::MemoryExtraction,
+            reason: "ターン後",
+            room_id,
+            character: Some(follow_up.character()),
+        });
+    task.set_detail("記憶の候補を抽出中");
+    let mut full_json_logs = Vec::new();
+    let extraction =
+        extract_turn_memories(state, payload, follow_up, messages, &mut full_json_logs).await;
+    task.push_logs(full_json_logs);
     let MemoryExtraction {
         mut candidates,
         mut usages,
         shadow,
-    } = match extract_turn_memories(state, payload, follow_up, messages).await {
+    } = match extraction {
         Ok(extraction) => extraction,
         Err(error) => {
             tracing::warn!(
@@ -1000,13 +1032,16 @@ async fn persist_turn_memories(
                 classification = error.diagnostic_class(),
                 "Conversation memory extraction failed"
             );
+            task.fail(format!("記憶の抽出に失敗しました: {error}"));
             return;
         }
     };
+    task.set_detail(format!("候補 {} 件を保存の準備中", candidates.len()));
     let source_message_ids = content_message_ids(messages);
     normalize_memory_follow_up_ids(job_id, &mut candidates, &mut usages, &source_message_ids);
     let candidate_count = candidates.len();
     let _memory_persistence_guard = state.conversation_jobs.lock_memory_persistence().await;
+    let mut preparation_error = None;
     let prepared = match prepare_conversation_memories(
         state,
         payload,
@@ -1023,6 +1058,7 @@ async fn persist_turn_memories(
                 classification = error.diagnostic_class(),
                 "Conversation memories could not be prepared"
             );
+            preparation_error = Some(format!("記憶の保存の準備に失敗しました: {error}"));
             Vec::new()
         }
     };
@@ -1040,20 +1076,32 @@ async fn persist_turn_memories(
     let _history_persistence_guard = state.conversation_jobs.lock_history_persistence().await;
     match persist_conversation_memories(&state.database, source_message_ids, prepared, usages).await
     {
-        Ok(true) => tracing::debug!(
-            stage = "memories_persisted",
-            saved_count,
-            "Conversation memories persisted"
-        ),
-        Ok(false) => tracing::debug!(
-            stage = "memories_discarded",
-            "Conversation memories were discarded because their source messages no longer exist"
-        ),
-        Err(error) => tracing::warn!(
-            stage = "memory_persistence_failed",
-            classification = error.diagnostic_class(),
-            "Conversation memories could not be persisted"
-        ),
+        Ok(true) => {
+            tracing::debug!(
+                stage = "memories_persisted",
+                saved_count,
+                "Conversation memories persisted"
+            );
+            match preparation_error {
+                Some(error) => task.fail(error),
+                None => task.complete(format!("候補 {candidate_count} 件 / 保存 {saved_count} 件")),
+            }
+        }
+        Ok(false) => {
+            tracing::debug!(
+                stage = "memories_discarded",
+                "Conversation memories were discarded because their source messages no longer exist"
+            );
+            task.complete("元の発言が削除されたため保存しませんでした");
+        }
+        Err(error) => {
+            tracing::warn!(
+                stage = "memory_persistence_failed",
+                classification = error.diagnostic_class(),
+                "Conversation memories could not be persisted"
+            );
+            task.fail(format!("記憶の保存に失敗しました: {error}"));
+        }
     }
 }
 

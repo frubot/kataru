@@ -1534,12 +1534,10 @@ pub struct UpdateConnectionRequest {
     ignored_providers: Option<Vec<String>>,
 }
 
-pub async fn list_connections(
-    ConnectInfo(peer): ConnectInfo<std::net::SocketAddr>,
-    State(state): State<AppState>,
-) -> AppResult<Json<ConnectionsStatus>> {
-    require_local_machine(peer)?;
-    Ok(Json(state.ai_config.status()))
+/// 一覧は他端末からも取得できる（モデル選択に必要なため）。
+/// APIキーの値は含まず、変更系だけをこの端末に限定する。
+pub async fn list_connections(State(state): State<AppState>) -> Json<ConnectionsStatus> {
+    Json(state.ai_config.status())
 }
 
 pub async fn create_connection(
@@ -1604,7 +1602,7 @@ fn require_local_machine(peer: SocketAddr) -> AppResult<()> {
         Ok(())
     } else {
         Err(AppError::Forbidden(
-            "AI接続設定はこの端末からのみ変更できます。".to_owned(),
+            "AI接続設定はホストのみ変更できます。".to_owned(),
         ))
     }
 }

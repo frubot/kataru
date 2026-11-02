@@ -1300,12 +1300,18 @@ mod tests {
         ]}"#;
         let turns = parse_ensemble_response(content, &narrated_speakers(), false, 1)
             .expect("ensemble turns");
-        let speakers = turns.iter().map(|turn| turn.speaker.as_str()).collect::<Vec<_>>();
+        let speakers = turns
+            .iter()
+            .map(|turn| turn.speaker.as_str())
+            .collect::<Vec<_>>();
         assert_eq!(speakers, vec!["narrator", "aoi", "narrator"]);
         // 続けて並んだナレーションは1つにまとめ、表情・モーションは付かない。
-        assert_eq!(turns[0].envelope.message, "雨が降り始めた。
+        assert_eq!(
+            turns[0].envelope.message,
+            "雨が降り始めた。
 
-窓が曇る。");
+窓が曇る。"
+        );
         assert_eq!(turns[0].envelope.expression, None);
         assert_eq!(turns[0].envelope.motion, None);
         assert_eq!(turns[2].envelope.message, "遠くで雷が鳴った。");

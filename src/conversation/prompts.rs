@@ -1321,7 +1321,9 @@ mod tests {
             true,
             "",
         );
-        assert!(prompt.contains(r#"Use `"speaker": "narrator"` for narration of the whole scene."#));
+        assert!(
+            prompt.contains(r#"Use `"speaker": "narrator"` for narration of the whole scene."#)
+        );
         assert!(prompt.contains("Write at most 3 character turn(s)."));
         assert!(prompt.contains("The first character turn must be 凛's."));
         assert!(prompt.contains("### Narrator turns"));

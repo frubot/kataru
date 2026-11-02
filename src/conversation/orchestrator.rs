@@ -3002,8 +3002,14 @@ mod tests {
     #[test]
     fn ensemble_budget_grows_with_turns_and_is_capped() {
         assert_eq!(ensemble_max_tokens(1, false), CHAT_COMPLETION_MAX_TOKENS);
-        assert_eq!(ensemble_max_tokens(3, false), CHAT_COMPLETION_MAX_TOKENS + 2048);
-        assert_eq!(ensemble_max_tokens(3, true), CHAT_COMPLETION_MAX_TOKENS + 2560);
+        assert_eq!(
+            ensemble_max_tokens(3, false),
+            CHAT_COMPLETION_MAX_TOKENS + 2048
+        );
+        assert_eq!(
+            ensemble_max_tokens(3, true),
+            CHAT_COMPLETION_MAX_TOKENS + 2560
+        );
         assert_eq!(ensemble_max_tokens(10, true), 8192);
         assert_eq!(ensemble_timeout_secs(1), 120);
         assert_eq!(ensemble_timeout_secs(10), 300);

@@ -170,6 +170,7 @@ pub fn character_system_prompt(
     relevant_memories: &[InjectedMemory],
     active_costume: Option<&Value>,
     user_profile: &str,
+    core_memory: Option<&str>,
 ) -> String {
     let character_name = string(character, "name");
     let mut prompt = String::from("# 指示");
@@ -206,6 +207,16 @@ pub fn character_system_prompt(
             summary.trim()
         ));
     }
+    if let Some(core_memory) = core_memory.filter(|value| !value.trim().is_empty()) {
+        prompt.push_str(&format!(
+            "
+
+# {character_name}'s Core Memory
+{CORE_MEMORY_INSTRUCTION}
+{}",
+            core_memory.trim()
+        ));
+    }
     if !relevant_memories.is_empty() {
         prompt.push_str("\n\n## List of Related Memories\n");
         push_memory_lines(&mut prompt, relevant_memories);
@@ -229,6 +240,8 @@ pub fn character_system_prompt(
     prompt
 }
 
+const CORE_MEMORY_INSTRUCTION: &str = "Things you always remember about the current state. If they conflict with the related memories or the summary, the core memory is the latest and takes priority.";
+
 fn push_memory_lines(prompt: &mut String, memories: &[InjectedMemory]) {
     prompt.push_str(
         "The [Date/Elapsed Time] entry in each row indicates the date on which the event was recorded.\n",
@@ -250,6 +263,8 @@ pub(crate) struct EnsembleCast<'a> {
     pub expression_names: Vec<String>,
     pub motion_names: Vec<String>,
     pub memories: Vec<InjectedMemory>,
+    /// 描画済みの常駐記憶。無ければ `None`。
+    pub core_memory: Option<String>,
     pub costume: Option<&'a Value>,
 }
 
@@ -469,6 +484,20 @@ Users may include not only spoken lines but also stage directions—such as `*st
             prompt.push_str(&format!(
                 "\n### Motions\n{}",
                 member.motion_names.join(", ")
+            ));
+        }
+        if let Some(core_memory) = member
+            .core_memory
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            prompt.push_str(&format!(
+                "
+### {name}'s core memory
+{CORE_MEMORY_INSTRUCTION}
+{}
+",
+                core_memory.trim()
             ));
         }
         if !member.memories.is_empty() {
@@ -806,6 +835,10 @@ mod tests {
             }],
             None,
             "",
+            Some(
+                "[About {{user}}]
+- 呼び名はミナト",
+            ),
         );
 
         let setting_heading = prompt
@@ -814,6 +847,23 @@ mod tests {
         assert_eq!(prompt.find("# 指示"), Some(0));
         assert!(prompt[..setting_heading].contains("# Summary of the conversation so far"));
         assert!(prompt[..setting_heading].contains("## List of Related Memories"));
+        let core = prompt
+            .find(
+                "# 葵's Core Memory
+",
+            )
+            .expect("core memory heading");
+        let summary = prompt
+            .find("# Summary of the conversation so far")
+            .expect("summary heading");
+        let related = prompt
+            .find("## List of Related Memories")
+            .expect("related heading");
+        assert!(summary < core && core < related);
+        assert!(prompt[core..related].contains(
+            "[About {{user}}]
+- 呼び名はミナト"
+        ));
         assert!(
             prompt.ends_with("# 葵's Profile\n葵として振る舞う\n\n# Tone example\nThe following are examples of a character's tone of voice. Please use them only as a reference for the character's traits; do not copy these specific phrases directly into your responses.\n\n丁寧語で話し、語尾は柔らかくする\n\n# Details related to {{user}}\n{{user}}は幼なじみ\n\n# Additional constraints\n The instructions in this section take top priority. Please follow them even if they conflict with other settings.\n\n返答は三文以内にする")
         );
@@ -841,6 +891,7 @@ mod tests {
             ],
             None,
             "",
+            None,
         );
 
         assert!(prompt.contains("## List of Related Memories\n"));
@@ -862,6 +913,7 @@ mod tests {
             &[],
             None,
             "",
+            None,
         );
 
         assert!(!prompt.contains("## List of Related Memories"));
@@ -903,6 +955,7 @@ mod tests {
             &[],
             None,
             "",
+            None,
         );
 
         assert!(prompt.contains("You are 葵. Please begin the roleplay."));
@@ -924,6 +977,7 @@ mod tests {
             &[],
             None,
             "",
+            None,
         );
 
         assert!(prompt.contains("Please generate the output in JSON format"));
@@ -942,6 +996,7 @@ mod tests {
             &[],
             None,
             "",
+            None,
         );
 
         assert!(prompt.contains("Please generate the output in JSON format"));
@@ -1060,6 +1115,7 @@ mod tests {
             &[],
             None,
             "",
+            None,
         );
 
         let expression_index = prompt
@@ -1084,6 +1140,7 @@ mod tests {
             &[],
             None,
             "",
+            None,
         );
 
         assert!(!prompt.contains("JSONの motion"));
@@ -1102,6 +1159,7 @@ mod tests {
             &[],
             Some(&costume),
             "",
+            None,
         );
 
         assert!(prompt.contains("# Current outfit"));
@@ -1124,6 +1182,7 @@ mod tests {
                 &[],
                 Some(&costume),
                 "",
+                None,
             );
 
             assert!(!prompt.contains("Current outfit"));
@@ -1142,6 +1201,7 @@ mod tests {
             &[],
             None,
             "  一人称は僕  ",
+            None,
         );
 
         let user_heading = prompt
@@ -1160,6 +1220,7 @@ mod tests {
             &[],
             None,
             "   ",
+            None,
         );
         assert!(!without.contains("# About {{user}}"));
     }
@@ -1205,6 +1266,11 @@ mod tests {
                     content: "{{user}}は紅茶が好き".into(),
                     date_label: None,
                 }],
+                core_memory: Some(
+                    "[Relationship with {{user}}]
+- 幼なじみで隣の家に住んでいる"
+                        .into(),
+                ),
                 costume: None,
             },
             EnsembleCast {
@@ -1212,6 +1278,7 @@ mod tests {
                 expression_names: Vec::new(),
                 motion_names: Vec::new(),
                 memories: Vec::new(),
+                core_memory: None,
                 costume: None,
             },
         ]
@@ -1260,7 +1327,13 @@ mod tests {
         assert!(aoi_part.contains("### Expressions\nneutral, smile"));
         assert!(aoi_part.contains("### Motions\nwave"));
         assert!(aoi_part.contains("1. {{user}}は紅茶が好き"));
+        assert!(aoi_part.contains(
+            "### 葵's core memory
+"
+        ));
+        assert!(aoi_part.contains("- 幼なじみで隣の家に住んでいる"));
         let rin_part = &prompt[rin_section..];
+        assert!(!rin_part.contains("core memory"));
         assert!(!rin_part.contains("### Expressions"));
         assert!(!rin_part.contains("related memories"));
     }

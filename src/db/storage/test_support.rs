@@ -18,6 +18,9 @@ pub(super) fn open_test_database() -> Connection {
         ))
         .expect("apply situation image asset migration");
     connection
+        .execute_batch(include_str!("../../../migrations/0004_core_memories.sql"))
+        .expect("apply core memory migration");
+    connection
 }
 
 pub(super) fn test_room(id: &str) -> Value {

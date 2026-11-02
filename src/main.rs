@@ -4,6 +4,7 @@ mod auth;
 mod character_package;
 mod config;
 mod conversation;
+mod core_memory;
 mod db;
 mod doctor;
 mod env_file;

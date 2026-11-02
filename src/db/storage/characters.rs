@@ -59,6 +59,10 @@ pub(super) fn delete_character(connection: &mut Connection, character_id: &str) 
         params![character_id],
     )?;
     transaction.execute(
+        "DELETE FROM core_memories WHERE character_id = ?1",
+        params![character_id],
+    )?;
+    transaction.execute(
         "DELETE FROM characters WHERE id = ?1",
         params![character_id],
     )?;

@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { X, Trash2, Brain } from 'lucide-react';
+import { X, Trash2, Brain, Pin, Search } from 'lucide-react';
 import { useStore, Character, MemoryRecord } from '@/lib/store';
+import CoreMemoryEditor from './CoreMemoryEditor';
 import { useModalKeyboard } from './useModalKeyboard';
+
+type MemoryTab = 'core' | 'searchable';
 
 interface MemoryListModalProps {
     isOpen: boolean;
@@ -10,8 +13,14 @@ interface MemoryListModalProps {
 }
 
 export default function MemoryListModal({ isOpen, onClose, character }: MemoryListModalProps) {
-    const { removeMemoryRecord, clearMemories, listMemoriesForCharacter } = useStore();
+    const { removeMemoryRecord, clearMemories, listMemoriesForCharacter, updateRoomSettings } = useStore();
     const liveCharacter = useStore((s) => (character ? s.characters.find((c) => c.id === character.id) : undefined)) ?? character;
+    // 開いているのがこのキャラクターとの1対1のルームなら、ルームごとの切り替えを出す。
+    const currentRoom = useStore((s) => s.rooms.find((room) => room.id === s.currentRoomId));
+    const roomForToggle = currentRoom && liveCharacter && !currentRoom.groupId && currentRoom.characterId === liveCharacter.id
+        ? currentRoom
+        : undefined;
+    const [activeTab, setActiveTab] = useState<MemoryTab>('core');
     const [memories, setMemories] = useState<MemoryRecord[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const modalRef = useRef<HTMLDivElement>(null);
@@ -39,6 +48,10 @@ export default function MemoryListModal({ isOpen, onClose, character }: MemoryLi
         }
         reloadMemories();
     }, [isOpen, liveCharacter, reloadMemories]);
+
+    useEffect(() => {
+        if (isOpen) setActiveTab('core');
+    }, [isOpen, liveCharacter?.id]);
 
     if (!isOpen || !liveCharacter) return null;
 
@@ -99,7 +112,31 @@ export default function MemoryListModal({ isOpen, onClose, character }: MemoryLi
                 </div>
 
                 <div className="modal-body">
-                    {isLoading ? (
+                    <div role="tablist" aria-label="メモリの種類" style={{ display: 'flex', gap: '0.375rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                        <button type="button" role="tab" aria-selected={activeTab === 'core'} className={`btn ${activeTab === 'core' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('core')}>
+                            <Pin size={15} />常駐記憶
+                        </button>
+                        <button type="button" role="tab" aria-selected={activeTab === 'searchable'} className={`btn ${activeTab === 'searchable' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveTab('searchable')}>
+                            <Search size={15} />検索される記憶
+                        </button>
+                    </div>
+                    {activeTab === 'core' ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                            {roomForToggle && (
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={roomForToggle.coreMemoryDisabled !== true}
+                                        onChange={(event) => updateRoomSettings(roomForToggle.id, {
+                                            coreMemoryDisabled: event.target.checked ? undefined : true,
+                                        })}
+                                    />
+                                    このルーム（{roomForToggle.name}）で常駐記憶を使う
+                                </label>
+                            )}
+                            <CoreMemoryEditor key={liveCharacter.id} characterId={liveCharacter.id} />
+                        </div>
+                    ) : isLoading ? (
                         <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
                             読み込み中...
                         </div>

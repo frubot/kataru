@@ -5,6 +5,7 @@ use crate::error::AppResult;
 
 use super::{
     characters::{upsert_character, upsert_situation},
+    core_memories::upsert as upsert_core_memory,
     images::prune_orphaned_image_assets,
     json::required_string,
     memories::upsert as upsert_memory,
@@ -32,6 +33,7 @@ pub(super) fn bulk_write(
     messages: Vec<Value>,
     memories: Vec<Value>,
     usage_records: Vec<Value>,
+    core_memories: Vec<Value>,
 ) -> AppResult<Value> {
     let transaction = connection.transaction()?;
     let stored = write(
@@ -42,6 +44,7 @@ pub(super) fn bulk_write(
         messages,
         memories,
         usage_records,
+        core_memories,
     )?;
     transaction.commit()?;
     Ok(stored)
@@ -56,6 +59,7 @@ pub(super) fn replace_all(
     messages: Vec<Value>,
     memories: Vec<Value>,
     usage_records: Vec<Value>,
+    core_memories: Vec<Value>,
     current_room_id: Option<String>,
 ) -> AppResult<Value> {
     let transaction = connection.transaction()?;
@@ -68,6 +72,7 @@ pub(super) fn replace_all(
         messages,
         memories,
         usage_records,
+        core_memories,
     )?;
     let current_room_exists = current_room_id
         .as_deref()
@@ -97,6 +102,7 @@ pub(super) fn replace_all(
 
 fn clear_data_tables(transaction: &Transaction<'_>) -> AppResult<()> {
     transaction.execute("DELETE FROM usage_records", [])?;
+    transaction.execute("DELETE FROM core_memories", [])?;
     transaction.execute("DELETE FROM memories", [])?;
     transaction.execute("DELETE FROM messages", [])?;
     transaction.execute("DELETE FROM rooms", [])?;
@@ -116,6 +122,7 @@ fn write(
     messages: Vec<Value>,
     memories: Vec<Value>,
     usage_records: Vec<Value>,
+    core_memories: Vec<Value>,
 ) -> AppResult<Value> {
     let mut stored_characters = Vec::with_capacity(characters.len());
     for character in characters {
@@ -137,6 +144,9 @@ fn write(
     }
     for usage_record in usage_records {
         upsert_usage_record(transaction, usage_record)?;
+    }
+    for core_memory in core_memories {
+        upsert_core_memory(transaction, core_memory)?;
     }
     prune_orphaned_image_assets(transaction)?;
     Ok(json!({

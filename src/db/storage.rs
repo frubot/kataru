@@ -2,6 +2,7 @@ mod bulk;
 mod characters;
 mod command;
 mod conversation;
+mod core_memories;
 mod images;
 mod json;
 mod memories;
@@ -29,6 +30,7 @@ pub use conversation::{
     persist_batch_memories, persist_conversation_memories, persist_conversation_result,
     persist_conversation_submission,
 };
+pub use core_memories::{get_core_memory, save_core_memory_if_version};
 pub use images::{migrate_character_images, migrate_situation_images};
 pub use package::{
     PackagePreview, build_character_package, import_character_package, inspect_character_package,

@@ -20,13 +20,20 @@ use crate::{
         },
         typesafe::{SystemOneResponse, system_one},
     },
+    core_memory::{CoreMemory, RejectedOp, apply_ops},
+    db::get_core_memory,
     error::{AppError, AppResult},
 };
 
 use super::{
     GenerationMode,
+    core_memory_update::{
+        CORE_MEMORY_MAX_RETRIES, core_memory_ops_schema, core_memory_retry_request,
+        core_memory_update_prompt, core_memory_update_request, demoted_memory_candidate,
+        parse_core_memory_ops,
+    },
     jobs::{ConversationJobs, JobCancellation},
-    memory::{is_covered_by_character_setting, request_embedding},
+    memory::{is_covered_by_character_setting, is_duplicate_of_core_memory, request_embedding},
     memory_batch::MemoryBatchMode,
     memory_date,
     memory_gate::{
@@ -399,6 +406,7 @@ async fn run_turn_inner(
         let ensemble_history = slice_by_user_history(&active_history, history_limit);
         let memory_enabled = !secret_mode && string(situation, "memoryMode") == "readOnly";
         let mut cast_memories = Vec::with_capacity(participants.len());
+        let mut cast_core_memories = Vec::with_capacity(participants.len());
         for actor in &participants {
             let source_id = string(actor, "sourceCharacterId");
             let memory_allowed = memory_enabled
@@ -426,11 +434,18 @@ async fn run_turn_inner(
             } else {
                 Vec::new()
             };
+            let core_memory = if memory_allowed {
+                load_core_memory(&state, &room, &source_id, &string(actor, "name")).await
+            } else {
+                None
+            };
+            let relevant = without_core_duplicates(relevant, core_memory.as_ref());
             extend_unique(
                 &mut used_memory_ids,
                 relevant.iter().map(|memory| memory.id.clone()),
             );
             cast_memories.push(relevant);
+            cast_core_memories.push(core_memory.map(|memory| memory.rendered));
         }
         if !cancellation.is_cancelled() {
             let generation_history =
@@ -447,6 +462,7 @@ async fn run_turn_inner(
                         situation,
                         participants: &participants,
                         cast_memories: &cast_memories,
+                        cast_core_memories: &cast_core_memories,
                         history: &generation_history,
                         room: &room,
                         summary: current_summary.as_deref(),
@@ -489,6 +505,18 @@ async fn run_turn_inner(
         } else {
             Vec::new()
         };
+        let core_memory = if memory_allowed {
+            load_core_memory(
+                &state,
+                &room,
+                &string(character, "id"),
+                &string(character, "name"),
+            )
+            .await
+        } else {
+            None
+        };
+        let relevant = without_core_duplicates(relevant, core_memory.as_ref());
         extend_unique(
             &mut used_memory_ids,
             relevant.iter().map(|memory| memory.id.clone()),
@@ -510,6 +538,7 @@ async fn run_turn_inner(
                 &room,
                 current_summary.as_deref(),
                 &relevant,
+                core_memory.as_ref().map(|memory| memory.rendered.as_str()),
                 reply_format,
                 secret_mode,
                 &mut usages,
@@ -993,6 +1022,7 @@ async fn generate_for_character(
     room: &Value,
     summary: Option<&str>,
     memories: &[ScoredMemory],
+    core_memory: Option<&str>,
     format: ReplyFormat,
     secret_mode: bool,
     usages: &mut Vec<Value>,
@@ -1020,6 +1050,7 @@ async fn generate_for_character(
         &injected_memories,
         selected_costume(character, room),
         api_client.user_profile(),
+        core_memory,
     );
     let mut request_messages = vec![json!({
         "role": "system",
@@ -1187,6 +1218,56 @@ async fn generate_for_character(
     ))
 }
 
+/// 会話に入れる常駐記憶。
+struct LoadedCoreMemory {
+    /// プロンプトに入れる文章。
+    rendered: String,
+    /// 行ごとの本文。検索結果の重複を外すのに使う。
+    texts: Vec<String>,
+}
+
+/// 常駐記憶を読む。ルームで使わない設定にしている、空、または読めなければ `None`。
+async fn load_core_memory(
+    state: &AppState,
+    room: &Value,
+    character_id: &str,
+    character_name: &str,
+) -> Option<LoadedCoreMemory> {
+    if character_id.is_empty() || boolean(room, "coreMemoryDisabled") {
+        return None;
+    }
+    let memory = match get_core_memory(&state.database, character_id).await {
+        Ok(memory) => memory?,
+        Err(error) => {
+            tracing::warn!(
+                stage = "core_memory_load_failed",
+                classification = error.diagnostic_class(),
+                "Core memory could not be loaded"
+            );
+            return None;
+        }
+    };
+    let rendered = memory.render_for_character(character_name)?;
+    Some(LoadedCoreMemory {
+        rendered,
+        texts: memory.entries.into_iter().map(|entry| entry.text).collect(),
+    })
+}
+
+/// 常駐記憶とほぼ同じ内容の検索結果を外す。同じことを二重に入れないため。
+fn without_core_duplicates(
+    memories: Vec<ScoredMemory>,
+    core_memory: Option<&LoadedCoreMemory>,
+) -> Vec<ScoredMemory> {
+    let Some(core_memory) = core_memory else {
+        return memories;
+    };
+    memories
+        .into_iter()
+        .filter(|memory| !is_duplicate_of_core_memory(&memory.content, &core_memory.texts))
+        .collect()
+}
+
 fn injected_memories(memories: &[ScoredMemory]) -> Vec<InjectedMemory> {
     memories
         .iter()
@@ -1235,6 +1316,8 @@ struct EnsembleRequest<'a> {
     participants: &'a [Value],
     /// `participants` と同じ順の、参加者ごとの関連記憶。
     cast_memories: &'a [Vec<ScoredMemory>],
+    /// `participants` と同じ順の、参加者ごとの描画済み常駐記憶。
+    cast_core_memories: &'a [Option<String>],
     history: &'a [Value],
     room: &'a Value,
     summary: Option<&'a str>,
@@ -1387,6 +1470,7 @@ async fn generate_for_ensemble(
         situation,
         participants,
         cast_memories,
+        cast_core_memories,
         history,
         room,
         summary,
@@ -1442,6 +1526,7 @@ async fn generate_for_ensemble(
                 .get(index)
                 .map(|memories| injected_memories(memories))
                 .unwrap_or_default(),
+            core_memory: cast_core_memories.get(index).cloned().flatten(),
             costume: selected_costume(actor, room),
         })
         .collect::<Vec<_>>();
@@ -2653,6 +2738,153 @@ pub(crate) async fn extract_batch_memories(
         );
     }
     Ok((candidates, usages))
+}
+
+/// 常駐記憶の自動更新に渡す材料。
+pub(crate) struct CoreMemoryUpdateInput<'a> {
+    pub(crate) character: &'a Value,
+    pub(crate) room_id: &'a str,
+    pub(crate) summary: &'a str,
+    /// 今回読んだ発言。外した行を検索される記憶にするときの根拠にも使う。
+    pub(crate) messages: &'a [Value],
+    /// 今回抽出した記憶の本文。
+    pub(crate) new_memories: &'a [String],
+    pub(crate) memory: &'a CoreMemory,
+}
+
+pub(crate) struct CoreMemoryUpdateResult {
+    /// 適用後の常駐記憶。
+    pub(crate) memory: CoreMemory,
+    pub(crate) applied: usize,
+    /// やり直しても適用できなかった指示。
+    pub(crate) rejected: Vec<RejectedOp>,
+    /// 常駐記憶から外した行を、検索される記憶の候補にしたもの。
+    pub(crate) demoted_candidates: Vec<Value>,
+    pub(crate) attempts: usize,
+    pub(crate) usages: Vec<Value>,
+}
+
+const CORE_MEMORY_UPDATE_TIMEOUT_SECS: u64 = 90;
+
+/// 常駐記憶の差分の指示を AI に出させて適用する。保存はしない。
+/// 適用できない指示があれば、今の常駐記憶と理由だけを渡して最大 `CORE_MEMORY_MAX_RETRIES` 回やり直させる。
+pub(crate) async fn update_core_memory(
+    state: &AppState,
+    payload: &Value,
+    input: CoreMemoryUpdateInput<'_>,
+    full_json_logs: &mut Vec<Value>,
+) -> AppResult<CoreMemoryUpdateResult> {
+    let mut clients = RequestClients::new(state, request_api_config(payload)?);
+    let selection =
+        resolve_role_selection(payload, "memoryExtractionModel", "memoryExtractionModel")?;
+    let api_client = clients.for_selection(&selection)?;
+    let setting = character_setting_with_user_profile(input.character, api_client.user_profile());
+    let messages = input
+        .messages
+        .iter()
+        .map(|message| {
+            json!({
+                "role": string(message, "role"),
+                "content": message_text_with_attachments(message, true),
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut request = core_memory_update_request(
+        &string(input.character, "name"),
+        &setting,
+        input.memory,
+        input.summary,
+        &messages,
+        input.new_memories,
+    );
+    let debug_room = json!({"id": input.room_id});
+    let mut memory = input.memory.clone();
+    let mut applied = 0;
+    let mut rejected = Vec::new();
+    let mut demoted = Vec::new();
+    let mut usages = Vec::new();
+    let mut attempts = 0;
+    loop {
+        attempts += 1;
+        let body = json!({
+            "model": selection.model,
+            "messages": [
+                {"role": "system", "content": core_memory_update_prompt()},
+                {"role": "user", "content": serde_json::to_string(&request)?},
+            ],
+            "temperature": 0.1,
+            "stream": false,
+        });
+        let raw = match logged_structured_completion(
+            &api_client,
+            body,
+            core_memory_ops_schema(),
+            CORE_MEMORY_UPDATE_TIMEOUT_SECS,
+            BackgroundDebug {
+                room: &debug_room,
+                character: input.character,
+                source: "core-memory",
+            },
+            full_json_logs,
+        )
+        .await
+        {
+            Ok(raw) => raw,
+            // やり直しで失敗したときは、それまでに適用できた分を残す。
+            Err(error) if attempts > 1 => {
+                tracing::warn!(
+                    stage = "core_memory_retry_failed",
+                    classification = error.diagnostic_class(),
+                    "Core memory retry failed"
+                );
+                break;
+            }
+            Err(error) => return Err(error),
+        };
+        push_usage(&mut usages, &raw, input.character, "core-memory-update");
+        let ops = parse_core_memory_ops(&extract_message_text(&raw));
+        let outcome = apply_ops(&memory, ops, now_ms() as i64);
+        applied += outcome.applied;
+        demoted.extend(outcome.demoted);
+        memory = outcome.memory;
+        rejected = outcome.rejected;
+        if rejected.is_empty() || attempts > CORE_MEMORY_MAX_RETRIES {
+            break;
+        }
+        request = core_memory_retry_request(&memory, &rejected);
+    }
+
+    let character_id = string(input.character, "id");
+    let source_ids = input
+        .messages
+        .last()
+        .map(|message| vec![string(message, "id")])
+        .unwrap_or_default();
+    let now = now_ms();
+    let demoted_candidates = demoted
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| {
+            let mut candidate = demoted_memory_candidate(entry);
+            stamp_memory_candidate(
+                &mut candidate,
+                format!("core-memory-demoted-{}-{now}-{index}", input.room_id),
+                &character_id,
+                input.room_id,
+                &source_ids,
+                now,
+            );
+            candidate
+        })
+        .collect();
+    Ok(CoreMemoryUpdateResult {
+        memory,
+        applied,
+        rejected,
+        demoted_candidates,
+        attempts,
+        usages,
+    })
 }
 
 /// 発言に m1, m2, ... の参照を振る。

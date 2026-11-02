@@ -1,4 +1,4 @@
-import type { Character, MemoryRecord, Message, Room, Situation, UsageRecord } from './store/types';
+import type { Character, CoreMemory, MemoryRecord, Message, Room, Situation, UsageRecord } from './store/types';
 import { fetchWithTransientRetry } from './fetchRetry';
 
 export type StoredRoom = Omit<Room, 'messages' | 'secretMode'>;
@@ -20,6 +20,7 @@ type BulkWriteParams = {
     messages?: StoredMessage[];
     memories?: MemoryRecord[];
     usageRecords?: UsageRecord[];
+    coreMemories?: CoreMemory[];
 };
 
 async function storage<T>(request: StorageRequest): Promise<T> {
@@ -31,8 +32,9 @@ async function storage<T>(request: StorageRequest): Promise<T> {
         body: JSON.stringify(request),
     };
     // Storage commands are state-setting operations and safe to repeat, except touch_memories,
-    // which increments a counter. Safari can fail the first fetch after a long suspension.
-    const response = request.op === 'touch_memories'
+    // which increments a counter, and put_core_memory, whose version check would report a
+    // conflict on a retry. Safari can fail the first fetch after a long suspension.
+    const response = request.op === 'touch_memories' || request.op === 'put_core_memory'
         ? await fetch('/api/storage', requestInit)
         : await fetchWithTransientRetry('/api/storage', requestInit);
     if (!response.ok) {
@@ -260,6 +262,28 @@ export async function touchMemories(ids: string[], timestamp = Date.now()): Prom
     await storage<null>({ op: 'touch_memories', memory_ids: ids, timestamp });
 }
 
+export async function getCoreMemory(characterId: string): Promise<CoreMemory | null> {
+    return storage<CoreMemory | null>({ op: 'get_core_memory', character_id: characterId });
+}
+
+export async function getAllCoreMemories(): Promise<CoreMemory[]> {
+    return storage<CoreMemory[]>({ op: 'get_all_core_memories' });
+}
+
+export type PutCoreMemoryResult =
+    | { status: 'saved'; coreMemory: CoreMemory }
+    /** 画面で読んだ後に裏で更新されていた。`coreMemory` は今の内容。 */
+    | { status: 'conflict'; coreMemory: CoreMemory | null };
+
+/** `expectedVersion` は読んだときの版（未保存なら0）。 */
+export async function putCoreMemory(coreMemory: CoreMemory, expectedVersion: number): Promise<PutCoreMemoryResult> {
+    return storage<PutCoreMemoryResult>({
+        op: 'put_core_memory',
+        core_memory: coreMemory,
+        expected_version: expectedVersion,
+    });
+}
+
 export async function getAllUsageRecords(): Promise<UsageRecord[]> {
     return storage<UsageRecord[]>({ op: 'get_all_usage_records' });
 }
@@ -306,6 +330,7 @@ export async function bulkWrite(params: BulkWriteParams): Promise<BulkWriteResul
         messages: params.messages ?? [],
         memories: params.memories ?? [],
         usage_records: params.usageRecords ?? [],
+        core_memories: params.coreMemories ?? [],
     });
     return toBulkWriteResult(result);
 }
@@ -323,6 +348,7 @@ export async function replaceAll(
         messages: params.messages ?? [],
         memories: params.memories ?? [],
         usage_records: params.usageRecords ?? [],
+        core_memories: params.coreMemories ?? [],
         current_room_id: params.currentRoomId ?? null,
     });
     return toBulkWriteResult(result);

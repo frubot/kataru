@@ -16,17 +16,18 @@ use crate::error::{AppError, AppResult};
 
 pub use storage::{
     PackagePreview, build_character_package, get_character_room_ids, get_conversation_memories,
-    get_memory_batch_source, handle_storage_command, import_character_package,
+    get_core_memory, get_memory_batch_source, handle_storage_command, import_character_package,
     inspect_character_package, migrate_character_images, migrate_situation_images,
     persist_batch_memories, persist_conversation_memories, persist_conversation_result,
-    persist_conversation_submission,
+    persist_conversation_submission, save_core_memory_if_version,
 };
 
 const INITIAL_MIGRATION: &str = include_str!("../../migrations/0001_initial.sql");
 const IMAGE_ASSET_MIGRATION: &str = include_str!("../../migrations/0002_image_assets.sql");
 const SITUATION_IMAGE_ASSET_MIGRATION: &str =
     include_str!("../../migrations/0003_situation_image_assets.sql");
-pub const CURRENT_SCHEMA_VERSION: i64 = 3;
+const CORE_MEMORY_MIGRATION: &str = include_str!("../../migrations/0004_core_memories.sql");
+pub const CURRENT_SCHEMA_VERSION: i64 = 4;
 
 // 自動バックアップはDBと同じデータディレクトリ内に5世代だけ保持する。
 // ファイル名のUnixミリ秒と連番で、同一ミリ秒の起動でも世代を上書きしない。
@@ -64,6 +65,7 @@ impl Database {
         transaction.execute_batch(INITIAL_MIGRATION)?;
         transaction.execute_batch(IMAGE_ASSET_MIGRATION)?;
         transaction.execute_batch(SITUATION_IMAGE_ASSET_MIGRATION)?;
+        transaction.execute_batch(CORE_MEMORY_MIGRATION)?;
         migrate_character_images(&transaction)?;
         migrate_situation_images(&transaction)?;
         transaction.commit()?;

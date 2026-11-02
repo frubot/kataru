@@ -126,6 +126,28 @@ export interface MemoryRecord {
     archived?: boolean;
 }
 
+export type CoreMemorySection = 'user' | 'relationship' | 'self';
+
+export interface CoreMemoryEntry {
+    /** 新しく足した行は空文字。保存時にサーバーが振る。 */
+    id: string;
+    section: CoreMemorySection;
+    text: string;
+    /** 固定した行はAIが変更しない。 */
+    locked?: boolean;
+    author?: 'user' | 'ai';
+    updatedAt?: number;
+}
+
+/** キャラクターごとに1枚の常駐記憶。毎回プロンプトに入る。 */
+export interface CoreMemory {
+    characterId: string;
+    version: number;
+    nextId?: number;
+    updatedAt?: number;
+    entries: CoreMemoryEntry[];
+}
+
 export interface SummaryRevision {
     text: string;
     checkpointUserMessageId?: string;
@@ -270,6 +292,8 @@ export interface Room {
     costumeSelections?: Record<string, string>;
     replySuggestions?: RoomReplySuggestions;
     secretMode?: boolean;
+    /** このルームでは常駐記憶を使わない。 */
+    coreMemoryDisabled?: boolean;
     isDraft?: boolean;
     lastMessagePreview?: string;
     lastMessageAt?: number;
@@ -305,6 +329,7 @@ export interface ParsedBackup {
     rooms: Room[];
     memories: MemoryRecord[];
     usageRecords: UsageRecord[];
+    coreMemories?: CoreMemory[];
     connections?: ExportedConnection[];
 }
 
@@ -534,7 +559,7 @@ export interface AppState {
     setCurrentRoom: (id: string | null) => Promise<void>;
     updateSituation: (id: string, updates: Partial<Pick<Situation, 'name' | 'favorite' | 'backgroundImage' | 'situationPrompt' | 'characterCommonRules' | 'priorMessages' | 'actors' | 'maxTurns' | 'limitTurns' | 'memoryMode' | 'separateNarration' | 'maxHistory'>>) => void;
     updateRoomName: (id: string, name: string) => void;
-    updateRoomSettings: (id: string, updates: Partial<Pick<Room, 'maxMentionChain' | 'viewMode' | 'costumeSelections'>>) => void;
+    updateRoomSettings: (id: string, updates: Partial<Pick<Room, 'maxMentionChain' | 'viewMode' | 'costumeSelections' | 'coreMemoryDisabled'>>) => void;
     setRoomReplySuggestions: (id: string, replySuggestions?: RoomReplySuggestions) => void;
     setRoomSecretMode: (id: string, enabled: boolean) => void;
 

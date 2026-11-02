@@ -62,6 +62,9 @@ export {
 export type {
     AddMemoryOptions,
     Character,
+    CoreMemory,
+    CoreMemoryEntry,
+    CoreMemorySection,
     Costume,
     CreateSituationInput,
     DebugLogUsage,

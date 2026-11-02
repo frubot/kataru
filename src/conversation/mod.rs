@@ -1,4 +1,5 @@
 mod background;
+mod core_memory_update;
 pub mod jobs;
 mod memory;
 mod memory_batch;

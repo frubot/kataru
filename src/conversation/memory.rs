@@ -451,6 +451,13 @@ pub(super) fn is_covered_by_character_setting(content: &str, setting_prompt: &st
         })
 }
 
+/// 検索で出てきた記憶が、常駐記憶のどれかの行とほぼ同じか。
+pub(super) fn is_duplicate_of_core_memory(content: &str, core_texts: &[String]) -> bool {
+    core_texts.iter().any(|core| {
+        candidate_similarity(content, core) >= MEMORY_EXISTING_DEDUP_SIMILARITY_THRESHOLD
+    })
+}
+
 fn is_setting_sentence_separator(character: char) -> bool {
     "
 。！？!?"
@@ -738,7 +745,7 @@ mod tests {
 mod setting_coverage_tests {
     use super::{
         MEMORY_TURN_DEDUP_SIMILARITY_THRESHOLD, candidate_similarity,
-        is_covered_by_character_setting,
+        is_covered_by_character_setting, is_duplicate_of_core_memory,
     };
 
     #[test]
@@ -768,6 +775,17 @@ mod setting_coverage_tests {
             "ユーザーは辛いものが苦手",
             LONG_SETTING
         ));
+    }
+
+    #[test]
+    fn memories_repeating_a_core_memory_line_are_duplicates() {
+        let core = vec![
+            "{{user}}とは恋人同士".to_owned(),
+            "週末に水族館へ行く約束".to_owned(),
+        ];
+        assert!(is_duplicate_of_core_memory("{{user}}とは恋人同士。", &core));
+        assert!(!is_duplicate_of_core_memory("{{user}}は猫が好き", &core));
+        assert!(!is_duplicate_of_core_memory("{{user}}とは恋人同士", &[]));
     }
 
     #[test]

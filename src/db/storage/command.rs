@@ -4,7 +4,9 @@ use serde_json::Value;
 
 use crate::error::AppResult;
 
-use super::{bulk, characters, json::now_millis, memories, messages, meta, rooms, usage};
+use super::{
+    bulk, characters, core_memories, json::now_millis, memories, messages, meta, rooms, usage,
+};
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
@@ -152,6 +154,18 @@ pub enum StorageCommand {
         timestamp: Option<i64>,
     },
 
+    GetCoreMemory {
+        character_id: String,
+    },
+    GetAllCoreMemories,
+    PutCoreMemory {
+        core_memory: Value,
+        expected_version: i64,
+    },
+    DeleteCoreMemory {
+        character_id: String,
+    },
+
     GetAllUsageRecords,
     PutUsageRecord {
         #[serde(alias = "record", alias = "value")]
@@ -177,6 +191,8 @@ pub enum StorageCommand {
         memories: Vec<Value>,
         #[serde(default)]
         usage_records: Vec<Value>,
+        #[serde(default)]
+        core_memories: Vec<Value>,
     },
     ReplaceAll {
         #[serde(default)]
@@ -191,6 +207,8 @@ pub enum StorageCommand {
         memories: Vec<Value>,
         #[serde(default)]
         usage_records: Vec<Value>,
+        #[serde(default)]
+        core_memories: Vec<Value>,
         #[serde(default)]
         current_room_id: Option<String>,
     },
@@ -243,6 +261,10 @@ impl StorageCommand {
                 "delete_memories_by_source_message_ids"
             }
             Self::TouchMemories { .. } => "touch_memories",
+            Self::GetCoreMemory { .. } => "get_core_memory",
+            Self::GetAllCoreMemories => "get_all_core_memories",
+            Self::PutCoreMemory { .. } => "put_core_memory",
+            Self::DeleteCoreMemory { .. } => "delete_core_memory",
             Self::GetAllUsageRecords => "get_all_usage_records",
             Self::PutUsageRecord { .. } => "put_usage_record",
             Self::DeleteUsageRecordsOlderThan { .. } => "delete_usage_records_older_than",
@@ -419,6 +441,20 @@ pub(super) fn execute(connection: &mut Connection, command: StorageCommand) -> A
             Ok(Value::Null)
         }
 
+        StorageCommand::GetCoreMemory { character_id } => {
+            let memory = core_memories::get(connection, &character_id)?;
+            Ok(serde_json::to_value(memory)?)
+        }
+        StorageCommand::GetAllCoreMemories => core_memories::get_all(connection).map(Value::Array),
+        StorageCommand::PutCoreMemory {
+            core_memory,
+            expected_version,
+        } => core_memories::put_user_edit(connection, core_memory, expected_version),
+        StorageCommand::DeleteCoreMemory { character_id } => {
+            core_memories::delete(connection, &character_id)?;
+            Ok(Value::Null)
+        }
+
         StorageCommand::GetAllUsageRecords => usage::get_all(connection).map(Value::Array),
         StorageCommand::PutUsageRecord { usage_record } => {
             usage::put(connection, usage_record)?;
@@ -444,6 +480,7 @@ pub(super) fn execute(connection: &mut Connection, command: StorageCommand) -> A
             messages,
             memories,
             usage_records,
+            core_memories,
         } => bulk::bulk_write(
             connection,
             characters,
@@ -452,6 +489,7 @@ pub(super) fn execute(connection: &mut Connection, command: StorageCommand) -> A
             messages,
             memories,
             usage_records,
+            core_memories,
         ),
         StorageCommand::ReplaceAll {
             characters,
@@ -460,6 +498,7 @@ pub(super) fn execute(connection: &mut Connection, command: StorageCommand) -> A
             messages,
             memories,
             usage_records,
+            core_memories,
             current_room_id,
         } => bulk::replace_all(
             connection,
@@ -469,6 +508,7 @@ pub(super) fn execute(connection: &mut Connection, command: StorageCommand) -> A
             messages,
             memories,
             usage_records,
+            core_memories,
             current_room_id,
         ),
     }
@@ -829,6 +869,7 @@ mod tests {
                 messages: vec![],
                 memories: vec![],
                 usage_records: vec![],
+                core_memories: vec![],
             },
         )
         .expect("bulk write");
@@ -858,6 +899,7 @@ mod tests {
                 messages: vec![],
                 memories: vec![],
                 usage_records: vec![],
+                core_memories: vec![],
                 current_room_id: None,
             },
         )

@@ -229,6 +229,7 @@ function toConversationRoom(room: Room) {
         maxMentionChain: room.maxMentionChain,
         costumeSelections: room.costumeSelections,
         secretMode: room.secretMode,
+        coreMemoryDisabled: room.coreMemoryDisabled,
         lastMessagePreview: room.lastMessagePreview,
         lastMessageAt: room.lastMessageAt,
         createdAt: room.createdAt,

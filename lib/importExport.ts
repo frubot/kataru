@@ -1,5 +1,6 @@
 import type {
     Character,
+    CoreMemory,
     ExportedConnection,
     MemoryRecord,
     Message,
@@ -33,6 +34,8 @@ export interface FullBackup {
         messages: StoredMessage[];
         memories: MemoryRecord[];
         usageRecords: UsageRecord[];
+        /** 古いバックアップには無い。 */
+        coreMemories?: CoreMemory[];
         connections?: ExportedConnection[];
     };
 }
@@ -65,13 +68,14 @@ function isValidSituation(situation: Situation, characterIds: Set<string>): bool
 }
 
 export async function createFullBackup(): Promise<string> {
-    const [characters, groups, rooms, messagesAll, memories, usageRecords, connections] = await Promise.all([
+    const [characters, groups, rooms, messagesAll, memories, usageRecords, coreMemories, connections] = await Promise.all([
         db.getAllCharactersWithImages(),
         db.getAllGroupsWithImages(),
         db.getAllRooms(),
         db.getAllMessages(),
         db.getAllMemories(),
         db.getAllUsageRecords(),
+        db.getAllCoreMemories(),
         getAiConnections().then((response) => response.connections).catch(() => null),
     ]);
     const backup: FullBackup = {
@@ -85,6 +89,7 @@ export async function createFullBackup(): Promise<string> {
             messages: messagesAll,
             memories,
             usageRecords,
+            coreMemories,
             // 復元先での接続再作成に必要なメタデータのみ。apiKey等の秘密情報は含めない。
             ...(connections ? {
                 connections: connections.map((connection) => ({
@@ -165,6 +170,7 @@ function parseFullBackupValue(parsed: unknown): ParsedBackup {
     }));
     const usageRecords = b.data.usageRecords;
     const memories = b.data.memories;
+    const coreMemories = Array.isArray(b.data.coreMemories) ? b.data.coreMemories : [];
     const connections = Array.isArray(b.data.connections)
         ? b.data.connections
             .map(parseExportedConnection)
@@ -241,11 +247,18 @@ function parseFullBackupValue(parsed: unknown): ParsedBackup {
         (memory.sourceRoomId && !roomIds.has(memory.sourceRoomId))
     );
     const validMemories = memories.filter((memory) => !orphanedMemories.includes(memory));
+    const validCoreMemories = coreMemories.filter((coreMemory) => (
+        isRecord(coreMemory)
+        && typeof coreMemory.characterId === 'string'
+        && characterIds.has(coreMemory.characterId)
+        && Array.isArray(coreMemory.entries)
+    ));
     const result: ParsedBackup = {
         characters,
         groups,
         rooms,
         memories: validMemories,
+        coreMemories: validCoreMemories,
         usageRecords: orphanedRecords.length > 0
             ? usageRecords.filter((u) => validUsageCharacterIds.has(u.characterId))
             : usageRecords,
@@ -473,6 +486,11 @@ export function reassignIds(parsed: ParsedBackup): ParsedBackup {
         sourceMessageIds: memory.sourceMessageIds.map((id) => messageIdMap.get(id) ?? id),
     }));
 
+    const coreMemories = (parsed.coreMemories ?? []).map((coreMemory) => ({
+        ...coreMemory,
+        characterId: charIdMap.get(coreMemory.characterId) ?? coreMemory.characterId,
+    }));
+
     const usageRecords = parsed.usageRecords.map((u) => ({
         ...u,
         id: generateId(),
@@ -486,6 +504,7 @@ export function reassignIds(parsed: ParsedBackup): ParsedBackup {
         rooms,
         memories,
         usageRecords,
+        coreMemories,
         ...(parsed.connections ? { connections: parsed.connections } : {}),
     };
 }

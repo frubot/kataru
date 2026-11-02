@@ -140,6 +140,9 @@ describe('createFullBackup and parseFullBackup', () => {
             get_all_messages: backup.data.messages,
             get_all_memories: backup.data.memories,
             get_all_usage_records: backup.data.usageRecords,
+            get_all_core_memories: [
+                { characterId: 'character-a', version: 1, nextId: 2, entries: [{ id: 'r1', section: 'relationship', text: '幼なじみ' }] },
+            ],
         };
         const connectionsResponse = {
             connections: [
@@ -266,7 +269,9 @@ describe('createFullBackup and parseFullBackup', () => {
         ]);
         expect(JSON.stringify(envelope.data.connections)).not.toContain('apiKey');
         expect(restored.connections).toEqual(envelope.data.connections);
-        expect(fetchMock).toHaveBeenCalledTimes(7);
+        expect(envelope.data.coreMemories?.[0].entries[0].text).toBe('幼なじみ');
+        expect(restored.coreMemories?.[0].characterId).toBe('character-a');
+        expect(fetchMock).toHaveBeenCalledTimes(8);
     });
 
     test('reassigns IDs while preserving cross-collection references', () => {
@@ -462,5 +467,32 @@ describe('parseFullBackup validation', () => {
 
         expect(restored.memories.map(({ id }) => id)).toEqual(['memory-1']);
         expect(restored.usageRecords.map(({ id }) => id)).toEqual(['usage-1']);
+    });
+});
+
+describe('core memories in full backups', () => {
+    test('keeps core memories of known characters and remaps them on merge', () => {
+        const backup = validBackup();
+        backup.data.coreMemories = [
+            {
+                characterId: 'character-a',
+                version: 2,
+                nextId: 2,
+                entries: [{ id: 'u1', section: 'user', text: '呼び名はミナト', locked: true }],
+            },
+            { characterId: 'missing-character', version: 1, entries: [] },
+        ];
+        const parsed = parseFullBackup(backupJson(backup));
+        expect(parsed.coreMemories?.map(({ characterId }) => characterId)).toEqual(['character-a']);
+
+        const reassigned = reassignIds(parsed);
+        expect(reassigned.coreMemories?.[0].characterId).toBe(reassigned.characters[0].id);
+        expect(reassigned.coreMemories?.[0].entries[0].text).toBe('呼び名はミナト');
+    });
+
+    test('accepts older backups without core memories', () => {
+        const backup = validBackup();
+        delete backup.data.coreMemories;
+        expect(parseFullBackup(backupJson(backup)).coreMemories).toEqual([]);
     });
 });

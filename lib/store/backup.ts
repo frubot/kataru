@@ -111,6 +111,7 @@ export function createBackupSlice(set: StoreSet, get: StoreGet): BackupSlice {
                 messages: storedMessages,
                 memories: normalizedData.memories,
                 usageRecords: normalizedData.usageRecords,
+                coreMemories: normalizedData.coreMemories,
             });
             // Keep the server's asset references in state so imported binary data
             // (especially VRM models) is not retained in memory.
@@ -163,6 +164,7 @@ export function createBackupSlice(set: StoreSet, get: StoreGet): BackupSlice {
                 messages: storedMessages,
                 memories: normalizedData.memories,
                 usageRecords: normalizedData.usageRecords,
+                coreMemories: normalizedData.coreMemories,
                 currentRoomId: nextCurrentRoomId,
             });
             await clearAllPendingTurnRestores();

@@ -9,13 +9,19 @@ use serde_json::{Value, json};
 use crate::{
     AppState,
     ai::routes::MEMORY_BATCH_MAX_UPDATES,
-    db::{get_character_room_ids, get_memory_batch_source, persist_batch_memories},
+    core_memory::CoreMemory,
+    db::{
+        get_character_room_ids, get_core_memory, get_memory_batch_source, persist_batch_memories,
+        persist_conversation_memories, save_core_memory_if_version,
+    },
 };
 
 use super::{
-    background::{BackgroundTaskKind, BackgroundTaskStart},
+    background::{BackgroundTaskHandle, BackgroundTaskKind, BackgroundTaskStart},
     memory::prepare_conversation_memories,
-    orchestrator::{BatchExtractionInput, extract_batch_memories},
+    orchestrator::{
+        BatchExtractionInput, CoreMemoryUpdateInput, extract_batch_memories, update_core_memory,
+    },
     prompts::{boolean, message_text_with_attachments, string},
 };
 
@@ -196,6 +202,9 @@ async fn run_room_memory_batch(
     batch_payload["room"] = json!({"id": room_id});
 
     let mut context = context;
+    // 常駐記憶の更新に渡す、最後に読んだまとまりと今回抽出した記憶。
+    let mut last_chunk: &[Value] = &[];
+    let mut new_memories = Vec::new();
     for (chunk_index, chunk) in pending
         .chunks(MEMORY_BATCH_MAX_MESSAGES)
         .take(MEMORY_BATCH_MAX_CHUNKS_PER_RUN)
@@ -239,6 +248,12 @@ async fn run_room_memory_batch(
         };
         normalize_usage_ids(&mut usages, room_id);
         let candidate_count = candidates.len();
+        new_memories.extend(
+            candidates
+                .iter()
+                .map(|candidate| string(candidate, "content"))
+                .filter(|content| !content.is_empty()),
+        );
         let memories = if mode == MemoryBatchMode::On {
             let _persistence = state.conversation_jobs.lock_memory_persistence().await;
             match prepare_conversation_memories(
@@ -298,8 +313,198 @@ async fn run_room_memory_batch(
         totals.candidates += candidate_count;
         totals.saved += saved;
         context = context_before(chunk, chunk.len());
+        last_chunk = chunk;
     }
-    task.complete(totals.summary(mode));
+    let mut summary = totals.summary(mode);
+    if !last_chunk.is_empty() && !source.core_memory_disabled {
+        let core = run_core_memory_update(
+            state,
+            &batch_payload,
+            mode,
+            CoreMemoryUpdateInputParts {
+                character,
+                room_id,
+                summary: &source.summary,
+                messages: last_chunk,
+                new_memories: &new_memories,
+            },
+            &task,
+        )
+        .await;
+        summary.push_str(&format!(" / {core}"));
+    }
+    task.complete(summary);
+}
+
+/// 常駐記憶の更新に渡す、バッチ抽出側で集めた材料。
+struct CoreMemoryUpdateInputParts<'a> {
+    character: &'a Value,
+    room_id: &'a str,
+    summary: &'a str,
+    messages: &'a [Value],
+    new_memories: &'a [String],
+}
+
+/// バッチ抽出の後に常駐記憶を更新する。戻り値はデバッグログ画面に出す結果の説明。
+/// 失敗しても記憶の抽出は済んでいるので、タスクは失敗にしない。
+async fn run_core_memory_update(
+    state: &AppState,
+    payload: &Value,
+    mode: MemoryBatchMode,
+    parts: CoreMemoryUpdateInputParts<'_>,
+    task: &BackgroundTaskHandle,
+) -> String {
+    let character_id = string(parts.character, "id");
+    let current = match get_core_memory(&state.database, &character_id).await {
+        Ok(memory) => memory.unwrap_or_else(|| CoreMemory::empty(&character_id)),
+        Err(error) => {
+            tracing::warn!(
+                stage = "core_memory_read_failed",
+                classification = error.diagnostic_class(),
+                "Core memory could not be read"
+            );
+            return format!("常駐記憶を読めませんでした: {error}");
+        }
+    };
+    task.set_detail("常駐記憶を更新中");
+    let mut full_json_logs = Vec::new();
+    let result = update_core_memory(
+        state,
+        payload,
+        CoreMemoryUpdateInput {
+            character: parts.character,
+            room_id: parts.room_id,
+            summary: parts.summary,
+            messages: parts.messages,
+            new_memories: parts.new_memories,
+            memory: &current,
+        },
+        &mut full_json_logs,
+    )
+    .await;
+    task.push_logs(full_json_logs);
+    let mut result = match result {
+        Ok(result) => result,
+        Err(error) => {
+            tracing::warn!(
+                stage = "core_memory_update_failed",
+                classification = error.diagnostic_class(),
+                "Core memory update failed"
+            );
+            return format!("常駐記憶の更新に失敗しました: {error}");
+        }
+    };
+    normalize_usage_ids(&mut result.usages, &format!("core-{}", parts.room_id));
+    let report = core_memory_report(&result.rejected, result.applied, result.attempts);
+    tracing::info!(
+        stage = "core_memory_updated",
+        applied = result.applied,
+        rejected = result.rejected.len(),
+        demoted = result.demoted_candidates.len(),
+        attempts = result.attempts,
+        shadow = mode == MemoryBatchMode::Shadow,
+        "Core memory update"
+    );
+
+    let _persistence = state.conversation_jobs.lock_memory_persistence().await;
+    let source_ids = parts
+        .messages
+        .last()
+        .map(|message| vec![string(message, "id")])
+        .unwrap_or_default();
+    if mode == MemoryBatchMode::Shadow || result.applied == 0 {
+        // 費用の記録だけ残す。
+        if let Err(error) =
+            persist_conversation_memories(&state.database, Vec::new(), Vec::new(), result.usages)
+                .await
+        {
+            tracing::warn!(
+                stage = "core_memory_usage_persistence_failed",
+                classification = error.diagnostic_class(),
+                "Core memory usage could not be persisted"
+            );
+        }
+        return if mode == MemoryBatchMode::Shadow {
+            format!("{report}（シャドーモードのため保存なし）")
+        } else {
+            report
+        };
+    }
+
+    let saved =
+        match save_core_memory_if_version(&state.database, result.memory, current.version).await {
+            Ok(saved) => saved,
+            Err(error) => {
+                tracing::warn!(
+                    stage = "core_memory_persistence_failed",
+                    classification = error.diagnostic_class(),
+                    "Core memory could not be persisted"
+                );
+                return format!("常駐記憶を保存できませんでした: {error}");
+            }
+        };
+    let demoted = if saved {
+        match prepare_conversation_memories(
+            state,
+            payload,
+            parts.messages,
+            result.demoted_candidates,
+            MEMORY_BATCH_MAX_UPDATES,
+        )
+        .await
+        {
+            Ok(memories) => memories,
+            Err(error) => {
+                tracing::warn!(
+                    stage = "core_memory_demotion_failed",
+                    classification = error.diagnostic_class(),
+                    "Demoted core memory lines could not be prepared"
+                );
+                Vec::new()
+            }
+        }
+    } else {
+        Vec::new()
+    };
+    let demoted_count = demoted.len();
+    if let Err(error) =
+        persist_conversation_memories(&state.database, source_ids, demoted, result.usages).await
+    {
+        tracing::warn!(
+            stage = "core_memory_demotion_persistence_failed",
+            classification = error.diagnostic_class(),
+            "Demoted core memory lines could not be persisted"
+        );
+    }
+    if !saved {
+        return format!("{report}（画面で編集されていたため保存せず）");
+    }
+    if demoted_count > 0 {
+        format!("{report} / 検索される記憶へ移動 {demoted_count} 件")
+    } else {
+        report
+    }
+}
+
+/// 常駐記憶の更新結果の説明。見送った指示は理由も3件まで添える。
+fn core_memory_report(
+    rejected: &[crate::core_memory::RejectedOp],
+    applied: usize,
+    attempts: usize,
+) -> String {
+    let mut report = format!("常駐記憶: 適用 {applied} 件 / 見送り {} 件", rejected.len());
+    if attempts > 1 {
+        report.push_str(&format!("（やり直し {} 回）", attempts - 1));
+    }
+    let reasons = rejected
+        .iter()
+        .take(3)
+        .map(|rejected| rejected.reason.as_str())
+        .collect::<Vec<_>>();
+    if !reasons.is_empty() {
+        report.push_str(&format!("。見送りの理由: {}", reasons.join(" / ")));
+    }
+    report
 }
 
 /// デバッグログ画面に出す、1回の実行で処理した件数。

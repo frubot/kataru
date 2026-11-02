@@ -10,7 +10,12 @@ import {
 } from '@/lib/store';
 import type { MemoryRecord, MessageAttachment, SituationPriorMessage } from '@/lib/store';
 import { capMessageAttachmentData, readChatAttachmentFiles } from '@/lib/chatAttachments';
-import { isNarrationMessage, isNarratorCharacterId } from '@/lib/narration';
+import {
+    isNarrationMessage,
+    isNarratorCharacterId,
+    NARRATOR_DISPLAY_NAME,
+    wrapNarrationForDialogue,
+} from '@/lib/narration';
 import { serializeModelRef } from '@/lib/modelDefaults';
 import { activeWordReplacements } from '@/lib/wordReplacements';
 import {
@@ -1800,9 +1805,11 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 : ''
         : '';
     const situationVnDialogueContent = situationVnCurrentItem
-        ? situationVnCurrentItem.role === 'assistant'
-            ? hideAssistantDialogueBrackets(situationVnItemContent)
-            : situationVnItemContent
+        ? isNarrationMessage(situationVnCurrentItem)
+            ? wrapNarrationForDialogue(situationVnItemContent)
+            : situationVnCurrentItem.role === 'assistant'
+                ? hideAssistantDialogueBrackets(situationVnItemContent)
+                : situationVnItemContent
         : isWaitingForAssistant
             ? '...'
             : '...（話しかけてみよう）';
@@ -1836,7 +1843,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         ? situationVnCurrentItem?.role === 'user'
             ? 'あなた'
             : situationVnCurrentItem && isNarrationMessage(situationVnCurrentItem)
-                ? ''
+                ? NARRATOR_DISPLAY_NAME
             : situationVnCurrentItem?.role === 'assistant'
                 ? (situationVnCurrentItem.characterId && characterMap?.get(situationVnCurrentItem.characterId)?.name)
                     ?? situationVnCurrentItem.characterName

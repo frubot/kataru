@@ -1,3 +1,4 @@
+import type { MemoryBatchMode } from '../memoryBatchMode';
 import type { StoreApi } from 'zustand';
 
 import type { AiApiConfig, AiConnectionKind, ModelRef, ReasoningEffort } from '../aiApi';
@@ -400,6 +401,7 @@ export interface AppState {
     memoryEmbeddingModel: ModelRef;
     memoryGateEnabled: boolean;
     memoryGateShadowMode: boolean;
+    memoryBatchMode: MemoryBatchMode;
     conversationCompressionEnabled: boolean;
     /** 会話生成の推論レベル。 */
     reasoningEffort: ReasoningEffort;
@@ -473,6 +475,7 @@ export interface AppState {
     setMemoryEmbeddingModel: (model: ModelRef) => void;
     setMemoryGateEnabled: (enabled: boolean) => void;
     setMemoryGateShadowMode: (enabled: boolean) => void;
+    setMemoryBatchMode: (mode: MemoryBatchMode) => void;
     setConversationCompressionEnabled: (enabled: boolean) => void;
     setReasoningEffort: (effort: ReasoningEffort) => void;
     setChatSampling: (sampling: ChatSampling) => void;

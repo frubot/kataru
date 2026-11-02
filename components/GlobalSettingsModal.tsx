@@ -9,6 +9,7 @@ import { createFullBackup, downloadJson, parseFullBackup, reassignIds, type Pars
 import { resizeToMaxEdgeAsJpeg } from '@/lib/imageUtils';
 import { isIrodoriTtsModel } from '@/lib/tts';
 import { CHAT_SAMPLING_KEYS } from '@/lib/chatSampling';
+import { DEFAULT_MEMORY_BATCH_MODE, isMemoryBatchMode, MEMORY_BATCH_MODE_OPTIONS } from '@/lib/memoryBatchMode';
 import StatisticsPanel from '@/components/StatisticsPanel';
 import AiConnectionSettings from '@/components/AiConnectionSettings';
 import ModelSelector from '@/components/ModelSelector';
@@ -435,6 +436,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         memoryEmbeddingModel, setMemoryEmbeddingModel,
         memoryGateEnabled, setMemoryGateEnabled,
         memoryGateShadowMode, setMemoryGateShadowMode,
+        memoryBatchMode, setMemoryBatchMode,
         ttsEnabled, setTtsEnabled,
         ttsConnectionId, setTtsConnectionId,
         ttsModel, setTtsModel,
@@ -1805,6 +1807,24 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                             boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
                                         }} />
                                     </button>
+                                </div>
+                                <div style={{ marginTop: '1rem' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+                                        <label htmlFor="memory-batch-mode-input" style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
+                                            メモリをまとめて抽出
+                                        </label>
+                                        <OptionSelector
+                                            id="memory-batch-mode-input"
+                                            value={memoryBatchMode}
+                                            onChange={(value) => setMemoryBatchMode(isMemoryBatchMode(value) ? value : DEFAULT_MEMORY_BATCH_MODE)}
+                                            options={MEMORY_BATCH_MODE_OPTIONS}
+                                            ariaLabel="メモリをまとめて抽出"
+                                            style={{ flex: '0 1 auto', minWidth: 0 }}
+                                        />
+                                    </div>
+                                    <p style={{ margin: '0.375rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                                        オンにすると、毎ターンは「覚えて」などの明示的な依頼だけを保存し、それ以外は発言が10ターン分たまったとき、要約のとき、ルームを離れたとき（別のルームを開く・アプリを閉じる）にまとめて保存します。
+                                    </p>
                                 </div>
                             </div>
                         </div>

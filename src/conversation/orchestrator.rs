@@ -11,11 +11,12 @@ use crate::{
     ai::{
         AiApiClient, AiApiConfig, ai_api_config_value,
         routes::{
-            RoleSelection, extract_message_reasoning, extract_message_text,
+            MEMORY_BATCH_MAX_UPDATES, RoleSelection, extract_message_reasoning,
+            extract_message_text, memory_batch_schema, memory_extraction_batch_prompt,
             memory_extraction_guided_prompt, memory_extraction_prompt, memory_schema, model_string,
-            optional_role_selection, parse_memory_updates, plain_text_completion,
-            plain_text_completion_streaming, resolve_role_selection, structured_completion,
-            structured_completion_streaming,
+            optional_role_selection, parse_batch_memory_updates, parse_memory_updates,
+            plain_text_completion, plain_text_completion_streaming, resolve_role_selection,
+            structured_completion, structured_completion_streaming,
         },
         typesafe::{SystemOneResponse, system_one},
     },
@@ -25,7 +26,8 @@ use crate::{
 use super::{
     GenerationMode,
     jobs::{ConversationJobs, JobCancellation},
-    memory::request_embedding,
+    memory::{is_covered_by_character_setting, request_embedding},
+    memory_batch::MemoryBatchMode,
     memory_date,
     memory_gate::{
         MEMORY_GATE_TIMEOUT_SECS, MemoryGateDecision, MemoryGateReason, MemoryGateTurn,
@@ -552,12 +554,16 @@ async fn run_turn_inner(
             } else {
                 None
             };
-            plan_memory_follow_up(
-                context,
-                gate,
-                boolean(&payload, "memoryGateShadowMode"),
-                gate_enabled,
-            )
+            if MemoryBatchMode::from_payload(&payload) == MemoryBatchMode::On {
+                plan_instruction_follow_up(context, gate)
+            } else {
+                plan_memory_follow_up(
+                    context,
+                    gate,
+                    boolean(&payload, "memoryGateShadowMode"),
+                    gate_enabled,
+                )
+            }
         }
         None => None,
     };
@@ -1764,6 +1770,47 @@ async fn search_memories(
     room_id: &str,
     messages: &[Value],
 ) -> AppResult<Vec<ScoredMemory>> {
+    let query = messages
+        .iter()
+        .rev()
+        .find(|message| string(message, "role") == "user")
+        .map(|message| message_text_with_attachments(message, true))
+        .unwrap_or_else(|| {
+            messages
+                .iter()
+                .map(|message| message_text_with_attachments(message, true))
+                .collect::<Vec<_>>()
+                .join("\n")
+        });
+    let recent_ids = messages
+        .iter()
+        .filter_map(|message| message.get("id").and_then(Value::as_str))
+        .collect::<HashSet<_>>();
+    search_memories_for_query(
+        state,
+        clients,
+        selection,
+        character_id,
+        room_id,
+        &query,
+        &recent_ids,
+        MEMORY_LIMIT,
+    )
+    .await
+}
+
+/// 明示したクエリ文字列で記憶を検索する。`recent_ids` に含まれる同じルームの発言から作った記憶は除く。
+#[allow(clippy::too_many_arguments)]
+async fn search_memories_for_query(
+    state: &AppState,
+    clients: &mut RequestClients<'_>,
+    selection: Option<&RoleSelection>,
+    character_id: &str,
+    room_id: &str,
+    query: &str,
+    recent_ids: &HashSet<&str>,
+    limit: usize,
+) -> AppResult<Vec<ScoredMemory>> {
     // 埋め込みモデルが未設定なら接続も作らず、字句類似度だけで採点する。
     let api_client = selection
         .map(|selection| clients.for_selection(selection))
@@ -1787,25 +1834,9 @@ async fn search_memories(
                 .collect()
         })
         .await?;
-    let query = messages
-        .iter()
-        .rev()
-        .find(|message| string(message, "role") == "user")
-        .map(|message| message_text_with_attachments(message, true))
-        .unwrap_or_else(|| {
-            messages
-                .iter()
-                .map(|message| message_text_with_attachments(message, true))
-                .collect::<Vec<_>>()
-                .join("\n")
-        });
-    let recent_ids = messages
-        .iter()
-        .filter_map(|message| message.get("id").and_then(Value::as_str))
-        .collect::<HashSet<_>>();
     let query_embedding = match (api_client.as_ref(), selection) {
         (Some(api_client), Some(selection)) => {
-            request_embedding(api_client, &query, &selection.model, "search_query")
+            request_embedding(api_client, query, &selection.model, "search_query")
                 .await
                 .ok()
                 .flatten()
@@ -1833,7 +1864,7 @@ async fn search_memories(
         })
         .filter_map(|memory| {
             let content = string(&memory, "content");
-            let lexical = lexical_similarity(&query, &content);
+            let lexical = lexical_similarity(query, &content);
             let vector = match (query_embedding.as_ref(), selection, api_client.as_ref()) {
                 (Some(query), Some(selection), Some(api_client))
                     if string(&memory, "embeddingModel") == selection.model
@@ -1850,7 +1881,7 @@ async fn search_memories(
                 _ => 0.0,
             };
             // 埋め込みが無い、または別のモデル・接続で作られたメモリは字句類似度で判定する。
-            if !memory_is_relevant(vector, lexical.max(memory_similarity(&query, &content)))
+            if !memory_is_relevant(vector, lexical.max(memory_similarity(query, &content)))
                 && !boolean(&memory, "pinned")
             {
                 return None;
@@ -1914,7 +1945,7 @@ async fn search_memories(
         })
         .collect::<Vec<_>>();
     scored.sort_by(|a, b| b.score.total_cmp(&a.score));
-    scored.truncate(MEMORY_LIMIT);
+    scored.truncate(limit);
     Ok(scored)
 }
 
@@ -1957,6 +1988,24 @@ pub(crate) struct MemoryExtraction {
     pub(crate) candidates: Vec<Value>,
     pub(crate) usages: Vec<Value>,
     pub(crate) shadow: Option<ShadowGate>,
+}
+
+/// バッチ抽出が有効なとき、毎ターンの抽出は明示的な依頼（Instruction）だけに絞る。
+/// それ以外の観点はバッチ抽出がまとめて拾う。
+fn plan_instruction_follow_up(
+    context: ExtractionContext,
+    gate: Option<MemoryGateDecision>,
+) -> Option<MemoryFollowUp> {
+    let decision =
+        gate.filter(|decision| decision.reasons.contains(&MemoryGateReason::Instruction))?;
+    Some(MemoryFollowUp {
+        context,
+        guidance: Some(ExtractionGuidance {
+            reasons: vec![MemoryGateReason::Instruction],
+            used_memory_ids: decision.used_memory_ids,
+        }),
+        shadow: None,
+    })
 }
 
 fn plan_memory_follow_up(
@@ -2267,7 +2316,6 @@ async fn extract_memory_candidates(
         .iter()
         .map(|memory| memory.content.as_str())
         .collect::<Vec<_>>();
-    let mut accepted_contents: Vec<String> = Vec::new();
     let source_ids = generated
         .iter()
         .filter_map(|message| message.get("id").and_then(Value::as_str))
@@ -2275,47 +2323,261 @@ async fn extract_memory_candidates(
         .collect::<Vec<_>>();
     let now = now_ms();
     let character_id = string(&context.character, "id");
-    let mut candidates = parse_memory_updates(&content)
-        .into_iter()
-        .filter(|update| {
-            update
-                .get("importance")
-                .and_then(Value::as_f64)
-                .unwrap_or(0.0)
-                >= MEMORY_MIN_IMPORTANCE
-                && update
-                    .get("confidence")
-                    .and_then(Value::as_f64)
-                    .unwrap_or(0.0)
-                    >= MEMORY_MIN_CONFIDENCE
-        })
-        .filter(|update| {
-            let candidate = string(update, "content");
-            !candidate.is_empty()
-                && memory_similarity(&candidate, &setting) < 0.28
-                && !existing_contents
-                    .iter()
-                    .any(|existing| memory_similarity(&candidate, existing) >= 0.7)
-                && !accepted_contents
-                    .iter()
-                    .any(|existing| memory_similarity(&candidate, existing) >= 0.78)
-        })
-        .take(MEMORY_MAX_CANDIDATES)
-        .collect::<Vec<_>>();
+    let mut candidates = accept_memory_candidates(
+        parse_memory_updates(&content),
+        &setting,
+        &existing_contents,
+        MEMORY_MAX_CANDIDATES,
+    );
     for (index, candidate) in candidates.iter_mut().enumerate() {
-        let content = string(candidate, "content");
-        accepted_contents.push(content);
-        if let Some(record) = candidate.as_object_mut() {
-            record.insert("id".into(), Value::String(format!("memory-{now}-{index}")));
-            record.insert("characterId".into(), Value::String(character_id.clone()));
-            record.insert("sourceRoomId".into(), Value::String(room_id.into()));
-            record.insert("sourceMessageIds".into(), json!(source_ids));
-            record.insert("createdAt".into(), json!(now));
-            record.insert("updatedAt".into(), json!(now));
-            record.insert("usageCount".into(), json!(0));
-        }
+        stamp_memory_candidate(
+            candidate,
+            format!("memory-{now}-{index}"),
+            &character_id,
+            room_id,
+            &source_ids,
+            now,
+        );
     }
     Ok(candidates)
+}
+
+/// 重要度・確信度の下限を満たし、キャラ設定・既存記憶・先に採用した候補と重ならない候補だけを残す。
+fn accept_memory_candidates(
+    updates: Vec<Value>,
+    setting: &str,
+    existing_contents: &[&str],
+    max: usize,
+) -> Vec<Value> {
+    let mut accepted: Vec<Value> = Vec::new();
+    for update in updates {
+        if accepted.len() >= max {
+            break;
+        }
+        let importance = update
+            .get("importance")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0);
+        let confidence = update
+            .get("confidence")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0);
+        if importance < MEMORY_MIN_IMPORTANCE || confidence < MEMORY_MIN_CONFIDENCE {
+            continue;
+        }
+        let candidate = string(&update, "content");
+        if candidate.is_empty()
+            || is_covered_by_character_setting(&candidate, setting)
+            || existing_contents
+                .iter()
+                .any(|existing| memory_similarity(&candidate, existing) >= 0.7)
+            || accepted
+                .iter()
+                .any(|existing| memory_similarity(&candidate, &string(existing, "content")) >= 0.78)
+        {
+            continue;
+        }
+        accepted.push(update);
+    }
+    accepted
+}
+
+fn stamp_memory_candidate(
+    candidate: &mut Value,
+    id: String,
+    character_id: &str,
+    room_id: &str,
+    source_ids: &[String],
+    now: u64,
+) {
+    if let Some(record) = candidate.as_object_mut() {
+        record.insert("id".into(), Value::String(id));
+        record.insert("characterId".into(), Value::String(character_id.to_owned()));
+        record.insert("sourceRoomId".into(), Value::String(room_id.to_owned()));
+        record.insert("sourceMessageIds".into(), json!(source_ids));
+        record.insert("createdAt".into(), json!(now));
+        record.insert("updatedAt".into(), json!(now));
+        record.insert("usageCount".into(), json!(0));
+    }
+}
+
+/// バッチ抽出に渡す1つのまとまり。
+pub(crate) struct BatchExtractionInput<'a> {
+    pub(crate) character: &'a Value,
+    pub(crate) room_id: &'a str,
+    pub(crate) summary: &'a str,
+    /// 文脈用の直前の発言。ここからは記憶を作らない。
+    pub(crate) context_messages: &'a [Value],
+    /// 記憶にする対象の発言。id と content を持つ。
+    pub(crate) messages: &'a [Value],
+}
+
+const MEMORY_BATCH_EXISTING_LIMIT: usize = 16;
+const MEMORY_BATCH_QUERY_MAX_CHARS: usize = 2000;
+const MEMORY_BATCH_TIMEOUT_SECS: u64 = 120;
+
+/// 未反映の発言をまとめて読み、保存候補を作る。候補の sourceMessageIds は項目ごとの根拠の発言。
+pub(crate) async fn extract_batch_memories(
+    state: &AppState,
+    payload: &Value,
+    input: BatchExtractionInput<'_>,
+) -> AppResult<(Vec<Value>, Vec<Value>)> {
+    let mut clients = RequestClients::new(state, request_api_config(payload)?);
+    let selection =
+        resolve_role_selection(payload, "memoryExtractionModel", "memoryExtractionModel")?;
+    let embedding_selection =
+        optional_role_selection(payload, "memoryEmbeddingModel", "memoryEmbeddingModel");
+    let character_id = string(input.character, "id");
+    let query = input
+        .messages
+        .iter()
+        .filter(|message| string(message, "role") == "user")
+        .map(|message| message_text_with_attachments(message, true))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .chars()
+        .take(MEMORY_BATCH_QUERY_MAX_CHARS)
+        .collect::<String>();
+    let existing = search_memories_for_query(
+        state,
+        &mut clients,
+        embedding_selection.as_ref(),
+        &character_id,
+        input.room_id,
+        &query,
+        &HashSet::new(),
+        MEMORY_BATCH_EXISTING_LIMIT,
+    )
+    .await
+    .unwrap_or_default();
+
+    let api_client = clients.for_selection(&selection)?;
+    let setting_with_profile =
+        character_setting_with_user_profile(input.character, api_client.user_profile());
+    let refs = batch_message_refs(input.messages);
+    let request = json!({
+        "targetCharacter": string(input.character, "name"),
+        "characterSystemPrompt": setting_with_profile,
+        "summary": input.summary,
+        "contextMessages": input
+            .context_messages
+            .iter()
+            .map(|message| json!({
+                "role": string(message, "role"),
+                "content": message_text_with_attachments(message, true),
+            }))
+            .collect::<Vec<_>>(),
+        "messages": input
+            .messages
+            .iter()
+            .zip(&refs)
+            .map(|(message, (reference, _))| json!({
+                "ref": reference,
+                "role": string(message, "role"),
+                "content": message_text_with_attachments(message, true),
+            }))
+            .collect::<Vec<_>>(),
+        "existingMemories": memory_prompt_entries(&existing),
+    });
+    let body = json!({
+        "model": selection.model,
+        "messages": [
+            {"role": "system", "content": memory_extraction_batch_prompt()},
+            {"role": "user", "content": serde_json::to_string(&request)?},
+        ],
+        "temperature": 0.1,
+        "stream": false,
+    });
+    let raw = structured_completion(
+        &api_client,
+        body,
+        memory_batch_schema(),
+        MEMORY_BATCH_TIMEOUT_SECS,
+    )
+    .await?;
+    let mut usages = Vec::new();
+    push_usage(
+        &mut usages,
+        &raw,
+        input.character,
+        "memory-batch-extraction",
+    );
+    let content = extract_message_text(&raw);
+    let setting = api_client.resolve_user_placeholders(&setting_with_profile);
+    let existing_contents = existing
+        .iter()
+        .map(|memory| memory.content.as_str())
+        .collect::<Vec<_>>();
+    let parsed = parse_batch_memory_updates(&content);
+    let parsed_count = parsed.len();
+    let updates = resolve_batch_source_refs(parsed, &refs);
+    let sourced_count = updates.len();
+    let now = now_ms();
+    let mut candidates = accept_memory_candidates(
+        updates,
+        &setting,
+        &existing_contents,
+        MEMORY_BATCH_MAX_UPDATES,
+    );
+    // どの段階で候補が減ったかを追えるようにする（内容は個人情報なので出さない）。
+    tracing::info!(
+        stage = "memory_batch_candidates",
+        message_count = input.messages.len(),
+        parsed_count,
+        sourced_count,
+        accepted_count = candidates.len(),
+        "Memory batch candidates"
+    );
+    for (index, candidate) in candidates.iter_mut().enumerate() {
+        let source_ids = candidate
+            .as_object_mut()
+            .and_then(|record| record.remove("sourceMessageIds"))
+            .and_then(|value| serde_json::from_value::<Vec<String>>(value).ok())
+            .unwrap_or_default();
+        stamp_memory_candidate(
+            candidate,
+            format!("memory-batch-{}-{now}-{index}", input.room_id),
+            &character_id,
+            input.room_id,
+            &source_ids,
+            now,
+        );
+    }
+    Ok((candidates, usages))
+}
+
+/// 発言に m1, m2, ... の参照を振る。
+fn batch_message_refs(messages: &[Value]) -> Vec<(String, String)> {
+    messages
+        .iter()
+        .enumerate()
+        .map(|(index, message)| (format!("m{}", index + 1), string(message, "id")))
+        .collect()
+}
+
+/// sourceRefs を実際の発言 id の sourceMessageIds に置き換える。知らない参照は捨て、根拠が残らない項目は落とす。
+fn resolve_batch_source_refs(updates: Vec<Value>, refs: &[(String, String)]) -> Vec<Value> {
+    updates
+        .into_iter()
+        .filter_map(|mut update| {
+            let record = update.as_object_mut()?;
+            let source_refs = record.remove("sourceRefs")?;
+            let mut source_ids: Vec<String> = Vec::new();
+            for reference in source_refs.as_array()?.iter().filter_map(Value::as_str) {
+                let Some((_, id)) = refs.iter().find(|(known, _)| known == reference) else {
+                    continue;
+                };
+                if !id.is_empty() && !source_ids.contains(id) {
+                    source_ids.push(id.clone());
+                }
+            }
+            if source_ids.is_empty() {
+                return None;
+            }
+            record.insert("sourceMessageIds".into(), json!(source_ids));
+            Some(update)
+        })
+        .collect()
 }
 
 fn with_speaker_names(
@@ -2782,8 +3044,10 @@ fn cosine_similarity(a: &[f64], b: &[f64]) -> f64 {
 }
 
 fn normalized_memory_key(value: &str) -> String {
+    // {{user}} はどの記憶にも出てくるので、似ているかどうかの判定には使わない。
     value
         .to_lowercase()
+        .replace("{{user}}", "")
         .chars()
         .filter(|character| {
             !character.is_whitespace()
@@ -3247,6 +3511,71 @@ mod tests {
                 scored_memory("memory-other", "葵は弓道部"),
             ],
         }
+    }
+
+    #[test]
+    fn batch_mode_keeps_only_explicit_instructions_on_each_turn() {
+        assert!(
+            plan_instruction_follow_up(
+                extraction_context(),
+                Some(gate_decision(&["protagonist", "world"], &[]))
+            )
+            .is_none()
+        );
+        assert!(plan_instruction_follow_up(extraction_context(), None).is_none());
+        let follow_up = plan_instruction_follow_up(
+            extraction_context(),
+            Some(gate_decision(&["instruction", "world"], &["memory-used"])),
+        )
+        .expect("instruction follow-up");
+        let guidance = follow_up.guidance.expect("guidance");
+        assert_eq!(guidance.reasons, vec![MemoryGateReason::Instruction]);
+        assert_eq!(guidance.used_memory_ids, vec!["memory-used".to_owned()]);
+        assert!(follow_up.shadow.is_none());
+    }
+
+    #[test]
+    fn batch_source_refs_resolve_to_message_ids() {
+        let refs = batch_message_refs(&[json!({"id": "message-1"}), json!({"id": "message-2"})]);
+        let updates = resolve_batch_source_refs(
+            vec![
+                json!({"content": "a", "sourceRefs": ["m2", "m9", "m2", "m1"]}),
+                json!({"content": "b", "sourceRefs": ["m9"]}),
+                json!({"content": "c"}),
+            ],
+            &refs,
+        );
+        assert_eq!(updates.len(), 1);
+        assert_eq!(
+            updates[0]["sourceMessageIds"],
+            json!(["message-2", "message-1"])
+        );
+        assert!(updates[0].get("sourceRefs").is_none());
+    }
+
+    #[test]
+    fn accepted_candidates_drop_duplicates_and_low_scores() {
+        let candidate = |content: &str, importance: f64| json!({"content": content, "importance": importance, "confidence": 0.9});
+        let accepted = accept_memory_candidates(
+            vec![
+                candidate("ユーザーは猫が苦手で近づけない", 0.8),
+                candidate("ユーザーは猫が苦手で近づけない", 0.8),
+                candidate("ユーザーの誕生日は三月", 0.2),
+                candidate("葵は弓道部の部長をしている", 0.8),
+                candidate("ユーザーは辛い料理が好き", 0.8),
+            ],
+            "",
+            &["葵は弓道部の部長をしている"],
+            5,
+        );
+        let contents = accepted
+            .iter()
+            .map(|candidate| string(candidate, "content"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            contents,
+            ["ユーザーは猫が苦手で近づけない", "ユーザーは辛い料理が好き"]
+        );
     }
 
     fn gate_decision(new_reasons: &[&str], used: &[&str]) -> MemoryGateDecision {

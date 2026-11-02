@@ -15,10 +15,12 @@ use super::prompts::string;
 
 const MEMORY_SAVE_MIN_IMPORTANCE: f64 = 0.4;
 const MEMORY_SAVE_MIN_CONFIDENCE: f64 = 0.75;
-const MEMORY_SAVE_MAX_UPDATES: usize = 5;
+pub(super) const MEMORY_SAVE_MAX_UPDATES: usize = 5;
 const MEMORY_TURN_DEDUP_SIMILARITY_THRESHOLD: f64 = 0.68;
 const MEMORY_EXISTING_DEDUP_SIMILARITY_THRESHOLD: f64 = 0.78;
 const MEMORY_DUPLICATE_SIMILARITY_THRESHOLD: f64 = 0.7;
+/// 候補の2文字の組のうち、設定の1文に含まれる割合がこれ以上なら設定に書かれているとみなす。
+const MEMORY_SETTING_COVERAGE_THRESHOLD: f64 = 0.6;
 
 pub(super) struct MemoryEmbedding {
     pub(super) values: Vec<f64>,
@@ -35,6 +37,7 @@ pub(super) async fn prepare_conversation_memories(
     payload: &Value,
     messages: &[Value],
     candidates: Vec<Value>,
+    max_updates: usize,
 ) -> AppResult<Vec<Value>> {
     let Some(character) = payload.get("character").filter(|value| value.is_object()) else {
         return Ok(Vec::new());
@@ -64,6 +67,7 @@ pub(super) async fn prepare_conversation_memories(
         &existing,
         config_string("userName"),
         config_string("userProfile"),
+        max_updates,
     );
     if selected.is_empty() {
         return Ok(Vec::new());
@@ -214,6 +218,7 @@ fn select_memory_candidates(
     existing_memories: &[Value],
     user_name: &str,
     user_profile: &str,
+    max_updates: usize,
 ) -> Vec<Value> {
     let mut setting = candidate_character_setting(character);
     let user_profile = user_profile.trim();
@@ -243,7 +248,7 @@ fn select_memory_candidates(
             continue;
         }
         selected.push(candidate);
-        if selected.len() == MEMORY_SAVE_MAX_UPDATES {
+        if selected.len() >= max_updates {
             break;
         }
     }
@@ -420,13 +425,36 @@ fn candidate_character_setting(character: &Value) -> String {
     .join("\n\n")
 }
 
-fn is_covered_by_character_setting(content: &str, setting_prompt: &str) -> bool {
+/// 候補がキャラ設定にすでに書かれているか。
+/// 設定全体と比べると、長い設定ほどどんな候補も「よくある2文字の組」で重なって見えてしまうので、
+/// 設定を1文ずつに分け、候補の大半がどれか1文に含まれているときだけ「書かれている」とみなす。
+pub(super) fn is_covered_by_character_setting(content: &str, setting_prompt: &str) -> bool {
     let content_key = normalized_memory_key(content);
-    let setting_key = normalized_memory_key(setting_prompt);
-    !content_key.is_empty()
-        && !setting_key.is_empty()
-        && (setting_key.contains(&content_key)
-            || candidate_similarity(content, setting_prompt) >= 0.28)
+    if content_key.is_empty() {
+        return false;
+    }
+    if normalized_memory_key(setting_prompt).contains(&content_key) {
+        return true;
+    }
+    let content_signals = memory_signals(content);
+    if content_signals.is_empty() {
+        return false;
+    }
+    setting_prompt
+        .split(is_setting_sentence_separator)
+        .filter(|sentence| !sentence.trim().is_empty())
+        .any(|sentence| {
+            let sentence_signals = memory_signals(sentence);
+            content_signals.intersection(&sentence_signals).count() as f64
+                / content_signals.len() as f64
+                >= MEMORY_SETTING_COVERAGE_THRESHOLD
+        })
+}
+
+fn is_setting_sentence_separator(character: char) -> bool {
+    "
+。！？!?"
+        .contains(character)
 }
 
 fn candidate_similarity(left: &str, right: &str) -> f64 {
@@ -495,8 +523,10 @@ fn is_memory_separator(character: char) -> bool {
 }
 
 fn normalized_memory_key(value: &str) -> String {
+    // {{user}} はどの記憶にも出てくるので、似ているかどうかの判定には使わない。
     value
         .to_lowercase()
+        .replace("{{user}}", "")
         .chars()
         .filter(|character| {
             !character.is_whitespace()
@@ -577,7 +607,14 @@ mod tests {
             }),
         ];
 
-        let selected = select_memory_candidates(candidates, &character, &existing, "", "");
+        let selected = select_memory_candidates(
+            candidates,
+            &character,
+            &existing,
+            "",
+            "",
+            MEMORY_SAVE_MAX_UPDATES,
+        );
 
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0]["id"], "accepted");
@@ -694,5 +731,54 @@ mod tests {
             100,
         );
         assert!(legacy_connection[0].needs_embedding);
+    }
+}
+
+#[cfg(test)]
+mod setting_coverage_tests {
+    use super::{
+        MEMORY_TURN_DEDUP_SIMILARITY_THRESHOLD, candidate_similarity,
+        is_covered_by_character_setting,
+    };
+
+    #[test]
+    fn user_placeholder_does_not_make_different_memories_duplicates() {
+        assert!(
+            candidate_similarity("{{user}}は猫が好き", "{{user}}は犬が苦手")
+                < MEMORY_TURN_DEDUP_SIMILARITY_THRESHOLD
+        );
+        assert!(
+            candidate_similarity("{{user}}は猫が好き", "{{user}}は猫が好き。")
+                >= MEMORY_TURN_DEDUP_SIMILARITY_THRESHOLD
+        );
+    }
+
+    const LONG_SETTING: &str = "葵は高校二年生の女の子で、弓道部に所属している。
+        ユーザーとは幼なじみで、家が隣同士。好きなものは甘いものと猫。
+        口調はやわらかく、語尾をのばすことが多い。ユーザーのことが少し気になっているが、
+        自分の気持ちにはまだ気づいていない。休日は図書館で本を読んで過ごすことが多い。";
+
+    #[test]
+    fn new_information_is_not_hidden_by_a_long_setting() {
+        assert!(!is_covered_by_character_setting(
+            "ユーザーは来週の日曜に葵と水族館へ行く約束をした",
+            LONG_SETTING
+        ));
+        assert!(!is_covered_by_character_setting(
+            "ユーザーは辛いものが苦手",
+            LONG_SETTING
+        ));
+    }
+
+    #[test]
+    fn information_already_in_one_setting_sentence_is_covered() {
+        assert!(is_covered_by_character_setting(
+            "葵は弓道部に所属",
+            LONG_SETTING
+        ));
+        assert!(is_covered_by_character_setting(
+            "葵の好きなものは甘いものと猫",
+            LONG_SETTING
+        ));
     }
 }

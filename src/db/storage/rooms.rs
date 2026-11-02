@@ -6,8 +6,9 @@ use serde_json::Value;
 use crate::error::{AppError, AppResult};
 
 use super::{
+    conversation::{MEMORY_CURSOR_KEY_PREFIX, memory_cursor_key},
     json::{optional_string, query_json_values, required_i64, required_string, serialize},
-    memories, messages,
+    memories, messages, meta,
 };
 
 pub(super) fn get_all(connection: &Connection) -> AppResult<Vec<Value>> {
@@ -49,6 +50,7 @@ pub(super) fn delete(connection: &mut Connection, room_id: &str) -> AppResult<()
     let deleted_room_ids = HashSet::from([room_id.to_owned()]);
 
     transaction.execute("DELETE FROM rooms WHERE id = ?1", params![room_id])?;
+    meta::delete(&transaction, &memory_cursor_key(room_id))?;
     memories::clean_after_history_deletion(&transaction, &deleted_room_ids, &deleted_message_ids)?;
     transaction.commit()?;
     Ok(())
@@ -57,6 +59,7 @@ pub(super) fn delete(connection: &mut Connection, room_id: &str) -> AppResult<()
 pub(super) fn delete_history(connection: &mut Connection, room_id: &str) -> AppResult<()> {
     let transaction = connection.transaction()?;
     transaction.execute("DELETE FROM rooms WHERE id = ?1", params![room_id])?;
+    meta::delete(&transaction, &memory_cursor_key(room_id))?;
     transaction.commit()?;
     Ok(())
 }
@@ -83,6 +86,13 @@ pub(super) fn clear_all_history(connection: &mut Connection) -> AppResult<()> {
     };
 
     transaction.execute("DELETE FROM rooms", [])?;
+    transaction.execute(
+        "DELETE FROM meta WHERE substr(key, 1, ?1) = ?2",
+        params![
+            MEMORY_CURSOR_KEY_PREFIX.len() as i64,
+            MEMORY_CURSOR_KEY_PREFIX
+        ],
+    )?;
     memories::clean_after_history_deletion(&transaction, &deleted_room_ids, &deleted_message_ids)?;
     transaction.execute(
         "INSERT INTO meta(key, value_json) VALUES ('currentRoomId', 'null')

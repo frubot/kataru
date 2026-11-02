@@ -5,14 +5,139 @@ use crate::error::{AppError, AppResult};
 
 use super::{
     Database,
-    json::{now_millis, optional_string, required_i64, required_string},
+    json::{now_millis, optional_string, query_json_values, required_i64, required_string},
     memories::{get_by_character, touch_in_transaction, upsert as upsert_memory},
     messages::{
         all_exist as all_messages_exist, get_by_room, sanitize_assistant, upsert as upsert_message,
     },
+    meta,
     rooms::upsert as upsert_room,
     usage::upsert as upsert_usage_record,
 };
+
+/// バッチ抽出のカーソル（どこまで記憶に反映したか）を置く meta のキー。
+/// ルームの data_json はフロントから丸ごと上書きされるため、meta に分けて持つ。
+pub(super) fn memory_cursor_key(room_id: &str) -> String {
+    format!("{MEMORY_CURSOR_KEY_PREFIX}{room_id}")
+}
+
+pub(super) const MEMORY_CURSOR_KEY_PREFIX: &str = "memoryCursor:";
+
+/// バッチ抽出に必要なルームの状態。
+pub struct MemoryBatchSource {
+    /// 未設定なら `None`。
+    pub cursor: Option<Value>,
+    /// ルームの全メッセージ（要約済みの archived も含む）。timestamp 順。
+    pub messages: Vec<Value>,
+    pub summary: String,
+}
+
+/// 単体会話ルームのバッチ抽出の材料を読む。ルームが無い、またはシチュエーションのルームなら `None`。
+pub async fn get_memory_batch_source(
+    database: &Database,
+    room_id: &str,
+) -> AppResult<Option<MemoryBatchSource>> {
+    let room_id = room_id.to_owned();
+    database
+        .call(move |connection| {
+            let room = connection
+                .query_row(
+                    "SELECT data_json FROM rooms WHERE id = ?1 AND situation_id IS NULL",
+                    params![room_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?;
+            let Some(room) = room else {
+                return Ok(None);
+            };
+            let room: Value = serde_json::from_str(&room)?;
+            let cursor = meta::get(connection, &memory_cursor_key(&room_id))?;
+            let messages = query_json_values(
+                connection,
+                "SELECT data_json FROM messages WHERE room_id = ?1 ORDER BY timestamp, id",
+                params![room_id],
+            )?;
+            Ok(Some(MemoryBatchSource {
+                cursor: cursor.is_object().then_some(cursor),
+                messages,
+                summary: optional_string(&room, &["summary"]).unwrap_or_default(),
+            }))
+        })
+        .await
+}
+
+/// キャラクターの単体会話ルームの id 一覧。
+pub async fn get_character_room_ids(
+    database: &Database,
+    character_id: &str,
+) -> AppResult<Vec<String>> {
+    let character_id = character_id.to_owned();
+    database
+        .call(move |connection| {
+            let mut statement = connection
+                .prepare("SELECT id FROM rooms WHERE character_id = ?1 AND situation_id IS NULL")?;
+            let ids = statement
+                .query_map(params![character_id], |row| row.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(ids)
+        })
+        .await
+}
+
+/// バッチ抽出の結果を保存し、同じトランザクションでカーソルを進める。
+/// 根拠のメッセージが消えていれば sourceMessageIds から外し、全部消えた記憶は保存しない。
+/// 戻り値は保存した記憶の件数。
+pub async fn persist_batch_memories(
+    database: &Database,
+    room_id: &str,
+    cursor: Value,
+    memories: Vec<Value>,
+    usages: Vec<Value>,
+) -> AppResult<usize> {
+    let room_id = room_id.to_owned();
+    database
+        .call(move |connection| {
+            let transaction = connection.transaction()?;
+            let room_exists = transaction.query_row(
+                "SELECT EXISTS(SELECT 1 FROM rooms WHERE id = ?1)",
+                params![room_id],
+                |row| row.get::<_, bool>(0),
+            )?;
+            if !room_exists {
+                return Ok(0);
+            }
+            for usage in usages {
+                upsert_usage_record(&transaction, usage)?;
+            }
+            let mut saved = 0;
+            for mut memory in memories {
+                let source_ids = memory
+                    .get("sourceMessageIds")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>();
+                let mut existing_ids = Vec::with_capacity(source_ids.len());
+                for source_id in source_ids {
+                    if all_messages_exist(&transaction, vec![source_id.clone()])? {
+                        existing_ids.push(Value::String(source_id));
+                    }
+                }
+                if existing_ids.is_empty() {
+                    continue;
+                }
+                memory["sourceMessageIds"] = Value::Array(existing_ids);
+                upsert_memory(&transaction, memory)?;
+                saved += 1;
+            }
+            meta::set(&transaction, &memory_cursor_key(&room_id), &cursor)?;
+            transaction.commit()?;
+            Ok(saved)
+        })
+        .await
+}
 
 pub async fn get_conversation_memories(
     database: &Database,
@@ -255,7 +380,9 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        persist_conversation_memories, persist_conversation_result, persist_conversation_submission,
+        get_character_room_ids, get_memory_batch_source, persist_batch_memories,
+        persist_conversation_memories, persist_conversation_result,
+        persist_conversation_submission,
     };
     use crate::db::storage::{memories, messages::get_by_room, test_support::test_room};
     use crate::db::{Database, storage::json::query_optional_json};
@@ -477,5 +604,74 @@ mod tests {
             })
             .await
             .expect("verify continuation submission was transient");
+    }
+
+    #[tokio::test]
+    async fn batch_memories_keep_existing_sources_and_advance_the_cursor() {
+        let database = Database::open(Path::new(":memory:")).expect("open batch memory database");
+        let payload = json!({
+            "room": test_room("room-batch"),
+            "messages": [{
+                "id": "message-kept",
+                "role": "user",
+                "content": "猫が好き",
+                "timestamp": 10
+            }]
+        });
+        persist_conversation_submission(&database, &payload, false, false)
+            .await
+            .expect("persist source message");
+
+        let memory = |id: &str, sources: &[&str]| {
+            json!({
+                "id": id,
+                "characterId": "character-1",
+                "scope": "character",
+                "kind": "preference",
+                "content": id,
+                "importance": 0.8,
+                "confidence": 0.9,
+                "sourceMessageIds": sources,
+                "updatedAt": 1,
+            })
+        };
+        let cursor = json!({"messageId": "message-kept", "timestamp": 10});
+        let saved = persist_batch_memories(
+            &database,
+            "room-batch",
+            cursor.clone(),
+            vec![
+                memory("memory-partial", &["message-kept", "message-deleted"]),
+                memory("memory-orphan", &["message-deleted"]),
+            ],
+            Vec::new(),
+        )
+        .await
+        .expect("persist batch memories");
+        assert_eq!(saved, 1);
+
+        let source = get_memory_batch_source(&database, "room-batch")
+            .await
+            .expect("read batch source")
+            .expect("room exists");
+        assert_eq!(source.cursor, Some(cursor));
+        assert_eq!(source.messages.len(), 1);
+
+        database
+            .call(|connection| {
+                let partial = memories::get(connection, "memory-partial")?.expect("saved");
+                assert_eq!(partial["sourceMessageIds"], json!(["message-kept"]));
+                assert!(memories::get(connection, "memory-orphan")?.is_none());
+                Ok(())
+            })
+            .await
+            .expect("verify batch memories");
+
+        assert_eq!(
+            get_character_room_ids(&database, "character-1")
+                .await
+                .expect("list rooms"),
+            vec!["room-batch".to_owned()]
+        );
     }
 }

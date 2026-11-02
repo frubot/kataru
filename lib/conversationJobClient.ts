@@ -89,3 +89,25 @@ export async function cancelConversationJob(
     if (!response.ok) await throwChatRequestError(response, 0, 'cancel');
     return response.json() as Promise<ConversationJobStatus<unknown>>;
 }
+
+/**
+ * ルームを離れるときに、そのルームの未反映の発言を記憶へまとめて反映するよう頼む。
+ * 結果は待たない。ページを閉じるときも届くよう keepalive で送り、
+ * 本文が keepalive の上限を超えて送れなかったときは通常の送信でやり直す。
+ */
+export function requestMemoryFlush(payload: unknown): void {
+    const body = JSON.stringify(payload);
+    const send = (keepalive: boolean) => fetch('/api/conversation/memory-flush', {
+        method: 'POST',
+        cache: 'no-store',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+        keepalive,
+    });
+    send(true)
+        .catch(() => send(false))
+        .catch((error: unknown) => {
+            console.warn('Memory flush request failed:', error);
+        });
+}

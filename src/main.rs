@@ -283,6 +283,10 @@ fn api_router() -> Router<AppState> {
                 .layer(DefaultBodyLimit::max(CONVERSATION_REQUEST_BODY_LIMIT)),
         )
         .route(
+            "/conversation/memory-flush",
+            post(conversation::jobs::flush_memory),
+        )
+        .route(
             "/conversation/jobs/{job_id}",
             get(conversation::jobs::get).delete(conversation::jobs::cancel),
         )

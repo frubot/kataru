@@ -46,6 +46,7 @@ import {
     cancelConversationJob,
     getConversationJob,
     listConversationJobs,
+    requestMemoryFlush,
     submitConversationJob,
 } from '@/lib/conversationJobClient';
 import type { ConversationJobStatus } from '@/lib/conversationJobClient';
@@ -172,6 +173,20 @@ function toConversationCharacter(character: Character | null): ConversationChara
             expressions: getVisualNovelExpressionNames(character, costume.name).map((name) => ({ name })),
             motions: getVisualNovelMotionNames(character, costume.name).map((name) => ({ name })),
         })),
+    };
+}
+
+/** ルームを離れるときの記憶の反映に使う設定。最新の設定をストアから読む。 */
+function buildMemoryFlushPayload(roomId: string, character: Character) {
+    const state = useStore.getState();
+    if (state.memoryBatchMode === 'off') return null;
+    return {
+        room: { id: roomId },
+        character: toConversationCharacter(character),
+        memoryBatchMode: state.memoryBatchMode,
+        memoryExtractionModel: serializeModelRef(state.memoryExtractionModel),
+        memoryEmbeddingModel: serializeModelRef(state.memoryEmbeddingModel),
+        aiApiConfig: state.getAiApiConfig(),
     };
 }
 
@@ -338,6 +353,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         memoryGateModel,
         memoryGateEnabled,
         memoryGateShadowMode,
+        memoryBatchMode,
         memoryExtractionModel,
         memoryEmbeddingModel,
         reasoningEffort,
@@ -483,6 +499,28 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         },
     });
     const currentRoomId = room?.id;
+    // ルームを離れるとき（別のルームを開く・ページを閉じる）に、未反映の発言を記憶へまとめて反映する。
+    const memoryFlushCharacter = !isGroupRoom && !isSecretMode && character != null && character.enableMemory !== false
+        ? character
+        : null;
+    const memoryFlushCharacterRef = useRef(memoryFlushCharacter);
+    useEffect(() => {
+        memoryFlushCharacterRef.current = memoryFlushCharacter;
+    });
+    useEffect(() => {
+        if (!currentRoomId) return;
+        const flush = () => {
+            const flushCharacter = memoryFlushCharacterRef.current;
+            if (!flushCharacter) return;
+            const payload = buildMemoryFlushPayload(currentRoomId, flushCharacter);
+            if (payload) requestMemoryFlush(payload);
+        };
+        window.addEventListener('pagehide', flush);
+        return () => {
+            window.removeEventListener('pagehide', flush);
+            flush();
+        };
+    }, [currentRoomId]);
     const isLoading = currentRoomId ? activeGenerationRoomIds.has(currentRoomId) : false;
     const isVisualNovelLogOpen = isVisualNovelMode && vnLogOpen;
     const situationVnPresentation = useSituationVisualNovelPresentation({
@@ -1111,6 +1149,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     memoryGateModel: serializeModelRef(memoryGateModel),
                     memoryGateEnabled,
                     memoryGateShadowMode,
+                    memoryBatchMode,
                     memoryExtractionModel: serializeModelRef(memoryExtractionModel),
                     memoryEmbeddingModel: serializeModelRef(memoryEmbeddingModel),
                     reasoningEffort,

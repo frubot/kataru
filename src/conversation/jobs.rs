@@ -1,7 +1,7 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{
-        Arc,
+        Arc, Mutex as StdMutex,
         atomic::{AtomicBool, Ordering},
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -30,7 +30,8 @@ use crate::{
 
 use super::{
     GenerationMode,
-    memory::prepare_conversation_memories,
+    memory::{MEMORY_SAVE_MAX_UPDATES, prepare_conversation_memories},
+    memory_batch::{run_memory_batches_after_turn, run_memory_flush},
     orchestrator::{
         MemoryExtraction, MemoryFollowUp, ShadowGate, TurnOutput, extract_turn_memories, run_turn,
     },
@@ -82,6 +83,21 @@ pub struct ConversationJobs {
     inner: Arc<Mutex<HashMap<String, ConversationJob>>>,
     history_persistence: Arc<Mutex<()>>,
     memory_persistence: Arc<Mutex<()>>,
+    memory_batches: Arc<StdMutex<HashSet<String>>>,
+}
+
+/// 実行中のバッチ抽出の印。drop で外れる。
+pub(crate) struct MemoryBatchGuard {
+    rooms: Arc<StdMutex<HashSet<String>>>,
+    room_id: String,
+}
+
+impl Drop for MemoryBatchGuard {
+    fn drop(&mut self) {
+        if let Ok(mut rooms) = self.rooms.lock() {
+            rooms.remove(&self.room_id);
+        }
+    }
 }
 
 struct ConversationJob {
@@ -231,8 +247,20 @@ impl ConversationJobs {
         self.history_persistence.clone().lock_owned().await
     }
 
-    async fn lock_memory_persistence(&self) -> OwnedMutexGuard<()> {
+    pub(crate) async fn lock_memory_persistence(&self) -> OwnedMutexGuard<()> {
         self.memory_persistence.clone().lock_owned().await
+    }
+
+    /// 同じルームのバッチ抽出が二重に走らないようにする。既に実行中なら `None`。
+    pub(crate) fn begin_memory_batch(&self, room_id: &str) -> Option<MemoryBatchGuard> {
+        let mut rooms = self.memory_batches.lock().ok()?;
+        if !rooms.insert(room_id.to_owned()) {
+            return None;
+        }
+        Some(MemoryBatchGuard {
+            rooms: Arc::clone(&self.memory_batches),
+            room_id: room_id.to_owned(),
+        })
     }
 
     async fn complete(&self, job_id: &str, result: Value) {
@@ -609,6 +637,30 @@ fn recoverable_snapshots(jobs: &HashMap<String, ConversationJob>) -> Vec<Value> 
         .collect()
 }
 
+/// ルームを離れるときに、そのルームの未反映の発言を記憶へまとめて反映する。
+/// 抽出は裏で走らせ、すぐに 202 を返す。
+pub async fn flush_memory(
+    State(state): State<AppState>,
+    Json(payload): Json<Value>,
+) -> AppResult<StatusCode> {
+    let room_id = payload
+        .pointer("/room/id")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| AppError::BadRequest("room.id が必要です。".to_owned()))?
+        .to_owned();
+    if payload.get("secretMode").and_then(Value::as_bool) == Some(true) {
+        return Ok(StatusCode::ACCEPTED);
+    }
+    tokio::spawn(
+        async move {
+            run_memory_flush(&state, &payload, &room_id).await;
+        }
+        .in_current_span(),
+    );
+    Ok(StatusCode::ACCEPTED)
+}
+
 pub async fn start(
     State(state): State<AppState>,
     Json(payload): Json<Value>,
@@ -830,6 +882,10 @@ async fn run_conversation_job(
                     .await;
                 return;
             }
+            let summarized = result
+                .pointer("/summary/keepCount")
+                .and_then(Value::as_u64)
+                .is_some_and(|keep_count| keep_count > 0);
             let memory = memory.filter(|_| !secret_mode).map(|follow_up| {
                 let messages = result
                     .get("messages")
@@ -842,6 +898,9 @@ async fn run_conversation_job(
             tracing::debug!(stage = "completed", "Conversation job completed");
             if let Some((follow_up, messages)) = memory {
                 persist_turn_memories(&state, &payload, &job_id, follow_up, &messages).await;
+            }
+            if !secret_mode {
+                run_memory_batches_after_turn(&state, &payload, &room_id, summarized).await;
             }
         }
         Err(failure) => {
@@ -948,7 +1007,15 @@ async fn persist_turn_memories(
     normalize_memory_follow_up_ids(job_id, &mut candidates, &mut usages, &source_message_ids);
     let candidate_count = candidates.len();
     let _memory_persistence_guard = state.conversation_jobs.lock_memory_persistence().await;
-    let prepared = match prepare_conversation_memories(state, payload, messages, candidates).await {
+    let prepared = match prepare_conversation_memories(
+        state,
+        payload,
+        messages,
+        candidates,
+        MEMORY_SAVE_MAX_UPDATES,
+    )
+    .await
+    {
         Ok(prepared) => prepared,
         Err(error) => {
             tracing::warn!(

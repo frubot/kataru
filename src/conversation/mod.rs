@@ -1,5 +1,6 @@
 pub mod jobs;
 mod memory;
+mod memory_batch;
 mod memory_date;
 mod memory_gate;
 mod orchestrator;

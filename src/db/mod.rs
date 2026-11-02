@@ -15,9 +15,10 @@ use rusqlite::{
 use crate::error::{AppError, AppResult};
 
 pub use storage::{
-    PackagePreview, build_character_package, get_conversation_memories, handle_storage_command,
-    import_character_package, inspect_character_package, migrate_character_images,
-    migrate_situation_images, persist_conversation_memories, persist_conversation_result,
+    PackagePreview, build_character_package, get_character_room_ids, get_conversation_memories,
+    get_memory_batch_source, handle_storage_command, import_character_package,
+    inspect_character_package, migrate_character_images, migrate_situation_images,
+    persist_batch_memories, persist_conversation_memories, persist_conversation_result,
     persist_conversation_submission,
 };
 

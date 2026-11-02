@@ -118,6 +118,90 @@ pub(crate) fn memory_extraction_guided_prompt() -> &'static str {
 0.00-0.39 保存しない"#
 }
 
+pub(crate) fn memory_extraction_batch_prompt() -> &'static str {
+    r#"あなたはロールプレイチャットの長期記憶を保存する判定器です。キャラクターとして返答してはいけません。
+
+## 目的
+
+- messages は、まだ長期記憶に反映していない会話のまとまりです。各発言には ref（m1, m2, ...）が付いています。
+- contextMessages は、その直前の会話です。文脈の確認だけに使い、ここから記憶を作ってはいけません。
+- summary は、それより前の会話の要約です。文脈の確認だけに使います。
+- messages 全体を最後まで読み、後の会話でキャラクターが覚えていてほしい情報を漏れなく抽出します。
+- 話題ごとに別の項目にします。複数の話題を1項目に詰め込んだり、代表的な1件だけを選んだりしてはいけません。
+- 何ターンかにまたがって形になった同じ話題の変化（関係の進展、約束のまとまり、設定の判明など）は、途中経過ではなく最終的な内容を1件にまとめます。
+- 会話の中で起きた出来事（どこへ行った、何をした、何をもらった・あげた、何を打ち明けた、何を決めた、誰と会った）は、後で話題になりうるので event として保存します。
+- 後で撤回・訂正された内容は、訂正後の内容だけを保存します。保存しないのは、言い直す前の内容、明らかな冗談、その場の動作や表情の描写だけです。
+- existingMemories と同じ意味の内容は保存しません。
+- characterSystemPrompt に含まれるキャラクター設定、人格、口調、世界観、既定の関係性は保存しません。
+- 各項目の sourceRefs には、その内容の根拠となった messages の ref を1つ以上入れます。contextMessages は根拠にできません。
+- 該当する情報がない場合は updates を空配列にします。
+- 出力は {"updates": [...]} 形式の JSON のみです。Markdown や説明文を含めてはいけません。
+
+## ルール
+
+### 保存する内容
+
+似た内容は1つのアイテムにまとめて保存します。正確な内容を簡単に、短く記述してください。
+
+- {{user}}が明示的に「覚えて」「記憶して」「今後も守って」と依頼した内容
+- characterSystemPrompt, existingMemories に含まれない設定
+ - 呼び方
+ - 好み
+ - 苦手
+ - NG
+ - キャラクター自身の情報
+ - 世界観の固有名詞
+ など
+- {{user}}とキャラクターの関係性、約束、距離感の変化
+- 後の会話で参照されそうな出来事
+
+### scope
+
+- character: 対象キャラクターが覚えている{{user}}情報、好み、指示
+- relationship: {{user}}と対象キャラクターの関係性、距離感の変化、約束
+- world: 継続シナリオ、世界観、事件、固有名詞、場所
+
+### kind
+
+- preference: 好き嫌い、呼ばれ方、話し方の好み、NG
+- relationship: 関係性、信頼、約束、距離感
+- instruction: 今後の応答で守るべき明示指示
+- event: 会話内で起きた出来事、シナリオ進行、過去のエピソード
+- fact: 上記以外の安定した事実
+
+### importance
+0.85-1.00 呼び方、NG、強い好み、永続設定、大きな関係変化
+0.65-0.84 よく参照されそうな好み、約束、継続中のシナリオ事実、印象に残る出来事
+0.40-0.64 ときどき役立つ背景情報、軽い好み、ちょっとした出来事
+0.00-0.39 保存しない
+
+### confidence
+0.90-1.00 {{user}}が明確に依頼または断定した、または会話の中で実際に起きた
+0.70-0.89 会話から明確に読み取れる
+0.40-0.69 推測を含むため保存しない
+0.00-0.39 保存しない"#
+}
+
+pub(crate) const MEMORY_BATCH_MAX_UPDATES: usize = 12;
+
+pub(crate) fn memory_batch_schema() -> Value {
+    let mut schema = memory_schema();
+    schema["name"] = Value::String("memory_batch_updates".to_owned());
+    let updates = &mut schema["schema"]["properties"]["updates"];
+    updates["maxItems"] = json!(MEMORY_BATCH_MAX_UPDATES);
+    let items = &mut updates["items"];
+    items["properties"]["sourceRefs"] = json!({
+        "type": "array",
+        "minItems": 1,
+        "items": {"type": "string"},
+        "description": "Refs (m1, m2, ...) of the messages this memory is based on."
+    });
+    if let Some(required) = items["required"].as_array_mut() {
+        required.push(Value::String("sourceRefs".to_owned()));
+    }
+    schema
+}
+
 pub(crate) fn memory_schema() -> Value {
     json!({
         "name": "memory_save_updates",
@@ -193,48 +277,81 @@ fn strip_json_code_fence(content: &str) -> &str {
         .unwrap_or(trimmed)
 }
 
-pub(crate) fn parse_memory_updates(content: &str) -> Vec<Value> {
+fn parsed_updates(content: &str) -> Vec<Value> {
     let Ok(parsed) = serde_json::from_str::<Value>(strip_json_code_fence(content)) else {
         return Vec::new();
     };
-    let Some(updates) = parsed.get("updates").and_then(Value::as_array) else {
-        return Vec::new();
-    };
-    updates
+    parsed
+        .get("updates")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+}
+
+fn parse_memory_update(update: &Value) -> Option<Value> {
+    let record = update.as_object()?;
+    let content = record
+        .get("content")?
+        .as_str()?
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    if content.is_empty() {
+        return None;
+    }
+    let kind = record.get("kind")?.as_str()?;
+    if !["fact", "preference", "event", "relationship", "instruction"].contains(&kind) {
+        return None;
+    }
+    let scope = record.get("scope")?.as_str()?;
+    if !["character", "relationship", "world"].contains(&scope) {
+        return None;
+    }
+    let importance = record.get("importance")?.as_f64()?;
+    let confidence = record.get("confidence")?.as_f64()?;
+    if !importance.is_finite() || !confidence.is_finite() {
+        return None;
+    }
+    Some(json!({
+        "content": content,
+        "kind": kind,
+        "scope": scope,
+        "importance": importance.clamp(0.0, 1.0),
+        "confidence": confidence.clamp(0.0, 1.0)
+    }))
+}
+
+pub(crate) fn parse_memory_updates(content: &str) -> Vec<Value> {
+    parsed_updates(content)
+        .iter()
+        .filter_map(parse_memory_update)
+        .take(5)
+        .collect()
+}
+
+/// バッチ抽出の結果を読む。sourceRefs は文字列だけを残し、空なら項目ごと捨てる。
+pub(crate) fn parse_batch_memory_updates(content: &str) -> Vec<Value> {
+    parsed_updates(content)
         .iter()
         .filter_map(|update| {
-            let record = update.as_object()?;
-            let content = record
-                .get("content")?
-                .as_str()?
-                .split_whitespace()
-                .collect::<Vec<_>>()
-                .join(" ");
-            if content.is_empty() {
+            let source_refs = update
+                .get("sourceRefs")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|reference| !reference.is_empty())
+                .map(|reference| Value::String(reference.to_owned()))
+                .collect::<Vec<_>>();
+            if source_refs.is_empty() {
                 return None;
             }
-            let kind = record.get("kind")?.as_str()?;
-            if !["fact", "preference", "event", "relationship", "instruction"].contains(&kind) {
-                return None;
-            }
-            let scope = record.get("scope")?.as_str()?;
-            if !["character", "relationship", "world"].contains(&scope) {
-                return None;
-            }
-            let importance = record.get("importance")?.as_f64()?;
-            let confidence = record.get("confidence")?.as_f64()?;
-            if !importance.is_finite() || !confidence.is_finite() {
-                return None;
-            }
-            Some(json!({
-                "content": content,
-                "kind": kind,
-                "scope": scope,
-                "importance": importance.clamp(0.0, 1.0),
-                "confidence": confidence.clamp(0.0, 1.0)
-            }))
+            let mut parsed = parse_memory_update(update)?;
+            parsed["sourceRefs"] = Value::Array(source_refs);
+            Some(parsed)
         })
-        .take(5)
+        .take(MEMORY_BATCH_MAX_UPDATES)
         .collect()
 }
 
@@ -327,4 +444,55 @@ pub async fn extract_memories(
         "usage": data.get("usage").cloned().unwrap_or(Value::Null)
     }))
     .into_response())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn batch_updates_keep_source_refs_and_drop_items_without_them() {
+        let content = json!({
+            "updates": [
+                {
+                    "content": "ユーザーは猫が好き",
+                    "kind": "preference",
+                    "scope": "character",
+                    "importance": 0.8,
+                    "confidence": 0.9,
+                    "sourceRefs": ["m2", " ", 3]
+                },
+                {
+                    "content": "根拠のない記憶",
+                    "kind": "fact",
+                    "scope": "world",
+                    "importance": 0.8,
+                    "confidence": 0.9,
+                    "sourceRefs": []
+                }
+            ]
+        })
+        .to_string();
+        let updates = parse_batch_memory_updates(&content);
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0]["content"], "ユーザーは猫が好き");
+        assert_eq!(updates[0]["sourceRefs"], json!(["m2"]));
+    }
+
+    #[test]
+    fn batch_schema_requires_source_refs() {
+        let schema = memory_batch_schema();
+        let items = &schema["schema"]["properties"]["updates"]["items"];
+        assert!(items["properties"]["sourceRefs"].is_object());
+        assert!(
+            items["required"]
+                .as_array()
+                .expect("required")
+                .contains(&json!("sourceRefs"))
+        );
+        assert_eq!(
+            schema["schema"]["properties"]["updates"]["maxItems"],
+            json!(MEMORY_BATCH_MAX_UPDATES)
+        );
+    }
 }

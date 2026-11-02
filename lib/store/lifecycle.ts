@@ -1,3 +1,4 @@
+import { DEFAULT_MEMORY_BATCH_MODE, isMemoryBatchMode } from '../memoryBatchMode';
 import {
     DEFAULT_CONNECTION_ID,
     DEFAULT_REASONING_EFFORT,
@@ -137,7 +138,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
         hydrate: async () => {
             if (get().hydrated) return;
             await db.migrateLegacyDatabase();
-            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, storedChatWallpaper, storedDefaultViewMode, currentRoomId, vnTypingSpeed, storedKeyboardShortcuts, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedModelDefaults, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedRoleApiTypes, storedConversationCompressionEnabled, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion, storedTtsEnabled, storedTtsConnectionId, storedTtsModel, storedTtsVoice, storedTtsSpeed, storedTtsVolume, storedTtsAutoPlay, storedTtsActionCaption, storedTtsCaptionCfgScale, storedTtsChunkMinChars, storedTtsFirstChunkMinChars, storedTtsNarrationEnabled, storedTtsNarratorVoice, storedMemoryGateEnabled, storedMemoryGateShadowMode, storedReasoningEffort, storedUserName, storedUserProfile, storedChatSampling, storedVnMaxStageSprites, storedWordReplacements] = await Promise.all([
+            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, storedChatWallpaper, storedDefaultViewMode, currentRoomId, vnTypingSpeed, storedKeyboardShortcuts, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedModelDefaults, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedRoleApiTypes, storedConversationCompressionEnabled, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion, storedTtsEnabled, storedTtsConnectionId, storedTtsModel, storedTtsVoice, storedTtsSpeed, storedTtsVolume, storedTtsAutoPlay, storedTtsActionCaption, storedTtsCaptionCfgScale, storedTtsChunkMinChars, storedTtsFirstChunkMinChars, storedTtsNarrationEnabled, storedTtsNarratorVoice, storedMemoryGateEnabled, storedMemoryGateShadowMode, storedMemoryBatchMode, storedReasoningEffort, storedUserName, storedUserProfile, storedChatSampling, storedVnMaxStageSprites, storedWordReplacements] = await Promise.all([
                 db.getAllCharacters(),
                 db.getAllGroups(),
                 db.getAllRooms(),
@@ -193,6 +194,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 db.getMeta<string>('ttsNarratorVoice'),
                 db.getMeta<boolean>('memoryGateEnabled'),
                 db.getMeta<boolean>('memoryGateShadowMode'),
+                db.getMeta<unknown>('memoryBatchMode'),
                 db.getMeta<unknown>('reasoningEffort'),
                 db.getMeta<string>('userName'),
                 db.getMeta<string>('userProfile'),
@@ -475,6 +477,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 ...effectiveModelDefaults,
                 memoryGateEnabled: storedMemoryGateEnabled !== false,
                 memoryGateShadowMode: storedMemoryGateShadowMode === true,
+                memoryBatchMode: isMemoryBatchMode(storedMemoryBatchMode) ? storedMemoryBatchMode : DEFAULT_MEMORY_BATCH_MODE,
                 conversationCompressionEnabled: resolvedConversationCompressionEnabled,
                 reasoningEffort: resolvedReasoningEffort,
                 chatSampling: normalizeChatSampling(storedChatSampling),
@@ -536,6 +539,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 ...modelDefaults,
                 memoryGateEnabled: DEFAULT_MEMORY_GATE_ENABLED,
                 memoryGateShadowMode: false,
+                memoryBatchMode: DEFAULT_MEMORY_BATCH_MODE,
                 conversationCompressionEnabled: DEFAULT_CONVERSATION_COMPRESSION_ENABLED,
                 reasoningEffort: DEFAULT_REASONING_EFFORT,
                 chatSampling: {},

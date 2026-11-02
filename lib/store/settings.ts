@@ -1,3 +1,4 @@
+import { DEFAULT_MEMORY_BATCH_MODE } from '../memoryBatchMode';
 import {
     DEFAULT_CONNECTION_ID,
     DEFAULT_REASONING_EFFORT,
@@ -254,6 +255,7 @@ type SettingsSlice = Pick<
     | 'memoryEmbeddingModel'
     | 'memoryGateEnabled'
     | 'memoryGateShadowMode'
+    | 'memoryBatchMode'
     | 'conversationCompressionEnabled'
     | 'reasoningEffort'
     | 'chatSampling'
@@ -305,6 +307,7 @@ type SettingsSlice = Pick<
     | 'setMemoryEmbeddingModel'
     | 'setMemoryGateEnabled'
     | 'setMemoryGateShadowMode'
+    | 'setMemoryBatchMode'
     | 'setConversationCompressionEnabled'
     | 'setReasoningEffort'
     | 'setChatSampling'
@@ -347,6 +350,7 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         ...getDefaultModelDefaults(),
         memoryGateEnabled: DEFAULT_MEMORY_GATE_ENABLED,
         memoryGateShadowMode: false,
+        memoryBatchMode: DEFAULT_MEMORY_BATCH_MODE,
         conversationCompressionEnabled: DEFAULT_CONVERSATION_COMPRESSION_ENABLED,
         reasoningEffort: DEFAULT_REASONING_EFFORT,
         chatSampling: {},
@@ -513,6 +517,10 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         setMemoryGateShadowMode: (memoryGateShadowMode) => {
             set({ memoryGateShadowMode });
             fire(db.setMeta('memoryGateShadowMode', memoryGateShadowMode));
+        },
+        setMemoryBatchMode: (memoryBatchMode) => {
+            set({ memoryBatchMode });
+            fire(db.setMeta('memoryBatchMode', memoryBatchMode));
         },
         setConversationCompressionEnabled: (conversationCompressionEnabled) => {
             set({ conversationCompressionEnabled });

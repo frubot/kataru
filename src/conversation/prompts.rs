@@ -131,6 +131,27 @@ pub fn character_setting(character: &Value) -> String {
     sections.join("\n\n")
 }
 
+/// 全体設定のユーザー設定を、全キャラクター共通の節にする。空なら `None`。
+/// キャラクター側の `{{user}}` の記述（関係性など）と食い違う場合はキャラクター側を優先させる。
+pub fn user_profile_section(user_profile: &str) -> Option<String> {
+    let profile = user_profile.trim();
+    (!profile.is_empty()).then(|| {
+        format!(
+            "# About {{{{user}}}}\nThe following is {{{{user}}}}'s own profile, shared with every character. If a character's profile describes {{{{user}}}} differently, follow the character's profile.\n\n{profile}"
+        )
+    })
+}
+
+/// キャラクター設定の後ろに全体のユーザー設定を足したもの。記憶の重複判定に使う。
+pub fn character_setting_with_user_profile(character: &Value, user_profile: &str) -> String {
+    let setting = character_setting(character);
+    match user_profile_section(user_profile) {
+        Some(section) if setting.is_empty() => section,
+        Some(section) => format!("{setting}\n\n{section}"),
+        None => setting,
+    }
+}
+
 /// キャラクター応答プロンプトへ注入する記憶1件。
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InjectedMemory {
@@ -148,6 +169,7 @@ pub fn character_system_prompt(
     summary: Option<&str>,
     relevant_memories: &[InjectedMemory],
     active_costume: Option<&Value>,
+    user_profile: &str,
 ) -> String {
     let character_name = string(character, "name");
     let mut prompt = String::from("# 指示");
@@ -187,6 +209,9 @@ pub fn character_system_prompt(
     if !relevant_memories.is_empty() {
         prompt.push_str("\n\n## List of Related Memories\n");
         push_memory_lines(&mut prompt, relevant_memories);
+    }
+    if let Some(section) = user_profile_section(user_profile) {
+        prompt.push_str(&format!("\n\n{section}"));
     }
     let setting = character_setting(character);
     if !setting.is_empty() {
@@ -250,6 +275,7 @@ pub(crate) fn ensemble_max_items(max_turns: usize, narration: bool) -> usize {
 
 /// シチュエーション会話を1回の呼び出しでまとめて書かせるためのシステムプロンプト。
 /// `narration` が真なら、場面全体の描写を `narrator` のturnに分けさせる（メッセージ形式では無効）。
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn ensemble_system_prompt(
     situation: &Value,
     cast: &[EnsembleCast<'_>],
@@ -258,6 +284,7 @@ pub(crate) fn ensemble_system_prompt(
     first_speaker: Option<&Value>,
     summary: Option<&str>,
     narration: bool,
+    user_profile: &str,
 ) -> String {
     let max_turns = max_turns.map(|turns| turns.max(1));
     let narration = narration && !format.is_message();
@@ -398,6 +425,10 @@ Users may include not only spoken lines but also stage directions—such as `*st
             "\n# Summary of the conversation so far\n{}\n",
             summary.trim()
         ));
+    }
+    // シチュエーションは全員を1回で生成するので、ユーザー設定もキャラクターごとではなく1回だけ入れる。
+    if let Some(section) = user_profile_section(user_profile) {
+        prompt.push_str(&format!("\n{section}\n"));
     }
 
     prompt.push_str("\n# Characters");
@@ -774,6 +805,7 @@ mod tests {
                 date_label: None,
             }],
             None,
+            "",
         );
 
         let setting_heading = prompt
@@ -808,6 +840,7 @@ mod tests {
                 },
             ],
             None,
+            "",
         );
 
         assert!(prompt.contains("## List of Related Memories\n"));
@@ -828,6 +861,7 @@ mod tests {
             None,
             &[],
             None,
+            "",
         );
 
         assert!(!prompt.contains("## List of Related Memories"));
@@ -868,6 +902,7 @@ mod tests {
             None,
             &[],
             None,
+            "",
         );
 
         assert!(prompt.contains("You are 葵. Please begin the roleplay."));
@@ -888,6 +923,7 @@ mod tests {
             None,
             &[],
             None,
+            "",
         );
 
         assert!(prompt.contains("Please generate the output in JSON format"));
@@ -905,6 +941,7 @@ mod tests {
             None,
             &[],
             None,
+            "",
         );
 
         assert!(prompt.contains("Please generate the output in JSON format"));
@@ -1022,6 +1059,7 @@ mod tests {
             None,
             &[],
             None,
+            "",
         );
 
         let expression_index = prompt
@@ -1045,6 +1083,7 @@ mod tests {
             None,
             &[],
             None,
+            "",
         );
 
         assert!(!prompt.contains("JSONの motion"));
@@ -1062,6 +1101,7 @@ mod tests {
             None,
             &[],
             Some(&costume),
+            "",
         );
 
         assert!(prompt.contains("# Current outfit"));
@@ -1083,10 +1123,76 @@ mod tests {
                 None,
                 &[],
                 Some(&costume),
+                "",
             );
 
             assert!(!prompt.contains("Current outfit"));
         }
+    }
+
+    #[test]
+    fn character_prompt_puts_user_profile_before_character_profile() {
+        let character = json!({"name": "葵", "protagonistPrompt": "{{user}}は幼なじみ"});
+        let prompt = character_system_prompt(
+            &character,
+            ReplyFormat::Structured,
+            &[],
+            &[],
+            None,
+            &[],
+            None,
+            "  一人称は僕  ",
+        );
+
+        let user_heading = prompt
+            .find("# About {{user}}")
+            .expect("user profile heading");
+        let character_heading = prompt.find("# 葵's Profile").expect("character heading");
+        assert!(user_heading < character_heading);
+        assert!(prompt[user_heading..character_heading].contains("\n\n一人称は僕"));
+
+        let without = character_system_prompt(
+            &character,
+            ReplyFormat::Structured,
+            &[],
+            &[],
+            None,
+            &[],
+            None,
+            "   ",
+        );
+        assert!(!without.contains("# About {{user}}"));
+    }
+
+    #[test]
+    fn ensemble_prompt_includes_user_profile_once_before_characters() {
+        let aoi = json!({"id": "aoi", "name": "葵"});
+        let rin = json!({"id": "rin", "name": "凛"});
+        let prompt = ensemble_system_prompt(
+            &json!({}),
+            &ensemble_cast(&aoi, &rin),
+            ReplyFormat::Structured,
+            None,
+            None,
+            None,
+            false,
+            "一人称は僕",
+        );
+
+        assert_eq!(prompt.matches("# About {{user}}").count(), 1);
+        assert!(prompt.find("# About {{user}}") < prompt.find("\n# Characters"));
+    }
+
+    #[test]
+    fn setting_with_user_profile_appends_the_profile() {
+        let character = json!({"systemPrompt": "葵として振る舞う"});
+        assert_eq!(
+            character_setting_with_user_profile(&character, ""),
+            "葵として振る舞う"
+        );
+        let combined = character_setting_with_user_profile(&character, "一人称は僕");
+        assert!(combined.starts_with("葵として振る舞う\n\n# About {{user}}"));
+        assert!(combined.ends_with("一人称は僕"));
     }
 
     fn ensemble_cast<'a>(aoi: &'a Value, rin: &'a Value) -> Vec<EnsembleCast<'a>> {
@@ -1133,6 +1239,7 @@ mod tests {
             Some(&rin),
             Some("これまでの要約"),
             false,
+            "",
         );
 
         assert!(prompt.starts_with("# Instructions"));
@@ -1170,6 +1277,7 @@ mod tests {
             None,
             None,
             true,
+            "",
         );
         // メッセージ形式ではナレーションを分けない。
         assert!(!prompt.contains(r#""speaker": "narrator""#));
@@ -1192,6 +1300,7 @@ mod tests {
                 None,
                 None,
                 narration,
+                "",
             );
             assert!(!prompt.contains("Write at most"));
             assert!(prompt.contains("as the scene naturally calls for"));
@@ -1210,6 +1319,7 @@ mod tests {
             Some(&rin),
             None,
             true,
+            "",
         );
         assert!(prompt.contains(r#"Use `"speaker": "narrator"` for narration of the whole scene."#));
         assert!(prompt.contains("Write at most 3 character turn(s)."));

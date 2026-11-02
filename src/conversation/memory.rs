@@ -51,11 +51,20 @@ pub(super) async fn prepare_conversation_memories(
     }
 
     let existing = get_conversation_memories(&state.database, &character_id).await?;
-    let user_name = ai_api_config_value(payload)
-        .and_then(|config| config.get("userName"))
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    let selected = select_memory_candidates(candidates, character, &existing, user_name);
+    let config = ai_api_config_value(payload);
+    let config_string = |key: &str| {
+        config
+            .and_then(|config| config.get(key))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+    };
+    let selected = select_memory_candidates(
+        candidates,
+        character,
+        &existing,
+        config_string("userName"),
+        config_string("userProfile"),
+    );
     if selected.is_empty() {
         return Ok(Vec::new());
     }
@@ -204,9 +213,14 @@ fn select_memory_candidates(
     character: &Value,
     existing_memories: &[Value],
     user_name: &str,
+    user_profile: &str,
 ) -> Vec<Value> {
-    let setting_prompt =
-        resolve_user_placeholders(&candidate_character_setting(character), user_name);
+    let mut setting = candidate_character_setting(character);
+    let user_profile = user_profile.trim();
+    if !user_profile.is_empty() {
+        setting.push_str(&format!("\n\n# {{{{user}}}}自身の設定\n{user_profile}"));
+    }
+    let setting_prompt = resolve_user_placeholders(&setting, user_name);
     let mut candidates = candidates
         .into_iter()
         .filter(valid_candidate)
@@ -563,7 +577,7 @@ mod tests {
             }),
         ];
 
-        let selected = select_memory_candidates(candidates, &character, &existing, "");
+        let selected = select_memory_candidates(candidates, &character, &existing, "", "");
 
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0]["id"], "accepted");

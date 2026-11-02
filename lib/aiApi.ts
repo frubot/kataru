@@ -63,6 +63,8 @@ export interface AiApiConfig {
     connectionId?: string;
     /** プロンプト内の `{{user}}` を置き換えるユーザー名。 */
     userName?: string;
+    /** 全キャラクター共通で伝える `{{user}}` 自身の設定。 */
+    userProfile?: string;
     modelDefaults: ModelDefaults;
 }
 

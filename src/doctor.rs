@@ -726,6 +726,7 @@ async fn probe_connection(
     let api_config = AiApiConfig {
         connection_id: Some(connection.id.to_owned()),
         user_name: None,
+        user_profile: None,
     };
     let api_client = match AiApiClient::resolve(
         client.clone(),

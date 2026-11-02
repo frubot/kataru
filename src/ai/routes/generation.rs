@@ -920,7 +920,9 @@ pub async fn generate_reply_suggestions(
     let situation_prompt = optional_trimmed_string(&input, "situationPrompt")
         .map(|value| take_chars(&value, 2400))
         .unwrap_or_default();
+    let user_profile = take_chars(api_client.user_profile(), 2400);
     let context = [
+        (!user_profile.is_empty()).then(|| format!("# {{{{user}}}}自身の設定\n{user_profile}")),
         (!protagonist_prompt.is_empty())
             .then(|| format!("# {{{{user}}}}の設定\n{protagonist_prompt}")),
         (!situation_prompt.is_empty()).then(|| format!("# シチュエーション\n{situation_prompt}")),

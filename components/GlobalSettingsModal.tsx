@@ -15,6 +15,7 @@ import ModelSelector from '@/components/ModelSelector';
 import OptionSelector from '@/components/OptionSelector';
 import ParamSlider from '@/components/ParamSlider';
 import WordReplacementEditor from '@/components/WordReplacementEditor';
+import PromptSectionEditor from '@/components/PromptSectionEditor';
 import TtsVoiceField from '@/components/TtsVoiceField';
 import TtsSpeedSlider, { formatTtsSpeed } from '@/components/TtsSpeedSlider';
 import TtsVolumeSlider, { formatTtsVolume } from '@/components/TtsVolumeSlider';
@@ -80,10 +81,11 @@ async function waitForUpdatedServer(version: string): Promise<void> {
     throw new Error('更新後のKataruを起動できませんでした。手動でKataruを起動してください。');
 }
 
-type SettingsTab = 'general' | 'models' | 'keyboard' | 'debug' | 'statistics';
+type SettingsTab = 'general' | 'user' | 'models' | 'keyboard' | 'debug' | 'statistics';
 
 const SETTINGS_TABS = [
     { id: 'general', label: '一般' },
+    { id: 'user', label: 'ユーザー' },
     { id: 'models', label: 'モデル' },
     { id: 'keyboard', label: 'キーボード' },
     { id: 'debug', label: '開発者' },
@@ -420,6 +422,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
     const {
         themeMode, themePalette, chatWallpaper, defaultViewMode, vnTypingSpeed, vnMaxStageSprites,
         userName, setUserName,
+        userProfile, setUserProfile,
         summaryModel, setSummaryModel,
         defaultChatModel, setDefaultChatModel,
         defaultAutoGenerationModel, setDefaultAutoGenerationModel,
@@ -1039,6 +1042,11 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                             </div>
                         </div>
 
+                            </>
+                        )}
+
+                        {activeTab === 'user' && (
+                            <>
                         {/* Profile Section */}
                         <div style={{ marginBottom: '1.5rem' }}>
                             <h3 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '0.75rem' }}>
@@ -1065,6 +1073,21 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     </div>
                                 </div>
                             </div>
+                        </div>
+
+                        {/* User profile prompt */}
+                        <div style={{ marginBottom: '1.5rem' }}>
+                            <h3 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '0.5rem' }}>
+                                ユーザー設定
+                            </h3>
+                            <p style={{ margin: '0 0 0.75rem', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                                すべてのキャラクターとシチュエーションに共通で伝える、{'{{user}}'}自身の設定です。キャラクターとの関係はキャラクター設定の「{'{{user}}'}について」に書くと、そちらが優先されます。
+                            </p>
+                            <PromptSectionEditor
+                                markdown={userProfile}
+                                onChange={setUserProfile}
+                                placeholder="例: 大学2年生。一人称は「僕」。人見知りだけど、打ち解けるとよく話す。"
+                            />
                         </div>
 
                             </>

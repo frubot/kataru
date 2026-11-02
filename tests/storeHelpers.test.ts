@@ -374,4 +374,13 @@ describe('store pure helpers', () => {
         expect(getAiApiConfigFromState({ ...modelDefaults, userName: '   ' }))
             .not.toHaveProperty('userName');
     });
+
+    test('passes the trimmed user profile to AI requests and omits blank profiles', () => {
+        const modelDefaults = getDefaultModelDefaults();
+
+        expect(getAiApiConfigFromState({ ...modelDefaults, userProfile: '\n一人称は僕\n' }).userProfile)
+            .toBe('一人称は僕');
+        expect(getAiApiConfigFromState({ ...modelDefaults, userProfile: '  ' }))
+            .not.toHaveProperty('userProfile');
+    });
 });

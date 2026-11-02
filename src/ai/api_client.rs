@@ -43,6 +43,9 @@ pub struct AiApiConfig {
     /// プロンプト内の `{{user}}` を置き換える名前。未設定なら `ユーザー`。
     #[serde(alias = "user_name")]
     pub user_name: Option<String>,
+    /// 全キャラクター共通で伝える `{{user}}` 自身の設定。未設定なら空。
+    #[serde(alias = "user_profile")]
+    pub user_profile: Option<String>,
 }
 
 #[derive(Clone)]
@@ -58,6 +61,7 @@ pub struct AiApiClient {
     image_generation_enabled: bool,
     tts_enabled: bool,
     user_name: String,
+    user_profile: String,
 }
 
 impl AiApiClient {
@@ -104,6 +108,12 @@ impl AiApiClient {
     ) -> AppResult<Self> {
         let config = config.unwrap_or_default();
         let user_name = normalized_user_name(config.user_name.as_deref()).to_owned();
+        let user_profile = config
+            .user_profile
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or_default()
+            .to_owned();
         let requested = connection_id
             .map(str::trim)
             .filter(|value| !value.is_empty())
@@ -148,6 +158,7 @@ impl AiApiClient {
             image_generation_enabled: connection.image_generation_enabled,
             tts_enabled: connection.tts_enabled,
             user_name,
+            user_profile,
         })
     }
 
@@ -182,6 +193,11 @@ impl AiApiClient {
     /// 設定されたユーザー名（未設定なら `ユーザー`）。
     pub fn user_name(&self) -> &str {
         &self.user_name
+    }
+
+    /// 全体設定のユーザー設定（未設定なら空文字）。
+    pub fn user_profile(&self) -> &str {
+        &self.user_profile
     }
 
     /// デバッグ表示など、送信前のプロンプトを実際の名前で解決する。
@@ -631,6 +647,7 @@ mod tests {
             Some(AiApiConfig {
                 connection_id: Some("openai-compatible".to_owned()),
                 user_name: None,
+                user_profile: None,
             }),
         )
         .unwrap();
@@ -650,6 +667,7 @@ mod tests {
             Some(AiApiConfig {
                 connection_id: Some("openai-compatible".to_owned()),
                 user_name: None,
+                user_profile: None,
             }),
         )
         .unwrap();
@@ -752,6 +770,7 @@ mod tests {
             Some(AiApiConfig {
                 connection_id: Some("anthropic".to_owned()),
                 user_name: None,
+                user_profile: None,
             }),
         )
         .unwrap();
@@ -817,6 +836,7 @@ mod tests {
             Some(AiApiConfig {
                 connection_id: Some("cx_missing".to_owned()),
                 user_name: None,
+                user_profile: None,
             }),
         )
         .err()
@@ -879,6 +899,7 @@ mod tests {
             Some(AiApiConfig {
                 connection_id: Some("openai-compatible".to_owned()),
                 user_name: None,
+                user_profile: None,
             }),
         )
         .unwrap();

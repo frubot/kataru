@@ -170,6 +170,7 @@ export function clearThemeCache(): void {
 const DEBUG_LOG_LIMIT = 50;
 let modelDefaultsWriteQueue: Promise<void> = Promise.resolve();
 let userNameWriteQueue: Promise<void> = Promise.resolve();
+let userProfileWriteQueue: Promise<void> = Promise.resolve();
 
 /** The effective model selection for every role. */
 export function modelDefaultsFromState(state: ModelDefaults): ModelDefaults {
@@ -202,6 +203,7 @@ export async function waitForModelDefaultsWrites(): Promise<void> {
 
 export async function waitForUserNameWrites(): Promise<void> {
     await userNameWriteQueue.catch(() => undefined);
+    await userProfileWriteQueue.catch(() => undefined);
 }
 
 function updateModelDefault<K extends keyof ModelDefaults>(
@@ -216,13 +218,15 @@ function updateModelDefault<K extends keyof ModelDefaults>(
 }
 
 export function getAiApiConfigFromState(
-    state: ModelDefaults & { userName?: string },
+    state: ModelDefaults & { userName?: string; userProfile?: string },
 ): AiApiConfig {
     const modelDefaults = modelDefaultsFromState(state);
     const userName = typeof state.userName === 'string' ? state.userName.trim() : '';
+    const userProfile = typeof state.userProfile === 'string' ? state.userProfile.trim() : '';
     return {
         connectionId: modelDefaults.defaultChatModel.connectionId,
         ...(userName ? { userName } : {}),
+        ...(userProfile ? { userProfile } : {}),
         modelDefaults,
     };
 }
@@ -236,6 +240,7 @@ type SettingsSlice = Pick<
     | 'vnTypingSpeed'
     | 'vnMaxStageSprites'
     | 'userName'
+    | 'userProfile'
     | 'keyboardShortcuts'
     | 'summaryModel'
     | 'defaultChatModel'
@@ -282,6 +287,7 @@ type SettingsSlice = Pick<
     | 'setVnTypingSpeed'
     | 'setVnMaxStageSprites'
     | 'setUserName'
+    | 'setUserProfile'
     | 'setKeyboardShortcut'
     | 'resetKeyboardShortcut'
     | 'resetKeyboardShortcuts'
@@ -336,6 +342,7 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         vnTypingSpeed: DEFAULT_VN_TYPING_SPEED,
         vnMaxStageSprites: DEFAULT_VN_MAX_STAGE_SPRITES,
         userName: '',
+        userProfile: '',
         keyboardShortcuts: createDefaultKeyboardShortcuts(),
         ...getDefaultModelDefaults(),
         memoryGateEnabled: DEFAULT_MEMORY_GATE_ENABLED,
@@ -411,6 +418,15 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
                     ? db.setMeta('userName', userName)
                     : db.deleteMeta('userName'));
             fire(userNameWriteQueue);
+        },
+        setUserProfile: (userProfile) => {
+            set({ userProfile });
+            userProfileWriteQueue = userProfileWriteQueue
+                .catch(() => undefined)
+                .then(() => userProfile.trim()
+                    ? db.setMeta('userProfile', userProfile)
+                    : db.deleteMeta('userProfile'));
+            fire(userProfileWriteQueue);
         },
         setKeyboardShortcut: (action, shortcut) => {
             const keyboardShortcuts = {

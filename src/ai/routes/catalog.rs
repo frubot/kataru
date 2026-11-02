@@ -607,6 +607,7 @@ pub async fn run_models_cli_command_if_requested() -> AppResult<bool> {
             Some(AiApiConfig {
                 connection_id: Some(connection.id.clone()),
                 user_name: None,
+                user_profile: None,
             }),
         )?;
         let modalities: &[ModelOutputModality] = match connection.kind {
@@ -874,6 +875,7 @@ mod tests {
             Some(AiApiConfig {
                 connection_id: Some(id.to_owned()),
                 user_name: None,
+                user_profile: None,
             }),
         )
         .unwrap()

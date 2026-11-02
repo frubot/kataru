@@ -137,7 +137,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
         hydrate: async () => {
             if (get().hydrated) return;
             await db.migrateLegacyDatabase();
-            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, storedChatWallpaper, storedDefaultViewMode, currentRoomId, vnTypingSpeed, storedKeyboardShortcuts, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedModelDefaults, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedRoleApiTypes, storedConversationCompressionEnabled, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion, storedTtsEnabled, storedTtsConnectionId, storedTtsModel, storedTtsVoice, storedTtsSpeed, storedTtsVolume, storedTtsAutoPlay, storedTtsActionCaption, storedTtsCaptionCfgScale, storedTtsChunkMinChars, storedTtsFirstChunkMinChars, storedTtsNarrationEnabled, storedTtsNarratorVoice, storedMemoryGateEnabled, storedMemoryGateShadowMode, storedReasoningEffort, storedUserName, storedChatSampling, storedVnMaxStageSprites, storedWordReplacements] = await Promise.all([
+            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, storedChatWallpaper, storedDefaultViewMode, currentRoomId, vnTypingSpeed, storedKeyboardShortcuts, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedModelDefaults, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedRoleApiTypes, storedConversationCompressionEnabled, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion, storedTtsEnabled, storedTtsConnectionId, storedTtsModel, storedTtsVoice, storedTtsSpeed, storedTtsVolume, storedTtsAutoPlay, storedTtsActionCaption, storedTtsCaptionCfgScale, storedTtsChunkMinChars, storedTtsFirstChunkMinChars, storedTtsNarrationEnabled, storedTtsNarratorVoice, storedMemoryGateEnabled, storedMemoryGateShadowMode, storedReasoningEffort, storedUserName, storedUserProfile, storedChatSampling, storedVnMaxStageSprites, storedWordReplacements] = await Promise.all([
                 db.getAllCharacters(),
                 db.getAllGroups(),
                 db.getAllRooms(),
@@ -195,6 +195,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 db.getMeta<boolean>('memoryGateShadowMode'),
                 db.getMeta<unknown>('reasoningEffort'),
                 db.getMeta<string>('userName'),
+                db.getMeta<string>('userProfile'),
                 db.getMeta<unknown>('chatSampling'),
                 db.getMeta<unknown>('vnMaxStageSprites'),
                 db.getMeta<unknown>('wordReplacements'),
@@ -371,6 +372,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 ? storedReasoningEffort
                 : DEFAULT_REASONING_EFFORT;
             const resolvedUserName = typeof storedUserName === 'string' ? storedUserName : '';
+            const resolvedUserProfile = typeof storedUserProfile === 'string' ? storedUserProfile : '';
             const resolvedGenerateTitleOnFirstReply = storedGenerateTitleOnFirstReply === true;
             const resolvedReplySuggestionsEnabled = storedReplySuggestionsEnabled === true;
             const resolvedTtsEnabled = storedTtsEnabled !== false;
@@ -468,6 +470,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 vnTypingSpeed: resolvedVnTypingSpeed,
                 vnMaxStageSprites: resolvedVnMaxStageSprites,
                 userName: resolvedUserName,
+                userProfile: resolvedUserProfile,
                 keyboardShortcuts: resolvedKeyboardShortcuts,
                 ...effectiveModelDefaults,
                 memoryGateEnabled: storedMemoryGateEnabled !== false,
@@ -528,6 +531,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 vnTypingSpeed: DEFAULT_VN_TYPING_SPEED,
                 vnMaxStageSprites: DEFAULT_VN_MAX_STAGE_SPRITES,
                 userName: '',
+                userProfile: '',
                 keyboardShortcuts: createDefaultKeyboardShortcuts(),
                 ...modelDefaults,
                 memoryGateEnabled: DEFAULT_MEMORY_GATE_ENABLED,

@@ -385,6 +385,8 @@ export interface AppState {
     vnMaxStageSprites: number;
     /** プロンプト内の `{{user}}` を置き換える名前。空なら `ユーザー`。 */
     userName: string;
+    /** 全キャラクター共通で伝える `{{user}}` 自身の設定（Markdown）。 */
+    userProfile: string;
     keyboardShortcuts: KeyboardShortcutSettings;
     summaryModel: ModelRef;
     defaultChatModel: ModelRef;
@@ -453,6 +455,7 @@ export interface AppState {
     setVnTypingSpeed: (speed: VnTypingSpeed) => void;
     setVnMaxStageSprites: (max: number) => void;
     setUserName: (name: string) => void;
+    setUserProfile: (profile: string) => void;
     setKeyboardShortcut: (action: KeyboardShortcutAction, shortcut: KeyboardShortcut) => void;
     resetKeyboardShortcut: (action: KeyboardShortcutAction) => void;
     resetKeyboardShortcuts: () => void;

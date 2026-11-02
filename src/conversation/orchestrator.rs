@@ -33,9 +33,10 @@ use super::{
     },
     prompts::{
         EnsembleCast, InjectedMemory, NARRATOR_ID, ReplyFormat, SUMMARY_RECENT_USER_TURNS_TO_KEEP,
-        actor_id, assistant_schema, boolean, character_setting, character_system_prompt,
-        ensemble_max_items, ensemble_schema, ensemble_system_prompt, message_image_attachment_urls, message_text_with_attachments,
-        string, summary_prompts, summary_schema,
+        actor_id, assistant_schema, boolean, character_setting,
+        character_setting_with_user_profile, character_system_prompt, ensemble_max_items,
+        ensemble_schema, ensemble_system_prompt, message_image_attachment_urls,
+        message_text_with_attachments, string, summary_prompts, summary_schema,
     },
     response::{
         AssistantEnvelope, EnsembleSpeaker, EnsembleTurnPreview, assistant_expression_preview,
@@ -1006,6 +1007,7 @@ async fn generate_for_character(
         summary,
         &injected_memories,
         selected_costume(character, room),
+        api_client.user_profile(),
     );
     let mut request_messages = vec![json!({
         "role": "system",
@@ -1439,6 +1441,7 @@ async fn generate_for_ensemble(
         first_speaker,
         summary,
         narration,
+        api_client.user_profile(),
     );
     let schema = ensemble_schema(
         &speakers
@@ -2234,7 +2237,12 @@ async fn extract_memory_candidates(
     room_id: &str,
     usages: &mut Vec<Value>,
 ) -> AppResult<Vec<Value>> {
-    let (system_prompt, input) = memory_extraction_request(&context, guidance, generated);
+    let api_client = clients.for_selection(selection)?;
+    let (system_prompt, mut input) = memory_extraction_request(&context, guidance, generated);
+    // ユーザー設定に書いてあることを記憶として保存し直さないよう、キャラクター設定と一緒に渡す。
+    let setting_with_profile =
+        character_setting_with_user_profile(&context.character, api_client.user_profile());
+    input["characterSystemPrompt"] = Value::String(setting_with_profile.clone());
     let body = json!({
         "model": selection.model,
         "messages": [
@@ -2250,11 +2258,10 @@ async fn extract_memory_candidates(
         "temperature": 0.1,
         "stream": false,
     });
-    let api_client = clients.for_selection(selection)?;
     let raw = structured_completion(&api_client, body, memory_schema(), 60).await?;
     push_usage(usages, &raw, &context.character, "memory-extraction");
     let content = extract_message_text(&raw);
-    let setting = api_client.resolve_user_placeholders(&character_setting(&context.character));
+    let setting = api_client.resolve_user_placeholders(&setting_with_profile);
     let existing_contents = context
         .existing_memories
         .iter()

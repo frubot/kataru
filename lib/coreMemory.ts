@@ -6,8 +6,8 @@ export const CORE_MEMORY_ENTRY_MAX_CHARS = 200;
 
 export const CORE_MEMORY_SECTIONS: { value: CoreMemorySection; label: string; hint: string }[] = [
     { value: 'user', label: 'ユーザーについて', hint: '名前、呼び方、苦手なこと、大事な属性など' },
-    { value: 'relationship', label: '関係', hint: '今の関係、距離感、まだ果たしていない約束など' },
-    { value: 'self', label: '自分の今', hint: '会話の中で変わったキャラクター自身の状態など' },
+    { value: 'relationship', label: '関係', hint: '今の関係、距離感、ユーザーへの気持ち、まだ果たしていない約束など' },
+    { value: 'self', label: '自分の今', hint: '設定から変わって続いている状態（見た目、立場、怪我など）。今いる場所や今していることは書かない' },
 ];
 
 /** サーバーと同じく、連続する空白を1つにまとめる。 */

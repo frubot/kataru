@@ -23,7 +23,7 @@ pub enum CoreMemorySection {
     User,
     /// {{user}} との関係（今の関係、距離感、まだ果たしていない約束）。
     Relationship,
-    /// キャラクター自身の今の状態（会話の中で変わったこと）。
+    /// キャラクター自身の、設定から変わって続いている状態。場面の描写は入れない。
     #[serde(rename = "self")]
     SelfState,
 }

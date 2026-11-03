@@ -3,7 +3,7 @@ import type { RustTurnResponse } from './conversationResult';
 /** 返信のあとにサーバーの裏で走るタスク（記憶の抽出など）。 */
 export type BackgroundTask = {
     id: string;
-    kind: 'memory-extraction' | 'memory-batch' | (string & {});
+    kind: 'memory-batch' | (string & {});
     /** なぜ走ったか（「ターン後」「ルーム離脱」など）。 */
     reason: string;
     roomId: string;
@@ -31,8 +31,6 @@ export async function fetchBackgroundTasks(signal: AbortSignal): Promise<Backgro
 
 export function backgroundTaskKindLabel(kind: string): string {
     switch (kind) {
-        case 'memory-extraction':
-            return '記憶の抽出';
         case 'memory-batch':
             return '記憶のバッチ抽出';
         default:

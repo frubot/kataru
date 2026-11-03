@@ -16,8 +16,6 @@ const FINISHED_TASK_LIMIT: usize = 30;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BackgroundTaskKind {
-    /// 毎ターンの記憶の抽出。
-    MemoryExtraction,
     /// たまった発言からの記憶のバッチ抽出。
     MemoryBatch,
 }
@@ -25,7 +23,6 @@ pub(crate) enum BackgroundTaskKind {
 impl BackgroundTaskKind {
     fn as_str(self) -> &'static str {
         match self {
-            Self::MemoryExtraction => "memory-extraction",
             Self::MemoryBatch => "memory-batch",
         }
     }

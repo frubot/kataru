@@ -13,8 +13,7 @@ use crate::{
         routes::{
             MEMORY_BATCH_MAX_UPDATES, RoleSelection, extract_message_reasoning,
             extract_message_text, memory_batch_schema, memory_extraction_batch_prompt,
-            memory_extraction_guided_prompt, memory_extraction_prompt, memory_schema, model_string,
-            optional_role_selection, parse_batch_memory_updates, parse_memory_updates,
+            model_string, optional_role_selection, parse_batch_memory_updates,
             plain_text_completion, plain_text_completion_streaming, resolve_role_selection,
             structured_completion, structured_completion_streaming,
         },
@@ -34,18 +33,17 @@ use super::{
     },
     jobs::{ConversationJobs, JobCancellation},
     memory::{is_covered_by_character_setting, is_duplicate_of_core_memory, request_embedding},
-    memory_batch::MemoryBatchMode,
     memory_date,
     memory_gate::{
-        MEMORY_GATE_TIMEOUT_SECS, MemoryGateDecision, MemoryGateReason, MemoryGateTurn,
-        evaluate_memory_gate, memory_gate_questions, memory_gate_state,
+        MEMORY_GATE_TIMEOUT_SECS, MemoryGateDecision, MemoryGateTurn, evaluate_memory_gate,
+        memory_gate_questions, memory_gate_state,
     },
     prompts::{
         EnsembleCast, InjectedMemory, NARRATOR_ID, ReplyFormat, SUMMARY_RECENT_USER_TURNS_TO_KEEP,
-        actor_id, assistant_schema, boolean, character_setting,
-        character_setting_with_user_profile, character_system_prompt, ensemble_max_items,
-        ensemble_schema, ensemble_system_prompt, message_image_attachment_urls,
-        message_text_with_attachments, string, summary_prompts, summary_schema,
+        actor_id, assistant_schema, boolean, character_setting_with_user_profile,
+        character_system_prompt, ensemble_max_items, ensemble_schema, ensemble_system_prompt,
+        message_image_attachment_urls, message_text_with_attachments, string, summary_prompts,
+        summary_schema,
     },
     response::{
         AssistantEnvelope, EnsembleSpeaker, EnsembleTurnPreview, assistant_expression_preview,
@@ -66,7 +64,6 @@ const DEFAULT_TOP_K: u64 = 0;
 const MEMORY_LIMIT: usize = 8;
 const MEMORY_MIN_IMPORTANCE: f64 = 0.4;
 const MEMORY_MIN_CONFIDENCE: f64 = 0.7;
-const MEMORY_MAX_CANDIDATES: usize = 5;
 /// 無関係なメモリをコンテキストへ注入しないための関連度の下限。
 /// 重要度・確信度・新しさ・固定は並び順にだけ効かせ、注入の可否は関連度だけで決める。
 const MEMORY_MIN_VECTOR_SIMILARITY: f64 = 0.35;
@@ -178,31 +175,9 @@ pub async fn turn(
     State(state): State<AppState>,
     Json(payload): Json<Value>,
 ) -> AppResult<Json<Value>> {
-    let TurnOutput { mut result, memory } =
-        run_turn(state.clone(), payload.clone(), JobCancellation::default())
-            .await
-            .map_err(|failure| failure.error)?;
-    let generated = result
-        .get("messages")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    let mut memory_logs = Vec::new();
-    let extraction = match memory {
-        Some(follow_up) => {
-            extract_turn_memories(&state, &payload, follow_up, &generated, &mut memory_logs)
-                .await
-                .unwrap_or_default()
-        }
-        None => MemoryExtraction::default(),
-    };
-    if let Some(usages) = result.get_mut("usages").and_then(Value::as_array_mut) {
-        usages.extend(extraction.usages);
-    }
-    if let Some(logs) = result.get_mut("fullJsonLogs").and_then(Value::as_array_mut) {
-        logs.extend(memory_logs);
-    }
-    result["memoryCandidates"] = Value::Array(extraction.candidates);
+    let TurnOutput { result } = run_turn(state, payload, JobCancellation::default())
+        .await
+        .map_err(|failure| failure.error)?;
     Ok(Json(result))
 }
 
@@ -213,7 +188,6 @@ pub(crate) struct ConversationTurnFailure {
 
 pub(crate) struct TurnOutput {
     pub(crate) result: Value,
-    pub(crate) memory: Option<MemoryFollowUp>,
 }
 
 pub(crate) async fn run_turn(
@@ -393,7 +367,7 @@ async fn run_turn_inner(
     let mut generated = Vec::new();
     let mut usages = Vec::new();
     let mut used_memory_ids = Vec::new();
-    let mut extraction_context: Option<ExtractionContext> = None;
+    let mut gate_context: Option<GateContext> = None;
 
     if let Some(situation) = situation {
         let max_turns = situation_max_turns(&room, situation, participants.len());
@@ -550,7 +524,7 @@ async fn run_turn_inner(
             ) => messages?,
         };
         if memory_allowed && !cancellation.is_cancelled() {
-            extraction_context = Some(ExtractionContext {
+            gate_context = Some(GateContext {
                 character: character.clone(),
                 recent_history: active_history.clone(),
                 existing_memories: relevant,
@@ -560,48 +534,33 @@ async fn run_turn_inner(
 
     mark_continuation_start(&mut generated, generation_mode.is_continue());
 
-    let memory = match extraction_context.filter(|_| !secret_mode) {
-        Some(context) => {
-            let gate_enabled = payload
-                .get("memoryGateEnabled")
-                .and_then(Value::as_bool)
-                .unwrap_or(true);
-            let gate = if gate_enabled {
-                let gate = tokio::select! {
-                    biased;
-                    () = cancellation.cancelled() => None,
-                    decision = request_memory_gate(
-                        &mut clients,
-                        &payload,
-                        &context,
-                        &generated,
-                        generation_mode.is_continue(),
-                        &room,
-                        &mut usages,
-                        full_json_logs,
-                    ) => decision,
-                };
-                if let Some(decision) = &gate {
-                    apply_used_memory_ids(&mut generated, &decision.used_memory_ids);
-                    used_memory_ids.clone_from(&decision.used_memory_ids);
-                }
-                gate
-            } else {
-                None
-            };
-            if MemoryBatchMode::from_payload(&payload) == MemoryBatchMode::On {
-                plan_instruction_follow_up(context, gate)
-            } else {
-                plan_memory_follow_up(
-                    context,
-                    gate,
-                    boolean(&payload, "memoryGateShadowMode"),
-                    gate_enabled,
-                )
-            }
+    let gate_enabled = payload
+        .get("memoryGateEnabled")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+    // 保存済みの記憶が無ければ、返答が使った記憶を問う意味が無い。
+    if let Some(context) = gate_context
+        .filter(|context| gate_enabled && !secret_mode && !context.existing_memories.is_empty())
+    {
+        let gate = tokio::select! {
+            biased;
+            () = cancellation.cancelled() => None,
+            decision = request_memory_gate(
+                &mut clients,
+                &payload,
+                &context,
+                &generated,
+                generation_mode.is_continue(),
+                &room,
+                &mut usages,
+                full_json_logs,
+            ) => decision,
+        };
+        if let Some(decision) = gate {
+            apply_used_memory_ids(&mut generated, &decision.used_memory_ids);
+            used_memory_ids = decision.used_memory_ids;
         }
-        None => None,
-    };
+    }
 
     if secret_mode {
         usages.clear();
@@ -617,7 +576,6 @@ async fn run_turn_inner(
             "summary": summary_result,
             "usedMemoryIds": used_memory_ids,
         }),
-        memory,
     })
 }
 
@@ -2040,106 +1998,11 @@ async fn search_memories_for_query(
     Ok(scored)
 }
 
-struct ExtractionContext {
+/// メモリゲート（返答が使った記憶の判定）に渡す材料。
+struct GateContext {
     character: Value,
     recent_history: Vec<Value>,
     existing_memories: Vec<ScoredMemory>,
-}
-
-struct ExtractionGuidance {
-    reasons: Vec<MemoryGateReason>,
-    used_memory_ids: Vec<String>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ShadowGate {
-    Extract,
-    Skip,
-    Failed,
-}
-
-impl ShadowGate {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Extract => "extract",
-            Self::Skip => "skip",
-            Self::Failed => "failed",
-        }
-    }
-}
-
-pub(crate) struct MemoryFollowUp {
-    context: ExtractionContext,
-    guidance: Option<ExtractionGuidance>,
-    shadow: Option<ShadowGate>,
-}
-
-impl MemoryFollowUp {
-    /// 記憶を作る対象のキャラクター。
-    pub(crate) fn character(&self) -> &Value {
-        &self.context.character
-    }
-}
-
-#[derive(Default)]
-pub(crate) struct MemoryExtraction {
-    pub(crate) candidates: Vec<Value>,
-    pub(crate) usages: Vec<Value>,
-    pub(crate) shadow: Option<ShadowGate>,
-}
-
-/// バッチ抽出が有効なとき、毎ターンの抽出は明示的な依頼（Instruction）だけに絞る。
-/// それ以外の観点はバッチ抽出がまとめて拾う。
-fn plan_instruction_follow_up(
-    context: ExtractionContext,
-    gate: Option<MemoryGateDecision>,
-) -> Option<MemoryFollowUp> {
-    let decision =
-        gate.filter(|decision| decision.reasons.contains(&MemoryGateReason::Instruction))?;
-    Some(MemoryFollowUp {
-        context,
-        guidance: Some(ExtractionGuidance {
-            reasons: vec![MemoryGateReason::Instruction],
-            used_memory_ids: decision.used_memory_ids,
-        }),
-        shadow: None,
-    })
-}
-
-fn plan_memory_follow_up(
-    context: ExtractionContext,
-    gate: Option<MemoryGateDecision>,
-    shadow_mode: bool,
-    gate_enabled: bool,
-) -> Option<MemoryFollowUp> {
-    if !gate_enabled {
-        return Some(MemoryFollowUp {
-            context,
-            guidance: None,
-            shadow: None,
-        });
-    }
-    if shadow_mode {
-        let shadow = match &gate {
-            Some(decision) if decision.should_extract() => ShadowGate::Extract,
-            Some(_) => ShadowGate::Skip,
-            None => ShadowGate::Failed,
-        };
-        return Some(MemoryFollowUp {
-            context,
-            guidance: None,
-            shadow: Some(shadow),
-        });
-    }
-    let decision = gate.filter(MemoryGateDecision::should_extract)?;
-    Some(MemoryFollowUp {
-        context,
-        guidance: Some(ExtractionGuidance {
-            reasons: decision.reasons,
-            used_memory_ids: decision.used_memory_ids,
-        }),
-        shadow: None,
-    })
 }
 
 fn apply_used_memory_ids(messages: &mut [Value], used_memory_ids: &[String]) {
@@ -2159,7 +2022,7 @@ fn apply_used_memory_ids(messages: &mut [Value], used_memory_ids: &[String]) {
 async fn request_memory_gate(
     clients: &mut RequestClients<'_>,
     payload: &Value,
-    context: &ExtractionContext,
+    context: &GateContext,
     generated: &[Value],
     continuation: bool,
     room: &Value,
@@ -2184,7 +2047,7 @@ async fn request_memory_gate(
         memories: &memories,
         continuation,
     });
-    let questions = memory_gate_questions(&string(&context.character, "name"), &memories);
+    let questions = memory_gate_questions(&memories);
     let prompt = crate::user_placeholder::resolve_user_placeholders(
         &serde_json::to_string_pretty(&json!({
             "state": state,
@@ -2286,36 +2149,6 @@ async fn run_memory_gate(
     Ok((response, decision))
 }
 
-pub(crate) async fn extract_turn_memories(
-    state: &AppState,
-    payload: &Value,
-    follow_up: MemoryFollowUp,
-    generated: &[Value],
-    full_json_logs: &mut Vec<Value>,
-) -> AppResult<MemoryExtraction> {
-    let mut clients = RequestClients::new(state, request_api_config(payload)?);
-    let selection =
-        resolve_role_selection(payload, "memoryExtractionModel", "memoryExtractionModel")?;
-    let room = payload.get("room").unwrap_or(&Value::Null);
-    let mut usages = Vec::new();
-    let candidates = extract_memory_candidates(
-        &mut clients,
-        &selection,
-        follow_up.context,
-        follow_up.guidance.as_ref(),
-        generated,
-        room,
-        &mut usages,
-        full_json_logs,
-    )
-    .await?;
-    Ok(MemoryExtraction {
-        candidates,
-        usages,
-        shadow: follow_up.shadow,
-    })
-}
-
 fn memory_prompt_entries<'a>(memories: impl IntoIterator<Item = &'a ScoredMemory>) -> Value {
     memories
         .into_iter()
@@ -2327,50 +2160,6 @@ fn memory_prompt_entries<'a>(memories: impl IntoIterator<Item = &'a ScoredMemory
             })
         })
         .collect()
-}
-
-fn memory_extraction_request(
-    context: &ExtractionContext,
-    guidance: Option<&ExtractionGuidance>,
-    generated: &[Value],
-) -> (String, Value) {
-    let mut recent = context
-        .recent_history
-        .iter()
-        .rev()
-        .take(6)
-        .cloned()
-        .collect::<Vec<_>>();
-    recent.reverse();
-    recent.extend(generated.iter().cloned());
-    for message in &mut recent {
-        let text = message_text_with_attachments(message, true);
-        if let Some(object) = message.as_object_mut() {
-            object.insert("content".into(), Value::String(text));
-            object.remove("attachments");
-        }
-    }
-    let mut input = json!({
-        "targetCharacter": string(&context.character, "name"),
-        "characterSystemPrompt": character_setting(&context.character),
-        "recentMessages": recent,
-    });
-    let Some(guidance) = guidance else {
-        input["existingMemories"] = memory_prompt_entries(&context.existing_memories);
-        return (memory_extraction_prompt().to_owned(), input);
-    };
-    let (used, existing): (Vec<_>, Vec<_>) = context
-        .existing_memories
-        .iter()
-        .partition(|memory| guidance.used_memory_ids.contains(&memory.id));
-    input["saveReasons"] = guidance
-        .reasons
-        .iter()
-        .map(|reason| Value::String(reason.save_reason().to_owned()))
-        .collect();
-    input["usedMemories"] = memory_prompt_entries(used);
-    input["existingMemories"] = memory_prompt_entries(existing);
-    (memory_extraction_guided_prompt().to_owned(), input)
 }
 
 /// 裏で走る抽出のデバッグログに載せる情報。`source` には `-json` / `-error` を付けて記録する。
@@ -2445,87 +2234,6 @@ async fn logged_structured_completion(
             Err(error)
         }
     }
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn extract_memory_candidates(
-    clients: &mut RequestClients<'_>,
-    selection: &RoleSelection,
-    context: ExtractionContext,
-    guidance: Option<&ExtractionGuidance>,
-    generated: &[Value],
-    room: &Value,
-    usages: &mut Vec<Value>,
-    full_json_logs: &mut Vec<Value>,
-) -> AppResult<Vec<Value>> {
-    let room_id = string(room, "id");
-    let room_id = room_id.as_str();
-    let api_client = clients.for_selection(selection)?;
-    let (system_prompt, mut input) = memory_extraction_request(&context, guidance, generated);
-    // ユーザー設定に書いてあることを記憶として保存し直さないよう、キャラクター設定と一緒に渡す。
-    let setting_with_profile =
-        character_setting_with_user_profile(&context.character, api_client.user_profile());
-    input["characterSystemPrompt"] = Value::String(setting_with_profile.clone());
-    let body = json!({
-        "model": selection.model,
-        "messages": [
-            {
-                "role": "system",
-                "content": system_prompt,
-            },
-            {
-                "role": "user",
-                "content": serde_json::to_string(&input)?,
-            },
-        ],
-        "temperature": 0.1,
-        "stream": false,
-    });
-    let raw = logged_structured_completion(
-        &api_client,
-        body,
-        memory_schema(),
-        60,
-        BackgroundDebug {
-            room,
-            character: &context.character,
-            source: "memory-extraction",
-        },
-        full_json_logs,
-    )
-    .await?;
-    push_usage(usages, &raw, &context.character, "memory-extraction");
-    let content = extract_message_text(&raw);
-    let setting = api_client.resolve_user_placeholders(&setting_with_profile);
-    let existing_contents = context
-        .existing_memories
-        .iter()
-        .map(|memory| memory.content.as_str())
-        .collect::<Vec<_>>();
-    let source_ids = generated
-        .iter()
-        .filter_map(|message| message.get("id").and_then(Value::as_str))
-        .map(str::to_owned)
-        .collect::<Vec<_>>();
-    let now = now_ms();
-    let character_id = string(&context.character, "id");
-    let mut candidates = accept_memory_candidates(
-        parse_memory_updates(&content),
-        &setting,
-        &existing_contents,
-        MEMORY_MAX_CANDIDATES,
-    );
-    for (index, candidate) in candidates.iter_mut().enumerate() {
-        stamp_memory_candidate(
-            candidate,
-            format!("memory-{now}-{index}"),
-            &character_id,
-            room_id,
-            &source_ids,
-            now,
-        );
-    }
-    Ok(candidates)
 }
 
 /// 重要度・確信度の下限を満たし、キャラ設定・既存記憶・先に採用した候補と重ならない候補だけを残す。
@@ -3828,53 +3536,6 @@ mod tests {
         );
     }
 
-    fn scored_memory(id: &str, content: &str) -> ScoredMemory {
-        ScoredMemory {
-            id: id.to_owned(),
-            content: content.to_owned(),
-            data: json!({
-                "id": id,
-                "content": content,
-                "kind": "fact",
-                "scope": "character",
-                "embedding": [0.1, 0.2, 0.3],
-            }),
-            score: 1.0,
-        }
-    }
-
-    fn extraction_context() -> ExtractionContext {
-        ExtractionContext {
-            character: json!({"id": "character-1", "name": "葵", "systemPrompt": "高校生"}),
-            recent_history: vec![json!({"role": "user", "content": "猫が苦手なんだ"})],
-            existing_memories: vec![
-                scored_memory("memory-used", "{{user}}は紅茶が好き"),
-                scored_memory("memory-other", "葵は弓道部"),
-            ],
-        }
-    }
-
-    #[test]
-    fn batch_mode_keeps_only_explicit_instructions_on_each_turn() {
-        assert!(
-            plan_instruction_follow_up(
-                extraction_context(),
-                Some(gate_decision(&["protagonist", "world"], &[]))
-            )
-            .is_none()
-        );
-        assert!(plan_instruction_follow_up(extraction_context(), None).is_none());
-        let follow_up = plan_instruction_follow_up(
-            extraction_context(),
-            Some(gate_decision(&["instruction", "world"], &["memory-used"])),
-        )
-        .expect("instruction follow-up");
-        let guidance = follow_up.guidance.expect("guidance");
-        assert_eq!(guidance.reasons, vec![MemoryGateReason::Instruction]);
-        assert_eq!(guidance.used_memory_ids, vec!["memory-used".to_owned()]);
-        assert!(follow_up.shadow.is_none());
-    }
-
     #[test]
     fn batch_source_refs_resolve_to_message_ids() {
         let refs = batch_message_refs(&[json!({"id": "message-1"}), json!({"id": "message-2"})]);
@@ -3917,130 +3578,6 @@ mod tests {
             contents,
             ["ユーザーは猫が苦手で近づけない", "ユーザーは辛い料理が好き"]
         );
-    }
-
-    fn gate_decision(new_reasons: &[&str], used: &[&str]) -> MemoryGateDecision {
-        let mut answers = serde_json::Map::new();
-        for reason in [
-            "world",
-            "character",
-            "relationship",
-            "protagonist",
-            "instruction",
-        ] {
-            let probability = if new_reasons.contains(&reason) {
-                0.8
-            } else {
-                0.1
-            };
-            answers.insert(
-                format!("reason_{reason}"),
-                json!({
-                    "type": "choice",
-                    "choice": if probability > 0.5 { "new" } else { "none" },
-                    "probabilities": {"none": 1.0 - probability, "known": 0.0, "new": probability},
-                }),
-            );
-        }
-        let memory_ids = ["memory-used", "memory-other"];
-        for (index, id) in memory_ids.iter().enumerate() {
-            answers.insert(
-                format!("used_{index}"),
-                json!({"type": "noul", "noul": if used.contains(id) { 0.9 } else { 0.1 }}),
-            );
-        }
-        let response: SystemOneResponse = serde_json::from_value(json!({
-            "model": "jev-latest",
-            "answers": answers,
-        }))
-        .expect("gate response");
-        evaluate_memory_gate(&response, &memory_ids.map(str::to_owned)).expect("gate decision")
-    }
-
-    #[test]
-    fn memory_gate_skips_extraction_without_new_information() {
-        let follow_up = plan_memory_follow_up(
-            extraction_context(),
-            Some(gate_decision(&[], &[])),
-            false,
-            true,
-        );
-        assert!(follow_up.is_none());
-    }
-
-    #[test]
-    fn failed_memory_gate_does_not_request_extraction() {
-        assert!(plan_memory_follow_up(extraction_context(), None, false, true).is_none());
-    }
-
-    #[test]
-    fn memory_gate_passes_reasons_and_used_memories_to_extraction() {
-        let follow_up = plan_memory_follow_up(
-            extraction_context(),
-            Some(gate_decision(&["protagonist"], &["memory-used"])),
-            false,
-            true,
-        )
-        .expect("follow-up");
-        assert!(follow_up.shadow.is_none());
-
-        let (system_prompt, input) = memory_extraction_request(
-            &follow_up.context,
-            follow_up.guidance.as_ref(),
-            &[json!({"role": "assistant", "content": "覚えておくね"})],
-        );
-
-        assert!(system_prompt.contains("saveReasons"));
-        assert_eq!(
-            input["saveReasons"],
-            json!([MemoryGateReason::Protagonist.save_reason()])
-        );
-        assert_eq!(
-            input["usedMemories"],
-            json!([{"content": "{{user}}は紅茶が好き", "kind": "fact", "scope": "character"}])
-        );
-        assert_eq!(
-            input["existingMemories"],
-            json!([{"content": "葵は弓道部", "kind": "fact", "scope": "character"}])
-        );
-        assert_eq!(input["recentMessages"].as_array().map(Vec::len), Some(2));
-    }
-
-    #[test]
-    fn shadow_mode_always_extracts_with_the_unguided_prompt() {
-        for (gate, expected) in [
-            (Some(gate_decision(&[], &[])), ShadowGate::Skip),
-            (Some(gate_decision(&["world"], &[])), ShadowGate::Extract),
-            (None, ShadowGate::Failed),
-        ] {
-            let follow_up =
-                plan_memory_follow_up(extraction_context(), gate, true, true).expect("follow-up");
-            assert_eq!(follow_up.shadow, Some(expected));
-            assert!(follow_up.guidance.is_none());
-
-            let (system_prompt, input) = memory_extraction_request(&follow_up.context, None, &[]);
-            assert_eq!(system_prompt, memory_extraction_prompt());
-            assert!(input.get("saveReasons").is_none());
-            assert!(input.get("usedMemories").is_none());
-            assert_eq!(input["existingMemories"].as_array().map(Vec::len), Some(2));
-            assert!(input["existingMemories"][0].get("embedding").is_none());
-        }
-    }
-
-    #[test]
-    fn disabled_gate_always_extracts_with_the_unguided_prompt() {
-        for shadow_mode in [false, true] {
-            let follow_up = plan_memory_follow_up(extraction_context(), None, shadow_mode, false)
-                .expect("follow-up");
-            assert!(follow_up.shadow.is_none());
-            assert!(follow_up.guidance.is_none());
-
-            let (system_prompt, input) = memory_extraction_request(&follow_up.context, None, &[]);
-            assert_eq!(system_prompt, memory_extraction_prompt());
-            assert!(input.get("saveReasons").is_none());
-            assert!(input.get("usedMemories").is_none());
-            assert_eq!(input["existingMemories"].as_array().map(Vec::len), Some(2));
-        }
     }
 
     #[test]
@@ -4491,38 +4028,6 @@ mod tests {
         assert_eq!(
             history_message_content(&message),
             json!("これ何？\n\n[添付画像: old.png]\n\n[添付ファイル: old.txt]")
-        );
-    }
-
-    #[test]
-    fn memory_extraction_request_replaces_image_attachments_with_text_placeholders() {
-        let mut context = extraction_context();
-        context.recent_history = vec![json!({
-            "role": "user",
-            "content": "",
-            "attachments": [
-                {
-                    "id": "att-img",
-                    "kind": "image",
-                    "name": "cat.png",
-                    "mimeType": "image/png",
-                    "data": "data:image/png;base64,SECRET_BASE64"
-                },
-                {
-                    "id": "att-file",
-                    "kind": "file",
-                    "name": "profile.txt",
-                    "mimeType": "text/plain",
-                    "data": "猫が大好き"
-                }
-            ]
-        })];
-        let (_system, input) = memory_extraction_request(&context, None, &[]);
-        let first_message = &input["recentMessages"][0];
-        assert!(first_message.get("attachments").is_none());
-        assert_eq!(
-            first_message["content"],
-            "[添付画像: cat.png]\n\n[添付ファイル: profile.txt]\n猫が大好き"
         );
     }
 

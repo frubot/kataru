@@ -180,11 +180,9 @@ function toConversationCharacter(character: Character | null): ConversationChara
 /** ルームを離れるときの記憶の反映に使う設定。最新の設定をストアから読む。 */
 function buildMemoryFlushPayload(roomId: string, character: Character) {
     const state = useStore.getState();
-    if (state.memoryBatchMode === 'off') return null;
     return {
         room: { id: roomId },
         character: toConversationCharacter(character),
-        memoryBatchMode: state.memoryBatchMode,
         memoryExtractionModel: serializeModelRef(state.memoryExtractionModel),
         memoryEmbeddingModel: serializeModelRef(state.memoryEmbeddingModel),
         aiApiConfig: state.getAiApiConfig(),
@@ -354,8 +352,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         conversationCompressionEnabled,
         memoryGateModel,
         memoryGateEnabled,
-        memoryGateShadowMode,
-        memoryBatchMode,
+        memoryBatchUserTurns,
         memoryExtractionModel,
         memoryEmbeddingModel,
         reasoningEffort,
@@ -514,8 +511,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         const flush = () => {
             const flushCharacter = memoryFlushCharacterRef.current;
             if (!flushCharacter) return;
-            const payload = buildMemoryFlushPayload(currentRoomId, flushCharacter);
-            if (payload) requestMemoryFlush(payload);
+            requestMemoryFlush(buildMemoryFlushPayload(currentRoomId, flushCharacter));
         };
         window.addEventListener('pagehide', flush);
         return () => {
@@ -1157,8 +1153,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     conversationCompressionEnabled,
                     memoryGateModel: serializeModelRef(memoryGateModel),
                     memoryGateEnabled,
-                    memoryGateShadowMode,
-                    memoryBatchMode,
+                    memoryBatchUserTurns,
                     memoryExtractionModel: serializeModelRef(memoryExtractionModel),
                     memoryEmbeddingModel: serializeModelRef(memoryEmbeddingModel),
                     reasoningEffort,

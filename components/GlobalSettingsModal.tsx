@@ -9,7 +9,7 @@ import { createFullBackup, downloadJson, parseFullBackup, reassignIds, type Pars
 import { resizeToMaxEdgeAsJpeg } from '@/lib/imageUtils';
 import { isIrodoriTtsModel } from '@/lib/tts';
 import { CHAT_SAMPLING_KEYS } from '@/lib/chatSampling';
-import { DEFAULT_MEMORY_BATCH_MODE, isMemoryBatchMode, MEMORY_BATCH_MODE_OPTIONS } from '@/lib/memoryBatchMode';
+import { DEFAULT_MEMORY_BATCH_USER_TURNS, MEMORY_BATCH_USER_TURNS_MAX, MEMORY_BATCH_USER_TURNS_MIN } from '@/lib/memoryBatch';
 import StatisticsPanel from '@/components/StatisticsPanel';
 import AiConnectionSettings from '@/components/AiConnectionSettings';
 import ModelSelector from '@/components/ModelSelector';
@@ -175,6 +175,13 @@ interface VnSpeedSliderProps {
     value: VnTypingSpeed;
     onChange: (speed: VnTypingSpeed) => void;
 }
+
+const MEMORY_BATCH_USER_TURN_OPTIONS = [3, 5, 10, 15, 20, 30]
+    .filter((turns) => turns >= MEMORY_BATCH_USER_TURNS_MIN && turns <= MEMORY_BATCH_USER_TURNS_MAX)
+    .map((turns) => ({
+        value: String(turns),
+        label: turns === DEFAULT_MEMORY_BATCH_USER_TURNS ? `${turns}ターン（標準）` : `${turns}ターン`,
+    }));
 
 const VN_MAX_STAGE_SPRITE_OPTIONS = [
     { value: '0', label: '制限なし' },
@@ -435,8 +442,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         memoryExtractionModel, setMemoryExtractionModel,
         memoryEmbeddingModel, setMemoryEmbeddingModel,
         memoryGateEnabled, setMemoryGateEnabled,
-        memoryGateShadowMode, setMemoryGateShadowMode,
-        memoryBatchMode, setMemoryBatchMode,
+        memoryBatchUserTurns, setMemoryBatchUserTurns,
         ttsEnabled, setTtsEnabled,
         ttsConnectionId, setTtsConnectionId,
         ttsModel, setTtsModel,
@@ -1252,7 +1258,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                 {memoryGateEnabled && (
                                     <RoleModelField
                                         role="memoryGateModel"
-                                        label="メモリ保存の判定"
+                                        label="参照したメモリの判定"
                                         inputId="memory-gate-model-input"
                                         value={memoryGateModel}
                                         onChange={setMemoryGateModel}
@@ -1640,17 +1646,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         現在の要約、圧縮範囲、履歴を確認して手動編集できます。
                                     </p>
                                 </div>
-                                <div>
-                                    {renderDebugToggle({
-                                        label: 'メモリ保存判定のシャドーモード',
-                                        enabled: memoryGateShadowMode,
-                                        onToggle: () => setMemoryGateShadowMode(!memoryGateShadowMode),
-                                        ariaLabel: 'メモリ保存判定のシャドーモードを有効化',
-                                    })}
-                                    <p style={{ margin: '0.375rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                                        Decisionの判定結果を記録するだけにして、メモリ保存は毎ターン従来どおり行います。判定と実際の保存結果の比較はサーバーログに出力されます。
-                                    </p>
-                                </div>
                             </div>
                         </div>
                         )}
@@ -1775,7 +1770,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', marginTop: '1rem' }}>
                                     <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
-                                        メモリ保存の必要性をDecisionで判定
+                                        返答が参照したメモリをDecisionで判定
                                     </span>
                                     <button
                                         type="button"
@@ -1792,7 +1787,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                             padding: 0,
                                             flexShrink: 0,
                                         }}
-                                        aria-label="メモリ保存の判定を有効化"
+                                        aria-label="参照したメモリの判定を有効化"
                                         aria-pressed={memoryGateEnabled}
                                     >
                                         <span style={{
@@ -1810,20 +1805,20 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                 </div>
                                 <div style={{ marginTop: '1rem' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
-                                        <label htmlFor="memory-batch-mode-input" style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
-                                            メモリをまとめて抽出
+                                        <label htmlFor="memory-batch-user-turns-input" style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
+                                            メモリをまとめて保存する間隔
                                         </label>
                                         <OptionSelector
-                                            id="memory-batch-mode-input"
-                                            value={memoryBatchMode}
-                                            onChange={(value) => setMemoryBatchMode(isMemoryBatchMode(value) ? value : DEFAULT_MEMORY_BATCH_MODE)}
-                                            options={MEMORY_BATCH_MODE_OPTIONS}
-                                            ariaLabel="メモリをまとめて抽出"
+                                            id="memory-batch-user-turns-input"
+                                            value={String(memoryBatchUserTurns)}
+                                            onChange={(value) => setMemoryBatchUserTurns(Number(value))}
+                                            options={MEMORY_BATCH_USER_TURN_OPTIONS}
+                                            ariaLabel="メモリをまとめて保存する間隔"
                                             style={{ flex: '0 1 auto', minWidth: 0 }}
                                         />
                                     </div>
                                     <p style={{ margin: '0.375rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                                        オンにすると、毎ターンは「覚えて」などの明示的な依頼だけを保存し、それ以外は発言が10ターン分たまったとき、要約のとき、ルームを離れたとき（別のルームを開く・アプリを閉じる）にまとめて保存します。
+                                        メモリは発言がこのターン数たまったとき、要約のとき、ルームを離れたとき（別のルームを開く・アプリを閉じる）にまとめて保存します。短くするとすぐ反映されますが、抽出の回数が増えます。
                                     </p>
                                 </div>
                             </div>

@@ -1,4 +1,3 @@
-import type { MemoryBatchMode } from '../memoryBatchMode';
 import type { StoreApi } from 'zustand';
 
 import type { AiApiConfig, AiConnectionKind, ModelRef, ReasoningEffort } from '../aiApi';
@@ -425,8 +424,8 @@ export interface AppState {
     memoryExtractionModel: ModelRef;
     memoryEmbeddingModel: ModelRef;
     memoryGateEnabled: boolean;
-    memoryGateShadowMode: boolean;
-    memoryBatchMode: MemoryBatchMode;
+    /** 未反映の発言が何ターン分たまったら記憶をまとめて抽出するか。 */
+    memoryBatchUserTurns: number;
     conversationCompressionEnabled: boolean;
     /** 会話生成の推論レベル。 */
     reasoningEffort: ReasoningEffort;
@@ -499,8 +498,7 @@ export interface AppState {
     setMemoryExtractionModel: (model: ModelRef) => void;
     setMemoryEmbeddingModel: (model: ModelRef) => void;
     setMemoryGateEnabled: (enabled: boolean) => void;
-    setMemoryGateShadowMode: (enabled: boolean) => void;
-    setMemoryBatchMode: (mode: MemoryBatchMode) => void;
+    setMemoryBatchUserTurns: (turns: number) => void;
     setConversationCompressionEnabled: (enabled: boolean) => void;
     setReasoningEffort: (effort: ReasoningEffort) => void;
     setChatSampling: (sampling: ChatSampling) => void;

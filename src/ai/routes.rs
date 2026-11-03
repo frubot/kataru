@@ -26,8 +26,7 @@ pub(crate) use common::{
 };
 pub(crate) use memory::{
     MEMORY_BATCH_MAX_UPDATES, memory_batch_schema, memory_extraction_batch_prompt,
-    memory_extraction_guided_prompt, memory_extraction_prompt, memory_schema,
-    parse_batch_memory_updates, parse_memory_updates,
+    parse_batch_memory_updates,
 };
 pub(crate) use structured::{
     extract_message_reasoning, extract_message_text, plain_text_completion,

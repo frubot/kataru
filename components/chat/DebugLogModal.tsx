@@ -93,9 +93,9 @@ function getDebugSourceLabel(source: string): string {
         case 'director-error':
             return 'キャラクタールーターのエラー';
         case 'memory-gate-jev':
-            return 'メモリ保存の判定';
+            return '参照した記憶の判定';
         case 'memory-gate-error':
-            return 'メモリ保存判定のエラー';
+            return '参照した記憶の判定のエラー';
         case 'memory-extraction-json':
             return '記憶の抽出（裏タスク）';
         case 'memory-extraction-error':

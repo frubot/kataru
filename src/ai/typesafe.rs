@@ -46,6 +46,8 @@ pub struct SystemOneResponse {
     pub usage: Option<JevUsage>,
 }
 
+// Decision の choice 質問は今は使っていないが、ほかの用途で使う予定があるので残す。
+#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ChoiceAnswer {
     pub choice: String,
@@ -103,6 +105,7 @@ pub async fn system_one(
         .map_err(crate::ai::api_client::map_request_error)
 }
 
+#[allow(dead_code)]
 pub fn choice_answer(response: &SystemOneResponse, question_id: &str) -> AppResult<ChoiceAnswer> {
     answer(response, question_id).and_then(|answer| {
         serde_json::from_value::<ChoiceAnswer>(answer).map_err(|error| {

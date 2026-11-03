@@ -15,7 +15,6 @@ use super::prompts::string;
 
 const MEMORY_SAVE_MIN_IMPORTANCE: f64 = 0.4;
 const MEMORY_SAVE_MIN_CONFIDENCE: f64 = 0.75;
-pub(super) const MEMORY_SAVE_MAX_UPDATES: usize = 5;
 const MEMORY_TURN_DEDUP_SIMILARITY_THRESHOLD: f64 = 0.68;
 const MEMORY_EXISTING_DEDUP_SIMILARITY_THRESHOLD: f64 = 0.78;
 const MEMORY_DUPLICATE_SIMILARITY_THRESHOLD: f64 = 0.7;
@@ -614,14 +613,7 @@ mod tests {
             }),
         ];
 
-        let selected = select_memory_candidates(
-            candidates,
-            &character,
-            &existing,
-            "",
-            "",
-            MEMORY_SAVE_MAX_UPDATES,
-        );
+        let selected = select_memory_candidates(candidates, &character, &existing, "", "", 5);
 
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0]["id"], "accepted");

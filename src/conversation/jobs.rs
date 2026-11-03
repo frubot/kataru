@@ -22,20 +22,15 @@ use tracing::Instrument;
 
 use crate::{
     AppState,
-    db::{
-        persist_conversation_memories, persist_conversation_result, persist_conversation_submission,
-    },
+    db::{persist_conversation_result, persist_conversation_submission},
     error::{AppError, AppResult},
 };
 
 use super::{
     GenerationMode,
-    background::{BackgroundTaskKind, BackgroundTaskStart, BackgroundTasks},
-    memory::{MEMORY_SAVE_MAX_UPDATES, prepare_conversation_memories},
+    background::BackgroundTasks,
     memory_batch::{run_memory_batches_after_turn, run_memory_flush},
-    orchestrator::{
-        MemoryExtraction, MemoryFollowUp, ShadowGate, TurnOutput, extract_turn_memories, run_turn,
-    },
+    orchestrator::{TurnOutput, run_turn},
 };
 
 const COMPLETED_JOB_RETENTION: Duration = Duration::from_secs(10 * 60);
@@ -816,7 +811,7 @@ async fn run_conversation_job(
         "Conversation generation started"
     );
     match run_turn(state.clone(), payload.clone(), cancellation).await {
-        Ok(TurnOutput { mut result, memory }) => {
+        Ok(TurnOutput { mut result }) => {
             let message_count = result
                 .get("messages")
                 .and_then(serde_json::Value::as_array)
@@ -893,19 +888,8 @@ async fn run_conversation_job(
                 .pointer("/summary/keepCount")
                 .and_then(Value::as_u64)
                 .is_some_and(|keep_count| keep_count > 0);
-            let memory = memory.filter(|_| !secret_mode).map(|follow_up| {
-                let messages = result
-                    .get("messages")
-                    .and_then(Value::as_array)
-                    .cloned()
-                    .unwrap_or_default();
-                (follow_up, messages)
-            });
             state.conversation_jobs.complete(&job_id, result).await;
             tracing::debug!(stage = "completed", "Conversation job completed");
-            if let Some((follow_up, messages)) = memory {
-                persist_turn_memories(&state, &payload, &job_id, follow_up, &messages).await;
-            }
             if !secret_mode {
                 run_memory_batches_after_turn(&state, &payload, &room_id, summarized).await;
             }
@@ -991,129 +975,6 @@ fn valid_job_id(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
-async fn persist_turn_memories(
-    state: &AppState,
-    payload: &Value,
-    job_id: &str,
-    follow_up: MemoryFollowUp,
-    messages: &[Value],
-) {
-    tracing::debug!(
-        stage = "memory_extraction_started",
-        "Conversation memory extraction started"
-    );
-    let room_id = payload
-        .pointer("/room/id")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    let task = state
-        .conversation_jobs
-        .background_tasks()
-        .start(BackgroundTaskStart {
-            kind: BackgroundTaskKind::MemoryExtraction,
-            reason: "ターン後",
-            room_id,
-            character: Some(follow_up.character()),
-        });
-    task.set_detail("記憶の候補を抽出中");
-    let mut full_json_logs = Vec::new();
-    let extraction =
-        extract_turn_memories(state, payload, follow_up, messages, &mut full_json_logs).await;
-    task.push_logs(full_json_logs);
-    let MemoryExtraction {
-        mut candidates,
-        mut usages,
-        shadow,
-    } = match extraction {
-        Ok(extraction) => extraction,
-        Err(error) => {
-            tracing::warn!(
-                stage = "memory_extraction_failed",
-                classification = error.diagnostic_class(),
-                "Conversation memory extraction failed"
-            );
-            task.fail(format!("記憶の抽出に失敗しました: {error}"));
-            return;
-        }
-    };
-    task.set_detail(format!("候補 {} 件を保存の準備中", candidates.len()));
-    let source_message_ids = content_message_ids(messages);
-    normalize_memory_follow_up_ids(job_id, &mut candidates, &mut usages, &source_message_ids);
-    let candidate_count = candidates.len();
-    let _memory_persistence_guard = state.conversation_jobs.lock_memory_persistence().await;
-    let mut preparation_error = None;
-    let prepared = match prepare_conversation_memories(
-        state,
-        payload,
-        messages,
-        candidates,
-        MEMORY_SAVE_MAX_UPDATES,
-    )
-    .await
-    {
-        Ok(prepared) => prepared,
-        Err(error) => {
-            tracing::warn!(
-                stage = "memory_preparation_failed",
-                classification = error.diagnostic_class(),
-                "Conversation memories could not be prepared"
-            );
-            preparation_error = Some(format!("記憶の保存の準備に失敗しました: {error}"));
-            Vec::new()
-        }
-    };
-    let saved_count = prepared.len();
-    if let Some(gate) = shadow {
-        tracing::info!(
-            stage = "memory_gate_shadow",
-            gate = gate.as_str(),
-            candidate_count,
-            saved_count,
-            agreement = memory_gate_shadow_agreement(gate, saved_count > 0),
-            "Memory gate shadow comparison"
-        );
-    }
-    let _history_persistence_guard = state.conversation_jobs.lock_history_persistence().await;
-    match persist_conversation_memories(&state.database, source_message_ids, prepared, usages).await
-    {
-        Ok(true) => {
-            tracing::debug!(
-                stage = "memories_persisted",
-                saved_count,
-                "Conversation memories persisted"
-            );
-            match preparation_error {
-                Some(error) => task.fail(error),
-                None => task.complete(format!("候補 {candidate_count} 件 / 保存 {saved_count} 件")),
-            }
-        }
-        Ok(false) => {
-            tracing::debug!(
-                stage = "memories_discarded",
-                "Conversation memories were discarded because their source messages no longer exist"
-            );
-            task.complete("元の発言が削除されたため保存しませんでした");
-        }
-        Err(error) => {
-            tracing::warn!(
-                stage = "memory_persistence_failed",
-                classification = error.diagnostic_class(),
-                "Conversation memories could not be persisted"
-            );
-            task.fail(format!("記憶の保存に失敗しました: {error}"));
-        }
-    }
-}
-
-fn memory_gate_shadow_agreement(gate: ShadowGate, saved: bool) -> &'static str {
-    match (gate, saved) {
-        (ShadowGate::Failed, _) => "gate_failed",
-        (ShadowGate::Extract, true) | (ShadowGate::Skip, false) => "agree",
-        (ShadowGate::Skip, true) => "missed",
-        (ShadowGate::Extract, false) => "unneeded",
-    }
-}
-
 fn normalize_result_ids(job_id: &str, result: &mut Value) {
     let Some(messages) = result.get_mut("messages").and_then(Value::as_array_mut) else {
         return;
@@ -1136,24 +997,6 @@ fn normalize_result_ids(job_id: &str, result: &mut Value) {
     }
 }
 
-fn normalize_memory_follow_up_ids(
-    job_id: &str,
-    candidates: &mut [Value],
-    usages: &mut [Value],
-    source_message_ids: &[String],
-) {
-    for (index, candidate) in candidates.iter_mut().enumerate() {
-        if let Some(object) = candidate.as_object_mut() {
-            object.insert(
-                "id".to_owned(),
-                Value::String(format!("{job_id}-memory-{index}")),
-            );
-            object.insert("sourceMessageIds".to_owned(), json!(source_message_ids));
-        }
-    }
-    normalize_usage_ids(usages, &format!("{job_id}-memory-usage"), now_millis());
-}
-
 fn normalize_usage_ids(usages: &mut [Value], prefix: &str, timestamp: u64) {
     for (index, usage) in usages.iter_mut().enumerate() {
         if let Some(object) = usage.as_object_mut() {
@@ -1164,20 +1007,6 @@ fn normalize_usage_ids(usages: &mut [Value], prefix: &str, timestamp: u64) {
             );
         }
     }
-}
-
-fn content_message_ids(messages: &[Value]) -> Vec<String> {
-    messages
-        .iter()
-        .filter(|message| {
-            message
-                .get("content")
-                .and_then(Value::as_str)
-                .is_some_and(|content| !content.trim().is_empty())
-        })
-        .filter_map(|message| message.get("id").and_then(Value::as_str))
-        .map(str::to_owned)
-        .collect()
 }
 
 fn prune_jobs(jobs: &mut HashMap<String, ConversationJob>) {
@@ -1210,51 +1039,6 @@ mod tests {
         assert_eq!(result["messages"][0]["id"], "job-12345678-message-0");
         assert_eq!(result["messages"][1]["id"], "job-12345678-message-1");
         assert_eq!(result["usages"][0]["id"], "job-12345678-usage-0");
-
-        let messages = result["messages"].as_array().expect("messages");
-        let source_message_ids = content_message_ids(messages);
-        assert_eq!(
-            source_message_ids,
-            vec!["job-12345678-message-0", "job-12345678-message-1"]
-        );
-        let mut candidates = vec![json!({ "sourceMessageIds": ["old-1"] })];
-        let mut usages = vec![json!({ "id": "usage-memory" })];
-        normalize_memory_follow_up_ids(
-            "job-12345678",
-            &mut candidates,
-            &mut usages,
-            &source_message_ids,
-        );
-        assert_eq!(candidates[0]["id"], "job-12345678-memory-0");
-        assert_eq!(
-            candidates[0]["sourceMessageIds"],
-            json!(["job-12345678-message-0", "job-12345678-message-1"])
-        );
-        assert_eq!(usages[0]["id"], "job-12345678-memory-usage-0");
-    }
-
-    #[test]
-    fn memory_gate_shadow_agreement_classifies_gate_outcomes() {
-        assert_eq!(
-            memory_gate_shadow_agreement(ShadowGate::Extract, true),
-            "agree"
-        );
-        assert_eq!(
-            memory_gate_shadow_agreement(ShadowGate::Skip, false),
-            "agree"
-        );
-        assert_eq!(
-            memory_gate_shadow_agreement(ShadowGate::Skip, true),
-            "missed"
-        );
-        assert_eq!(
-            memory_gate_shadow_agreement(ShadowGate::Extract, false),
-            "unneeded"
-        );
-        assert_eq!(
-            memory_gate_shadow_agreement(ShadowGate::Failed, true),
-            "gate_failed"
-        );
     }
 
     #[tokio::test]

@@ -1,4 +1,4 @@
-import { DEFAULT_MEMORY_BATCH_MODE } from '../memoryBatchMode';
+import { DEFAULT_MEMORY_BATCH_USER_TURNS, normalizeMemoryBatchUserTurns } from '../memoryBatch';
 import {
     DEFAULT_CONNECTION_ID,
     DEFAULT_REASONING_EFFORT,
@@ -254,8 +254,7 @@ type SettingsSlice = Pick<
     | 'memoryExtractionModel'
     | 'memoryEmbeddingModel'
     | 'memoryGateEnabled'
-    | 'memoryGateShadowMode'
-    | 'memoryBatchMode'
+    | 'memoryBatchUserTurns'
     | 'conversationCompressionEnabled'
     | 'reasoningEffort'
     | 'chatSampling'
@@ -306,8 +305,7 @@ type SettingsSlice = Pick<
     | 'setMemoryExtractionModel'
     | 'setMemoryEmbeddingModel'
     | 'setMemoryGateEnabled'
-    | 'setMemoryGateShadowMode'
-    | 'setMemoryBatchMode'
+    | 'setMemoryBatchUserTurns'
     | 'setConversationCompressionEnabled'
     | 'setReasoningEffort'
     | 'setChatSampling'
@@ -349,8 +347,7 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         keyboardShortcuts: createDefaultKeyboardShortcuts(),
         ...getDefaultModelDefaults(),
         memoryGateEnabled: DEFAULT_MEMORY_GATE_ENABLED,
-        memoryGateShadowMode: false,
-        memoryBatchMode: DEFAULT_MEMORY_BATCH_MODE,
+        memoryBatchUserTurns: DEFAULT_MEMORY_BATCH_USER_TURNS,
         conversationCompressionEnabled: DEFAULT_CONVERSATION_COMPRESSION_ENABLED,
         reasoningEffort: DEFAULT_REASONING_EFFORT,
         chatSampling: {},
@@ -514,13 +511,10 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
             set({ memoryGateEnabled });
             fire(db.setMeta('memoryGateEnabled', memoryGateEnabled));
         },
-        setMemoryGateShadowMode: (memoryGateShadowMode) => {
-            set({ memoryGateShadowMode });
-            fire(db.setMeta('memoryGateShadowMode', memoryGateShadowMode));
-        },
-        setMemoryBatchMode: (memoryBatchMode) => {
-            set({ memoryBatchMode });
-            fire(db.setMeta('memoryBatchMode', memoryBatchMode));
+        setMemoryBatchUserTurns: (turns) => {
+            const memoryBatchUserTurns = normalizeMemoryBatchUserTurns(turns);
+            set({ memoryBatchUserTurns });
+            fire(db.setMeta('memoryBatchUserTurns', memoryBatchUserTurns));
         },
         setConversationCompressionEnabled: (conversationCompressionEnabled) => {
             set({ conversationCompressionEnabled });

@@ -1,4 +1,3 @@
-import type { ExtractedMemoryUpdate } from './chatMemoryCandidates';
 import type { DebugLogUsage } from './store/types';
 
 export type ConversationAssistantMessage = {
@@ -46,6 +45,5 @@ export type RustTurnResponse = {
         checkpointUserMessageId?: string;
         keepCount: number;
     } | null;
-    memoryCandidates?: ExtractedMemoryUpdate[];
     usedMemoryIds?: string[];
 };

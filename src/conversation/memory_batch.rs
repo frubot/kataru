@@ -25,8 +25,11 @@ use super::{
     prompts::{boolean, message_text_with_attachments, string},
 };
 
-/// 未反映の user 発言がこの数に達したらバッチ抽出する。
-const MEMORY_BATCH_USER_TURNS: usize = 10;
+/// 未反映の user 発言がこの数に達したらバッチ抽出する。設定で変えられる。
+const MEMORY_BATCH_DEFAULT_USER_TURNS: usize = 10;
+/// 設定できるターン数の範囲。フロントの `MEMORY_BATCH_USER_TURNS_MIN/MAX` と同じ値。
+const MEMORY_BATCH_MIN_USER_TURNS: usize = 3;
+const MEMORY_BATCH_MAX_USER_TURNS: usize = 30;
 /// 1回の抽出に渡す発言の上限。超えた分は次のまとまりに回す。
 const MEMORY_BATCH_MAX_MESSAGES: usize = 40;
 /// 文脈として添える直前の発言数。
@@ -34,30 +37,22 @@ const MEMORY_BATCH_CONTEXT_MESSAGES: usize = 3;
 /// 1回の実行で処理するまとまりの上限。残りは次のきっかけで処理する。
 const MEMORY_BATCH_MAX_CHUNKS_PER_RUN: usize = 3;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum MemoryBatchMode {
-    /// バッチ抽出しない（従来どおり毎ターン抽出）。
-    Off,
-    /// 毎ターン抽出はそのまま。バッチ抽出も走らせるが保存せず、件数だけログに出す。
-    Shadow,
-    /// 毎ターン抽出は明示的な依頼だけにして、それ以外はバッチ抽出で保存する。
-    On,
-}
-
-impl MemoryBatchMode {
-    pub(crate) fn from_payload(payload: &Value) -> Self {
-        match payload.get("memoryBatchMode").and_then(Value::as_str) {
-            Some("shadow") => Self::Shadow,
-            Some("on") => Self::On,
-            _ => Self::Off,
-        }
-    }
+/// 何ターンたまったらバッチ抽出するか。設定が無いか範囲外なら既定値か範囲内に寄せる。
+fn batch_user_turns(payload: &Value) -> usize {
+    payload
+        .get("memoryBatchUserTurns")
+        .and_then(Value::as_u64)
+        .map_or(MEMORY_BATCH_DEFAULT_USER_TURNS, |turns| {
+            usize::try_from(turns)
+                .unwrap_or(MEMORY_BATCH_MAX_USER_TURNS)
+                .clamp(MEMORY_BATCH_MIN_USER_TURNS, MEMORY_BATCH_MAX_USER_TURNS)
+        })
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MemoryBatchTrigger {
-    /// 未反映の user 発言が閾値に達したときだけ抽出する。
-    Threshold,
+    /// 未反映の user 発言が指定のターン数に達したときだけ抽出する。
+    Threshold(usize),
     /// 未反映の発言が1件でもあれば抽出する（要約で押し出されたとき、別ルームの反映）。
     Flush,
 }
@@ -81,16 +76,18 @@ pub(crate) async fn run_memory_batches_after_turn(
     room_id: &str,
     summarized: bool,
 ) {
-    let mode = MemoryBatchMode::from_payload(payload);
-    if mode == MemoryBatchMode::Off || !batch_memory_allowed(payload) {
+    if !batch_memory_allowed(payload) {
         return;
     }
     let (trigger, reason) = if summarized {
         (MemoryBatchTrigger::Flush, "要約後")
     } else {
-        (MemoryBatchTrigger::Threshold, "ターン後")
+        (
+            MemoryBatchTrigger::Threshold(batch_user_turns(payload)),
+            "ターン後",
+        )
     };
-    run_room_memory_batch(state, payload, mode, room_id, trigger, reason).await;
+    run_room_memory_batch(state, payload, room_id, trigger, reason).await;
 
     let character_id = payload
         .get("character")
@@ -111,7 +108,6 @@ pub(crate) async fn run_memory_batches_after_turn(
         run_room_memory_batch(
             state,
             payload,
-            mode,
             other_room_id,
             MemoryBatchTrigger::Flush,
             "別ルームの未反映分",
@@ -122,14 +118,12 @@ pub(crate) async fn run_memory_batches_after_turn(
 
 /// ルームを離れるときなどに、そのルームの未反映分を全部反映する。
 pub(crate) async fn run_memory_flush(state: &AppState, payload: &Value, room_id: &str) {
-    let mode = MemoryBatchMode::from_payload(payload);
-    if mode == MemoryBatchMode::Off || !batch_memory_allowed(payload) {
+    if !batch_memory_allowed(payload) {
         return;
     }
     run_room_memory_batch(
         state,
         payload,
-        mode,
         room_id,
         MemoryBatchTrigger::Flush,
         "ルーム離脱",
@@ -155,7 +149,6 @@ fn batch_memory_allowed(payload: &Value) -> bool {
 async fn run_room_memory_batch(
     state: &AppState,
     payload: &Value,
-    mode: MemoryBatchMode,
     room_id: &str,
     trigger: MemoryBatchTrigger,
     reason: &str,
@@ -254,7 +247,7 @@ async fn run_room_memory_batch(
                 .map(|candidate| string(candidate, "content"))
                 .filter(|content| !content.is_empty()),
         );
-        let memories = if mode == MemoryBatchMode::On {
+        let memories = {
             let _persistence = state.conversation_jobs.lock_memory_persistence().await;
             match prepare_conversation_memories(
                 state,
@@ -276,8 +269,6 @@ async fn run_room_memory_batch(
                     return;
                 }
             }
-        } else {
-            Vec::new()
         };
         let saved = match persist_batch_memories(&state.database, room_id, cursor, memories, usages)
             .await
@@ -293,34 +284,24 @@ async fn run_room_memory_batch(
                 return;
             }
         };
-        if mode == MemoryBatchMode::Shadow {
-            tracing::info!(
-                stage = "memory_batch_shadow",
-                message_count = chunk.len(),
-                candidate_count,
-                "Memory batch shadow extraction"
-            );
-        } else {
-            tracing::info!(
-                stage = "memory_batch_persisted",
-                message_count = chunk.len(),
-                candidate_count,
-                saved_count = saved,
-                "Memory batch persisted"
-            );
-        }
+        tracing::info!(
+            stage = "memory_batch_persisted",
+            message_count = chunk.len(),
+            candidate_count,
+            saved_count = saved,
+            "Memory batch persisted"
+        );
         totals.messages += chunk.len();
         totals.candidates += candidate_count;
         totals.saved += saved;
         context = context_before(chunk, chunk.len());
         last_chunk = chunk;
     }
-    let mut summary = totals.summary(mode);
+    let mut summary = totals.summary();
     if !last_chunk.is_empty() && !source.core_memory_disabled {
         let core = run_core_memory_update(
             state,
             &batch_payload,
-            mode,
             CoreMemoryUpdateInputParts {
                 character,
                 room_id,
@@ -350,7 +331,6 @@ struct CoreMemoryUpdateInputParts<'a> {
 async fn run_core_memory_update(
     state: &AppState,
     payload: &Value,
-    mode: MemoryBatchMode,
     parts: CoreMemoryUpdateInputParts<'_>,
     task: &BackgroundTaskHandle,
 ) -> String {
@@ -402,7 +382,6 @@ async fn run_core_memory_update(
         rejected = result.rejected.len(),
         demoted = result.demoted_candidates.len(),
         attempts = result.attempts,
-        shadow = mode == MemoryBatchMode::Shadow,
         "Core memory update"
     );
 
@@ -412,7 +391,7 @@ async fn run_core_memory_update(
         .last()
         .map(|message| vec![string(message, "id")])
         .unwrap_or_default();
-    if mode == MemoryBatchMode::Shadow || result.applied == 0 {
+    if result.applied == 0 {
         // 費用の記録だけ残す。
         if let Err(error) =
             persist_conversation_memories(&state.database, Vec::new(), Vec::new(), result.usages)
@@ -424,11 +403,7 @@ async fn run_core_memory_update(
                 "Core memory usage could not be persisted"
             );
         }
-        return if mode == MemoryBatchMode::Shadow {
-            format!("{report}（シャドーモードのため保存なし）")
-        } else {
-            report
-        };
+        return report;
     }
 
     let saved =
@@ -516,13 +491,11 @@ struct BatchTotals {
 }
 
 impl BatchTotals {
-    fn summary(&self, mode: MemoryBatchMode) -> String {
-        let counts = format!("発言 {} 件 / 候補 {} 件", self.messages, self.candidates);
-        if mode == MemoryBatchMode::Shadow {
-            format!("{counts}（シャドーモードのため保存なし）")
-        } else {
-            format!("{counts} / 保存 {} 件", self.saved)
-        }
+    fn summary(&self) -> String {
+        format!(
+            "発言 {} 件 / 候補 {} 件 / 保存 {} 件",
+            self.messages, self.candidates, self.saved
+        )
     }
 
     fn failure(&self, message: &str, error: &crate::error::AppError) -> String {
@@ -561,7 +534,9 @@ fn plan_batch(
         .iter()
         .filter(|message| string(message, "role") == "user")
         .count();
-    if trigger == MemoryBatchTrigger::Threshold && user_turns < MEMORY_BATCH_USER_TURNS {
+    if let MemoryBatchTrigger::Threshold(required) = trigger
+        && user_turns < required
+    {
         return BatchPlan::Nothing;
     }
     BatchPlan::Extract {
@@ -652,23 +627,37 @@ mod tests {
     }
 
     #[test]
-    fn mode_defaults_to_off() {
+    fn user_turns_default_and_clamp_to_the_allowed_range() {
         assert_eq!(
-            MemoryBatchMode::from_payload(&json!({})),
-            MemoryBatchMode::Off
+            batch_user_turns(&json!({})),
+            MEMORY_BATCH_DEFAULT_USER_TURNS
         );
         assert_eq!(
-            MemoryBatchMode::from_payload(&json!({"memoryBatchMode": "shadow"})),
-            MemoryBatchMode::Shadow
+            batch_user_turns(&json!({"memoryBatchUserTurns": "x"})),
+            MEMORY_BATCH_DEFAULT_USER_TURNS
+        );
+        assert_eq!(batch_user_turns(&json!({"memoryBatchUserTurns": 15})), 15);
+        assert_eq!(
+            batch_user_turns(&json!({"memoryBatchUserTurns": 1})),
+            MEMORY_BATCH_MIN_USER_TURNS
         );
         assert_eq!(
-            MemoryBatchMode::from_payload(&json!({"memoryBatchMode": "on"})),
-            MemoryBatchMode::On
+            batch_user_turns(&json!({"memoryBatchUserTurns": 999})),
+            MEMORY_BATCH_MAX_USER_TURNS
         );
+    }
+
+    #[test]
+    fn threshold_follows_the_configured_user_turns() {
+        let messages = conversation(5);
         assert_eq!(
-            MemoryBatchMode::from_payload(&json!({"memoryBatchMode": "unknown"})),
-            MemoryBatchMode::Off
+            plan_batch(&messages, None, MemoryBatchTrigger::Threshold(6)),
+            BatchPlan::Nothing
         );
+        assert!(matches!(
+            plan_batch(&messages, None, MemoryBatchTrigger::Threshold(5)),
+            BatchPlan::Extract { .. }
+        ));
     }
 
     #[test]
@@ -683,7 +672,7 @@ mod tests {
         assert_eq!(pending.len(), 6);
         assert_eq!(pending[0]["id"], "u0");
         assert_eq!(
-            plan_batch(&messages, None, MemoryBatchTrigger::Threshold),
+            plan_batch(&messages, None, MemoryBatchTrigger::Threshold(10)),
             BatchPlan::Nothing
         );
         assert_eq!(
@@ -696,7 +685,7 @@ mod tests {
     fn missing_cursor_in_a_long_room_starts_from_the_latest_chunk() {
         let messages = conversation(30);
         let BatchPlan::Extract { pending, .. } =
-            plan_batch(&messages, None, MemoryBatchTrigger::Threshold)
+            plan_batch(&messages, None, MemoryBatchTrigger::Threshold(10))
         else {
             panic!("expected extraction");
         };
@@ -710,12 +699,12 @@ mod tests {
         let cursor = json!({"messageId": "a2", "timestamp": 21});
         // a2 より後は u3..u11 の 9 ターン。
         assert_eq!(
-            plan_batch(&messages, Some(&cursor), MemoryBatchTrigger::Threshold),
+            plan_batch(&messages, Some(&cursor), MemoryBatchTrigger::Threshold(10)),
             BatchPlan::Nothing
         );
         let cursor = json!({"messageId": "a1", "timestamp": 11});
         let BatchPlan::Extract { context, pending } =
-            plan_batch(&messages, Some(&cursor), MemoryBatchTrigger::Threshold)
+            plan_batch(&messages, Some(&cursor), MemoryBatchTrigger::Threshold(10))
         else {
             panic!("expected extraction");
         };

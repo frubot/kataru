@@ -69,7 +69,8 @@ const MEMORY_MIN_CONFIDENCE: f64 = 0.7;
 /// 重要度・確信度・新しさ・固定は並び順にだけ効かせ、注入の可否は関連度だけで決める。
 const MEMORY_MIN_VECTOR_SIMILARITY: f64 = 0.35;
 const MEMORY_MIN_LEXICAL_SIMILARITY: f64 = 0.25;
-const CONTINATUION_TRIGGER: &str = "[内部指示] これは{{user}}の発言ではありません。{{user}}から新しい発言や行動はありません。直前の場面を繰り返さず、自然な続きを作成してください。もし前回のレスポンスが途中で途切れている場合、その続きから作成してください。";
+/// タグの意味はシステムプロンプト（`prompts::system_tags_section`）で説明する。
+const CONTINUATION_TRIGGER: &str = "<continue_request>直前の場面を繰り返さず、自然な続きを作成してください。前回のレスポンスが途中で途切れている場合は、その続きから作成してください。</continue_request>";
 
 /// Lazily builds and caches one `AiApiClient` per connection id so a single
 /// turn can mix roles/characters pinned to different connections.
@@ -2916,7 +2917,7 @@ fn with_continuation_trigger(mut messages: Vec<Value>, enabled: bool) -> Vec<Val
     if enabled {
         messages.push(json!({
             "role": "user",
-            "content": CONTINATUION_TRIGGER,
+            "content": CONTINUATION_TRIGGER,
             "internal": true,
         }));
     }
@@ -3641,7 +3642,8 @@ mod tests {
         assert!(
             request_history[2]["content"]
                 .as_str()
-                .is_some_and(|content| content.contains("{{user}}から新しい発言や行動はありません"))
+                .is_some_and(|content| content.starts_with("<continue_request>")
+                    && content.ends_with("</continue_request>"))
         );
     }
 

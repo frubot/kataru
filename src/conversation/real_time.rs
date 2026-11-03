@@ -3,6 +3,7 @@
 //! キャラクター（単体チャット）とシチュエーションの `realTimeMode` で有効にする。
 //! 値が毎ターン変わるため、システムプロンプトには入れず最新のユーザー発言の末尾に足す。
 //! こうするとプロンプトの先頭側がキャッシュから外れにくい。
+//! 注記は `<real_time>` タグで囲み、タグの意味はシステムプロンプト側で説明する。
 
 use serde_json::Value;
 
@@ -47,13 +48,9 @@ pub(super) fn real_time_note(mode: RealTimeMode, now_ms: i64, history: &[Value])
     }
     let gap = last_exchange_gap_ms(history)
         .and_then(gap_label)
-        .map(|label| format!("前回のやり取りから{label}空いています。"))
+        .map(|label| format!("／前回のやり取りから{label}"))
         .unwrap_or_default();
-    Some(format!(
-        "[現実の日時] 現在は{now}です。{gap}\n\
-         会話の世界が現実と同じ時間を過ごしている前提の参考情報です。\
-         必要なときだけ自然に反映し、毎回は触れないでください。"
-    ))
+    Some(format!("<real_time>現在: {now}{gap}</real_time>"))
 }
 
 /// 最新のユーザー発言の末尾に注記を足す。ユーザー発言がなければ何もしない。
@@ -156,14 +153,16 @@ mod tests {
     #[test]
     fn date_mode_has_date_and_weekday_only() {
         let note = real_time_note(RealTimeMode::Date, FEB_14_2026_1730_JST, &[]).unwrap();
-        assert!(note.starts_with("[現実の日時] 現在は2026-02-14（土）です。\n"));
-        assert!(!note.contains("時台"));
+        assert_eq!(note, "<real_time>現在: 2026-02-14（土）</real_time>");
     }
 
     #[test]
     fn datetime_mode_rounds_to_hour_in_jst() {
         let note = real_time_note(RealTimeMode::DateTime, FEB_14_2026_1730_JST, &[]).unwrap();
-        assert!(note.contains("現在は2026-02-14（土）夕方（17時台）です。"));
+        assert_eq!(
+            note,
+            "<real_time>現在: 2026-02-14（土）夕方（17時台）</real_time>"
+        );
     }
 
     #[test]
@@ -173,7 +172,10 @@ mod tests {
             json!({"role": "user", "content": "ただいま", "timestamp": FEB_14_2026_1730_JST}),
         ];
         let note = real_time_note(RealTimeMode::Date, FEB_14_2026_1730_JST, &history).unwrap();
-        assert!(note.contains("前回のやり取りから約3日空いています。"));
+        assert_eq!(
+            note,
+            "<real_time>現在: 2026-02-14（土）／前回のやり取りから約3日</real_time>"
+        );
     }
 
     #[test]

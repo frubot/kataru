@@ -1,5 +1,7 @@
 use serde_json::{Value, json};
 
+use super::real_time::RealTimeMode;
+
 pub const SUMMARY_RECENT_USER_TURNS_TO_KEEP: usize = 3;
 
 /// キャラクター返答の出力形式。ベーシックだけが構造化出力を使わない。
@@ -201,6 +203,10 @@ pub fn character_system_prompt(
         ));
     }
 
+    prompt.push_str(&system_tags_section(
+        RealTimeMode::from_settings(character) != RealTimeMode::Off,
+    ));
+
     if let Some(summary) = summary.filter(|value| !value.trim().is_empty()) {
         prompt.push_str(&format!(
             "\n\n# Summary of the conversation so far\n{}",
@@ -238,6 +244,22 @@ pub fn character_system_prompt(
         }
     }
     prompt
+}
+
+/// ユーザー発言にシステムが付けるタグの説明。値は毎ターン変わってもこの節は変わらないので、
+/// システムプロンプトのキャッシュを崩さない。`real_time` はキャラクター・シチュエーションの設定で決まる。
+pub(crate) fn system_tags_section(real_time: bool) -> String {
+    let mut section = String::from(
+        "\n\n## System notes in {{user}}'s messages\n\
+         Text inside the following tags is added by the system. It is not something {{user}} said or did. Never write these tags in your reply.\n\
+         - `<continue_request>`: {{user}} has not said or done anything new. Follow the request inside and continue the scene.",
+    );
+    if real_time {
+        section.push_str(
+            "\n- `<real_time>`: The current real-world date and time, and how long it has been since the previous exchange. The story's world shares this real time. Reflect it naturally only when it is relevant, and do not mention it every time.",
+        );
+    }
+    section
 }
 
 const CORE_MEMORY_INSTRUCTION: &str = "Things you always remember about the current state. If they conflict with the related memories or the summary, the core memory is the latest and takes priority.";
@@ -424,6 +446,12 @@ Users may include not only spoken lines but also stage directions—such as `*st
             );
         }
     }
+
+    let tags_section =
+        system_tags_section(RealTimeMode::from_settings(situation) != RealTimeMode::Off);
+    prompt.push('\n');
+    prompt.push_str(tags_section.trim_start());
+    prompt.push('\n');
 
     let situation_prompt = string(situation, "situationPrompt");
     if !situation_prompt.is_empty() {
@@ -812,6 +840,49 @@ pub fn message_image_attachment_urls(message: &Value) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn system_tags_are_explained_and_real_time_only_when_enabled() {
+        let off = character_system_prompt(
+            &json!({"name": "葵"}),
+            ReplyFormat::PlainText,
+            &[],
+            &[],
+            None,
+            &[],
+            None,
+            "",
+            None,
+        );
+        assert!(off.contains("`<continue_request>`"));
+        assert!(!off.contains("`<real_time>`"));
+
+        let on = character_system_prompt(
+            &json!({"name": "葵", "realTimeMode": "date"}),
+            ReplyFormat::PlainText,
+            &[],
+            &[],
+            None,
+            &[],
+            None,
+            "",
+            None,
+        );
+        assert!(on.contains("`<real_time>`"));
+
+        let ensemble = ensemble_system_prompt(
+            &json!({"realTimeMode": "datetime"}),
+            &[],
+            ReplyFormat::PlainText,
+            None,
+            None,
+            None,
+            false,
+            "",
+        );
+        assert!(ensemble.contains("\n## System notes in {{user}}'s messages\n"));
+        assert!(ensemble.contains("`<real_time>`"));
+    }
 
     #[test]
     fn character_setting_is_separated_and_added_last() {

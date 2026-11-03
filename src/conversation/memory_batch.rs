@@ -299,7 +299,7 @@ async fn run_room_memory_batch(
         last_chunk = chunk;
     }
     let mut summary = totals.summary();
-    if !last_chunk.is_empty() && !source.core_memory_disabled {
+    if !last_chunk.is_empty() {
         let core = run_core_memory_update(
             state,
             &batch_payload,

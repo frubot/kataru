@@ -412,7 +412,7 @@ async fn run_turn_inner(
                 Vec::new()
             };
             let core_memory = if memory_allowed {
-                load_core_memory(&state, &room, &source_id, &string(actor, "name")).await
+                load_core_memory(&state, &source_id, &string(actor, "name")).await
             } else {
                 None
             };
@@ -483,13 +483,7 @@ async fn run_turn_inner(
             Vec::new()
         };
         let core_memory = if memory_allowed {
-            load_core_memory(
-                &state,
-                &room,
-                &string(character, "id"),
-                &string(character, "name"),
-            )
-            .await
+            load_core_memory(&state, &string(character, "id"), &string(character, "name")).await
         } else {
             None
         };
@@ -1194,14 +1188,13 @@ struct LoadedCoreMemory {
     texts: Vec<String>,
 }
 
-/// 常駐記憶を読む。ルームで使わない設定にしている、空、または読めなければ `None`。
+/// 常駐記憶を読む。空、または読めなければ `None`。
 async fn load_core_memory(
     state: &AppState,
-    room: &Value,
     character_id: &str,
     character_name: &str,
 ) -> Option<LoadedCoreMemory> {
-    if character_id.is_empty() || boolean(room, "coreMemoryDisabled") {
+    if character_id.is_empty() {
         return None;
     }
     let memory = match get_core_memory(&state.database, character_id).await {

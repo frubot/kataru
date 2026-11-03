@@ -30,8 +30,6 @@ pub struct MemoryBatchSource {
     /// ルームの全メッセージ（要約済みの archived も含む）。timestamp 順。
     pub messages: Vec<Value>,
     pub summary: String,
-    /// ルームで常駐記憶を使わない設定にしているか。
-    pub core_memory_disabled: bool,
 }
 
 /// 単体会話ルームのバッチ抽出の材料を読む。ルームが無い、またはシチュエーションのルームなら `None`。
@@ -63,10 +61,6 @@ pub async fn get_memory_batch_source(
                 cursor: cursor.is_object().then_some(cursor),
                 messages,
                 summary: optional_string(&room, &["summary"]).unwrap_or_default(),
-                core_memory_disabled: room
-                    .get("coreMemoryDisabled")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
             }))
         })
         .await

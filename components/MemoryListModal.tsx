@@ -13,13 +13,8 @@ interface MemoryListModalProps {
 }
 
 export default function MemoryListModal({ isOpen, onClose, character }: MemoryListModalProps) {
-    const { removeMemoryRecord, clearMemories, listMemoriesForCharacter, updateRoomSettings } = useStore();
+    const { removeMemoryRecord, clearMemories, listMemoriesForCharacter } = useStore();
     const liveCharacter = useStore((s) => (character ? s.characters.find((c) => c.id === character.id) : undefined)) ?? character;
-    // 開いているのがこのキャラクターとの1対1のルームなら、ルームごとの切り替えを出す。
-    const currentRoom = useStore((s) => s.rooms.find((room) => room.id === s.currentRoomId));
-    const roomForToggle = currentRoom && liveCharacter && !currentRoom.groupId && currentRoom.characterId === liveCharacter.id
-        ? currentRoom
-        : undefined;
     const [activeTab, setActiveTab] = useState<MemoryTab>('core');
     const [memories, setMemories] = useState<MemoryRecord[]>([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -121,21 +116,7 @@ export default function MemoryListModal({ isOpen, onClose, character }: MemoryLi
                         </button>
                     </div>
                     {activeTab === 'core' ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                            {roomForToggle && (
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                    <input
-                                        type="checkbox"
-                                        checked={roomForToggle.coreMemoryDisabled !== true}
-                                        onChange={(event) => updateRoomSettings(roomForToggle.id, {
-                                            coreMemoryDisabled: event.target.checked ? undefined : true,
-                                        })}
-                                    />
-                                    このルーム（{roomForToggle.name}）で常駐記憶を使う
-                                </label>
-                            )}
-                            <CoreMemoryEditor key={liveCharacter.id} characterId={liveCharacter.id} />
-                        </div>
+                        <CoreMemoryEditor key={liveCharacter.id} characterId={liveCharacter.id} />
                     ) : isLoading ? (
                         <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
                             読み込み中...

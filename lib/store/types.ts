@@ -299,8 +299,6 @@ export interface Room {
     costumeSelections?: Record<string, string>;
     replySuggestions?: RoomReplySuggestions;
     secretMode?: boolean;
-    /** このルームでは常駐記憶を使わない。 */
-    coreMemoryDisabled?: boolean;
     isDraft?: boolean;
     lastMessagePreview?: string;
     lastMessageAt?: number;
@@ -568,7 +566,7 @@ export interface AppState {
     setCurrentRoom: (id: string | null) => Promise<void>;
     updateSituation: (id: string, updates: Partial<Pick<Situation, 'name' | 'favorite' | 'backgroundImage' | 'situationPrompt' | 'characterCommonRules' | 'priorMessages' | 'actors' | 'maxTurns' | 'limitTurns' | 'memoryMode' | 'separateNarration' | 'realTimeMode' | 'maxHistory'>>) => void;
     updateRoomName: (id: string, name: string) => void;
-    updateRoomSettings: (id: string, updates: Partial<Pick<Room, 'maxMentionChain' | 'viewMode' | 'costumeSelections' | 'coreMemoryDisabled'>>) => void;
+    updateRoomSettings: (id: string, updates: Partial<Pick<Room, 'maxMentionChain' | 'viewMode' | 'costumeSelections'>>) => void;
     setRoomReplySuggestions: (id: string, replySuggestions?: RoomReplySuggestions) => void;
     setRoomSecretMode: (id: string, enabled: boolean) => void;
 

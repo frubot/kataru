@@ -177,19 +177,63 @@ interface VnSpeedSliderProps {
     onChange: (speed: VnTypingSpeed) => void;
 }
 
-const MEMORY_BATCH_USER_TURN_OPTIONS = [3, 5, 10, 15, 20, 30]
-    .filter((turns) => turns >= MEMORY_BATCH_USER_TURNS_MIN && turns <= MEMORY_BATCH_USER_TURNS_MAX)
-    .map((turns) => ({
-        value: String(turns),
-        label: turns === DEFAULT_MEMORY_BATCH_USER_TURNS ? `${turns}ターン（標準）` : `${turns}ターン`,
-    }));
+interface NumberUnitInputProps {
+    id: string;
+    value: number;
+    unit: string;
+    min: number;
+    max: number;
+    defaultValue: number;
+    ariaLabel: string;
+    onCommit: (value: number) => void;
+}
 
-const CORE_MEMORY_MAX_CHAR_OPTIONS = [500, 1000, 1500, 2000, 3000, 5000]
-    .filter((chars) => chars >= CORE_MEMORY_MAX_CHARS_MIN && chars <= CORE_MEMORY_MAX_CHARS_MAX)
-    .map((chars) => ({
-        value: String(chars),
-        label: chars === DEFAULT_CORE_MEMORY_MAX_CHARS ? `${chars}文字（標準）` : `${chars}文字`,
-    }));
+/** 右寄せの数値テキストボックス。入力中は下書きとして持ち、確定時（フォーカスアウト・Enter）に反映する。 */
+function NumberUnitInput({ id, value, unit, min, max, defaultValue, ariaLabel, onCommit }: NumberUnitInputProps) {
+    const [draft, setDraft] = useState(String(value));
+
+    useEffect(() => {
+        setDraft(String(value));
+    }, [value]);
+
+    const commit = () => {
+        const parsed = Number(draft.trim());
+        if (draft.trim() === '' || !Number.isFinite(parsed)) {
+            setDraft(String(value));
+            return;
+        }
+        const next = Math.min(max, Math.max(min, Math.round(parsed)));
+        setDraft(String(next));
+        if (next !== value) onCommit(next);
+    };
+
+    return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
+            <input
+                id={id}
+                type="text"
+                inputMode="numeric"
+                className="input"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onBlur={commit}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        commit();
+                    }
+                }}
+                placeholder={String(defaultValue)}
+                aria-label={ariaLabel}
+                title={`${min}〜${max}${unit}（標準: ${defaultValue}${unit}）`}
+                style={{ width: '5.5rem', padding: '0.5rem 0.75rem', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
+            />
+            <span style={{ width: '3em', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                {unit}
+            </span>
+        </div>
+    );
+}
 
 const VN_MAX_STAGE_SPRITE_OPTIONS = [
     { value: '0', label: '制限なし' },
@@ -1814,13 +1858,15 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         <label htmlFor="memory-batch-user-turns-input" style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
                                             メモリをまとめて保存する間隔
                                         </label>
-                                        <OptionSelector
+                                        <NumberUnitInput
                                             id="memory-batch-user-turns-input"
-                                            value={String(memoryBatchUserTurns)}
-                                            onChange={(value) => setMemoryBatchUserTurns(Number(value))}
-                                            options={MEMORY_BATCH_USER_TURN_OPTIONS}
+                                            value={memoryBatchUserTurns}
+                                            unit="ターン"
+                                            min={MEMORY_BATCH_USER_TURNS_MIN}
+                                            max={MEMORY_BATCH_USER_TURNS_MAX}
+                                            defaultValue={DEFAULT_MEMORY_BATCH_USER_TURNS}
                                             ariaLabel="メモリをまとめて保存する間隔"
-                                            style={{ flex: '0 1 auto', minWidth: 0 }}
+                                            onCommit={setMemoryBatchUserTurns}
                                         />
                                     </div>
                                 </div>
@@ -1829,13 +1875,15 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         <label htmlFor="core-memory-max-chars-input" style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
                                             常駐記憶の最大文字数
                                         </label>
-                                        <OptionSelector
+                                        <NumberUnitInput
                                             id="core-memory-max-chars-input"
-                                            value={String(coreMemoryMaxChars)}
-                                            onChange={(value) => setCoreMemoryMaxChars(Number(value))}
-                                            options={CORE_MEMORY_MAX_CHAR_OPTIONS}
+                                            value={coreMemoryMaxChars}
+                                            unit="文字"
+                                            min={CORE_MEMORY_MAX_CHARS_MIN}
+                                            max={CORE_MEMORY_MAX_CHARS_MAX}
+                                            defaultValue={DEFAULT_CORE_MEMORY_MAX_CHARS}
                                             ariaLabel="常駐記憶の最大文字数"
-                                            style={{ flex: '0 1 auto', minWidth: 0 }}
+                                            onCommit={setCoreMemoryMaxChars}
                                         />
                                     </div>
                                 </div>

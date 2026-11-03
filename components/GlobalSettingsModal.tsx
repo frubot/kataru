@@ -1097,9 +1097,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                             <h3 style={{ fontSize: '0.875rem', fontWeight: 700, marginBottom: '0.5rem' }}>
                                 ユーザー設定
                             </h3>
-                            <p style={{ margin: '0 0 0.75rem', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                                すべてのキャラクターとシチュエーションに共通で伝える、{'{{user}}'}自身の設定です。キャラクターとの関係はキャラクター設定の「{'{{user}}'}について」に書くと、そちらが優先されます。
-                            </p>
                             <PromptSectionEditor
                                 markdown={userProfile}
                                 onChange={setUserProfile}
@@ -1134,7 +1131,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                 onAddOpenChange={setAiConnectionAddOpen}
                             />
                             <p style={{ marginTop: '0.75rem', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                                OpenRouter以外の接続先では一部の機能が制限されます。全ての機能を利用するにはOpenRouterを使用してください。
+                                OpenRouter以外の接続先では一部の機能が制限される場合があります。全ての機能を利用するにはOpenRouterを使用してください。
                             </p>
                         </div>
 
@@ -1641,7 +1638,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         ariaLabel: 'メモリインスペクターを有効化',
                                     })}
                                     <p style={{ margin: '0.375rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                                        応答で参照されたメモリを確認し、編集・削除・優先固定できます。
+                                        応答で参照されたメモリを確認し、手動で操作できます。
                                     </p>
                                 </div>
                                 <div>
@@ -1652,7 +1649,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         ariaLabel: '要約インスペクターを有効化',
                                     })}
                                     <p style={{ margin: '0.375rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                                        現在の要約、圧縮範囲、履歴を確認して手動編集できます。
+                                        現在の要約、圧縮範囲、履歴を確認して手動で編集できます。
                                     </p>
                                 </div>
                             </div>
@@ -1826,9 +1823,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                             style={{ flex: '0 1 auto', minWidth: 0 }}
                                         />
                                     </div>
-                                    <p style={{ margin: '0.375rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                                        メモリは発言がこのターン数たまったとき、要約のとき、ルームを離れたとき（別のルームを開く・アプリを閉じる）にまとめて保存します。短くするとすぐ反映されますが、抽出の回数が増えます。
-                                    </p>
                                 </div>
                                 <div style={{ marginTop: '1rem' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
@@ -1844,9 +1838,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                             style={{ flex: '0 1 auto', minWidth: 0 }}
                                         />
                                     </div>
-                                    <p style={{ margin: '0.375rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                                        キャラクターごとの常駐記憶全体の文字数の上限です。常駐記憶は毎回プロンプトに入るので、増やすと会話1回あたりの費用も増えます。上限を下げたとき、すでに超えている常駐記憶はAIの自動更新で行を足せなくなります。
-                                    </p>
                                 </div>
                             </div>
                         </div>

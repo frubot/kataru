@@ -208,9 +208,6 @@ export default function CoreMemoryEditor({ characterId }: CoreMemoryEditorProps)
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6, margin: 0 }}>
-                常駐記憶は、話題に関係なく毎回キャラクターが参照する短い記憶です。
-                1行に1つずつ書きます（1行{CORE_MEMORY_ENTRY_MAX_CHARS}文字まで）。
-                記憶をまとめて抽出する設定がオンのとき、AIが会話から自動で更新します。
                 行の頭に「!」を付けると、その行はAIが変更しません。
             </p>
 

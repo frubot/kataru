@@ -63,7 +63,6 @@ function SituationPriorMessageBubble({
             isMessageMode={isMessageMode}
             showAssistantActions={false}
             showBranchAction={false}
-            showMemoryIndicator={false}
             showArchiveDivider={false}
             characterIcon={character?.icon}
             characterName={character?.name}
@@ -79,7 +78,6 @@ function SituationPriorMessageBubble({
             onCopy={NOOP}
             onRegenerate={NOOP}
             onBranch={NOOP}
-            onOpenMemoryList={NOOP}
         />
     );
 }
@@ -182,7 +180,6 @@ type ChatMessagesViewProps = {
     onCopy: (messageId: string, content: string) => void;
     onRegenerate: () => void;
     onBranch: (messageId: string) => void;
-    onOpenMemoryList: (characterId?: string) => void;
     onRevealTypewriter: () => void;
     onTtsPlay?: (messageId: string) => void;
     onPreviewImage?: (src: string, name: string) => void;
@@ -275,7 +272,6 @@ export default function ChatMessagesView({
     onCopy,
     onRegenerate,
     onBranch,
-    onOpenMemoryList,
     onRevealTypewriter,
     onTtsPlay,
     onPreviewImage,
@@ -484,9 +480,7 @@ export default function ChatMessagesView({
                 isMessageMode={isMessageMode}
                 showAssistantActions={message.showAssistantActions}
                 showBranchAction={message.showBranchAction}
-                showMemoryIndicator={message.showMemoryIndicator}
                 showArchiveDivider={message.showArchiveDivider}
-                memoryCharacterId={message.characterId}
                 characterIcon={message.msgCharacterIcon}
                 characterName={message.msgCharacterName}
                 isGroupRoom={isGroupRoom}
@@ -503,7 +497,6 @@ export default function ChatMessagesView({
                 onCopy={onCopy}
                 onRegenerate={onRegenerate}
                 onBranch={() => onBranch(message.branchMessageId)}
-                onOpenMemoryList={onOpenMemoryList}
                 onRevealTypewriter={onRevealTypewriter}
                 onTtsToggle={onTtsPlay ? () => onTtsPlay(message.id) : undefined}
                 onPreviewImage={onPreviewImage}
@@ -616,9 +609,7 @@ export default function ChatMessagesView({
                         isMessageMode={isMessageMode}
                         showAssistantActions={false}
                         showBranchAction={false}
-                        showMemoryIndicator={false}
                         showArchiveDivider={false}
-                        memoryCharacterId={bubble.characterId}
                         characterIcon={bubble.character?.icon}
                         characterName={bubble.characterName ?? bubble.character?.name}
                         isGroupRoom={isGroupRoom}
@@ -633,7 +624,6 @@ export default function ChatMessagesView({
                         onCopy={NOOP}
                         onRegenerate={NOOP}
                         onBranch={NOOP}
-                        onOpenMemoryList={NOOP}
                     />
                 )
             ))}

@@ -37,7 +37,6 @@ export type ChatMessagePresentation = Message & {
     showAssistantActions: boolean;
     showBranchAction: boolean;
     showArchiveDivider: boolean;
-    showMemoryIndicator: boolean;
     msgCharacterIcon?: string;
     msgCharacterName?: string;
     /** 続き生成の先頭で直前のバブルに表示上連結されたメッセージ。描画対象外。 */
@@ -68,18 +67,6 @@ export function buildPriorMessagePresentations(
                 && previousMessage.actorId === message.actorId,
         };
     });
-}
-
-/** Assistantメッセージが参照したメモリ。空文字と重複を除いて並び順を保つ。 */
-function getMessageMemories(message: Pick<Message, 'memories'>): string[] {
-    const seen = new Set<string>();
-    return (message.memories ?? [])
-        .map((memory) => memory.trim())
-        .filter((memory) => {
-            if (!memory || seen.has(memory)) return false;
-            seen.add(memory);
-            return true;
-        });
 }
 
 type BuildChatMessagePresentationsOptions = {
@@ -124,7 +111,6 @@ export function buildChatMessagePresentations({
             && nextMessage?.role === 'assistant'
             && messageCharacterKey === nextCharacterKey
             && !nextMessage.archived;
-        const memories = message.role === 'assistant' ? getMessageMemories(message) : [];
         const displayContent = message.role === 'assistant' && message.id === typingMessageId
             ? typedContent
             : message.content;
@@ -144,7 +130,6 @@ export function buildChatMessagePresentations({
             showAssistantActions: !hasNextAssistantContinuation,
             showBranchAction: !isSecretMode && isConversationResponseEnd(room.messages, index),
             showArchiveDivider,
-            showMemoryIndicator: memories.length > 0,
             msgCharacterIcon: messageCharacter?.icon ?? (isGroupRoom ? undefined : character?.icon),
             msgCharacterName: messageCharacter?.name ?? (isGroupRoom ? undefined : character?.name),
             mergedIntoPrevious: mergesIntoPrevious,
@@ -156,7 +141,6 @@ export function buildChatMessagePresentations({
             owner.showAssistantActions = presentation.showAssistantActions;
             owner.showBranchAction = presentation.showBranchAction;
             owner.branchMessageId = presentation.id;
-            owner.showMemoryIndicator = owner.showMemoryIndicator || presentation.showMemoryIndicator;
             owner.emotion = presentation.emotion ?? owner.emotion;
         } else {
             mergeTargetIndex = index;

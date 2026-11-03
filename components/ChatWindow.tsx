@@ -1676,16 +1676,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         setTouchedMessageId(prev => prev === id ? null : id);
     }, []);
 
-    const handleOpenMessageMemoryList = useCallback((characterId?: string) => {
-        if (!characterId) {
-            onOpenMemoryList(character);
-            return;
-        }
-        const targetCharacter = groupCharacters?.find((c) => c.id === characterId)
-            ?? (character?.id === characterId ? character : null);
-        onOpenMemoryList(targetCharacter);
-    }, [character, groupCharacters, onOpenMemoryList]);
-
     const latestAssistantMessage = useMemo(() => {
         for (let i = processedMessages.length - 1; i >= 0; i--) {
             const message = processedMessages[i];
@@ -2344,7 +2334,6 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     onCopy={handleCopyMessage}
                     onRegenerate={handleRegenerate}
                     onBranch={handleBranch}
-                    onOpenMemoryList={handleOpenMessageMemoryList}
                     onRevealTypewriter={() => stopTypewriter(true)}
                     onTtsPlay={ttsEnabled ? playTtsMessage : undefined}
                     onPreviewImage={handlePreviewAttachmentImage}

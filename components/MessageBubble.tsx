@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef } from 'react';
-import { ArrowUp, Brain, Pencil, Copy, Check, FileText, GitBranch, Loader2, RefreshCw, Square, Volume2, X } from 'lucide-react';
+import { ArrowUp, Pencil, Copy, Check, FileText, GitBranch, Loader2, RefreshCw, Square, Volume2, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { formatMessageTextWithAttachments } from '@/lib/chatAttachments';
 import { formatAssistantMarkdown, hideAssistantDialogueBrackets, splitAssistantMarkdownActions } from '@/lib/markdownUtils';
@@ -30,9 +30,7 @@ interface MessageBubbleProps {
     isMessageMode?: boolean;
     showAssistantActions?: boolean;
     showBranchAction?: boolean;
-    showMemoryIndicator: boolean;
     showArchiveDivider: boolean;
-    memoryCharacterId?: string;
     characterIcon?: string;
     characterName?: string;
     isGroupRoom?: boolean;
@@ -50,7 +48,6 @@ interface MessageBubbleProps {
     onCopy: (id: string, content: string) => void;
     onRegenerate: () => void;
     onBranch: () => void;
-    onOpenMemoryList: (characterId?: string) => void;
     onRevealTypewriter?: () => void;
     onTtsToggle?: () => void;
     onPreviewImage?: (src: string, name: string) => void;
@@ -75,9 +72,7 @@ export default memo(function MessageBubble({
     isMessageMode = false,
     showAssistantActions = true,
     showBranchAction = false,
-    showMemoryIndicator,
     showArchiveDivider,
-    memoryCharacterId,
     characterIcon,
     characterName,
     isGroupRoom,
@@ -94,7 +89,6 @@ export default memo(function MessageBubble({
     onCopy,
     onRegenerate,
     onBranch,
-    onOpenMemoryList,
     onRevealTypewriter,
     onTtsToggle,
     onPreviewImage,
@@ -144,31 +138,6 @@ export default memo(function MessageBubble({
                     圧縮済み
                     <div style={{ flex: 1, height: '1px', background: 'var(--border-color)' }} />
                 </div>
-            )}
-            {showMemoryIndicator && (
-                <button
-                    type="button"
-                    className="memory-indicator"
-                    onClick={() => onOpenMemoryList(memoryCharacterId)}
-                    title="記憶を表示"
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.375rem',
-                        padding: '0.375rem 0.75rem',
-                        marginBottom: '0.5rem',
-                        background: 'rgba(var(--accent-primary-rgb), 0.15)',
-                        border: '1px solid rgba(var(--accent-primary-rgb), 0.3)',
-                        borderRadius: '1rem',
-                        fontSize: '0.75rem',
-                        color: 'var(--accent-primary)',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s ease',
-                    }}
-                >
-                    <Brain size={14} />
-                    覚えました
-                </button>
             )}
             {isUserMessage ? (
                 <div

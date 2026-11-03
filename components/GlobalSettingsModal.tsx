@@ -10,6 +10,7 @@ import { resizeToMaxEdgeAsJpeg } from '@/lib/imageUtils';
 import { isIrodoriTtsModel } from '@/lib/tts';
 import { CHAT_SAMPLING_KEYS } from '@/lib/chatSampling';
 import { DEFAULT_MEMORY_BATCH_USER_TURNS, MEMORY_BATCH_USER_TURNS_MAX, MEMORY_BATCH_USER_TURNS_MIN } from '@/lib/memoryBatch';
+import { CORE_MEMORY_MAX_CHARS_MAX, CORE_MEMORY_MAX_CHARS_MIN, DEFAULT_CORE_MEMORY_MAX_CHARS } from '@/lib/coreMemory';
 import StatisticsPanel from '@/components/StatisticsPanel';
 import AiConnectionSettings from '@/components/AiConnectionSettings';
 import ModelSelector from '@/components/ModelSelector';
@@ -181,6 +182,13 @@ const MEMORY_BATCH_USER_TURN_OPTIONS = [3, 5, 10, 15, 20, 30]
     .map((turns) => ({
         value: String(turns),
         label: turns === DEFAULT_MEMORY_BATCH_USER_TURNS ? `${turns}ターン（標準）` : `${turns}ターン`,
+    }));
+
+const CORE_MEMORY_MAX_CHAR_OPTIONS = [500, 1000, 1500, 2000, 3000, 5000]
+    .filter((chars) => chars >= CORE_MEMORY_MAX_CHARS_MIN && chars <= CORE_MEMORY_MAX_CHARS_MAX)
+    .map((chars) => ({
+        value: String(chars),
+        label: chars === DEFAULT_CORE_MEMORY_MAX_CHARS ? `${chars}文字（標準）` : `${chars}文字`,
     }));
 
 const VN_MAX_STAGE_SPRITE_OPTIONS = [
@@ -443,6 +451,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         memoryEmbeddingModel, setMemoryEmbeddingModel,
         memoryGateEnabled, setMemoryGateEnabled,
         memoryBatchUserTurns, setMemoryBatchUserTurns,
+        coreMemoryMaxChars, setCoreMemoryMaxChars,
         ttsEnabled, setTtsEnabled,
         ttsConnectionId, setTtsConnectionId,
         ttsModel, setTtsModel,
@@ -1819,6 +1828,24 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     </div>
                                     <p style={{ margin: '0.375rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
                                         メモリは発言がこのターン数たまったとき、要約のとき、ルームを離れたとき（別のルームを開く・アプリを閉じる）にまとめて保存します。短くするとすぐ反映されますが、抽出の回数が増えます。
+                                    </p>
+                                </div>
+                                <div style={{ marginTop: '1rem' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+                                        <label htmlFor="core-memory-max-chars-input" style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
+                                            常駐記憶の最大文字数
+                                        </label>
+                                        <OptionSelector
+                                            id="core-memory-max-chars-input"
+                                            value={String(coreMemoryMaxChars)}
+                                            onChange={(value) => setCoreMemoryMaxChars(Number(value))}
+                                            options={CORE_MEMORY_MAX_CHAR_OPTIONS}
+                                            ariaLabel="常駐記憶の最大文字数"
+                                            style={{ flex: '0 1 auto', minWidth: 0 }}
+                                        />
+                                    </div>
+                                    <p style={{ margin: '0.375rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                                        キャラクターごとの常駐記憶全体の文字数の上限です。常駐記憶は毎回プロンプトに入るので、増やすと会話1回あたりの費用も増えます。上限を下げたとき、すでに超えている常駐記憶はAIの自動更新で行を足せなくなります。
                                     </p>
                                 </div>
                             </div>

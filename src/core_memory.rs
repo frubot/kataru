@@ -8,13 +8,30 @@
 use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::error::{AppError, AppResult};
 
-/// 常駐記憶全体の文字数の上限。
-pub const CORE_MEMORY_MAX_CHARS: usize = 1000;
+/// 常駐記憶全体の文字数の上限の既定値。設定（meta の `coreMemoryMaxChars`）で変えられる。
+pub const DEFAULT_CORE_MEMORY_MAX_CHARS: usize = 1000;
+/// 設定できる全体の上限の範囲。フロントの `CORE_MEMORY_MAX_CHARS_MIN/MAX` と同じ値。
+pub const CORE_MEMORY_MAX_CHARS_MIN: usize = 500;
+pub const CORE_MEMORY_MAX_CHARS_MAX: usize = 5000;
+/// 全体の上限を保存している meta のキー。
+pub const CORE_MEMORY_MAX_CHARS_META_KEY: &str = "coreMemoryMaxChars";
 /// 1行の文字数の上限。
 pub const CORE_MEMORY_ENTRY_MAX_CHARS: usize = 200;
+
+/// 保存されている全体の上限を読む。無いか数でなければ既定値、範囲外なら範囲内に寄せる。
+pub fn normalize_max_chars(value: &Value) -> usize {
+    value.as_f64().filter(|value| value.is_finite()).map_or(
+        DEFAULT_CORE_MEMORY_MAX_CHARS,
+        |value| {
+            (value.round().max(0.0) as usize)
+                .clamp(CORE_MEMORY_MAX_CHARS_MIN, CORE_MEMORY_MAX_CHARS_MAX)
+        },
+    )
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -173,7 +190,7 @@ impl CoreMemory {
     }
 
     /// 更新用プロンプトに入れる、ID と固定の印つきの一覧。
-    pub fn render_for_update(&self) -> String {
+    pub fn render_for_update(&self, max_chars: usize) -> String {
         let mut text = String::new();
         for section in CoreMemorySection::ALL {
             text.push_str(&format!("[{}]\n", section.as_str()));
@@ -190,7 +207,7 @@ impl CoreMemory {
         text.push_str(&format!(
             "\n{} / {} characters used",
             self.char_count(),
-            CORE_MEMORY_MAX_CHARS
+            max_chars
         ));
         text
     }
@@ -202,6 +219,7 @@ pub fn normalize_user_edit(
     previous: Option<&CoreMemory>,
     submitted: CoreMemory,
     now: i64,
+    max_chars: usize,
 ) -> AppResult<CoreMemory> {
     let character_id = submitted.character_id.trim().to_owned();
     if character_id.is_empty() {
@@ -254,9 +272,9 @@ pub fn normalize_user_edit(
             updated_at,
         });
     }
-    if memory.char_count() > CORE_MEMORY_MAX_CHARS {
+    if memory.char_count() > max_chars {
         return Err(AppError::BadRequest(format!(
-            "常駐記憶は全部で{CORE_MEMORY_MAX_CHARS}文字までです。"
+            "常駐記憶は全部で{max_chars}文字までです。"
         )));
     }
     memory.sort_by_section();
@@ -321,7 +339,12 @@ pub struct ApplyOutcome {
 /// 差分の指示を適用する。問題のある指示はその指示だけ飛ばし、理由を返す。
 ///
 /// 空きを作ってから足せるように、削除・移動 → 書き換え → 追加 の順に処理する。
-pub fn apply_ops(memory: &CoreMemory, ops: Vec<CoreMemoryOp>, now: i64) -> ApplyOutcome {
+pub fn apply_ops(
+    memory: &CoreMemory,
+    ops: Vec<CoreMemoryOp>,
+    now: i64,
+    max_chars: usize,
+) -> ApplyOutcome {
     let mut next = memory.clone();
     let mut applied = 0;
     let mut rejected = Vec::new();
@@ -337,7 +360,7 @@ pub fn apply_ops(memory: &CoreMemory, ops: Vec<CoreMemoryOp>, now: i64) -> Apply
     ordered.sort_by_key(rank);
 
     for op in ordered {
-        match check_op(&next, &op, &touched) {
+        match check_op(&next, &op, &touched, max_chars) {
             Err(reason) => rejected.push(RejectedOp { op, reason }),
             Ok(()) => {
                 match &op {
@@ -392,6 +415,7 @@ fn check_op(
     memory: &CoreMemory,
     op: &CoreMemoryOp,
     touched: &HashSet<String>,
+    max_chars: usize,
 ) -> Result<(), String> {
     let check_target = |id: &str| -> Result<&CoreMemoryEntry, String> {
         if touched.contains(id) {
@@ -417,9 +441,9 @@ fn check_op(
             ));
         }
         let total = memory.char_count() - freed + length;
-        if total > CORE_MEMORY_MAX_CHARS {
+        if total > max_chars {
             return Err(format!(
-                "適用すると{total}/{CORE_MEMORY_MAX_CHARS}文字になり、上限を超えます。"
+                "適用すると{total}/{max_chars}文字になり、上限を超えます。"
             ));
         }
         Ok(())
@@ -490,6 +514,7 @@ mod tests {
                 },
             ],
             10,
+            DEFAULT_CORE_MEMORY_MAX_CHARS,
         );
         assert_eq!(outcome.applied, 3);
         assert!(outcome.rejected.is_empty());
@@ -533,6 +558,7 @@ mod tests {
                 },
             ],
             10,
+            DEFAULT_CORE_MEMORY_MAX_CHARS,
         );
         assert_eq!(outcome.applied, 1);
         assert_eq!(outcome.rejected.len(), 3);
@@ -548,6 +574,7 @@ mod tests {
                 text: "{{user}}の呼び名はミナト".to_owned(),
             }],
             10,
+            DEFAULT_CORE_MEMORY_MAX_CHARS,
         );
         assert_eq!(outcome.applied, 0);
         assert_eq!(outcome.memory, sample());
@@ -569,7 +596,7 @@ mod tests {
             ));
         }
         memory.next_id = 10;
-        assert!(memory.char_count() > CORE_MEMORY_MAX_CHARS - 20);
+        assert!(memory.char_count() > DEFAULT_CORE_MEMORY_MAX_CHARS - 20);
         let long = "う".repeat(150);
         let outcome = apply_ops(
             &memory,
@@ -587,12 +614,34 @@ mod tests {
                 },
             ],
             10,
+            DEFAULT_CORE_MEMORY_MAX_CHARS,
         );
         // u5 を外して空いた分で1つ目は入るが、2つ目は入らない。
         assert_eq!(outcome.applied, 2);
         assert_eq!(outcome.rejected.len(), 1);
         assert!(outcome.rejected[0].reason.contains("上限"));
-        assert!(outcome.memory.char_count() <= CORE_MEMORY_MAX_CHARS);
+        assert!(outcome.memory.char_count() <= DEFAULT_CORE_MEMORY_MAX_CHARS);
+    }
+
+    #[test]
+    fn max_chars_setting_is_clamped() {
+        assert_eq!(
+            normalize_max_chars(&Value::Null),
+            DEFAULT_CORE_MEMORY_MAX_CHARS
+        );
+        assert_eq!(
+            normalize_max_chars(&serde_json::json!("x")),
+            DEFAULT_CORE_MEMORY_MAX_CHARS
+        );
+        assert_eq!(normalize_max_chars(&serde_json::json!(2000)), 2000);
+        assert_eq!(
+            normalize_max_chars(&serde_json::json!(10)),
+            CORE_MEMORY_MAX_CHARS_MIN
+        );
+        assert_eq!(
+            normalize_max_chars(&serde_json::json!(99999)),
+            CORE_MEMORY_MAX_CHARS_MAX
+        );
     }
 
     #[test]
@@ -615,7 +664,13 @@ mod tests {
         submitted
             .entries
             .push(entry("x", CoreMemorySection::User, "   "));
-        let memory = normalize_user_edit(Some(&previous), submitted, 50).expect("valid edit");
+        let memory = normalize_user_edit(
+            Some(&previous),
+            submitted,
+            50,
+            DEFAULT_CORE_MEMORY_MAX_CHARS,
+        )
+        .expect("valid edit");
         assert_eq!(memory.version, 4);
         let summary = memory
             .entries
@@ -645,7 +700,11 @@ mod tests {
                 &"あ".repeat(CORE_MEMORY_ENTRY_MAX_CHARS),
             ));
         }
-        assert!(normalize_user_edit(None, submitted, 1).is_err());
+        assert!(
+            normalize_user_edit(None, submitted.clone(), 1, DEFAULT_CORE_MEMORY_MAX_CHARS).is_err()
+        );
+        // 上限を上げれば同じ内容でも保存できる。
+        assert!(normalize_user_edit(None, submitted, 1, 1500).is_ok());
     }
 
     #[test]
@@ -660,7 +719,7 @@ mod tests {
                 .render_for_character("リン")
                 .is_none()
         );
-        let update = sample().render_for_update();
+        let update = sample().render_for_update(1500);
         assert!(update.contains("s3 (locked): 髪を短く切った"));
         assert!(update.contains("[self]\n"));
     }

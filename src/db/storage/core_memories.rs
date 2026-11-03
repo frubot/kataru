@@ -2,7 +2,9 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 
 use crate::{
-    core_memory::{CoreMemory, normalize_user_edit},
+    core_memory::{
+        CORE_MEMORY_MAX_CHARS_META_KEY, CoreMemory, normalize_max_chars, normalize_user_edit,
+    },
     error::{AppError, AppResult},
 };
 
@@ -59,7 +61,8 @@ pub(super) fn put_user_edit(
             "coreMemory": previous,
         }));
     }
-    let memory = normalize_user_edit(previous.as_ref(), submitted, now_millis())?;
+    let max_chars = max_chars(&transaction)?;
+    let memory = normalize_user_edit(previous.as_ref(), submitted, now_millis(), max_chars)?;
     write(&transaction, &memory)?;
     transaction.commit()?;
     Ok(json!({
@@ -85,6 +88,19 @@ pub(super) fn delete(connection: &Connection, character_id: &str) -> AppResult<(
         params![character_id],
     )?;
     Ok(())
+}
+
+/// 設定された常駐記憶全体の文字数の上限。
+fn max_chars(connection: &Connection) -> AppResult<usize> {
+    Ok(normalize_max_chars(&super::meta::get(
+        connection,
+        CORE_MEMORY_MAX_CHARS_META_KEY,
+    )?))
+}
+
+/// 裏の更新で使う、設定された常駐記憶全体の文字数の上限。
+pub async fn get_core_memory_max_chars(database: &Database) -> AppResult<usize> {
+    database.call(|connection| max_chars(connection)).await
 }
 
 /// 会話や裏の更新で使う読み込み。

@@ -426,6 +426,8 @@ export interface AppState {
     memoryGateEnabled: boolean;
     /** 未反映の発言が何ターン分たまったら記憶をまとめて抽出するか。 */
     memoryBatchUserTurns: number;
+    /** 常駐記憶全体の文字数の上限。 */
+    coreMemoryMaxChars: number;
     conversationCompressionEnabled: boolean;
     /** 会話生成の推論レベル。 */
     reasoningEffort: ReasoningEffort;
@@ -499,6 +501,7 @@ export interface AppState {
     setMemoryEmbeddingModel: (model: ModelRef) => void;
     setMemoryGateEnabled: (enabled: boolean) => void;
     setMemoryBatchUserTurns: (turns: number) => void;
+    setCoreMemoryMaxChars: (maxChars: number) => void;
     setConversationCompressionEnabled: (enabled: boolean) => void;
     setReasoningEffort: (effort: ReasoningEffort) => void;
     setChatSampling: (sampling: ChatSampling) => void;

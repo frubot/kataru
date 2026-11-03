@@ -1,8 +1,17 @@
 import type { CoreMemory, CoreMemoryEntry, CoreMemorySection } from './store/types';
 
-/** サーバー（src/core_memory.rs）と同じ上限。 */
-export const CORE_MEMORY_MAX_CHARS = 1000;
+/** 全体の文字数の上限の既定値と、設定できる範囲。サーバー（src/core_memory.rs）と同じ値。 */
+export const DEFAULT_CORE_MEMORY_MAX_CHARS = 1000;
+export const CORE_MEMORY_MAX_CHARS_MIN = 500;
+export const CORE_MEMORY_MAX_CHARS_MAX = 5000;
+/** 1行の文字数の上限。サーバーと同じ値。 */
 export const CORE_MEMORY_ENTRY_MAX_CHARS = 200;
+
+/** 保存されている全体の上限を読む。無いか数でなければ既定値、範囲外なら範囲内に寄せる。 */
+export function normalizeCoreMemoryMaxChars(value: unknown): number {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_CORE_MEMORY_MAX_CHARS;
+    return Math.min(CORE_MEMORY_MAX_CHARS_MAX, Math.max(CORE_MEMORY_MAX_CHARS_MIN, Math.round(value)));
+}
 
 export const CORE_MEMORY_SECTIONS: { value: CoreMemorySection; label: string; hint: string }[] = [
     { value: 'user', label: 'ユーザーについて', hint: '名前、呼び方、苦手なこと、大事な属性など' },
@@ -26,12 +35,15 @@ export function totalCoreMemoryChars(entries: Pick<CoreMemoryEntry, 'text'>[]): 
 
 export type CoreMemoryDraftProblem = 'entryTooLong' | 'totalTooLong';
 
-export function coreMemoryDraftProblems(entries: Pick<CoreMemoryEntry, 'text'>[]): CoreMemoryDraftProblem[] {
+export function coreMemoryDraftProblems(
+    entries: Pick<CoreMemoryEntry, 'text'>[],
+    maxChars: number,
+): CoreMemoryDraftProblem[] {
     const problems: CoreMemoryDraftProblem[] = [];
     if (entries.some((entry) => countCoreMemoryChars(entry.text) > CORE_MEMORY_ENTRY_MAX_CHARS)) {
         problems.push('entryTooLong');
     }
-    if (totalCoreMemoryChars(entries) > CORE_MEMORY_MAX_CHARS) {
+    if (totalCoreMemoryChars(entries) > maxChars) {
         problems.push('totalTooLong');
     }
     return problems;

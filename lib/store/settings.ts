@@ -1,3 +1,4 @@
+import { DEFAULT_CORE_MEMORY_MAX_CHARS, normalizeCoreMemoryMaxChars } from '../coreMemory';
 import { DEFAULT_MEMORY_BATCH_USER_TURNS, normalizeMemoryBatchUserTurns } from '../memoryBatch';
 import {
     DEFAULT_CONNECTION_ID,
@@ -255,6 +256,7 @@ type SettingsSlice = Pick<
     | 'memoryEmbeddingModel'
     | 'memoryGateEnabled'
     | 'memoryBatchUserTurns'
+    | 'coreMemoryMaxChars'
     | 'conversationCompressionEnabled'
     | 'reasoningEffort'
     | 'chatSampling'
@@ -306,6 +308,7 @@ type SettingsSlice = Pick<
     | 'setMemoryEmbeddingModel'
     | 'setMemoryGateEnabled'
     | 'setMemoryBatchUserTurns'
+    | 'setCoreMemoryMaxChars'
     | 'setConversationCompressionEnabled'
     | 'setReasoningEffort'
     | 'setChatSampling'
@@ -348,6 +351,7 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         ...getDefaultModelDefaults(),
         memoryGateEnabled: DEFAULT_MEMORY_GATE_ENABLED,
         memoryBatchUserTurns: DEFAULT_MEMORY_BATCH_USER_TURNS,
+        coreMemoryMaxChars: DEFAULT_CORE_MEMORY_MAX_CHARS,
         conversationCompressionEnabled: DEFAULT_CONVERSATION_COMPRESSION_ENABLED,
         reasoningEffort: DEFAULT_REASONING_EFFORT,
         chatSampling: {},
@@ -515,6 +519,11 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
             const memoryBatchUserTurns = normalizeMemoryBatchUserTurns(turns);
             set({ memoryBatchUserTurns });
             fire(db.setMeta('memoryBatchUserTurns', memoryBatchUserTurns));
+        },
+        setCoreMemoryMaxChars: (maxChars) => {
+            const coreMemoryMaxChars = normalizeCoreMemoryMaxChars(maxChars);
+            set({ coreMemoryMaxChars });
+            fire(db.setMeta('coreMemoryMaxChars', coreMemoryMaxChars));
         },
         setConversationCompressionEnabled: (conversationCompressionEnabled) => {
             set({ conversationCompressionEnabled });

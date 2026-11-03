@@ -125,6 +125,7 @@ pub(super) fn core_memory_update_request(
     character_name: &str,
     character_setting: &str,
     memory: &CoreMemory,
+    max_chars: usize,
     summary: &str,
     messages: &[Value],
     new_memories: &[String],
@@ -132,7 +133,7 @@ pub(super) fn core_memory_update_request(
     json!({
         "targetCharacter": character_name,
         "characterSystemPrompt": character_setting,
-        "coreMemory": memory.render_for_update(),
+        "coreMemory": memory.render_for_update(max_chars),
         "summary": summary,
         "messages": messages,
         "newMemories": new_memories,
@@ -140,9 +141,13 @@ pub(super) fn core_memory_update_request(
 }
 
 /// やり直しの依頼の本文。会話ログは送らず、今の常駐記憶と適用できなかった理由だけを渡す。
-pub(super) fn core_memory_retry_request(memory: &CoreMemory, rejected: &[RejectedOp]) -> Value {
+pub(super) fn core_memory_retry_request(
+    memory: &CoreMemory,
+    max_chars: usize,
+    rejected: &[RejectedOp],
+) -> Value {
     json!({
-        "coreMemory": memory.render_for_update(),
+        "coreMemory": memory.render_for_update(max_chars),
         "rejectedOps": rejected
             .iter()
             .map(|rejected| {
@@ -247,7 +252,7 @@ pub(super) fn demoted_memory_candidate(entry: &CoreMemoryEntry) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core_memory::{CoreMemoryAuthor, apply_ops};
+    use crate::core_memory::{CoreMemoryAuthor, DEFAULT_CORE_MEMORY_MAX_CHARS, apply_ops};
 
     #[test]
     fn ops_are_parsed_leniently() {
@@ -302,8 +307,13 @@ mod tests {
                 id: "u1".to_owned(),
             }],
             1,
+            DEFAULT_CORE_MEMORY_MAX_CHARS,
         );
-        let request = core_memory_retry_request(&outcome.memory, &outcome.rejected);
+        let request = core_memory_retry_request(
+            &outcome.memory,
+            DEFAULT_CORE_MEMORY_MAX_CHARS,
+            &outcome.rejected,
+        );
         assert!(
             request["coreMemory"]
                 .as_str()

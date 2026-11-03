@@ -2,11 +2,14 @@ import { describe, expect, test } from 'vitest';
 
 import {
     CORE_MEMORY_ENTRY_MAX_CHARS,
-    CORE_MEMORY_MAX_CHARS,
+    CORE_MEMORY_MAX_CHARS_MAX,
+    CORE_MEMORY_MAX_CHARS_MIN,
+    DEFAULT_CORE_MEMORY_MAX_CHARS,
     coreMemoryDraftProblems,
     coreMemorySectionToText,
     countCoreMemoryChars,
     isLockedCoreMemoryLine,
+    normalizeCoreMemoryMaxChars,
     parseCoreMemorySectionText,
     tooLongCoreMemoryLines,
     totalCoreMemoryChars,
@@ -22,14 +25,25 @@ describe('core memory limits', () => {
     });
 
     test('reports lines and totals over the limits', () => {
-        expect(coreMemoryDraftProblems([{ text: 'あ' }])).toEqual([]);
-        expect(coreMemoryDraftProblems([{ text: 'あ'.repeat(CORE_MEMORY_ENTRY_MAX_CHARS + 1) }]))
+        const max = DEFAULT_CORE_MEMORY_MAX_CHARS;
+        expect(coreMemoryDraftProblems([{ text: 'あ' }], max)).toEqual([]);
+        expect(coreMemoryDraftProblems([{ text: 'あ'.repeat(CORE_MEMORY_ENTRY_MAX_CHARS + 1) }], max))
             .toEqual(['entryTooLong']);
         const lines = Array.from(
-            { length: CORE_MEMORY_MAX_CHARS / CORE_MEMORY_ENTRY_MAX_CHARS + 1 },
+            { length: max / CORE_MEMORY_ENTRY_MAX_CHARS + 1 },
             () => ({ text: 'あ'.repeat(CORE_MEMORY_ENTRY_MAX_CHARS) }),
         );
-        expect(coreMemoryDraftProblems(lines)).toEqual(['totalTooLong']);
+        expect(coreMemoryDraftProblems(lines, max)).toEqual(['totalTooLong']);
+        // 上限を上げれば同じ内容でも収まる。
+        expect(coreMemoryDraftProblems(lines, max + CORE_MEMORY_ENTRY_MAX_CHARS)).toEqual([]);
+    });
+
+    test('normalizes the configured total limit', () => {
+        expect(normalizeCoreMemoryMaxChars(undefined)).toBe(DEFAULT_CORE_MEMORY_MAX_CHARS);
+        expect(normalizeCoreMemoryMaxChars('2000')).toBe(DEFAULT_CORE_MEMORY_MAX_CHARS);
+        expect(normalizeCoreMemoryMaxChars(2000)).toBe(2000);
+        expect(normalizeCoreMemoryMaxChars(1)).toBe(CORE_MEMORY_MAX_CHARS_MIN);
+        expect(normalizeCoreMemoryMaxChars(99999)).toBe(CORE_MEMORY_MAX_CHARS_MAX);
     });
 });
 describe('core memory section text', () => {

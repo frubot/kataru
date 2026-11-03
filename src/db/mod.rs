@@ -16,10 +16,10 @@ use crate::error::{AppError, AppResult};
 
 pub use storage::{
     PackagePreview, build_character_package, get_character_room_ids, get_conversation_memories,
-    get_core_memory, get_memory_batch_source, handle_storage_command, import_character_package,
-    inspect_character_package, migrate_character_images, migrate_situation_images,
-    persist_batch_memories, persist_conversation_memories, persist_conversation_result,
-    persist_conversation_submission, save_core_memory_if_version,
+    get_core_memory, get_core_memory_max_chars, get_memory_batch_source, handle_storage_command,
+    import_character_package, inspect_character_package, migrate_character_images,
+    migrate_situation_images, persist_batch_memories, persist_conversation_memories,
+    persist_conversation_result, persist_conversation_submission, save_core_memory_if_version,
 };
 
 const INITIAL_MIGRATION: &str = include_str!("../../migrations/0001_initial.sql");

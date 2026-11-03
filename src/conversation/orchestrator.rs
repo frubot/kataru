@@ -2458,6 +2458,8 @@ pub(crate) struct CoreMemoryUpdateInput<'a> {
     /// 今回抽出した記憶の本文。
     pub(crate) new_memories: &'a [String],
     pub(crate) memory: &'a CoreMemory,
+    /// 設定された常駐記憶全体の文字数の上限。
+    pub(crate) max_chars: usize,
 }
 
 pub(crate) struct CoreMemoryUpdateResult {
@@ -2501,6 +2503,7 @@ pub(crate) async fn update_core_memory(
         &string(input.character, "name"),
         &setting,
         input.memory,
+        input.max_chars,
         input.summary,
         &messages,
         input.new_memories,
@@ -2551,7 +2554,7 @@ pub(crate) async fn update_core_memory(
         };
         push_usage(&mut usages, &raw, input.character, "core-memory-update");
         let ops = parse_core_memory_ops(&extract_message_text(&raw));
-        let outcome = apply_ops(&memory, ops, now_ms() as i64);
+        let outcome = apply_ops(&memory, ops, now_ms() as i64, input.max_chars);
         applied += outcome.applied;
         demoted.extend(outcome.demoted);
         memory = outcome.memory;
@@ -2559,7 +2562,7 @@ pub(crate) async fn update_core_memory(
         if rejected.is_empty() || attempts > CORE_MEMORY_MAX_RETRIES {
             break;
         }
-        request = core_memory_retry_request(&memory, &rejected);
+        request = core_memory_retry_request(&memory, input.max_chars, &rejected);
     }
 
     let character_id = string(input.character, "id");

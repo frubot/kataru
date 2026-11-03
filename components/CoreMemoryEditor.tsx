@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import * as db from '@/lib/db';
+import { useStore } from '@/lib/store';
 import type { CoreMemory, CoreMemorySection } from '@/lib/store';
 import {
     CORE_MEMORY_ENTRY_MAX_CHARS,
-    CORE_MEMORY_MAX_CHARS,
     CORE_MEMORY_SECTIONS,
     coreMemoryDraftProblems,
     coreMemorySectionToText,
@@ -130,6 +130,7 @@ function SectionTextarea({ id, value, onChange }: SectionTextareaProps) {
 }
 
 export default function CoreMemoryEditor({ characterId }: CoreMemoryEditorProps) {
+    const maxChars = useStore((state) => state.coreMemoryMaxChars);
     const [saved, setSaved] = useState<CoreMemory>(() => emptyCoreMemory(characterId));
     const [savedTexts, setSavedTexts] = useState<SectionTexts>(() => toTexts(emptyCoreMemory(characterId)));
     const [texts, setTexts] = useState<SectionTexts>(savedTexts);
@@ -168,7 +169,7 @@ export default function CoreMemoryEditor({ characterId }: CoreMemoryEditorProps)
         [saved.entries, texts],
     );
     const totalChars = useMemo(() => totalCoreMemoryChars(entries), [entries]);
-    const problems = useMemo(() => coreMemoryDraftProblems(entries), [entries]);
+    const problems = useMemo(() => coreMemoryDraftProblems(entries, maxChars), [entries, maxChars]);
     const isDirty = !sameTexts(texts, savedTexts);
 
     const handleSave = async () => {
@@ -246,8 +247,8 @@ export default function CoreMemoryEditor({ characterId }: CoreMemoryEditorProps)
             })}
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
-                <span style={{ fontSize: '0.8rem', color: totalChars > CORE_MEMORY_MAX_CHARS ? 'var(--error)' : 'var(--text-secondary)' }}>
-                    {totalChars} / {CORE_MEMORY_MAX_CHARS}文字
+                <span style={{ fontSize: '0.8rem', color: totalChars > maxChars ? 'var(--error)' : 'var(--text-secondary)' }}>
+                    {totalChars} / {maxChars}文字
                 </span>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                     <button
@@ -273,7 +274,7 @@ export default function CoreMemoryEditor({ characterId }: CoreMemoryEditorProps)
             </div>
             {problems.includes('totalTooLong') && (
                 <div style={{ fontSize: '0.75rem', color: 'var(--error)' }}>
-                    全部で{CORE_MEMORY_MAX_CHARS}文字までです。
+                    全部で{maxChars}文字までです。上限はグローバル設定で変えられます。
                 </div>
             )}
             {notice && <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{notice}</div>}

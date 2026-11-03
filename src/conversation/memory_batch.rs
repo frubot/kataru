@@ -11,8 +11,9 @@ use crate::{
     ai::routes::MEMORY_BATCH_MAX_UPDATES,
     core_memory::CoreMemory,
     db::{
-        get_character_room_ids, get_core_memory, get_memory_batch_source, persist_batch_memories,
-        persist_conversation_memories, save_core_memory_if_version,
+        get_character_room_ids, get_core_memory, get_core_memory_max_chars,
+        get_memory_batch_source, persist_batch_memories, persist_conversation_memories,
+        save_core_memory_if_version,
     },
 };
 
@@ -346,6 +347,17 @@ async fn run_core_memory_update(
             return format!("常駐記憶を読めませんでした: {error}");
         }
     };
+    let max_chars = match get_core_memory_max_chars(&state.database).await {
+        Ok(max_chars) => max_chars,
+        Err(error) => {
+            tracing::warn!(
+                stage = "core_memory_read_failed",
+                classification = error.diagnostic_class(),
+                "Core memory limit could not be read"
+            );
+            return format!("常駐記憶の上限を読めませんでした: {error}");
+        }
+    };
     task.set_detail("常駐記憶を更新中");
     let mut full_json_logs = Vec::new();
     let result = update_core_memory(
@@ -358,6 +370,7 @@ async fn run_core_memory_update(
             messages: parts.messages,
             new_memories: parts.new_memories,
             memory: &current,
+            max_chars,
         },
         &mut full_json_logs,
     )

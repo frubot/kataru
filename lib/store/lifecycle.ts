@@ -1,3 +1,4 @@
+import { DEFAULT_CORE_MEMORY_MAX_CHARS, normalizeCoreMemoryMaxChars } from '../coreMemory';
 import { DEFAULT_MEMORY_BATCH_USER_TURNS, normalizeMemoryBatchUserTurns } from '../memoryBatch';
 import {
     DEFAULT_CONNECTION_ID,
@@ -138,7 +139,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
         hydrate: async () => {
             if (get().hydrated) return;
             await db.migrateLegacyDatabase();
-            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, storedChatWallpaper, storedDefaultViewMode, currentRoomId, vnTypingSpeed, storedKeyboardShortcuts, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedModelDefaults, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedRoleApiTypes, storedConversationCompressionEnabled, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion, storedTtsEnabled, storedTtsConnectionId, storedTtsModel, storedTtsVoice, storedTtsSpeed, storedTtsVolume, storedTtsAutoPlay, storedTtsActionCaption, storedTtsCaptionCfgScale, storedTtsChunkMinChars, storedTtsFirstChunkMinChars, storedTtsNarrationEnabled, storedTtsNarratorVoice, storedMemoryGateEnabled, storedMemoryBatchUserTurns, storedReasoningEffort, storedUserName, storedUserProfile, storedChatSampling, storedVnMaxStageSprites, storedWordReplacements] = await Promise.all([
+            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, storedChatWallpaper, storedDefaultViewMode, currentRoomId, vnTypingSpeed, storedKeyboardShortcuts, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedModelDefaults, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedRoleApiTypes, storedConversationCompressionEnabled, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion, storedTtsEnabled, storedTtsConnectionId, storedTtsModel, storedTtsVoice, storedTtsSpeed, storedTtsVolume, storedTtsAutoPlay, storedTtsActionCaption, storedTtsCaptionCfgScale, storedTtsChunkMinChars, storedTtsFirstChunkMinChars, storedTtsNarrationEnabled, storedTtsNarratorVoice, storedMemoryGateEnabled, storedMemoryBatchUserTurns, storedReasoningEffort, storedUserName, storedUserProfile, storedChatSampling, storedVnMaxStageSprites, storedWordReplacements, storedCoreMemoryMaxChars] = await Promise.all([
                 db.getAllCharacters(),
                 db.getAllGroups(),
                 db.getAllRooms(),
@@ -200,6 +201,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 db.getMeta<unknown>('chatSampling'),
                 db.getMeta<unknown>('vnMaxStageSprites'),
                 db.getMeta<unknown>('wordReplacements'),
+                db.getMeta<unknown>('coreMemoryMaxChars'),
             ]);
             // Drop any previously stored client-side API key from IndexedDB.
             if (legacyOpenAiCompatibleApiKey !== undefined) {
@@ -476,6 +478,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 ...effectiveModelDefaults,
                 memoryGateEnabled: storedMemoryGateEnabled !== false,
                 memoryBatchUserTurns: normalizeMemoryBatchUserTurns(storedMemoryBatchUserTurns),
+                coreMemoryMaxChars: normalizeCoreMemoryMaxChars(storedCoreMemoryMaxChars),
                 conversationCompressionEnabled: resolvedConversationCompressionEnabled,
                 reasoningEffort: resolvedReasoningEffort,
                 chatSampling: normalizeChatSampling(storedChatSampling),
@@ -537,6 +540,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 ...modelDefaults,
                 memoryGateEnabled: DEFAULT_MEMORY_GATE_ENABLED,
                 memoryBatchUserTurns: DEFAULT_MEMORY_BATCH_USER_TURNS,
+                coreMemoryMaxChars: DEFAULT_CORE_MEMORY_MAX_CHARS,
                 conversationCompressionEnabled: DEFAULT_CONVERSATION_COMPRESSION_ENABLED,
                 reasoningEffort: DEFAULT_REASONING_EFFORT,
                 chatSampling: {},

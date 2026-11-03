@@ -239,8 +239,6 @@ export interface Situation {
     favorite?: boolean;
     backgroundImage?: string;
     situationPrompt?: string;
-    /** 参加キャラクター全員に適用される共通ルール。 */
-    characterCommonRules?: string;
     priorMessages?: SituationPriorMessage[];
     actors: SituationActor[];
     /** 1ターンでキャラクターが話せる最大発言数。部屋の maxMentionChain で上書きできる。 */
@@ -268,7 +266,6 @@ export type CreateSituationInput = {
     name?: string;
     backgroundImage?: string;
     situationPrompt?: string;
-    characterCommonRules?: string;
     priorMessages?: SituationPriorMessage[];
     actors: SituationActor[];
     maxTurns?: number;
@@ -564,7 +561,7 @@ export interface AppState {
     deleteSituation: (id: string) => void;
     duplicateSituation: (id: string) => string;
     setCurrentRoom: (id: string | null) => Promise<void>;
-    updateSituation: (id: string, updates: Partial<Pick<Situation, 'name' | 'favorite' | 'backgroundImage' | 'situationPrompt' | 'characterCommonRules' | 'priorMessages' | 'actors' | 'maxTurns' | 'limitTurns' | 'memoryMode' | 'separateNarration' | 'realTimeMode' | 'maxHistory'>>) => void;
+    updateSituation: (id: string, updates: Partial<Pick<Situation, 'name' | 'favorite' | 'backgroundImage' | 'situationPrompt' | 'priorMessages' | 'actors' | 'maxTurns' | 'limitTurns' | 'memoryMode' | 'separateNarration' | 'realTimeMode' | 'maxHistory'>>) => void;
     updateRoomName: (id: string, name: string) => void;
     updateRoomSettings: (id: string, updates: Partial<Pick<Room, 'maxMentionChain' | 'viewMode' | 'costumeSelections'>>) => void;
     setRoomReplySuggestions: (id: string, replySuggestions?: RoomReplySuggestions) => void;

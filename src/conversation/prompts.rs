@@ -457,12 +457,6 @@ Users may include not only spoken lines but also stage directions—such as `*st
     if !situation_prompt.is_empty() {
         prompt.push_str(&format!("\n## Situation\n{situation_prompt}\n"));
     }
-    let common_rules = string(situation, "characterCommonRules");
-    if !common_rules.is_empty() {
-        prompt.push_str(&format!(
-            "\n## General Rules for Characters\nThe following rules apply to all characters. Please ensure you follow them.\n\n{common_rules}\n"
-        ));
-    }
     if let Some(summary) = summary.filter(|value| !value.trim().is_empty()) {
         prompt.push_str(&format!(
             "\n# Summary of the conversation so far\n{}\n",
@@ -1366,8 +1360,7 @@ mod tests {
         });
         let rin = json!({"actorId": "rin", "name": "凛", "systemPrompt": "クールな転校生"});
         let situation = json!({
-            "situationPrompt": "放課後の教室",
-            "characterCommonRules": "全員、敬語で話す"
+            "situationPrompt": "放課後の教室"
         });
         let prompt = ensemble_system_prompt(
             &situation,
@@ -1386,7 +1379,6 @@ mod tests {
             prompt.contains("{{user}} is addressing 凛 (id: rin). The first turn must be 凛's.")
         );
         assert!(prompt.contains("## Situation\n放課後の教室"));
-        assert!(prompt.contains("全員、敬語で話す"));
         assert!(prompt.contains("# Summary of the conversation so far\nこれまでの要約"));
         let aoi_section = prompt.find("## 葵 (id: aoi)").expect("aoi section");
         let rin_section = prompt.find("## 凛 (id: rin)").expect("rin section");

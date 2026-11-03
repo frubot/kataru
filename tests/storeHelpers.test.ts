@@ -192,7 +192,7 @@ describe('store pure helpers', () => {
         expect(normalized.changedRooms).toHaveLength(1);
     });
 
-    test('keeps character common rules and defaults them to an empty string', () => {
+    test('moves legacy character common rules into the situation prompt', () => {
         const character: Character = {
             id: 'character-1',
             name: '葵',
@@ -200,30 +200,29 @@ describe('store pure helpers', () => {
             createdAt: 1,
             updatedAt: 1,
         };
-        const withRules: Situation = {
+        const base: Situation = {
             id: 'situation-1',
             name: '放課後',
             actors: [{ id: 'actor-1', type: 'character', characterId: character.id }],
             maxTurns: 1,
             memoryMode: 'off',
-            characterCommonRules: '全員、敬語で話す',
             createdAt: 1,
             updatedAt: 1,
         };
-        const withoutRules: Situation = {
-            ...withRules,
-            id: 'situation-2',
-            characterCommonRules: undefined,
-        };
+        const withPrompt = { ...base, situationPrompt: '放課後の教室', characterCommonRules: '全員、敬語で話す' };
+        const rulesOnly = { ...base, id: 'situation-2', characterCommonRules: '全員、敬語で話す' };
+        const withoutRules: Situation = { ...base, id: 'situation-3', situationPrompt: '放課後の教室' };
 
         const normalized = normalizeGroupData({
             characters: [character],
-            groups: [withRules, withoutRules],
+            groups: [withPrompt, rulesOnly, withoutRules],
             rooms: [],
         });
 
-        expect(normalized.groups[0].characterCommonRules).toBe('全員、敬語で話す');
-        expect(normalized.groups[1].characterCommonRules).toBe('');
+        expect(normalized.groups[0].situationPrompt).toBe('放課後の教室\n\n全員、敬語で話す');
+        expect(normalized.groups[1].situationPrompt).toBe('全員、敬語で話す');
+        expect(normalized.groups[2].situationPrompt).toBe('放課後の教室');
+        expect(normalized.groups.some((group) => 'characterCommonRules' in group)).toBe(false);
     });
 
     test('repairs blank room names with stable default names', () => {

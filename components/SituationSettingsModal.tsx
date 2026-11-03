@@ -771,7 +771,6 @@ function buildInitialState(
         name: situation?.name ?? '',
         backgroundImage: situation?.backgroundImage ?? '',
         situationPrompt: situation?.situationPrompt ?? '',
-        characterCommonRules: situation?.characterCommonRules ?? '',
         maxAutoTurns: String(getInitialMaxTurns(situation, room)),
         limitTurns: situation?.limitTurns === true,
         maxHistory: situation?.maxHistory != null ? String(situation.maxHistory) : '',
@@ -791,7 +790,6 @@ function serializeSituationDraft(draft: ReturnType<typeof buildInitialState>) {
         name: draft.name,
         backgroundImage: draft.backgroundImage,
         situationPrompt: draft.situationPrompt,
-        characterCommonRules: draft.characterCommonRules,
         maxAutoTurns: draft.maxAutoTurns,
         limitTurns: draft.limitTurns,
         maxHistory: draft.maxHistory,
@@ -1203,7 +1201,6 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
     const [name, setName] = useState(initial.name);
     const [backgroundImage, setBackgroundImage] = useState(initial.backgroundImage);
     const [situationPrompt, setSituationPrompt] = useState(initial.situationPrompt);
-    const [characterCommonRules, setCharacterCommonRules] = useState(initial.characterCommonRules);
     const [maxAutoTurns, setMaxAutoTurns] = useState(initial.maxAutoTurns);
     const [limitTurns, setLimitTurns] = useState(initial.limitTurns);
     const [maxHistory, setMaxHistory] = useState(initial.maxHistory);
@@ -1457,7 +1454,6 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                 name,
                 backgroundImage,
                 situationPrompt,
-                characterCommonRules,
                 maxAutoTurns,
                 limitTurns,
                 maxHistory,
@@ -1494,7 +1490,6 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                 name: name.trim() || 'シチュエーション',
                 backgroundImage: backgroundImage || undefined,
                 situationPrompt: situationPrompt.trim(),
-                characterCommonRules: characterCommonRules.trim(),
                 priorMessages: priorMessagesForSave,
                 actors,
                 maxTurns: effectiveMaxTurns,
@@ -1512,7 +1507,6 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                 name: name.trim() || undefined,
                 backgroundImage: backgroundImage || undefined,
                 situationPrompt: situationPrompt.trim(),
-                characterCommonRules: characterCommonRules.trim(),
                 priorMessages: priorMessagesForSave,
                 actors,
                 maxTurns: effectiveMaxTurns,
@@ -1526,7 +1520,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
         }
 
         onClose();
-    }, [actorCount, actorOptions, backgroundImage, buildActors, characterActorMeta, characterCommonRules, createSituationRoom, effectiveMaxTurns, isEditing, limitTurns, maxAutoTurns, maxHistory, memoryReadOnly, name, onClose, onCreated, parsedMaxHistory, priorMessages, realTimeMode, room, selectedCharacterIds, separateNarration, situation, situationPrompt, temporaryActors, updateRoomSettings, updateSituation]);
+    }, [actorCount, actorOptions, backgroundImage, buildActors, characterActorMeta, createSituationRoom, effectiveMaxTurns, isEditing, limitTurns, maxAutoTurns, maxHistory, memoryReadOnly, name, onClose, onCreated, parsedMaxHistory, priorMessages, realTimeMode, room, selectedCharacterIds, separateNarration, situation, situationPrompt, temporaryActors, updateRoomSettings, updateSituation]);
 
     const modalRef = useRef<HTMLDivElement>(null);
     useModalKeyboard({
@@ -1617,20 +1611,6 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                             rows={5}
                             placeholder="舞台、関係性、開始時点の状況"
                             style={{ ...fieldStyle, resize: 'vertical', minHeight: 120 }}
-                        />
-                    </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
-                        <label htmlFor="situation-character-common-rules-input" style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
-                            キャラクターの共通ルール
-                        </label>
-                        <textarea
-                            id="situation-character-common-rules-input"
-                            value={characterCommonRules}
-                            onChange={(e) => setCharacterCommonRules(e.target.value)}
-                            rows={4}
-                            placeholder="参加キャラクター全員に適用するルール"
-                            style={{ ...fieldStyle, resize: 'vertical', minHeight: 96 }}
                         />
                     </div>
 

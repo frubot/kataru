@@ -380,7 +380,8 @@ async fn run_turn_inner(
             addressed_participant(&active_history, &participants)
         };
         let ensemble_history = slice_by_user_history(&active_history, history_limit);
-        let memory_enabled = !secret_mode && string(situation, "memoryMode") == "readOnly";
+        // シークレットモードでも記憶の参照はする。保存はジョブ側で止める。
+        let memory_enabled = string(situation, "memoryMode") == "readOnly";
         let mut cast_memories = Vec::with_capacity(participants.len());
         let mut cast_core_memories = Vec::with_capacity(participants.len());
         for actor in &participants {
@@ -460,8 +461,8 @@ async fn run_turn_inner(
             };
         }
     } else if let Some(character) = character {
-        let memory_allowed =
-            !secret_mode && !matches!(character.get("enableMemory"), Some(Value::Bool(false)));
+        // シークレットモードでも記憶の参照はする。保存はジョブ側で止める。
+        let memory_allowed = !matches!(character.get("enableMemory"), Some(Value::Bool(false)));
         let relevant = if memory_allowed {
             let embedding_selection =
                 optional_role_selection(&payload, "memoryEmbeddingModel", "memoryEmbeddingModel");

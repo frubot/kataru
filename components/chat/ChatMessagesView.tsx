@@ -512,7 +512,7 @@ export default function ChatMessagesView({
                         <>
                             <h2 className="empty-state-title">シークレットモード</h2>
                             <p className="empty-state-description">
-                                メモリ機能は無効になり、会話は保存されません
+                                メモリは参照されますが、会話とメモリは保存されません
                             </p>
                         </>
                     ) : (

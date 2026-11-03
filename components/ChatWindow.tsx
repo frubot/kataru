@@ -387,7 +387,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const situationPriorMessages = situation?.priorMessages ?? EMPTY_SITUATION_PRIOR_MESSAGES;
     const isRoomEmpty = (room?.messages.length ?? 0) === 0;
     const isSecretMode = room?.secretMode === true;
-    const showHeaderMemoryButton = !isSecretMode && !isGroupRoom && character != null && character.enableMemory !== false;
+    const showHeaderMemoryButton = !isGroupRoom && character != null && character.enableMemory !== false;
     const [input, setInput] = useState('');
     const [attachments, setAttachments] = useState<MessageAttachment[]>([]);
     const [isSummarizing, setIsSummarizing] = useState(false);

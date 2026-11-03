@@ -8,7 +8,7 @@ const REAL_TIME_MODE_OPTIONS = [
 ] as const;
 
 export const REAL_TIME_MODE_DESCRIPTION =
-    '現実の日時と、前回のやり取りからの経過時間を会話に伝えます。現実と同じ時間が流れる世界観向けです。';
+    '現実の時間をキャラクターと共有します。';
 
 export function toRealTimeMode(value: string | undefined): RealTimeMode {
     return value === 'date' || value === 'datetime' ? value : 'off';

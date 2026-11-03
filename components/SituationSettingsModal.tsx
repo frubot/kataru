@@ -1859,7 +1859,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                     />
                     <SwitchRow
                         label="ナレーションを分ける"
-                        description="場面全体の描写を、キャラクターの発言とは別のナレーションとして生成します（メッセージ形式では無効）。"
+                        description="キャラクターから独立したナレーションを追加します。"
                         checked={separateNarration}
                         onToggle={() => setSeparateNarration((value) => !value)}
                     />
@@ -2134,7 +2134,6 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                                     <>
                                         <SwitchRow
                                             label="会話の連鎖上限を設定"
-                                            description="OFFのときは、場面に応じて発言数をAIが決めます。"
                                             checked={limitTurns}
                                             onToggle={() => setLimitTurns((value) => !value)}
                                         />

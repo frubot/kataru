@@ -24,7 +24,7 @@ export default function RealTimeModeSelector({ value, onChange }: {
             onChange={(next) => onChange(toRealTimeMode(next))}
             options={REAL_TIME_MODE_OPTIONS}
             ariaLabel="現実の日時"
-            style={{ minWidth: '11rem' }}
+            style={{ width: 'auto', minWidth: '11rem', flexShrink: 0 }}
         />
     );
 }

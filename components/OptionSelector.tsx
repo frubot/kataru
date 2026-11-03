@@ -1,5 +1,10 @@
-import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { Check, ChevronDown, Search } from 'lucide-react';
+
+/** Gap between the trigger and the menu, and the minimum margin to the viewport edge. */
+const MENU_GAP = 6;
+const VIEWPORT_MARGIN = 8;
 
 export interface OptionSelectorOption {
     value: string;
@@ -79,18 +84,67 @@ export default function OptionSelector({
     const listboxId = `${triggerId}-listbox`;
     const [isOpen, setOpen] = useState(false);
     const [query, setQuery] = useState('');
+    const [menuPosition, setMenuPosition] = useState<{ top: number; left: number; minWidth: number } | null>(null);
     const rootRef = useRef<HTMLDivElement>(null);
+    const menuRef = useRef<HTMLDivElement>(null);
     const searchRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         if (!isOpen) return;
         const handlePointerDown = (event: PointerEvent) => {
-            if (event.target instanceof Node && !rootRef.current?.contains(event.target)) {
-                setOpen(false);
-            }
+            const target = event.target;
+            if (!(target instanceof Node)) return;
+            if (rootRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+            setOpen(false);
         };
         document.addEventListener('pointerdown', handlePointerDown);
         return () => document.removeEventListener('pointerdown', handlePointerDown);
+    }, [isOpen]);
+
+    // The menu is portaled to <body> so modal overflow cannot clip it; keep it pinned to the trigger.
+    useLayoutEffect(() => {
+        if (!isOpen) {
+            setMenuPosition(null);
+            return;
+        }
+        const updatePosition = () => {
+            const trigger = rootRef.current;
+            const menu = menuRef.current;
+            if (!trigger || !menu) return;
+            const rect = trigger.getBoundingClientRect();
+            const menuWidth = Math.max(menu.offsetWidth, rect.width);
+            const menuHeight = menu.offsetHeight;
+            const viewportWidth = window.innerWidth;
+            const viewportHeight = window.innerHeight;
+
+            let left = rect.left;
+            if (left + menuWidth > viewportWidth - VIEWPORT_MARGIN) {
+                left = rect.right - menuWidth;
+            }
+            left = Math.max(VIEWPORT_MARGIN, Math.min(left, viewportWidth - VIEWPORT_MARGIN - menuWidth));
+
+            const spaceBelow = viewportHeight - rect.bottom - MENU_GAP - VIEWPORT_MARGIN;
+            const spaceAbove = rect.top - MENU_GAP - VIEWPORT_MARGIN;
+            const top = menuHeight > spaceBelow && spaceAbove > spaceBelow
+                ? Math.max(VIEWPORT_MARGIN, rect.top - MENU_GAP - menuHeight)
+                : rect.bottom + MENU_GAP;
+
+            setMenuPosition((previous) => (
+                previous && previous.top === top && previous.left === left && previous.minWidth === rect.width
+                    ? previous
+                    : { top, left, minWidth: rect.width }
+            ));
+        };
+        updatePosition();
+        window.addEventListener('resize', updatePosition);
+        document.addEventListener('scroll', updatePosition, true);
+        const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updatePosition);
+        if (menuRef.current) observer?.observe(menuRef.current);
+        return () => {
+            window.removeEventListener('resize', updatePosition);
+            document.removeEventListener('scroll', updatePosition, true);
+            observer?.disconnect();
+        };
     }, [isOpen]);
 
     useEffect(() => {
@@ -198,10 +252,22 @@ export default function OptionSelector({
                 />
             </button>
 
-            {isOpen && (
+            {isOpen && createPortal(
                 <div
-                    className="model-selector-menu"
-                    style={menuStyle}
+                    ref={menuRef}
+                    className="model-selector-menu model-selector-menu-floating"
+                    style={{
+                        ...menuStyle,
+                        top: menuPosition?.top ?? 0,
+                        left: menuPosition?.left ?? 0,
+                        // Fit the content; never narrower than the trigger (or an explicit menuStyle.minWidth).
+                        minWidth: menuPosition
+                            ? (menuStyle?.minWidth != null
+                                ? `max(${menuPosition.minWidth}px, ${typeof menuStyle.minWidth === 'number' ? `${menuStyle.minWidth}px` : menuStyle.minWidth})`
+                                : menuPosition.minWidth)
+                            : 0,
+                        visibility: menuPosition ? undefined : 'hidden',
+                    }}
                     onKeyDown={(event) => {
                         if (event.key === 'Escape') {
                             event.preventDefault();
@@ -261,7 +327,8 @@ export default function OptionSelector({
                             );
                         })}
                     </div>
-                </div>
+                </div>,
+                document.body,
             )}
         </div>
     );

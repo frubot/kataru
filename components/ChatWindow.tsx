@@ -137,6 +137,7 @@ type ConversationCharacter = {
     maxCharacters?: number;
     maxHistory?: number;
     enableMemory?: boolean;
+    realTimeMode?: Character['realTimeMode'];
     expressions?: { name: string }[];
     motions?: { name: string }[];
     costumes?: {
@@ -165,6 +166,7 @@ function toConversationCharacter(character: Character | null): ConversationChara
         maxCharacters: character.maxCharacters,
         maxHistory: character.maxHistory,
         enableMemory: character.enableMemory,
+        realTimeMode: character.realTimeMode,
         // Resolved through the default costume so a VRM avatar exposes its mapped names.
         expressions: getVisualNovelExpressionNames(character).map((name) => ({ name })),
         motions: getVisualNovelMotionNames(character).map((name) => ({ name })),
@@ -211,6 +213,7 @@ function toConversationSituation(situation: Situation | null | undefined) {
         limitTurns: situation.limitTurns === true,
         memoryMode: situation.memoryMode,
         separateNarration: situation.separateNarration === true,
+        realTimeMode: situation.realTimeMode ?? 'off',
         maxHistory: situation.maxHistory,
     };
 }

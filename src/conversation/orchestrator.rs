@@ -45,6 +45,7 @@ use super::{
         message_image_attachment_urls, message_text_with_attachments, string, summary_prompts,
         summary_schema,
     },
+    real_time::{RealTimeMode, append_to_last_user_message, real_time_note},
     response::{
         AssistantEnvelope, EnsembleSpeaker, EnsembleTurnPreview, assistant_expression_preview,
         assistant_motion_preview, assistant_response_preview, ensemble_response_preview,
@@ -1020,6 +1021,13 @@ async fn generate_for_character(
             "content": history_message_content(message),
         })
     }));
+    if let Some(note) = real_time_note(
+        RealTimeMode::from_settings(character),
+        now_ms() as i64,
+        history,
+    ) {
+        append_to_last_user_message(&mut request_messages, &note);
+    }
     let body = chat_completion_body(
         &selection.model,
         request_messages,
@@ -1518,6 +1526,13 @@ async fn generate_for_ensemble(
         "content": system_prompt,
     })];
     request_messages.extend(ensemble_request_history(history, message_mode));
+    if let Some(note) = real_time_note(
+        RealTimeMode::from_settings(situation),
+        now_ms() as i64,
+        history,
+    ) {
+        append_to_last_user_message(&mut request_messages, &note);
+    }
     let body = chat_completion_body(
         &selection.model,
         request_messages,

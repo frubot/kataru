@@ -6,6 +6,7 @@ import {
     type Character,
     type Costume,
     type Expression,
+    type RealTimeMode,
     type Room,
     type Situation,
     type SituationActor,
@@ -29,6 +30,11 @@ export function defaultCharacterRoomName(characterName: string | undefined, inde
 export function normalizeSituationMaxHistory(maxHistory: unknown): number | undefined {
     if (typeof maxHistory !== 'number' || !Number.isFinite(maxHistory)) return undefined;
     return Math.max(1, Math.min(100, Math.round(maxHistory)));
+}
+
+/** 現実の日時の注入設定。`off` と不正値は保存しない。 */
+export function normalizeRealTimeMode(value: unknown): Exclude<RealTimeMode, 'off'> | undefined {
+    return value === 'date' || value === 'datetime' ? value : undefined;
 }
 
 export function normalizeSituationMaxTurns(maxTurns: unknown): number {
@@ -197,6 +203,7 @@ export function normalizeSituation(
         ...(situation.limitTurns === true ? { limitTurns: true } : {}),
         memoryMode,
         ...(situation.separateNarration === true ? { separateNarration: true } : {}),
+        ...(normalizeRealTimeMode(situation.realTimeMode) ? { realTimeMode: normalizeRealTimeMode(situation.realTimeMode) } : {}),
         maxHistory: normalizeSituationMaxHistory(situation.maxHistory),
         createdAt: situation.createdAt ?? now,
         updatedAt: situation.updatedAt ?? now,

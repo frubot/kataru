@@ -52,6 +52,7 @@ const SHARED_OPTIONAL_FIELDS: &[&str] = &[
     "maxCharacters",
     "maxHistory",
     "enableMemory",
+    "realTimeMode",
 ];
 
 fn invalid_package() -> AppError {
@@ -335,9 +336,14 @@ fn valid_shared_character(object: &Map<String, Value>) -> bool {
         .and_then(Value::as_str)
         .is_some_and(|name| !name.trim().is_empty())
         && object.get("systemPrompt").is_some_and(Value::is_string)
-        && ["speechStyle", "protagonistPrompt", "userConstraints"]
-            .iter()
-            .all(|key| object.get(*key).is_none_or(Value::is_string))
+        && [
+            "speechStyle",
+            "protagonistPrompt",
+            "userConstraints",
+            "realTimeMode",
+        ]
+        .iter()
+        .all(|key| object.get(*key).is_none_or(Value::is_string))
         && object.get("icon").is_none_or(valid_image_source)
         && [
             "maxCharacters",

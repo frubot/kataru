@@ -7,6 +7,7 @@ mod memory_date;
 mod memory_gate;
 mod orchestrator;
 mod prompts;
+mod real_time;
 mod response;
 mod word_filter;
 

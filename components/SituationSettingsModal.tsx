@@ -29,6 +29,7 @@ import SituationDescriptionGeneratorModal from './SituationDescriptionGeneratorM
 import StoredImage from './StoredImage';
 import PromptSectionEditor from './PromptSectionEditor';
 import OptionSelector from './OptionSelector';
+import RealTimeModeSelector, { REAL_TIME_MODE_DESCRIPTION, toRealTimeMode } from './RealTimeModeSelector';
 import { useModalKeyboard } from './useModalKeyboard';
 import { getVrmExpressionNames } from '@/lib/vrm';
 
@@ -777,6 +778,7 @@ function buildInitialState(
         memoryReadOnly: situation?.memoryMode === 'readOnly',
         // 新規作成時はナレーションを分ける。既存のシチュエーションは保存済みの設定に従う。
         separateNarration: situation ? situation.separateNarration === true : true,
+        realTimeMode: toRealTimeMode(situation?.realTimeMode),
         priorMessages: (situation?.priorMessages ?? []).map((message) => ({ ...message })),
         selectedCharacterIds,
         characterActorMeta,
@@ -795,6 +797,7 @@ function serializeSituationDraft(draft: ReturnType<typeof buildInitialState>) {
         maxHistory: draft.maxHistory,
         memoryReadOnly: draft.memoryReadOnly,
         separateNarration: draft.separateNarration,
+        realTimeMode: draft.realTimeMode,
         priorMessages: draft.priorMessages,
         selectedCharacterIds: Array.from(draft.selectedCharacterIds),
         characterActorMeta: draft.characterActorMeta,
@@ -1206,6 +1209,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
     const [maxHistory, setMaxHistory] = useState(initial.maxHistory);
     const [memoryReadOnly, setMemoryReadOnly] = useState(initial.memoryReadOnly);
     const [separateNarration, setSeparateNarration] = useState(initial.separateNarration);
+    const [realTimeMode, setRealTimeMode] = useState(initial.realTimeMode);
     const [priorMessages, setPriorMessages] = useState<SituationPriorMessage[]>(initial.priorMessages);
     const [selectedCharacterIds, setSelectedCharacterIds] = useState<Set<string>>(initial.selectedCharacterIds);
     const [characterActorMeta, setCharacterActorMeta] = useState<Record<string, CharacterActorMeta>>(initial.characterActorMeta);
@@ -1459,6 +1463,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                 maxHistory,
                 memoryReadOnly,
                 separateNarration,
+                realTimeMode,
                 priorMessages,
                 selectedCharacterIds,
                 characterActorMeta,
@@ -1496,6 +1501,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                 limitTurns,
                 memoryMode: memoryReadOnly ? 'readOnly' : 'off',
                 separateNarration,
+                realTimeMode,
                 maxHistory: parsedMaxHistory,
             });
             if (room?.id) {
@@ -1513,13 +1519,14 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                 limitTurns,
                 memoryMode: memoryReadOnly ? 'readOnly' : 'off',
                 separateNarration,
+                realTimeMode,
                 maxHistory: parsedMaxHistory,
             });
             onCreated?.();
         }
 
         onClose();
-    }, [actorCount, actorOptions, backgroundImage, buildActors, characterActorMeta, characterCommonRules, createSituationRoom, effectiveMaxTurns, isEditing, limitTurns, maxAutoTurns, maxHistory, memoryReadOnly, name, onClose, onCreated, parsedMaxHistory, priorMessages, room, selectedCharacterIds, separateNarration, situation, situationPrompt, temporaryActors, updateRoomSettings, updateSituation]);
+    }, [actorCount, actorOptions, backgroundImage, buildActors, characterActorMeta, characterCommonRules, createSituationRoom, effectiveMaxTurns, isEditing, limitTurns, maxAutoTurns, maxHistory, memoryReadOnly, name, onClose, onCreated, parsedMaxHistory, priorMessages, realTimeMode, room, selectedCharacterIds, separateNarration, situation, situationPrompt, temporaryActors, updateRoomSettings, updateSituation]);
 
     const modalRef = useRef<HTMLDivElement>(null);
     useModalKeyboard({
@@ -1856,6 +1863,13 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                         checked={separateNarration}
                         onToggle={() => setSeparateNarration((value) => !value)}
                     />
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', minHeight: 38 }}>
+                        <span style={{ display: 'flex', flexDirection: 'column', gap: '0.125rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                            現実の日時
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{REAL_TIME_MODE_DESCRIPTION}</span>
+                        </span>
+                        <RealTimeModeSelector value={realTimeMode} onChange={setRealTimeMode} />
+                    </div>
 
                     <section style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>

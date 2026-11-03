@@ -44,6 +44,9 @@ export interface VrmAvatar {
     animations?: VrmAnimation[];
 }
 
+/** 現実の日時を会話へ注入するか。`date` は日付と曜日、`datetime` は時間帯も含める。 */
+export type RealTimeMode = 'off' | 'date' | 'datetime';
+
 export interface Character {
     id: string;
     name: string;
@@ -56,6 +59,8 @@ export interface Character {
     maxCharacters?: number;
     maxHistory?: number;
     enableMemory?: boolean;
+    /** 単体チャットで現実の日時を注入する。未設定は `off`。 */
+    realTimeMode?: RealTimeMode;
     tts?: {
         connectionId?: string;
         model?: string;
@@ -245,6 +250,8 @@ export interface Situation {
     memoryMode: SituationMemoryMode;
     /** 場面全体のナレーションを、キャラクターの発言とは別のメッセージに分けて生成するか。 */
     separateNarration?: boolean;
+    /** 現実の日時を注入する。未設定は `off`。 */
+    realTimeMode?: RealTimeMode;
     maxHistory?: number;
     createdAt: number;
     updatedAt: number;
@@ -268,6 +275,7 @@ export type CreateSituationInput = {
     limitTurns?: boolean;
     memoryMode?: SituationMemoryMode;
     separateNarration?: boolean;
+    realTimeMode?: RealTimeMode;
     maxHistory?: number;
     roomName?: string;
 };
@@ -528,7 +536,7 @@ export interface AppState {
     setSummaryInspectorEnabled: (enabled: boolean) => void;
 
     createCharacter: (name: string, systemPrompt?: string, extras?: CharacterExtras) => string;
-    updateCharacter: (id: string, updates: Partial<Pick<Character, 'name' | 'systemPrompt' | 'favorite' | 'speechStyle' | 'protagonistPrompt' | 'userConstraints' | 'icon' | 'maxCharacters' | 'maxHistory' | 'enableMemory' | 'tts' | 'expressions' | 'costumes'>>) => void;
+    updateCharacter: (id: string, updates: Partial<Pick<Character, 'name' | 'systemPrompt' | 'favorite' | 'speechStyle' | 'protagonistPrompt' | 'userConstraints' | 'icon' | 'maxCharacters' | 'maxHistory' | 'enableMemory' | 'realTimeMode' | 'tts' | 'expressions' | 'costumes'>>) => void;
     deleteCharacter: (id: string) => void;
     duplicateCharacter: (id: string) => string;
     addImportedCharacter: (character: Character) => void;
@@ -558,7 +566,7 @@ export interface AppState {
     deleteSituation: (id: string) => void;
     duplicateSituation: (id: string) => string;
     setCurrentRoom: (id: string | null) => Promise<void>;
-    updateSituation: (id: string, updates: Partial<Pick<Situation, 'name' | 'favorite' | 'backgroundImage' | 'situationPrompt' | 'characterCommonRules' | 'priorMessages' | 'actors' | 'maxTurns' | 'limitTurns' | 'memoryMode' | 'separateNarration' | 'maxHistory'>>) => void;
+    updateSituation: (id: string, updates: Partial<Pick<Situation, 'name' | 'favorite' | 'backgroundImage' | 'situationPrompt' | 'characterCommonRules' | 'priorMessages' | 'actors' | 'maxTurns' | 'limitTurns' | 'memoryMode' | 'separateNarration' | 'realTimeMode' | 'maxHistory'>>) => void;
     updateRoomName: (id: string, name: string) => void;
     updateRoomSettings: (id: string, updates: Partial<Pick<Room, 'maxMentionChain' | 'viewMode' | 'costumeSelections' | 'coreMemoryDisabled'>>) => void;
     setRoomReplySuggestions: (id: string, replySuggestions?: RoomReplySuggestions) => void;

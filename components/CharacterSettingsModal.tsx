@@ -6,6 +6,7 @@ import {
     Character,
     Costume,
     Expression,
+    RealTimeMode,
     DEFAULT_CHARACTER_MAX_HISTORY,
     DEFAULT_CHARACTER_MAX_CHARACTERS,
 } from '@/lib/store';
@@ -15,6 +16,7 @@ import CostumeDiffModal from './CostumeDiffModal';
 import PromptSectionEditor from './PromptSectionEditor';
 import StoredImage from './StoredImage';
 import InfoButton from './InfoButton';
+import RealTimeModeSelector, { REAL_TIME_MODE_DESCRIPTION, toRealTimeMode } from './RealTimeModeSelector';
 import TtsVoiceField from './TtsVoiceField';
 import TtsSpeedSlider, { formatTtsSpeed } from './TtsSpeedSlider';
 import TtsVolumeSlider, { formatTtsVolume } from './TtsVolumeSlider';
@@ -53,6 +55,7 @@ function buildInitialCharacterDraft(
         protagonistPrompt: generatedDraft?.protagonistPrompt ?? character?.protagonistPrompt ?? '',
         userConstraints: character?.userConstraints ?? '',
         enableMemory: character?.enableMemory ?? true,
+        realTimeMode: toRealTimeMode(character?.realTimeMode),
         maxCharacters: character?.maxCharacters != null ? String(character.maxCharacters) : '',
         maxHistory: character?.maxHistory != null ? String(character.maxHistory) : '',
         icon: character?.icon ?? null,
@@ -107,6 +110,7 @@ function CharacterSettingsModalContent({
 
     // Memory settings
     const [enableMemory, setEnableMemory] = useState(initialDraft.enableMemory);
+    const [realTimeMode, setRealTimeMode] = useState<RealTimeMode>(initialDraft.realTimeMode);
 
     // Parameter settings
     const [parametersOpen, setParametersOpen] = useState(false);
@@ -149,6 +153,7 @@ function CharacterSettingsModalContent({
             protagonistPrompt,
             userConstraints,
             enableMemory,
+            realTimeMode,
             maxCharacters,
             maxHistory,
             icon,
@@ -178,6 +183,7 @@ function CharacterSettingsModalContent({
             protagonistPrompt: protagonistPrompt.trim() ? protagonistPrompt : undefined,
             userConstraints: userConstraints.trim() ? userConstraints : undefined,
             enableMemory,
+            realTimeMode: realTimeMode === 'off' ? undefined : realTimeMode,
             maxCharacters: maxCharacters ? Math.max(1, Math.round(Number(maxCharacters))) : undefined,
             maxHistory: maxHistory ? Math.min(100, Math.max(1, Number(maxHistory))) : undefined,
             icon: icon ?? undefined,
@@ -194,7 +200,7 @@ function CharacterSettingsModalContent({
             updateCharacter(character.id, updates);
         }
         onClose();
-    }, [character, costumes, createCharacter, enableMemory, expressions, icon, initialDraft, isNew, maxCharacters, maxHistory, name, onClose, protagonistPrompt, speechStyle, systemPrompt, ttsSpeed, ttsVoice, ttsVolume, updateCharacter, userConstraints]);
+    }, [character, costumes, createCharacter, enableMemory, expressions, icon, initialDraft, isNew, maxCharacters, maxHistory, name, onClose, protagonistPrompt, realTimeMode, speechStyle, systemPrompt, ttsSpeed, ttsVoice, ttsVolume, updateCharacter, userConstraints]);
 
     const attemptClose = useCallback(() => {
         const currentDraft = {
@@ -204,6 +210,7 @@ function CharacterSettingsModalContent({
             protagonistPrompt,
             userConstraints,
             enableMemory,
+            realTimeMode,
             maxCharacters,
             maxHistory,
             icon,
@@ -223,7 +230,7 @@ function CharacterSettingsModalContent({
         }
 
         onClose();
-    }, [character, costumes, enableMemory, expressions, icon, isNew, maxCharacters, maxHistory, name, onClose, protagonistPrompt, speechStyle, systemPrompt, ttsSpeed, ttsVoice, ttsVolume, userConstraints]);
+    }, [character, costumes, enableMemory, expressions, icon, isNew, maxCharacters, maxHistory, name, onClose, protagonistPrompt, realTimeMode, speechStyle, systemPrompt, ttsSpeed, ttsVoice, ttsVolume, userConstraints]);
 
     const childModalOpen = imageGenOpen || expressionsOpen || costumesOpen;
     useModalKeyboard({
@@ -577,6 +584,14 @@ function CharacterSettingsModalContent({
                                     boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
                                 }} />
                             </button>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+                            <div>
+                                {renderLabelWithInfo('現実の日時', REAL_TIME_MODE_DESCRIPTION, {
+                                    marginBottom: 0,
+                                })}
+                            </div>
+                            <RealTimeModeSelector value={realTimeMode} onChange={setRealTimeMode} />
                         </div>
                     </div>
 

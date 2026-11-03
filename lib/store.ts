@@ -77,6 +77,7 @@ export type {
     Message,
     MessageAttachment,
     Room,
+    RealTimeMode,
     RoomViewMode,
     RoomCompressionSnapshot,
     RoomReplySuggestions,

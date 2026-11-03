@@ -27,6 +27,7 @@ import {
     defaultGroupRoomName,
     getSituationActorIds,
     getSituationCostumeSelections,
+    normalizeRealTimeMode,
     normalizeSituationActor,
     normalizeSituationMaxTurns,
     normalizeSituationMaxHistory,
@@ -200,6 +201,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
                 ...(input.limitTurns === true ? { limitTurns: true } : {}),
                 memoryMode: input.memoryMode === 'readOnly' ? 'readOnly' : 'off',
                 ...(input.separateNarration === true ? { separateNarration: true } : {}),
+                ...(normalizeRealTimeMode(input.realTimeMode) ? { realTimeMode: normalizeRealTimeMode(input.realTimeMode) } : {}),
                 maxHistory: normalizeSituationMaxHistory(input.maxHistory),
                 createdAt: now,
                 updatedAt: now,
@@ -442,6 +444,7 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
                             ),
                             memoryMode: updates.memoryMode === 'readOnly' ? 'readOnly' : updates.memoryMode === 'off' ? 'off' : g.memoryMode ?? 'off',
                             maxHistory: 'maxHistory' in updates ? normalizeSituationMaxHistory(updates.maxHistory) : g.maxHistory,
+                            realTimeMode: normalizeRealTimeMode('realTimeMode' in updates ? updates.realTimeMode : g.realTimeMode),
                             updatedAt: now,
                         };
                         return updated;

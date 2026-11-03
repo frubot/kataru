@@ -7,8 +7,8 @@
 use serde_json::Value;
 
 /// 日本標準時は夏時間を持たないため固定オフセットで扱える。
-const JST_OFFSET_MS: i64 = 9 * 60 * 60 * 1_000;
-const DAY_MS: i64 = 24 * 60 * 60 * 1_000;
+pub(super) const JST_OFFSET_MS: i64 = 9 * 60 * 60 * 1_000;
+pub(super) const DAY_MS: i64 = 24 * 60 * 60 * 1_000;
 
 /// 記憶レコードから出来事の時刻を取り出す。`createdAt` を優先する。
 pub(super) fn memory_occurred_at(memory: &Value) -> Option<i64> {
@@ -37,7 +37,7 @@ pub(super) fn date_label(occurred_at_ms: i64, now_ms: i64) -> Option<String> {
     ))
 }
 
-fn jst_day_number(ms: i64) -> i64 {
+pub(super) fn jst_day_number(ms: i64) -> i64 {
     (ms + JST_OFFSET_MS).div_euclid(DAY_MS)
 }
 
@@ -54,7 +54,7 @@ fn relative_label(age_days: i64) -> String {
 }
 
 /// 1970-01-01 からの日数を暦の年月日に変換する。
-fn civil_from_days(days: i64) -> (i64, u32, u32) {
+pub(super) fn civil_from_days(days: i64) -> (i64, u32, u32) {
     let shifted = days + 719_468;
     let era = if shifted >= 0 {
         shifted

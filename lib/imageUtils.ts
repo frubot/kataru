@@ -61,6 +61,8 @@ export async function cropSquareToPng(
     return canvas.toDataURL('image/png');
 }
 
+// Crop a rectangle in original image coordinates. The rectangle may extend
+// beyond the image; the area outside the image stays transparent.
 export async function cropRectToPng(
     dataUrl: string,
     sx: number,
@@ -73,7 +75,19 @@ export async function cropRectToPng(
     canvas.width = Math.max(1, Math.round(sWidth));
     canvas.height = Math.max(1, Math.round(sHeight));
     const ctx = canvas.getContext('2d')!;
-    ctx.drawImage(img, sx, sy, sWidth, sHeight, 0, 0, canvas.width, canvas.height);
+    const kx = canvas.width / sWidth;
+    const ky = canvas.height / sHeight;
+    const ix0 = Math.max(sx, 0);
+    const iy0 = Math.max(sy, 0);
+    const ix1 = Math.min(sx + sWidth, img.width);
+    const iy1 = Math.min(sy + sHeight, img.height);
+    if (ix1 > ix0 && iy1 > iy0) {
+        ctx.drawImage(
+            img,
+            ix0, iy0, ix1 - ix0, iy1 - iy0,
+            (ix0 - sx) * kx, (iy0 - sy) * ky, (ix1 - ix0) * kx, (iy1 - iy0) * ky,
+        );
+    }
     return canvas.toDataURL('image/png');
 }
 

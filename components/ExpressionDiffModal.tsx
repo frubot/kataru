@@ -182,7 +182,7 @@ export default function ExpressionDiffModal({
         const img = await loadImage(resized);
         setUploadImage(resized);
         setUploadNatural({ w: img.width, h: img.height });
-        setUploadCrop(createInitialCrop(img.width, img.height, EXPRESSION_ASPECT));
+        setUploadCrop(createInitialCrop(img.width, img.height, EXPRESSION_ASPECT, true));
     };
 
     const nameExists = (name: string, currentName?: string) => displayExpressions.some((expression) => (
@@ -829,6 +829,7 @@ export default function ExpressionDiffModal({
                                         natural={uploadNatural}
                                         crop={uploadCrop}
                                         aspect={EXPRESSION_ASPECT}
+                                        allowOverflow
                                         onChange={(next) => setUploadCrop(next)}
                                     />
                                 </div>

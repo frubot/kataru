@@ -200,7 +200,7 @@ export default function ImageGenerationModal({
             setSource('uploaded');
             setImgNatural({ w: img.width, h: img.height });
             setAvatarCrop(createInitialCrop(img.width, img.height, AVATAR_ASPECT));
-            setNeutralCrop(createInitialCrop(img.width, img.height, NEUTRAL_ASPECT));
+            setNeutralCrop(createInitialCrop(img.width, img.height, NEUTRAL_ASPECT, true));
             setCropTarget('neutral');
         } catch (err) {
             setError(err instanceof Error ? err.message : '画像の読み込みに失敗しました');
@@ -391,6 +391,7 @@ export default function ImageGenerationModal({
                                     natural={imgNatural}
                                     crop={neutralCrop}
                                     aspect={NEUTRAL_ASPECT}
+                                    allowOverflow
                                     onChange={(next) => setNeutralCrop(next)}
                                 />
                             ) : (

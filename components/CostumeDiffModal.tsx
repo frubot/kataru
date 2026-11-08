@@ -136,7 +136,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
         const img = await loadImage(resized);
         setUploadImage(resized);
         setUploadNatural({ w: img.width, h: img.height });
-        setUploadCrop(createInitialCrop(img.width, img.height, COSTUME_ASPECT));
+        setUploadCrop(createInitialCrop(img.width, img.height, COSTUME_ASPECT, true));
     };
 
     const detectedNameRegistry = () => createNameRegistry([
@@ -851,6 +851,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                         natural={uploadNatural}
                                         crop={uploadCrop}
                                         aspect={COSTUME_ASPECT}
+                                        allowOverflow
                                         onChange={(next) => setUploadCrop(next)}
                                     />
                                 </div>

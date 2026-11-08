@@ -9,8 +9,23 @@ export interface CropBox {
     height: number;
 }
 
-export function createInitialCrop(width: number, height: number, aspect: number): CropBox {
+/** Area (in original image coordinates) the crop box may occupy. */
+interface CropBounds {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+/**
+ * Returns the initial crop box. With `allowOverflow`, an image narrower than
+ * `aspect` starts with a box that contains the whole image.
+ */
+export function createInitialCrop(width: number, height: number, aspect: number, allowOverflow = false): CropBox {
     const imageAspect = width / height;
+    if (allowOverflow && imageAspect < aspect) {
+        return getCropBounds({ w: width, h: height }, aspect, true);
+    }
     const cropWidth = imageAspect > aspect ? height * aspect : width;
     const cropHeight = imageAspect > aspect ? height : width / aspect;
     return {
@@ -21,24 +36,42 @@ export function createInitialCrop(width: number, height: number, aspect: number)
     };
 }
 
+/**
+ * Returns the area the crop box may occupy. With `allowOverflow`, an image
+ * narrower than `aspect` gets transparent margins on the left and right so
+ * the whole image fits inside one crop box.
+ */
+function getCropBounds(natural: { w: number; h: number }, aspect: number, allowOverflow: boolean): CropBounds {
+    if (!allowOverflow || natural.w / natural.h >= aspect) {
+        return { x: 0, y: 0, width: natural.w, height: natural.h };
+    }
+    const width = natural.h * aspect;
+    return { x: (natural.w - width) / 2, y: 0, width, height: natural.h };
+}
+
 interface CropAreaProps {
     imgRef: RefObject<HTMLImageElement | null>;
     src: string;
     natural: { w: number; h: number };
     crop: CropBox;
     aspect: number;
+    /** Lets the crop box extend past the left and right edges of the image. The outside area is saved as transparent. */
+    allowOverflow?: boolean;
     onChange: (next: CropBox) => void;
 }
 
-export function CropArea({ imgRef, src, natural, crop, aspect, onChange }: CropAreaProps) {
+const CHECKERBOARD_BACKGROUND = 'repeating-conic-gradient(var(--bg-tertiary) 0% 25%, var(--bg-secondary) 0% 50%) 0 0 / 16px 16px';
+
+export function CropArea({ imgRef, src, natural, crop, aspect, allowOverflow = false, onChange }: CropAreaProps) {
     const containerRef = useRef<HTMLDivElement>(null);
-    const [displaySize, setDisplaySize] = useState<{ w: number; h: number } | null>(null);
+    const [displayWidth, setDisplayWidth] = useState<number | null>(null);
+    const bounds = getCropBounds(natural, aspect, allowOverflow);
 
     const recompute = useCallback(() => {
-        const el = imgRef.current;
+        const el = containerRef.current;
         if (!el) return;
-        setDisplaySize({ w: el.clientWidth, h: el.clientHeight });
-    }, [imgRef]);
+        setDisplayWidth(el.clientWidth);
+    }, []);
 
     useEffect(() => {
         recompute();
@@ -46,7 +79,8 @@ export function CropArea({ imgRef, src, natural, crop, aspect, onChange }: CropA
         return () => window.removeEventListener('resize', recompute);
     }, [recompute]);
 
-    const scale = displaySize ? displaySize.w / natural.w : 1;
+    // Display pixels per original image pixel.
+    const scale = displayWidth ? displayWidth / bounds.width : 1;
 
     type DragMode =
         | { kind: 'move'; pointerId: number; offsetX: number; offsetY: number }
@@ -54,7 +88,7 @@ export function CropArea({ imgRef, src, natural, crop, aspect, onChange }: CropA
     const dragRef = useRef<DragMode | null>(null);
 
     const onPointerDownBox = (e: ReactPointerEvent) => {
-        if (!displaySize) return;
+        if (!displayWidth) return;
         if (e.pointerType === 'mouse' && e.button !== 0) return;
         e.preventDefault();
         const rect = e.currentTarget.getBoundingClientRect();
@@ -68,7 +102,7 @@ export function CropArea({ imgRef, src, natural, crop, aspect, onChange }: CropA
     };
 
     const onPointerDownResize = (e: ReactPointerEvent) => {
-        if (!displaySize) return;
+        if (!displayWidth) return;
         if (e.pointerType === 'mouse' && e.button !== 0) return;
         e.preventDefault();
         e.stopPropagation();
@@ -96,31 +130,32 @@ export function CropArea({ imgRef, src, natural, crop, aspect, onChange }: CropA
     const onWindowPointerMove = (e: PointerEvent) => {
         const mode = dragRef.current;
         const container = containerRef.current;
-        if (!mode || !container || !displaySize) return;
+        if (!mode || !container || !displayWidth) return;
         if (e.pointerId !== mode.pointerId) return;
         e.preventDefault();
         const rect = container.getBoundingClientRect();
+        // Pointer position in display pixels, measured from the top-left of the bounds.
         const px = e.clientX - rect.left;
         const py = e.clientY - rect.top;
+        const boundsWidthPx = bounds.width * scale;
+        const boundsHeightPx = bounds.height * scale;
         if (mode.kind === 'move') {
-            const newDisplayX = px - mode.offsetX;
-            const newDisplayY = py - mode.offsetY;
             const widthPx = crop.width * scale;
             const heightPx = crop.height * scale;
-            const clampedX = Math.max(0, Math.min(displaySize.w - widthPx, newDisplayX));
-            const clampedY = Math.max(0, Math.min(displaySize.h - heightPx, newDisplayY));
+            const clampedX = Math.max(0, Math.min(boundsWidthPx - widthPx, px - mode.offsetX));
+            const clampedY = Math.max(0, Math.min(boundsHeightPx - heightPx, py - mode.offsetY));
             onChange({
-                x: clampedX / scale,
-                y: clampedY / scale,
+                x: bounds.x + clampedX / scale,
+                y: bounds.y + clampedY / scale,
                 width: crop.width,
                 height: crop.height,
             });
         } else {
-            const anchorPxX = mode.anchorX * scale;
-            const anchorPxY = mode.anchorY * scale;
+            const anchorPxX = (mode.anchorX - bounds.x) * scale;
+            const anchorPxY = (mode.anchorY - bounds.y) * scale;
             const dx = px - anchorPxX;
             const dy = py - anchorPxY;
-            const maxWidthPx = Math.min(displaySize.w - anchorPxX, (displaySize.h - anchorPxY) * aspect);
+            const maxWidthPx = Math.min(boundsWidthPx - anchorPxX, (boundsHeightPx - anchorPxY) * aspect);
             if (maxWidthPx <= 0) return;
             const minWidthPx = Math.min(maxWidthPx, Math.max(20, 20 * aspect));
             const rawWidthPx = Math.min(dx, dy * aspect);
@@ -144,11 +179,13 @@ export function CropArea({ imgRef, src, natural, crop, aspect, onChange }: CropA
     // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => () => detachWindowListeners(), []);
 
-    const boxStyle: CSSProperties = displaySize
+    const hasOverflow = bounds.width !== natural.w || bounds.height !== natural.h;
+
+    const boxStyle: CSSProperties = displayWidth
         ? {
             position: 'absolute',
-            left: crop.x * scale,
-            top: crop.y * scale,
+            left: (crop.x - bounds.x) * scale,
+            top: (crop.y - bounds.y) * scale,
             width: crop.width * scale,
             height: crop.height * scale,
             border: '2px solid var(--accent-primary)',
@@ -165,7 +202,8 @@ export function CropArea({ imgRef, src, natural, crop, aspect, onChange }: CropA
                 style={{
                     position: 'relative',
                     width: '100%',
-                    background: 'var(--bg-tertiary)',
+                    aspectRatio: `${bounds.width} / ${bounds.height}`,
+                    background: hasOverflow ? CHECKERBOARD_BACKGROUND : 'var(--bg-tertiary)',
                     borderRadius: 8,
                     overflow: 'hidden',
                     userSelect: 'none',
@@ -178,7 +216,15 @@ export function CropArea({ imgRef, src, natural, crop, aspect, onChange }: CropA
                     alt="crop source"
                     onLoad={recompute}
                     draggable={false}
-                    style={{ width: '100%', display: 'block', touchAction: 'none' }}
+                    style={{
+                        position: 'absolute',
+                        left: `${(-bounds.x / bounds.width) * 100}%`,
+                        top: `${(-bounds.y / bounds.height) * 100}%`,
+                        width: `${(natural.w / bounds.width) * 100}%`,
+                        height: `${(natural.h / bounds.height) * 100}%`,
+                        display: 'block',
+                        touchAction: 'none',
+                    }}
                 />
                 <div style={boxStyle} onPointerDown={onPointerDownBox}>
                     <div

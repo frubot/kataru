@@ -175,6 +175,19 @@ export function normalizeSituationPriorMessages(
     return normalized;
 }
 
+/**
+ * Appends the removed `characterCommonRules` field of older data to the
+ * situation prompt so that saved rules are not lost.
+ */
+function migrateLegacyCommonRules(situation: Situation): string {
+    const prompt = situation.situationPrompt ?? '';
+    const legacy = (situation as Situation & { characterCommonRules?: unknown }).characterCommonRules;
+    const rules = typeof legacy === 'string' ? legacy.trim() : '';
+    if (!rules) return prompt;
+    const trimmedPrompt = prompt.trim();
+    return trimmedPrompt ? `${trimmedPrompt}\n\n${rules}` : rules;
+}
+
 export function normalizeSituation(
     situation: Situation,
     validCharacterIds: Set<string>,
@@ -195,7 +208,7 @@ export function normalizeSituation(
         ...(typeof situation.backgroundImage === 'string' && situation.backgroundImage
             ? { backgroundImage: situation.backgroundImage }
             : {}),
-        situationPrompt: situation.situationPrompt ?? '',
+        situationPrompt: migrateLegacyCommonRules(situation),
         priorMessages: normalizeSituationPriorMessages(situation.priorMessages, new Set(actorIds)),
         actors,
         maxTurns: storedSituationMaxTurns(situation),

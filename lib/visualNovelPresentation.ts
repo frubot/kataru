@@ -263,14 +263,23 @@ export type StreamingVisualNovelPagination = {
     pages: StreamingVisualNovelPage[];
 };
 
+// Sanitization removes only a few markers, so a larger difference means the text
+// is no longer the one the boundaries were computed for.
+const VN_ALIGNMENT_MIN_MISMATCH_ALLOWANCE = 4;
+const VN_ALIGNMENT_MAX_MISMATCH_RATIO = 0.1;
+const VN_PAGE_CLOSING_ONLY = /^[\s」』】）》”’"'。、．，.,!！？?…]*$/u;
+
 // Final responses can remove quotation/Markdown markers and unescape line breaks.
 // Align those edits before reusing source offsets; page numbers alone lose text.
-function mapVisualNovelPageEnds(before: string, after: string, ends: number[]): number[] {
+// Returns null when the texts diverge beyond such cleanup.
+function mapVisualNovelPageEnds(before: string, after: string, ends: number[]): number[] | null {
     if (after.startsWith(before)) return ends;
 
+    const region = Math.max(0, ...ends);
     const offsets = new Map<number, number>([[0, 0]]);
     let source = 0;
     let target = 0;
+    let mismatches = 0;
     while (source < before.length) {
         if (before[source] === after[target]) {
             source++;
@@ -287,20 +296,42 @@ function mapVisualNovelPageEnds(before: string, after: string, ends: number[]): 
             const nextSource = before.indexOf(after[target] ?? '', source + 1);
             const nextTarget = after.indexOf(before[source], target + 1);
             if (nextTarget >= 0 && (nextSource < 0 || nextTarget - target < nextSource - source)) {
+                if (source < region) mismatches += nextTarget - target;
                 target = nextTarget;
                 continue;
             }
+            if (source < region) mismatches++;
             source++;
         }
         offsets.set(source, target);
     }
+    const allowance = Math.max(
+        VN_ALIGNMENT_MIN_MISMATCH_ALLOWANCE,
+        Math.ceil(region * VN_ALIGNMENT_MAX_MISMATCH_RATIO),
+    );
+    if (mismatches > allowance) return null;
     return ends.map((end) => offsets.get(end) ?? offsets.get(end - 1) ?? 0);
 }
 
 /** Keep the read prefix aligned when the final response removes formatting markers. */
 export function alignVisualNovelTypedContent(before: string, after: string, visible: string): string {
-    const [end] = mapVisualNovelPageEnds(before, after, [visible.length]);
+    const [end] = mapVisualNovelPageEnds(before, after, [visible.length]) ?? [0];
     return after.slice(0, end);
+}
+
+/**
+ * Reused boundaries must still cut the new text into readable pages. A page that is
+ * empty, or holds only a closing quote or punctuation, would render as a blank box.
+ */
+function areUsableVisualNovelPageEnds(content: string, ends: number[]): boolean {
+    let start = 0;
+    for (const end of ends) {
+        if (end <= start || end > content.length) return false;
+        if (VN_PAGE_CLOSING_ONLY.test(content.slice(start, end))) return false;
+        start = end;
+    }
+    const rest = content.slice(start).trim();
+    return !rest || !VN_PAGE_CLOSING_ONLY.test(rest);
 }
 
 /** Retain confirmed boundaries and paginate only the remaining, unfinished suffix. */
@@ -312,8 +343,14 @@ export function updateStreamingVisualNovelPagination(
 ): StreamingVisualNovelPagination {
     const normalized = content.trim();
     const confirmed = previous?.pages.filter((page) => page.complete) ?? [];
-    const ends = previous
+    const mappedEnds = previous
         ? mapVisualNovelPageEnds(previous.content, normalized, confirmed.map((page) => page.end))
+        : [];
+    // Divergent text starts over rather than inheriting boundaries that no longer fit.
+    // Plain growth keeps the boundaries already on screen as they are.
+    const realigned = previous != null && !normalized.startsWith(previous.content);
+    const ends = mappedEnds && (!realigned || areUsableVisualNovelPageEnds(normalized, mappedEnds))
+        ? mappedEnds
         : [];
     let start = 0;
     const pages = ends.map((end) => {

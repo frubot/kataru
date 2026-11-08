@@ -231,7 +231,11 @@ export function buildSituationVisualNovelPreviewItems(
         .filter((turn) => turn.content.trim() || turn.expression || turn.motion)
         .flatMap((turn) => {
             const id = `${jobId}:${turn.turnIndex}`;
-            const previous = previousItems.find((item) => item.id === id)?.pagination;
+            // A turn index can name another speaker's line once the final response
+            // merges or drops turns, so only that same speaker's boundaries carry over.
+            const previous = previousItems.find((item) => (
+                item.id === id && item.characterId === turn.characterId
+            ))?.pagination;
             // The first continuation turn paginates the previous reply's final
             // page plus the streamed text, matching the persisted merge.
             const mergeable = continuationBase !== undefined
@@ -420,11 +424,29 @@ export function finishSituationVisualNovelPreviewItems(
         item.source === 'preview' ? { ...item, content: item.bufferedContent ?? item.content, streamingComplete: true } : item
     );
     const current = state.current ? finish(state.current) : null;
-    const pending = state.pending.map(finish);
-    if (state.waitingForNextPage && pending[0]?.content.trim()) {
+    // Generation has ended, so a page still without text never gets any. Keeping it
+    // would block paging forward and leave the presentation locked.
+    const pending = state.pending.map(finish).filter((item) => item.content.trim());
+    if (state.waitingForNextPage && pending[0]) {
         return applyBoundaryPageReplacement(
             showItem({ ...state, pending: pending.slice(1) }, pending[0], true),
         );
+    }
+    if (current?.source === 'preview' && !current.content.trim()) {
+        // An empty line cannot finish typing, so it would stay blank and unreadable.
+        if (pending[0]) {
+            return applyBoundaryPageReplacement(
+                showItem({ ...state, pending: pending.slice(1) }, pending[0], true),
+            );
+        }
+        return {
+            ...state,
+            current,
+            pending,
+            currentComplete: true,
+            animateCurrent: false,
+            waitingForNextPage: false,
+        };
     }
     return applyBoundaryPageReplacement({
         ...state,
@@ -595,6 +617,11 @@ export function advanceSituationVisualNovelPresentation(
     isLoading: boolean,
 ): SituationVisualNovelPresentationState {
     if (!state.locked || !state.currentComplete) return state;
+    if (!isLoading && state.pending.some((item) => !item.content.trim())) {
+        // Without generation running, an empty page stays empty; skip it so paging
+        // continues and the presentation can unlock.
+        state = { ...state, pending: state.pending.filter((item) => item.content.trim()) };
+    }
     if (state.pending.length > 0 && state.pending[0].content.trim()) {
         const [current, ...pending] = state.pending;
         return showItem({ ...state, pending }, current, true);

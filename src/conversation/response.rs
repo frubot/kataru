@@ -421,6 +421,8 @@ pub(crate) fn parse_ensemble_response(
                 Some(last) if last.speaker == NARRATOR_ID => {
                     last.envelope.message.push_str("\n\n");
                     last.envelope.message.push_str(&turn.envelope.message);
+                    // 置換やメッセージモードは吹き出しの列から本文を組み直すので、こちらもつなぐ。
+                    last.envelope.messages.extend(turn.envelope.messages);
                 }
                 _ => turns.push(turn),
             }
@@ -513,14 +515,17 @@ pub(crate) fn ensemble_response_preview(
             if let Some(turn) = parse_json_value(&content[cursor..end])
                 .and_then(|value| parse_ensemble_turn(&value, speakers, message_mode))
             {
-                previews.push(EnsembleTurnPreview {
-                    speaker: turn.speaker,
-                    complete: true,
-                    content: turn.envelope.message,
-                    messages: turn.envelope.messages,
-                    expression: turn.envelope.expression,
-                    motion: turn.envelope.motion,
-                });
+                push_ensemble_preview(
+                    &mut previews,
+                    EnsembleTurnPreview {
+                        speaker: turn.speaker,
+                        complete: true,
+                        content: turn.envelope.message,
+                        messages: turn.envelope.messages,
+                        expression: turn.envelope.expression,
+                        motion: turn.envelope.motion,
+                    },
+                );
             }
             cursor = end;
             continue;
@@ -535,17 +540,39 @@ pub(crate) fn ensemble_response_preview(
             break;
         };
         let preview = assistant_response_preview(partial, message_mode, speaker.max_characters);
-        previews.push(EnsembleTurnPreview {
-            speaker: speaker.id.clone(),
-            complete: false,
-            content: preview.content,
-            messages: preview.confirmed_messages,
-            expression: assistant_expression_preview(partial, &speaker.expression_names),
-            motion: assistant_motion_preview(partial, &speaker.motion_names),
-        });
+        push_ensemble_preview(
+            &mut previews,
+            EnsembleTurnPreview {
+                speaker: speaker.id.clone(),
+                complete: false,
+                content: preview.content,
+                messages: preview.confirmed_messages,
+                expression: assistant_expression_preview(partial, &speaker.expression_names),
+                motion: assistant_motion_preview(partial, &speaker.motion_names),
+            },
+        );
         break;
     }
     previews
+}
+
+/// 確定版の `parse_ensemble_response` と同じく、続けて並んだナレーションは1つにまとめる。
+/// 発言の番号が確定時にずれると、クライアントのページ区切りが別の発言へ引き継がれてしまう。
+fn push_ensemble_preview(previews: &mut Vec<EnsembleTurnPreview>, preview: EnsembleTurnPreview) {
+    if preview.speaker == NARRATOR_ID
+        && let Some(last) = previews
+            .last_mut()
+            .filter(|last| last.speaker == NARRATOR_ID)
+    {
+        if !preview.content.is_empty() {
+            last.content.push_str("\n\n");
+            last.content.push_str(&preview.content);
+        }
+        last.messages.extend(preview.messages);
+        last.complete = preview.complete;
+        return;
+    }
+    previews.push(preview);
 }
 
 pub fn strip_json_code_fence(content: &str) -> &str {
@@ -1358,5 +1385,44 @@ mod tests {
         assert!(!previews[0].complete);
         assert_eq!(previews[0].messages, vec!["おはよう"]);
         assert_eq!(previews[0].content, "おはよう\n\n今日");
+    }
+
+    #[test]
+    fn ensemble_preview_merges_consecutive_narration_like_the_final_response() {
+        let speakers = narrated_speakers();
+        let closed = r#"{"turns": [
+            {"speaker": "narrator", "message": "雨が降り始めた。"},
+            {"speaker": "narrator", "message": "窓が曇る。"},
+            {"speaker": "aoi", "expression": "smile", "message": "おはよう！"}
+        ]}"#;
+        let previews = ensemble_response_preview(closed, &speakers, false);
+        let finals = parse_ensemble_response(closed, &speakers, false, 3).expect("ensemble turns");
+        assert_eq!(previews.len(), finals.len());
+        assert_eq!(previews[0].content, finals[0].envelope.message);
+        assert_eq!(previews[0].content, "雨が降り始めた。\n\n窓が曇る。");
+        assert!(previews[0].complete);
+        assert_eq!(previews[1].speaker, "aoi");
+
+        // 書きかけのナレーションも直前のナレーションへつなぎ、番号を確定版とそろえる。
+        let partial = r#"{"turns": [{"speaker": "narrator", "message": "雨が降り始めた。"}, {"speaker": "narrator", "message": "窓が"#;
+        let previews = ensemble_response_preview(partial, &speakers, false);
+        assert_eq!(previews.len(), 1);
+        assert!(!previews[0].complete);
+        assert_eq!(previews[0].content, "雨が降り始めた。\n\n窓が");
+    }
+
+    #[test]
+    fn merged_narration_keeps_every_message_for_bubble_based_processing() {
+        let content = r#"{"turns": [
+            {"speaker": "narrator", "message": "雨が降り始めた。"},
+            {"speaker": "narrator", "message": "窓が曇る。"}
+        ]}"#;
+        let turns = parse_ensemble_response(content, &narrated_speakers(), false, 3)
+            .expect("ensemble turns");
+        assert_eq!(turns.len(), 1);
+        assert_eq!(
+            turns[0].envelope.messages,
+            vec!["雨が降り始めた。", "窓が曇る。"]
+        );
     }
 }

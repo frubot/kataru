@@ -634,6 +634,71 @@ describe('situation visual novel presentation', () => {
         ]);
     });
 
+    test('does not carry another speaker’s boundaries onto a renumbered turn', () => {
+        const narration = `${'ぬ'.repeat(90)}。${'ね'.repeat(90)}。`;
+        const line = `「${'あ'.repeat(90)}。${'い'.repeat(90)}。」`;
+        const streaming = buildSituationVisualNovelPreviewItems('job', [
+            { turnIndex: 0, characterId: 'narrator', content: '前置き。', complete: true },
+            { turnIndex: 1, characterId: 'narrator', content: narration, complete: true },
+        ]);
+        // The final response merged both narrations, so turn 1 is now the actor's line.
+        const final = buildSituationVisualNovelPreviewItems('job', [
+            { turnIndex: 0, characterId: 'narrator', content: `前置き。\n\n${narration}`, complete: true },
+            { turnIndex: 1, characterId: 'actor-a', content: line, complete: true },
+        ], streaming);
+        const lineItems = final.filter((item) => item.characterId === 'actor-a');
+
+        expect(lineItems.map((item) => item.content)).toEqual(
+            buildSituationVisualNovelPreviewItems('fresh', [
+                { turnIndex: 0, characterId: 'actor-a', content: line, complete: true },
+            ]).map((item) => item.content),
+        );
+        expect(final.every((item) => item.content.replace(/[」\s]/g, ''))).toBe(true);
+    });
+
+    test('moves past an empty preview line once generation ends', () => {
+        const metadataOnly = buildSituationVisualNovelPreviewItems('job', [{
+            turnIndex: 0, characterId: 'actor-a', expression: 'smile', content: '', complete: false,
+        }]);
+        let state = createSituationVisualNovelPresentationState({
+            hasRoomHistory: true, priorItems: [], roomItems: [], isLoading: true,
+        });
+        state = beginSituationVisualNovelResponse(state);
+        state = appendSituationVisualNovelItems(state, metadataOnly);
+        expect(state.current?.content).toBe('');
+
+        state = finishSituationVisualNovelPreviewItems(state);
+        expect(state.currentComplete).toBe(true);
+        expect(unlockSituationVisualNovelPresentation(state, false).locked).toBe(false);
+    });
+
+    test('skips empty queued pages instead of blocking the reader after generation', () => {
+        const preview = buildSituationVisualNovelPreviewItems('job', [
+            { turnIndex: 0, characterId: 'actor-a', content: '読める台詞。', complete: true },
+            { turnIndex: 1, characterId: 'actor-b', expression: 'smile', content: '', complete: false },
+            { turnIndex: 2, characterId: 'actor-a', content: '次の台詞。', complete: true },
+        ]);
+        let state = createSituationVisualNovelPresentationState({
+            hasRoomHistory: true, priorItems: [], roomItems: [], isLoading: true,
+        });
+        state = beginSituationVisualNovelResponse(state);
+        state = appendSituationVisualNovelItems(state, preview);
+        state = completeSituationVisualNovelItem(state, state.current!.key);
+        expect(state.pending[0].content).toBe('');
+
+        state = advanceSituationVisualNovelPresentation(state, false);
+        expect(state.current?.content).toBe('次の台詞。');
+        expect(state.pending).toEqual([]);
+
+        let finished = createSituationVisualNovelPresentationState({
+            hasRoomHistory: true, priorItems: [], roomItems: [], isLoading: true,
+        });
+        finished = beginSituationVisualNovelResponse(finished);
+        finished = appendSituationVisualNovelItems(finished, preview.slice(0, 2));
+        finished = finishSituationVisualNovelPreviewItems(finished);
+        expect(finished.pending).toEqual([]);
+    });
+
     test('completes a buffered sentence when the saved response arrives before the last preview', () => {
         const preview = buildSituationVisualNovelPreviewItems('job', [{
             turnIndex: 0, content: 'まだ途中', complete: false,

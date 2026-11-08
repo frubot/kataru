@@ -219,6 +219,34 @@ describe('visual novel typewriter presentation', () => {
         expect(after.pages[1].content).toBe(`い境${'う'.repeat(20)}`);
         expect(after.pages.map((page) => page.content).join('')).toBe(content);
     });
+
+    test('paginates afresh instead of leaving blank pages when the final text diverges', () => {
+        const streamed = `${'あ'.repeat(100)}。${'い'.repeat(100)}。${'う'.repeat(100)}。${'え'.repeat(10)}`;
+        const before = updateStreamingVisualNovelPagination(streamed, false);
+        expect(before.pages.filter((page) => page.complete)).toHaveLength(3);
+
+        for (const content of [
+            `${'あ'.repeat(100)}。`,
+            `「${'か'.repeat(150)}」`,
+            `${'い'.repeat(100)}。${'う'.repeat(100)}。${'え'.repeat(10)}。`,
+        ]) {
+            const after = updateStreamingVisualNovelPagination(content, true, before);
+            expect(after.pages.every((page) => page.content.trim())).toBe(true);
+            expect(after.pages.map((page) => page.content).join('')).toBe(content);
+        }
+    });
+
+    test('never strands a closing quote on its own page when reused boundaries no longer fit', () => {
+        const narration = `${'ぬ'.repeat(90)}。${'ね'.repeat(90)}。`;
+        const before = updateStreamingVisualNovelPagination(narration, true);
+        const line = `「${'あ'.repeat(90)}。${'い'.repeat(90)}。」`;
+        const after = updateStreamingVisualNovelPagination(line, true, before);
+
+        expect(after.pages.map((page) => page.content)).toEqual(
+            updateStreamingVisualNovelPagination(line, true).pages.map((page) => page.content),
+        );
+        expect(after.pages.some((page) => page.content === '」')).toBe(false);
+    });
 });
 
 describe('visual novel character bounce', () => {

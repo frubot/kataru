@@ -507,6 +507,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         ttsCaptionCfgScale, setTtsCaptionCfgScale,
         ttsChunkMinChars, setTtsChunkMinChars,
         ttsFirstChunkMinChars, setTtsFirstChunkMinChars,
+        ttsStreamingEnabled, setTtsStreamingEnabled,
         ttsNarrationEnabled, setTtsNarrationEnabled,
         ttsNarratorVoice, setTtsNarratorVoice,
         resetModelDefaults,
@@ -1560,6 +1561,12 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                                 </span>
                                             </div>
                                         </div>
+                                        {renderDebugToggle({
+                                            label: '文ごとに分割して逐次再生する（SSE）',
+                                            enabled: ttsStreamingEnabled,
+                                            onToggle: () => setTtsStreamingEnabled(!ttsStreamingEnabled),
+                                            ariaLabel: '文ごとに分割して逐次再生する（SSE）',
+                                        })}
                                         <div className="global-settings-selector-row">
                                             <label
                                                 htmlFor="tts-chunk-min-chars-input"
@@ -1578,6 +1585,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                                         max={TTS_CHUNK_MIN_CHARS_MAX}
                                                         value={ttsChunkMinChars}
                                                         ariaLabel="読み上げ分割の最小文字数"
+                                                        disabled={!ttsStreamingEnabled}
                                                         onChange={setTtsChunkMinChars}
                                                     />
                                                 </div>
@@ -1611,6 +1619,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                                         max={TTS_FIRST_CHUNK_MIN_CHARS_MAX}
                                                         value={ttsFirstChunkMinChars}
                                                         ariaLabel="最初の分割の最小文字数"
+                                                        disabled={!ttsStreamingEnabled}
                                                         onChange={setTtsFirstChunkMinChars}
                                                     />
                                                 </div>

@@ -27,6 +27,9 @@ export interface TtsRequestParams {
     /** 先頭の区切りだけに適用されるしきい値
      * （irodori.first_sentence_chunk_min_chars）。 */
     firstChunkMinChars: number;
+    /** IrodoriでSSEによる文単位の逐次受信を使うか。falseではセグメントごとに
+     * 1つの音声をまとめて受け取る。 */
+    streaming: boolean;
     aiApiConfig: AiApiConfig;
 }
 
@@ -298,7 +301,7 @@ async function fetchTtsAudio(
                 model: params.profile.model || undefined,
                 // Irodori接続ではSSEで文単位の音声を逐次受け取る。他の接続先は
                 // 無視されて通常の音声応答になる（content-typeで判別する）。
-                stream: true,
+                stream: params.streaming,
                 aiApiConfig: params.aiApiConfig,
             }),
         });
@@ -570,7 +573,7 @@ export function getTtsAudioLevel(): number {
  * volumeは再生時に反映されるだけなので含めない。 */
 function ttsCacheKey(params: TtsRequestParams): string {
     const { connectionId, model, voice, speed } = params.profile;
-    return JSON.stringify([params.segments, connectionId, model, voice, speed, params.captionCfgScale, params.chunkMinChars, params.firstChunkMinChars, params.narratorVoice]);
+    return JSON.stringify([params.segments, connectionId, model, voice, speed, params.captionCfgScale, params.chunkMinChars, params.firstChunkMinChars, params.streaming, params.narratorVoice]);
 }
 
 function dropEntryAudio(entry: TtsEntry): void {

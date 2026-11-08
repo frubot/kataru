@@ -69,6 +69,9 @@ export const DEFAULT_TTS_CHUNK_MIN_CHARS = 30;
  * （first_sentence_chunk_min_chars）。1だと「うん、」のような数文字の
  * 断片が即再生される代わりに直後の合成待ちが目立つ。 */
 export const DEFAULT_TTS_FIRST_CHUNK_MIN_CHARS = 8;
+/** IrodoriでSSE（stream_format=sse）による文単位の逐次再生を使うか。
+ * OFFではセグメントごとに1つの音声をまとめて受け取ってから再生する。 */
+export const DEFAULT_TTS_STREAMING_ENABLED = true;
 /** *...* の地の文・動作描写をナレーションとして読み上げるか。 */
 export const DEFAULT_TTS_NARRATION_ENABLED = false;
 export const DEFAULT_TTS_NARRATOR_VOICE = '';
@@ -274,6 +277,7 @@ type SettingsSlice = Pick<
     | 'ttsCaptionCfgScale'
     | 'ttsChunkMinChars'
     | 'ttsFirstChunkMinChars'
+    | 'ttsStreamingEnabled'
     | 'ttsNarrationEnabled'
     | 'ttsNarratorVoice'
     | 'fullJsonDebugEnabled'
@@ -326,6 +330,7 @@ type SettingsSlice = Pick<
     | 'setTtsCaptionCfgScale'
     | 'setTtsChunkMinChars'
     | 'setTtsFirstChunkMinChars'
+    | 'setTtsStreamingEnabled'
     | 'setTtsNarrationEnabled'
     | 'setTtsNarratorVoice'
     | 'getAiApiConfig'
@@ -369,6 +374,7 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         ttsCaptionCfgScale: DEFAULT_TTS_CAPTION_CFG_SCALE,
         ttsChunkMinChars: DEFAULT_TTS_CHUNK_MIN_CHARS,
         ttsFirstChunkMinChars: DEFAULT_TTS_FIRST_CHUNK_MIN_CHARS,
+        ttsStreamingEnabled: DEFAULT_TTS_STREAMING_ENABLED,
         ttsNarrationEnabled: DEFAULT_TTS_NARRATION_ENABLED,
         ttsNarratorVoice: DEFAULT_TTS_NARRATOR_VOICE,
         fullJsonDebugEnabled: false,
@@ -612,6 +618,10 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
             const ttsFirstChunkMinChars = normalizeTtsFirstChunkMinChars(chars);
             set({ ttsFirstChunkMinChars });
             fire(db.setMeta('ttsFirstChunkMinChars', ttsFirstChunkMinChars));
+        },
+        setTtsStreamingEnabled: (ttsStreamingEnabled) => {
+            set({ ttsStreamingEnabled });
+            fire(db.setMeta('ttsStreamingEnabled', ttsStreamingEnabled));
         },
         setTtsNarrationEnabled: (ttsNarrationEnabled) => {
             set({ ttsNarrationEnabled });

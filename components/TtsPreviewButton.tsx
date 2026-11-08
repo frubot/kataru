@@ -43,6 +43,7 @@ export default function TtsPreviewButton({ previewId, profile, disabled = false 
             captionCfgScale: state.ttsCaptionCfgScale,
             chunkMinChars: state.ttsChunkMinChars,
             firstChunkMinChars: state.ttsFirstChunkMinChars,
+            streaming: state.ttsStreamingEnabled,
             aiApiConfig: { ...state.getAiApiConfig(), connectionId: profile.connectionId },
         }).catch(() => {});
     };

@@ -120,6 +120,7 @@ export function useTtsPlayback({
                 captionCfgScale: state.ttsCaptionCfgScale,
                 chunkMinChars: state.ttsChunkMinChars,
                 firstChunkMinChars: state.ttsFirstChunkMinChars,
+                streaming: state.ttsStreamingEnabled,
                 aiApiConfig: { ...state.getAiApiConfig(), connectionId: profile.connectionId },
             },
         };

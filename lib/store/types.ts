@@ -458,6 +458,9 @@ export interface AppState {
      * （irodori.first_sentence_chunk_min_chars）。小さいほど最初の音声が
      * 早く鳴るが、数文字の断片だけ先に鳴ると直後の合成待ちが目立つ。 */
     ttsFirstChunkMinChars: number;
+    /** IrodoriでSSEによる文単位の逐次再生を使うか。OFFではセグメントごとに
+     * 1つの音声をまとめて受け取り、分割しきい値は送らない。 */
+    ttsStreamingEnabled: boolean;
     /** *...* の地の文・動作描写もナレーションとして読み上げるか。 */
     ttsNarrationEnabled: boolean;
     /** ナレーション専用のvoice。空ならttsVoiceにフォールバックする。 */
@@ -522,6 +525,7 @@ export interface AppState {
     setTtsCaptionCfgScale: (scale: number) => void;
     setTtsChunkMinChars: (chars: number) => void;
     setTtsFirstChunkMinChars: (chars: number) => void;
+    setTtsStreamingEnabled: (enabled: boolean) => void;
     setTtsNarrationEnabled: (enabled: boolean) => void;
     setTtsNarratorVoice: (voice: string) => void;
     getAiApiConfig: () => AiApiConfig;

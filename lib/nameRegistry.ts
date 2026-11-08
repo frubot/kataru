@@ -30,3 +30,11 @@ export function reserveUniqueName(
     reservedNames.add(candidate.toLowerCase());
     return candidate;
 }
+
+/** Derives a display name from an uploaded file name (extension removed, whitespace joined with "_"). */
+export function nameFromFileName(fileName: string): string {
+    return fileName
+        .replace(/\.[^./\\]+$/, '')
+        .trim()
+        .replace(/\s+/g, '_');
+}

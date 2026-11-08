@@ -7,12 +7,13 @@ import { isAiConnectionKind } from '@/lib/aiApi';
 import { useAiConnections } from '@/lib/aiConnections';
 import { serializeModelRef, type ModelRef } from '@/lib/modelDefaults';
 import { readVrmFile } from '@/lib/vrm';
-import { createNameRegistry, reserveUniqueName } from '@/lib/nameRegistry';
+import { createNameRegistry, nameFromFileName, reserveUniqueName } from '@/lib/nameRegistry';
 import { buildBaseImageRequest, resolveStoredImageUrl } from '@/lib/imageSource';
 import { cropRectToPng, loadImage, resizeToMaxEdge, resizeToMaxEdgeAsJpeg } from '@/lib/imageUtils';
 import { CropArea, createInitialCrop, type CropBox } from './ImageCropArea';
 import StoredImage from './StoredImage';
 import ModelSelector from './ModelSelector';
+import OptionSelector from './OptionSelector';
 import { useModalKeyboard } from './useModalKeyboard';
 import { useTransparentImageBackground } from '@/lib/useTransparentImageBackground';
 import VrmCostumeEditor from './VrmCostumeEditor';
@@ -27,6 +28,7 @@ const UPLOAD_BUSY_KEY = '__upload__';
 const DEFAULT_COSTUME_NAME = 'default';
 
 type AddMode = 'generate' | 'upload';
+type NameSource = 'manual' | 'filename' | 'ai';
 
 interface Props {
     isOpen: boolean;
@@ -44,8 +46,12 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
     const { connections } = useAiConnections();
     const [newName, setNewName] = useState('');
     const [newPromptDetail, setNewPromptDetail] = useState('');
-    const [autoDetectName, setAutoDetectName] = useState(false);
+    const [nameSource, setNameSource] = useState<NameSource>('manual');
     const [addMode, setAddMode] = useState<AddMode>('generate');
+    const autoDetectName = nameSource === 'ai';
+    const nameFromFile = addMode === 'upload' && nameSource === 'filename';
+    // True when names are assigned per uploaded file, which enables multi-file uploads.
+    const autoName = autoDetectName || nameFromFile;
     const [editingVrm, setEditingVrm] = useState<Costume | null>(null);
     const [vrmDraft, setVrmDraft] = useState<VrmAvatar | null>(null);
     const [model, setModel] = useState<ModelRef>(defaultImageModel);
@@ -84,7 +90,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
             setEditingVrm(null);
             setVrmDraft(null);
             setNewPromptDetail('');
-            setAutoDetectName(false);
+            setNameSource('manual');
             setAddMode(canGenerateDiffs ? 'generate' : 'upload');
             setModel(defaultImageModel);
             setBusy(null);
@@ -125,18 +131,27 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
         reservedDetectedNamesRef.current.clear();
     };
 
-    const prepareUpload = async (file: File) => {
+    const loadUploadSource = async (file: File) => {
         const dataUrl: string = await new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = () => resolve(reader.result as string);
             reader.onerror = () => reject(new Error(`${file.name} の読み込みに失敗しました。`));
             reader.readAsDataURL(file);
         });
-        const resized = await resizeToMaxEdge(dataUrl, MAX_EDGE);
-        const img = await loadImage(resized);
-        setUploadImage(resized);
-        setUploadNatural({ w: img.width, h: img.height });
-        setUploadCrop(createInitialCrop(img.width, img.height, COSTUME_ASPECT, true));
+        const image = await resizeToMaxEdge(dataUrl, MAX_EDGE);
+        const img = await loadImage(image);
+        return {
+            image,
+            natural: { w: img.width, h: img.height },
+            crop: createInitialCrop(img.width, img.height, COSTUME_ASPECT, true),
+        };
+    };
+
+    const prepareUpload = async (file: File) => {
+        const source = await loadUploadSource(file);
+        setUploadImage(source.image);
+        setUploadNatural(source.natural);
+        setUploadCrop(source.crop);
     };
 
     const detectedNameRegistry = () => createNameRegistry([
@@ -181,6 +196,15 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
             throw new Error('衣装名の自動判定結果が不正です。');
         }
         return reserveUniqueName(data.name, reservedNames, '衣装名');
+    };
+
+    const reserveFileName = (file: File | undefined, reservedNames = reservedDetectedNamesRef.current) => {
+        const candidate = file ? nameFromFileName(file.name) : '';
+        if (!candidate) {
+            throw new Error(`${file?.name ?? 'ファイル'} から衣装名を作成できませんでした。`);
+        }
+        // "default" and existing costume names are reserved, so duplicates get a numeric suffix.
+        return reserveUniqueName(candidate, reservedNames, '衣装名');
     };
 
     const buildPrompt = (name: string, promptDetail?: string) => {
@@ -297,26 +321,33 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
     };
 
     const handleUploadClick = () => {
-        if (!autoDetectName && !validateName()) return;
+        if (!autoName && !validateName()) return;
         fileInputRef.current?.click();
     };
 
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const selectedFiles = Array.from(e.target.files ?? []);
         e.target.value = '';
-        const files = autoDetectName ? selectedFiles : selectedFiles.slice(0, 1);
+        const files = autoName ? selectedFiles : selectedFiles.slice(0, 1);
         if (files.length === 0) return;
 
-        if (!autoDetectName && !validateName()) return;
+        if (!autoName && !validateName()) return;
 
-        if (files[0].name.toLowerCase().endsWith('.vrm')) {
+        if (files.some((file) => file.name.toLowerCase().endsWith('.vrm'))) {
             if (autoDetectName) {
                 setError('VRMのアップロードでは衣装名の自動判定は使用できません。衣装名を入力して選択してください。');
+                return;
+            }
+            if (files.length > 1) {
+                setError('VRMは1ファイルずつ選択してください。');
                 return;
             }
             setBusy(UPLOAD_BUSY_KEY);
             clearUploadQueue();
             try {
+                if (nameFromFile) {
+                    setNewName(reserveFileName(files[0], detectedNameRegistry()));
+                }
                 setVrmDraft(await readVrmFile(files[0]));
             } catch (err) {
                 setError(err instanceof Error ? err.message : 'VRMの読み込みに失敗しました');
@@ -328,7 +359,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
 
         const invalidFile = files.find((file) => !file.type.startsWith('image/'));
         if (invalidFile) {
-            setError(autoDetectName
+            setError(autoName
                 ? `${invalidFile.name} は画像ファイルではありません。`
                 : '画像または .vrm ファイルを選択してください。');
             return;
@@ -351,44 +382,69 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
         }
     };
 
+    const resolveUploadName = (image: string, file: File | undefined, manualName: string | null, signal: AbortSignal) => {
+        if (autoDetectName) return detectCostumeName(image, signal, reservedDetectedNamesRef.current);
+        if (nameFromFile) return Promise.resolve(reserveFileName(file));
+        return Promise.resolve(manualName!);
+    };
+
+    const cropUpload = (image: string, crop: CropBox) => cropRectToPng(image, crop.x, crop.y, crop.width, crop.height);
+
+    /** Adds the remaining queued files with their initial crop. On failure the failing file stays open for manual retry. */
+    const addRemainingUploads = async (startIndex: number, signal: AbortSignal): Promise<boolean> => {
+        clearUploadDraft();
+        for (let index = startIndex; index < uploadFiles.length; index += 1) {
+            const file = uploadFiles[index];
+            setUploadIndex(index);
+            try {
+                const source = await loadUploadSource(file);
+                const image = await cropUpload(source.image, source.crop);
+                const name = await resolveUploadName(image, file, null, signal);
+                onUpsert({ name, image });
+            } catch (e) {
+                const message = e instanceof Error ? e.message : '画像の処理に失敗しました';
+                setError(`${file.name}: ${message}（ここまでの画像は追加済みです）`);
+                try {
+                    await prepareUpload(file);
+                } catch {
+                    clearUploadQueue();
+                }
+                return false;
+            }
+        }
+        clearUploadQueue();
+        return true;
+    };
+
     const handleConfirmUpload = async (finishAfter = false): Promise<boolean> => {
-        const manualName = autoDetectName ? null : validateName();
-        if ((!autoDetectName && !manualName) || !uploadImage || !uploadCrop) return false;
+        const manualName = autoName ? null : validateName();
+        if ((!autoName && !manualName) || !uploadImage || !uploadCrop) return false;
 
         setBusy(UPLOAD_BUSY_KEY);
         setError(null);
         const controller = new AbortController();
         abortRef.current = controller;
         try {
-            const cropped = await cropRectToPng(
-                uploadImage,
-                uploadCrop.x,
-                uploadCrop.y,
-                uploadCrop.width,
-                uploadCrop.height,
-            );
-            const name = autoDetectName
-                ? await detectCostumeName(
-                    cropped,
-                    controller.signal,
-                    reservedDetectedNamesRef.current,
-                )
-                : manualName!;
-            onUpsert({ name, image: cropped });
+            const image = await cropUpload(uploadImage, uploadCrop);
+            const name = await resolveUploadName(image, uploadFiles[uploadIndex], manualName, controller.signal);
+            onUpsert({ name, image });
             setNewName('');
             setNewPromptDetail('');
             const nextIndex = uploadIndex + 1;
-            if (!finishAfter && autoDetectName && nextIndex < uploadFiles.length) {
-                setUploadIndex(nextIndex);
-                clearUploadDraft();
-                try {
-                    await prepareUpload(uploadFiles[nextIndex]);
-                } catch (nextError) {
-                    clearUploadQueue();
-                    throw nextError;
-                }
-            } else {
+            if (!autoName || nextIndex >= uploadFiles.length) {
                 clearUploadQueue();
+                return true;
+            }
+            if (finishAfter) {
+                return await addRemainingUploads(nextIndex, controller.signal);
+            }
+            setUploadIndex(nextIndex);
+            clearUploadDraft();
+            try {
+                await prepareUpload(uploadFiles[nextIndex]);
+            } catch (nextError) {
+                clearUploadQueue();
+                throw nextError;
             }
             return true;
         } catch (e) {
@@ -747,6 +803,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                     className={addMode === 'generate' ? 'btn btn-primary' : 'btn btn-ghost'}
                                     onClick={() => {
                                         setAddMode('generate');
+                                        if (nameSource === 'filename') setNameSource('manual');
                                         clearUploadQueue();
                                         setVrmDraft(null);
                                     }}
@@ -777,21 +834,28 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                     />
                                 </div>
                             )}
-                            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontSize: '0.8125rem', cursor: busy ? 'default' : 'pointer' }}>
-                                <input
-                                    type="checkbox"
-                                    checked={autoDetectName}
-                                    onChange={(event) => {
-                                        setAutoDetectName(event.target.checked);
+                            <div style={{ marginBottom: 8 }}>
+                                <label style={fieldLabelStyle}>衣装名の付け方</label>
+                                <OptionSelector
+                                    value={nameSource}
+                                    onChange={(value) => {
+                                        setNameSource(value as NameSource);
                                         clearUploadQueue();
                                         setDraftImage(null);
                                         setDraftName('');
                                         setError(null);
                                     }}
                                     disabled={!!busy}
+                                    ariaLabel="衣装名の付け方"
+                                    options={[
+                                        { value: 'manual', label: '手入力' },
+                                        ...(addMode === 'upload'
+                                            ? [{ value: 'filename', label: 'ファイル名から', detail: '拡張子を除いたファイル名を衣装名にします' }]
+                                            : []),
+                                        { value: 'ai', label: 'AIで自動判定' },
+                                    ]}
                                 />
-                                衣装名を自動判定
-                            </label>
+                            </div>
                             {addMode === 'generate' && selectedKind === 'openai-compatible' && (
                                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontSize: '0.8125rem', cursor: busy || !model.model.trim() ? 'default' : 'pointer' }}>
                                     <input
@@ -803,7 +867,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                     このモデルは画像透過に対応しています
                                 </label>
                             )}
-                            {!autoDetectName && (
+                            {!autoName && (
                                 <div style={{ marginBottom: 8 }}>
                                     <label style={fieldLabelStyle}>衣装名</label>
                                     <input
@@ -836,10 +900,11 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                             )}
                             {addMode === 'upload' && uploadImage && uploadNatural && uploadCrop && (
                                 <div style={{ marginTop: 8 }}>
-                                    {autoDetectName && uploadFiles.length > 0 && (
+                                    {autoName && uploadFiles.length > 0 && (
                                         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 8, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                                             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={uploadFiles[uploadIndex]?.name}>
                                                 {uploadFiles[uploadIndex]?.name}
+                                                {nameFromFile && ` → ${nameFromFileName(uploadFiles[uploadIndex]?.name ?? '') || '（名前なし）'}`}
                                             </span>
                                             <span style={{ flexShrink: 0 }}>{uploadIndex + 1} / {uploadFiles.length}</span>
                                         </div>
@@ -893,7 +958,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                 ref={fileInputRef}
                                 type="file"
                                 accept={autoDetectName ? 'image/*' : 'image/*,.vrm'}
-                                multiple={autoDetectName}
+                                multiple={autoName}
                                 onChange={handleFileUpload}
                                 style={{ display: 'none' }}
                             />
@@ -946,7 +1011,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                             type="button"
                                             className="btn btn-ghost"
                                             onClick={handleUploadClick}
-                                            disabled={!!busy || (!autoDetectName && !newName.trim())}
+                                            disabled={!!busy || (!autoName && !newName.trim())}
                                         >
                                             選び直す
                                         </button>
@@ -955,17 +1020,17 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                         type="button"
                                         className="btn btn-primary"
                                         onClick={uploadImage ? () => { void handleConfirmUpload(); } : handleUploadClick}
-                                        disabled={!!busy || (!autoDetectName && !newName.trim()) || (!!uploadImage && !uploadCrop)}
+                                        disabled={!!busy || (!autoName && !newName.trim()) || (!!uploadImage && !uploadCrop)}
                                         style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                                     >
                                         {busy === UPLOAD_BUSY_KEY && <Loader2 size={16} className="animate-spin" />}
                                         {busy === UPLOAD_BUSY_KEY
-                                            ? autoDetectName && uploadFiles.length > 1
-                                                ? `処理・判定中... (${uploadIndex + 1}/${uploadFiles.length})`
+                                            ? autoName && uploadFiles.length > 1
+                                                ? `${autoDetectName ? '処理・判定中' : '処理中'}... (${uploadIndex + 1}/${uploadFiles.length})`
                                                 : autoDetectName ? '処理・判定中...' : '処理中...'
-                                            : uploadImage && autoDetectName && uploadIndex + 1 < uploadFiles.length
+                                            : uploadImage && autoName && uploadIndex + 1 < uploadFiles.length
                                                 ? `追加して次へ (${uploadIndex + 1}/${uploadFiles.length})`
-                                                : uploadImage && autoDetectName && uploadFiles.length > 1
+                                                : uploadImage && autoName && uploadFiles.length > 1
                                                     ? `追加 (${uploadIndex + 1}/${uploadFiles.length})`
                                                     : uploadImage ? '追加' : '選択'}
                                     </button>
@@ -974,9 +1039,14 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                             type="button"
                                             className="btn btn-primary"
                                             onClick={handleAddAndClose}
-                                            disabled={!!busy || (!autoDetectName && !newName.trim()) || !uploadCrop}
+                                            disabled={!!busy || (!autoName && !newName.trim()) || !uploadCrop}
+                                            title={autoName && uploadIndex + 1 < uploadFiles.length
+                                                ? '残りの画像は最初の切り抜き枠のまま追加します'
+                                                : undefined}
                                         >
-                                            追加して完了
+                                            {autoName && uploadIndex + 1 < uploadFiles.length
+                                                ? `残り${uploadFiles.length - uploadIndex - 1}枚も追加して完了`
+                                                : '追加して完了'}
                                         </button>
                                     )}
                                 </>

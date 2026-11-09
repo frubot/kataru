@@ -194,6 +194,20 @@ describe('visual novel typewriter presentation', () => {
         expect(splitStreamingVisualNovelMessage(quoted + '次', false, 20)[0].content).toBe(quoted);
     });
 
+    test('keeps consecutive punctuation such as "！？" on one page', () => {
+        const exclaimed = 'あ'.repeat(12) + '！？';
+        expect(splitStreamingVisualNovelMessage(exclaimed + 'い'.repeat(12), true, 20)
+            .map((page) => page.content)).toEqual([exclaimed, 'い'.repeat(12)]);
+        expect(splitStreamingVisualNovelMessage('あ'.repeat(12) + '！', false, 20)
+            .every((page) => !page.complete)).toBe(true);
+        expect(getStreamingVisualNovelVisibleContent('あ'.repeat(12) + '！？')).toBe('');
+
+        const atLimit = 'あ'.repeat(19) + '！？」';
+        expect(splitStreamingVisualNovelMessage(atLimit + '次', false, 20)[0].content).toBe(atLimit);
+        expect(splitVisualNovelMessage('い'.repeat(7) + '！？' + 'う'.repeat(7), 8))
+            .toEqual(['い'.repeat(7) + '！？', 'う'.repeat(7)]);
+    });
+
     test('retains a confirmed boundary when the closing emphasis marker arrives', () => {
         const partial = `${'あ'.repeat(150)}*${'動'.repeat(10)}`;
         const before = updateStreamingVisualNovelPagination(partial, false);

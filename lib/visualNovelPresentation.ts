@@ -267,7 +267,21 @@ export type StreamingVisualNovelPagination = {
 // is no longer the one the boundaries were computed for.
 const VN_ALIGNMENT_MIN_MISMATCH_ALLOWANCE = 4;
 const VN_ALIGNMENT_MAX_MISMATCH_RATIO = 0.1;
-const VN_PAGE_CLOSING_ONLY = /^[\s」』】）》”’"'。、．，.,!！？?…]*$/u;
+const VN_PAGE_CLOSING_ONLY = /^[\s」』】）》”’"'。、．，.,!！？?‼⁉…]*$/u;
+const VN_SENTENCE_PUNCTUATION = '。.!！？?‼⁉';
+const VN_CLOSING_MARKS = '」』】）》”’"\'';
+
+/**
+ * True when the segment at `index` extends the punctuation run before it, as in
+ * "！？" or "。」". A page must not break inside such a run.
+ */
+function continuesVisualNovelPunctuation(segments: string[], index: number): boolean {
+    const current = segments[index];
+    const previous = segments[index - 1];
+    if (!current || !previous || current.length !== 1 || previous.length !== 1) return false;
+    const trailing = VN_SENTENCE_PUNCTUATION + VN_CLOSING_MARKS;
+    return trailing.includes(current) && trailing.includes(previous);
+}
 
 // Final responses can remove quotation/Markdown markers and unescape line breaks.
 // Align those edits before reusing source offsets; page numbers alone lose text.
@@ -395,9 +409,8 @@ export function splitStreamingVisualNovelMessage(
         let ready = false;
         while (end < segments.length) {
             const nextLength = getVisualNovelSegmentLength(segments[end]);
-            const closingSentence = '」』】）》”’"\''.includes(segments[end])
-                && '。.!！？!?」』】）》”’"\''.includes(segments[end - 1] ?? ' ');
-            if (end > start && visibleLength + nextLength > maxChars && !closingSentence) {
+            if (end > start && visibleLength + nextLength > maxChars
+                && !continuesVisualNovelPunctuation(segments, end)) {
                 // The unfinished sentence has not been displayed yet, so it can move
                 // intact to the next page. Only a long single sentence needs a fallback.
                 end = sentenceCut || clauseCut || end;
@@ -431,11 +444,10 @@ export function splitStreamingVisualNovelMessage(
 function isStreamingSentenceEnd(segments: string[], end: number, complete: boolean): boolean {
     const current = segments[end - 1] ?? '';
     if (current === '\n' || (current.startsWith('*') && current.endsWith('*') && current.length > 2)) return true;
-    const closers = '」』】）》”’"\'';
-    if (segments[end] && closers.includes(segments[end])) return false;
+    if (continuesVisualNovelPunctuation(segments, end)) return false;
     let index = end - 1;
-    while (index >= 0 && closers.includes(segments[index])) index--;
-    if (index < 0 || !'。.!！？!?'.includes(segments[index])) return false;
+    while (index >= 0 && segments[index].length === 1 && VN_CLOSING_MARKS.includes(segments[index])) index--;
+    if (index < 0 || segments[index].length !== 1 || !VN_SENTENCE_PUNCTUATION.includes(segments[index])) return false;
     return complete || end < segments.length;
 }
 
@@ -459,8 +471,10 @@ function getVisualNovelPageBreakPriority(segments: string[], end: number): numbe
     const previous = segments[end - 2] ?? '';
     if (current === '\n' && previous === '\n') return 4;
     if (current === '\n') return 3;
-    if ('。.!！？!?'.includes(current)) return 3;
-    if ('」』】）》”’\"\''.includes(current) && '。.!！？!?'.includes(previous)) return 3;
+    if (continuesVisualNovelPunctuation(segments, end)) return 0;
+    if (current.length === 1 && VN_SENTENCE_PUNCTUATION.includes(current)) return 3;
+    if (current.length === 1 && VN_CLOSING_MARKS.includes(current)
+        && previous.length === 1 && VN_SENTENCE_PUNCTUATION.includes(previous)) return 3;
     if ('、,，;；:：'.includes(current) || /^\s$/u.test(current)) return 2;
     return 0;
 }
@@ -488,12 +502,13 @@ export function splitVisualNovelMessage(
 
         while (end < segments.length) {
             const nextLength = getVisualNovelSegmentLength(segments[end]);
-            if (end > start && visibleLength + nextLength > maxChars) break;
+            const continuesPunctuation = continuesVisualNovelPunctuation(segments, end);
+            if (end > start && visibleLength + nextLength > maxChars && !continuesPunctuation) break;
             visibleLength += nextLength;
             end++;
             const priority = getVisualNovelPageBreakPriority(segments, end);
             if (priority > 0) preferredBreaks.set(priority, end);
-            if (visibleLength >= maxChars) break;
+            if (visibleLength >= maxChars && !continuesVisualNovelPunctuation(segments, end)) break;
         }
 
         if (end >= segments.length) {

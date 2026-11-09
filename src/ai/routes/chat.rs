@@ -55,6 +55,11 @@ fn build_chat_body(
     if use_response_format && let Some(response_format) = requested_response_format {
         body.insert("response_format".to_owned(), response_format.clone());
     }
+    if api_client.supports_extended_sampling() {
+        copy_if_present(&mut body, input, "topK", "top_k");
+        copy_if_present(&mut body, input, "minP", "min_p");
+        copy_if_present(&mut body, input, "repetitionPenalty", "repetition_penalty");
+    }
 
     if api_client.is_openrouter() {
         let effort = match input.get("reasoningEffort").and_then(Value::as_str) {
@@ -65,8 +70,6 @@ fn build_chat_body(
             _ => "none",
         };
         body.insert("reasoning".to_owned(), json!({ "effort": effort }));
-        copy_if_present(&mut body, input, "topK", "top_k");
-        copy_if_present(&mut body, input, "repetitionPenalty", "repetition_penalty");
         if should_stream {
             body.insert(
                 "stream_options".to_owned(),

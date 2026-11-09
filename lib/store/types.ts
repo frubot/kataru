@@ -390,6 +390,7 @@ export interface ChatSampling {
     temperature?: number;
     topP?: number;
     topK?: number;
+    minP?: number;
     frequencyPenalty?: number;
     presencePenalty?: number;
     repetitionPenalty?: number;

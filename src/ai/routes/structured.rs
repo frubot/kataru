@@ -60,6 +60,7 @@ async fn completion_attempt(
         ("maxTokens", "max_tokens"),
         ("topP", "top_p"),
         ("topK", "top_k"),
+        ("minP", "min_p"),
         ("frequencyPenalty", "frequency_penalty"),
         ("presencePenalty", "presence_penalty"),
         ("repetitionPenalty", "repetition_penalty"),
@@ -115,8 +116,11 @@ async fn completion_attempt(
         }
     } else if api_client.is_openai_compatible() {
         body.remove("reasoningEffort");
-        body.remove("top_k");
-        body.remove("repetition_penalty");
+        if !api_client.supports_extended_sampling() {
+            body.remove("top_k");
+            body.remove("min_p");
+            body.remove("repetition_penalty");
+        }
     } else {
         body.remove("reasoningEffort");
     }

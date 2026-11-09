@@ -174,6 +174,14 @@ impl AiApiClient {
         self.kind == ConnectionKind::Anthropic
     }
 
+    /// Whether the upstream accepts `top_k` / `min_p` / `repetition_penalty`.
+    /// The official OpenAI API rejects them, but OpenRouter and local
+    /// OpenAI-compatible servers such as llama.cpp accept them.
+    pub fn supports_extended_sampling(&self) -> bool {
+        self.is_openrouter()
+            || (self.is_openai_compatible() && self.base_url != DEFAULT_OPENAI_BASE_URL)
+    }
+
     pub fn is_typesafe(&self) -> bool {
         self.kind == ConnectionKind::Typesafe
     }
@@ -677,6 +685,36 @@ mod tests {
             api_client.endpoint("chat/completions"),
             "https://api.openai.com/v1/chat/completions"
         );
+    }
+
+    #[test]
+    fn extended_sampling_is_limited_to_openrouter_and_custom_openai_endpoints() {
+        let resolve = |config: &EffectiveAiConfig, id: &str| {
+            AiApiClient::resolve_for(
+                Client::new(),
+                "http://127.0.0.1:37371",
+                config,
+                None,
+                Some(id),
+            )
+            .unwrap()
+        };
+        let config = server_config();
+        assert!(resolve(&config, OPENROUTER_CONNECTION_ID).supports_extended_sampling());
+        assert!(!resolve(&config, OPENAI_COMPATIBLE_CONNECTION_ID).supports_extended_sampling());
+        assert!(!resolve(&config, ANTHROPIC_CONNECTION_ID).supports_extended_sampling());
+
+        let mut local = builtin(
+            "cx_local",
+            ConnectionKind::OpenAiCompatible,
+            "http://127.0.0.1:8080/v1",
+            None,
+        );
+        local.builtin = false;
+        let local_config = EffectiveAiConfig {
+            connections: vec![local],
+        };
+        assert!(resolve(&local_config, "cx_local").supports_extended_sampling());
     }
 
     #[test]

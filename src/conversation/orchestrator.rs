@@ -61,7 +61,6 @@ const CHAT_COMPLETION_MAX_TOKENS: u64 = 2048;
 const DEFAULT_MAX_CHARACTERS: u64 = 512;
 const DEFAULT_TEMPERATURE: f64 = 0.8;
 const DEFAULT_TOP_P: f64 = 1.0;
-const DEFAULT_TOP_K: u64 = 0;
 const MEMORY_LIMIT: usize = 8;
 const MEMORY_MIN_IMPORTANCE: f64 = 0.4;
 const MEMORY_MIN_CONFIDENCE: f64 = 0.7;
@@ -948,11 +947,13 @@ fn chat_completion_body(
         "max_tokens": max_tokens,
         "temperature": number_f64(sampling, "temperature", DEFAULT_TEMPERATURE),
         "top_p": number_f64(sampling, "topP", DEFAULT_TOP_P),
-        "top_k": number_u64(sampling, "topK", DEFAULT_TOP_K),
         "stream": false,
     });
-    // 未設定のペナルティは送らず、プロバイダの既定値に任せる。
+    // 未設定のTop K・Min P・ペナルティは送らず、プロバイダの既定値に任せる。
+    // llama.cppなどはサーバー側の既定値を持つため、0で上書きしない。
     for (setting, parameter) in [
+        ("topK", "top_k"),
+        ("minP", "min_p"),
         ("frequencyPenalty", "frequency_penalty"),
         ("presencePenalty", "presence_penalty"),
         ("repetitionPenalty", "repetition_penalty"),
@@ -3191,12 +3192,14 @@ mod tests {
     #[test]
     fn chat_completion_preserves_explicit_penalties_and_omits_unset_values() {
         let sampling = json!({
+            "minP": 0.05,
             "frequencyPenalty": 0,
             "presencePenalty": -0.5,
             "repetitionPenalty": 1.15,
         });
         let body = chat_completion_body("test-model", Vec::new(), &sampling, None, 2048);
         assert_eq!(body["model"], "test-model");
+        assert_eq!(body["min_p"], 0.05);
         assert_eq!(body["frequency_penalty"], 0);
         assert_eq!(body["presence_penalty"], -0.5);
         assert_eq!(body["repetition_penalty"], 1.15);
@@ -3204,6 +3207,8 @@ mod tests {
         for sampling in [
             Value::Null,
             json!({
+                "topK": null,
+                "minP": null,
                 "frequencyPenalty": null,
                 "presencePenalty": null,
                 "repetitionPenalty": null,
@@ -3211,6 +3216,8 @@ mod tests {
         ] {
             let body = chat_completion_body("test-model", Vec::new(), &sampling, None, 2048);
             for key in [
+                "top_k",
+                "min_p",
                 "frequency_penalty",
                 "presence_penalty",
                 "repetition_penalty",

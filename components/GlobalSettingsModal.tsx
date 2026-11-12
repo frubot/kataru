@@ -1106,9 +1106,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         />
                                     </div>
                                 </div>
-                                <p style={{ margin: '-0.25rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                                    メッセージ・ベーシックモードで、送信後に次のメッセージを入力している間、最後の入力からこの時間だけ返信を待ちます。入力していなければ、少しの猶予の後にすぐ返信を始めます。続けて送ったメッセージはまとめて読まれます。0秒にすると送信後すぐに返信します。
-                                </p>
 
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
@@ -1272,9 +1269,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     }}>
                                         会話の生成パラメータ
                                     </summary>
-                                    <p style={{ margin: '0.5rem 0 0.75rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                        1対1の会話とシチュエーションの両方に使います。未設定の項目はプロバイダの既定値に従います。
-                                    </p>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                                         {CHAT_SAMPLING_KEYS.map((key) => (
                                             <ParamSlider
@@ -1301,7 +1295,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         禁止ワード
                                     </summary>
                                     <p style={{ margin: '0.5rem 0 0.75rem', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                                        会話の返答に含まれる語を置き換えます。置き換え後を空欄にすると削除します。生成中の表示と保存される返答の両方に使い、プロンプトには含めません。
+                                        会話の返答に含まれる語を置き換えます。置き換え後を空欄にすると削除します。
                                     </p>
                                     <WordReplacementEditor value={wordReplacements} onChange={setWordReplacements} />
                                 </details>
@@ -1739,9 +1733,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         onToggle: () => setMemoryInspectorEnabled(!memoryInspectorEnabled),
                                         ariaLabel: 'メモリインスペクターを有効化',
                                     })}
-                                    <p style={{ margin: '0.375rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                                        応答で参照されたメモリを確認し、手動で操作できます。
-                                    </p>
                                 </div>
                                 <div>
                                     {renderDebugToggle({
@@ -1750,9 +1741,6 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         onToggle: () => setSummaryInspectorEnabled(!summaryInspectorEnabled),
                                         ariaLabel: '要約インスペクターを有効化',
                                     })}
-                                    <p style={{ margin: '0.375rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                                        現在の要約、圧縮範囲、履歴を確認して手動で編集できます。
-                                    </p>
                                 </div>
                             </div>
                         </div>

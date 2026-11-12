@@ -102,16 +102,13 @@ export default function MemoryInspectorPanel({ room }: { room: Room }) {
     if (responses.length === 0) {
         return (
             <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
-                参照メモリを記録した応答はまだありません。メモリが検索された次の応答から確認できます。
+                参照メモリを記録した応答はまだありません。
             </p>
         );
     }
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.75rem' }}>
-                応答の生成時に実際のシステムプロンプトへ挿入された長期メモリを表示します。
-            </p>
             {loadError && (
                 <p role="alert" style={{ margin: 0, color: 'var(--error)', fontSize: '0.75rem' }}>
                     {loadError}

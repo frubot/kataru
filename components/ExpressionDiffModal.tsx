@@ -597,12 +597,11 @@ export default function ExpressionDiffModal({
 
                     {!selectedCostume ? (
                         <p style={hintStyle}>
-                            表情を追加するには、先に「衣装」から衣装を登録してください。表情差分は衣装ごとに登録します。
+                            表情を追加するには、先に「衣装」から衣装を登録してください。
                         </p>
                     ) : selectedIsVrm ? (
                         <p style={hintStyle}>
                             「{selectedCostume.name}」は3Dモデルのため表情差分はありません。表情の対応は「衣装」の「調整」で行います。
-                            {costumes.length > 1 && ' 別の衣装を選択すると、その衣装の表情差分を編集できます。'}
                         </p>
                     ) : (
                         <>
@@ -620,9 +619,6 @@ export default function ExpressionDiffModal({
                                 <Plus size={14} /> 追加
                             </button>
                         </div>
-                        {selectedCostumeExpressions.length === 0 && (
-                            <p style={hintStyle}>neutral 以外の表情はまだ登録されていません。neutral には衣装の画像が使われます。</p>
-                        )}
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 }}>
                             {displayExpressions.map((exp) => (
                                 <div

@@ -104,14 +104,12 @@ export default function ImageGenerationModal({
         ? `Anthropic互換APIでは画像生成を利用できません。${uploadFallbackHint}`
         : selectedKind === 'openai-compatible'
         ? selectedConnection?.imageGenerationEnabled === true
-            ? 'OpenAI互換APIでは、テキストからの画像生成だけを試します。'
+            ? null
             : `この接続先での画像生成は無効です。${uploadFallbackHint}`
         : null;
     const imageGenerationHint = providerImageGenerationHint
         ?? (transparentFullBody
-            ? useNativeTransparentBackground
-                ? '全身の立ち絵を生成します。モデルの背景透過機能を利用します。'
-                : '全身の立ち絵を生成します。背景は自動で透過されます。'
+            ? null
             : '例: full body portrait of a smiling young woman with long brown hair, 2:3 vertical composition, neutral expression');
 
     useEffect(() => {
@@ -347,7 +345,7 @@ export default function ImageGenerationModal({
                                     style={{ minHeight: 120 }}
                                     disabled={generating || !canGenerateImages}
                                 />
-                                <p style={hintStyle}>{imageGenerationHint}</p>
+                                {imageGenerationHint && <p style={hintStyle}>{imageGenerationHint}</p>}
                             </div>
                             <div className="image-generation-model-section">
                                 <div className="global-settings-selector-row">

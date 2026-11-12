@@ -732,10 +732,8 @@ export default function CostumeDiffModal({
                                 <Plus size={14} /> 追加
                             </button>
                         </div>
-                        {costumes.length === 0 ? (
+                        {costumes.length === 0 && (
                             <p style={hintStyle}>まだ登録されていません。衣装を追加すると、立ち絵として表示され、表情差分も登録できるようになります。</p>
-                        ) : (
-                            <p style={{ ...hintStyle, marginTop: 0, marginBottom: '0.5rem' }}>デフォルトの衣装は、会話で衣装を選んでいないときに使われます。</p>
                         )}
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 }}>
                             {costumes.map((costume) => {
@@ -985,14 +983,9 @@ export default function CostumeDiffModal({
                                     </button>
                                 ))}
                             </div>
-                            {addMode === 'scratch' && (
-                                <p style={{ ...hintStyle, marginTop: 0, marginBottom: 8 }}>
-                                    プロンプトから全身の立ち絵を生成します。
-                                </p>
-                            )}
                             {addMode === 'upload' && !uploadImage && (
                                 <p style={{ ...hintStyle, marginTop: 0, marginBottom: 8 }}>
-                                    画像または .vrm の3Dモデルを選択できます。拡張子から自動で判別します。
+                                    画像または .vrm の3Dモデルを選択できます。
                                 </p>
                             )}
                             {addMode === 'generate' && (

@@ -59,7 +59,7 @@ export default function SituationBackgroundModal({
         ? 'Anthropic互換APIでは画像生成を利用できません。ファイルからアップロードしてください。'
         : selectedKind === 'openai-compatible'
             ? selectedConnection?.imageGenerationEnabled === true
-                ? 'OpenAI互換APIでは、テキストからの画像生成だけを試します。'
+                ? generationHint
                 : 'この接続先での画像生成は無効です。ファイルからアップロードしてください。'
             : generationHint;
 
@@ -203,7 +203,6 @@ export default function SituationBackgroundModal({
                             <div style={previewFrameStyle}>
                                 <img src={candidate} alt="選択した画像のプレビュー" style={previewImageStyle} />
                             </div>
-                            <p style={hintStyle}>画面いっぱいに表示するときは、表示領域に合わせて画像の端が切り取られる場合があります。</p>
                             <div className="image-generation-inline-actions">
                                 <button
                                     type="button"

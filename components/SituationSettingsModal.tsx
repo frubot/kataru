@@ -1848,7 +1848,6 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                     />
                     <SwitchRow
                         label="ナレーションを分ける"
-                        description="キャラクターから独立したナレーションを追加します。"
                         checked={separateNarration}
                         onToggle={() => setSeparateNarration((value) => !value)}
                     />

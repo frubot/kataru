@@ -61,7 +61,7 @@ export default function SummaryInspectorPanel({ room }: { room: Room }) {
                 </div>
                 {room.summary && !draft.trim() && (
                     <p style={{ margin: '0.5rem 0 0', fontSize: '0.7rem', color: 'var(--error)' }}>
-                        圧縮済み履歴の文脈を失わないよう、要約を空にはできません。
+                        要約を空にはできません。
                     </p>
                 )}
             </section>

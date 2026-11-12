@@ -536,7 +536,7 @@ function TemporaryActorSettingsModal({
                                     })}
                                 </div>
                             )}
-                            {!isMobile && previewExpressionName && (
+                            {!isMobile && previewExpressionName && (previewVrm || portraitImage) && (
                                 <div className="character-profile-preview-label">{previewExpressionName}</div>
                             )}
                             {!isMobile && (

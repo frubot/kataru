@@ -413,7 +413,7 @@ function CharacterSettingsModalContent({
                                 })}
                             </div>
                         )}
-                        {!isMobile && (
+                        {!isMobile && (previewVrm || portraitImage) && (
                             <div className="character-profile-preview-label">
                                 {previewCostume?.name ?? ''}
                                 {previewCostume && previewCostume.id === defaultCostume?.id && costumes.length > 1 ? '（デフォルト）' : ''}

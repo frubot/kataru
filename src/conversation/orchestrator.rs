@@ -2739,73 +2739,42 @@ fn with_speaker_names(
         .collect()
 }
 
-/// 会話中にキャラクターが着用している衣装。costumeSelections の選択を優先し、
-/// 未選択・不明な名前のときは default 衣装にフォールバックする。
+/// 会話中にキャラクターが着用している衣装。costumeSelections の衣装 id を優先し、
+/// 未選択・不明な id のときは defaultCostumeId の衣装、それも無効なら先頭の衣装を使う。
 fn selected_costume<'a>(character: &'a Value, room: &Value) -> Option<&'a Value> {
     let costumes = character.get("costumes").and_then(Value::as_array)?;
-    if let Some(costume_name) = room
-        .get("costumeSelections")
+    let find = |costume_id: &str| {
+        costumes
+            .iter()
+            .find(|costume| !costume_id.is_empty() && string(costume, "id") == costume_id)
+    };
+    room.get("costumeSelections")
         .and_then(Value::as_object)
         .and_then(|selections| selections.get(&string(character, "id")))
         .and_then(Value::as_str)
-        .filter(|name| !name.eq_ignore_ascii_case("default"))
-        && let Some(costume) = costumes
-            .iter()
-            .find(|costume| string(costume, "name") == costume_name)
-    {
-        return Some(costume);
-    }
-    costumes
-        .iter()
-        .find(|costume| string(costume, "name").eq_ignore_ascii_case("default"))
+        .and_then(find)
+        .or_else(|| find(&string(character, "defaultCostumeId")))
+        .or_else(|| costumes.first())
 }
 
+/// 着用中の衣装で使える表情名。フロントエンドが衣装ごとに解決した名前
+/// （2D衣装は neutral を含み、VRMは表情対応付けの名前）をそのまま使う。
 fn expression_names(character: &Value, room: &Value, visual_novel_mode: bool) -> Vec<String> {
     if !visual_novel_mode {
         return Vec::new();
     }
-    let selected_costume = room
-        .get("costumeSelections")
-        .and_then(Value::as_object)
-        .and_then(|selections| selections.get(&string(character, "id")))
-        .and_then(Value::as_str)
-        .filter(|name| *name != "default");
-    if let Some(costume_name) = selected_costume
-        && let Some(costume) = character
-            .get("costumes")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .find(|costume| string(costume, "name") == costume_name)
-    {
-        let mut names = vec!["neutral".into()];
-        names.extend(names_from_expressions(costume.get("expressions")));
-        return unique_strings(names);
-    }
-    unique_strings(names_from_expressions(character.get("expressions")))
+    selected_costume(character, room)
+        .map(|costume| unique_strings(names_from_expressions(costume.get("expressions"))))
+        .unwrap_or_default()
 }
 
 fn motion_names(character: &Value, room: &Value, visual_novel_mode: bool) -> Vec<String> {
     if !visual_novel_mode {
         return Vec::new();
     }
-    let selected_costume = room
-        .get("costumeSelections")
-        .and_then(Value::as_object)
-        .and_then(|selections| selections.get(&string(character, "id")))
-        .and_then(Value::as_str)
-        .filter(|name| *name != "default");
-    if let Some(costume_name) = selected_costume
-        && let Some(costume) = character
-            .get("costumes")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .find(|costume| string(costume, "name") == costume_name)
-    {
-        return unique_strings(names_from_expressions(costume.get("motions")));
-    }
-    unique_strings(names_from_expressions(character.get("motions")))
+    selected_costume(character, room)
+        .map(|costume| unique_strings(names_from_expressions(costume.get("motions"))))
+        .unwrap_or_default()
 }
 
 fn names_from_expressions(value: Option<&Value>) -> Vec<String> {
@@ -4088,22 +4057,33 @@ mod tests {
         );
     }
 
+    fn costume_character() -> Value {
+        json!({
+            "id": "actor-1",
+            "defaultCostumeId": "costume-casual",
+            "costumes": [
+                {
+                    "id": "costume-uniform",
+                    "name": "uniform",
+                    "expressions": [{"name": "neutral"}, {"name": "uniform-happy"}],
+                    "motions": [{"name": "uniform-salute"}]
+                },
+                {
+                    "id": "costume-casual",
+                    "name": "casual",
+                    "expressions": [{"name": "neutral"}, {"name": "happy"}],
+                    "motions": [{"name": "wave"}, {"name": "jump"}]
+                }
+            ]
+        })
+    }
+
     #[test]
     fn visual_novel_uses_selected_costume_expressions() {
-        let character = json!({
-            "id": "actor-1",
-            "expressions": [
-                {"name": "neutral"},
-                {"name": "happy"}
-            ],
-            "costumes": [{
-                "name": "uniform",
-                "expressions": [{"name": "uniform-happy"}]
-            }]
-        });
+        let character = costume_character();
         let room = json!({
             "viewMode": "vn",
-            "costumeSelections": {"actor-1": "uniform"}
+            "costumeSelections": {"actor-1": "costume-uniform"}
         });
 
         assert_eq!(
@@ -4115,20 +4095,10 @@ mod tests {
 
     #[test]
     fn visual_novel_uses_selected_costume_motions() {
-        let character = json!({
-            "id": "actor-1",
-            "motions": [
-                {"name": "wave"},
-                {"name": "jump"}
-            ],
-            "costumes": [{
-                "name": "uniform",
-                "motions": [{"name": "uniform-salute"}]
-            }]
-        });
+        let character = costume_character();
         let room = json!({
             "viewMode": "vn",
-            "costumeSelections": {"actor-1": "uniform"}
+            "costumeSelections": {"actor-1": "costume-uniform"}
         });
 
         assert_eq!(
@@ -4139,23 +4109,37 @@ mod tests {
     }
 
     #[test]
-    fn visual_novel_falls_back_to_character_motions_without_costume() {
-        let character = json!({
-            "id": "actor-1",
-            "motions": [{"name": "wave"}, {"name": "jump"}],
-            "costumes": [{
-                "name": "uniform",
-                "motions": [{"name": "uniform-salute"}]
-            }]
-        });
+    fn visual_novel_falls_back_to_default_costume_without_valid_selection() {
+        let character = costume_character();
 
         for room in [
             json!({"viewMode": "vn"}),
             json!({"viewMode": "vn", "costumeSelections": {"actor-1": "default"}}),
+            json!({"viewMode": "vn", "costumeSelections": {"actor-1": "uniform"}}),
             json!({"viewMode": "vn", "costumeSelections": {"actor-1": "missing"}}),
         ] {
+            assert_eq!(
+                selected_costume(&character, &room).map(|costume| string(costume, "name")),
+                Some("casual".to_owned())
+            );
             assert_eq!(motion_names(&character, &room, true), vec!["wave", "jump"]);
+            assert_eq!(expression_names(&character, &room, true), vec!["neutral", "happy"]);
         }
+    }
+
+    #[test]
+    fn selected_costume_uses_first_costume_without_valid_default() {
+        let mut character = costume_character();
+        character["defaultCostumeId"] = json!("removed");
+        let room = json!({"viewMode": "vn"});
+        assert_eq!(
+            selected_costume(&character, &room).map(|costume| string(costume, "name")),
+            Some("uniform".to_owned())
+        );
+
+        let bare = json!({"id": "actor-1"});
+        assert!(selected_costume(&bare, &room).is_none());
+        assert!(expression_names(&bare, &room, true).is_empty());
     }
 
     #[test]

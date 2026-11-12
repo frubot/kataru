@@ -90,49 +90,56 @@ describe('VRM import and presentation', () => {
         const avatar = { source: 'unused', framing: DEFAULT_VRM_FRAMING, expressionMap: { ...createVrmExpressionMap(['happy', 'angry', 'blink', 'aa', 'lookUp']), smile: 'happy', missing: '' } };
         const character = {
             id: 'alice', name: 'Alice', systemPrompt: '', createdAt: 0, updatedAt: 0,
-            expressions: [{ name: 'sad', image: 'default-sad.png' }],
-            costumes: [{ name: '3d', kind: 'vrm', image: 'preview.png', vrm: avatar }],
+            defaultCostumeId: 'costume-casual',
+            costumes: [
+                { id: 'costume-casual', name: 'casual', image: 'casual.png', expressions: [{ name: 'sad', image: 'casual-sad.png' }] },
+                { id: 'costume-3d', name: '3d', kind: 'vrm', image: 'preview.png', vrm: avatar },
+            ],
         } satisfies Character;
-        expect(getVisualNovelExpressionNames(character, '3d')).toEqual(['neutral', 'happy', 'angry', 'smile']);
+        expect(getVisualNovelExpressionNames(character, 'costume-3d')).toEqual(['neutral', 'happy', 'angry', 'smile']);
         expect(resolveVrmExpression(avatar, 'SMILE')).toBe('happy');
         expect(resolveVrmExpression(avatar, 'unknown')).toBeNull();
-        expect(resolveVisualNovelExpressionImage(character, 'happy', '3d')).toBe('preview.png');
-        expect(getVisualNovelExpressionNames(character, 'default')).toEqual(['sad']);
+        expect(resolveVisualNovelExpressionImage(character, 'happy', 'costume-3d')).toBe('preview.png');
+        expect(getVisualNovelExpressionNames(character)).toEqual(['neutral', 'sad']);
     });
 
-    test('a VRM stored on the default costume acts as the avatar', () => {
+    test('a VRM default costume acts as the avatar', () => {
         const avatar = { source: 'unused', framing: DEFAULT_VRM_FRAMING, expressionMap: { happy: 'joy', missing: '' } };
         const character = {
             id: 'alice', name: 'Alice', systemPrompt: '', createdAt: 0, updatedAt: 0,
             icon: 'icon.png',
-            expressions: [{ name: 'neutral', image: 'portrait.png' }],
-            costumes: [{ name: 'default', kind: 'vrm', image: 'portrait.png', vrm: avatar }],
+            defaultCostumeId: 'costume-avatar',
+            costumes: [{ id: 'costume-avatar', name: 'avatar', kind: 'vrm', image: 'portrait.png', vrm: avatar }],
         } satisfies Character;
         expect(getVisualNovelExpressionNames(character)).toEqual(['neutral', 'happy']);
-        expect(getVisualNovelExpressionNames(character, 'default')).toEqual(['neutral', 'happy']);
+        expect(getVisualNovelExpressionNames(character, 'costume-avatar')).toEqual(['neutral', 'happy']);
         expect(getVisualNovelCostumeOptions(character)[0]).toEqual({
-            name: 'default',
+            id: 'costume-avatar',
+            name: 'avatar',
             kind: 'vrm',
             image: 'portrait.png',
             expressionCount: 1,
+            isDefault: true,
         });
-        expect(resolveVisualNovelExpressionImage(character, 'happy', 'default')).toBe('portrait.png');
+        expect(resolveVisualNovelExpressionImage(character, 'happy')).toBe('portrait.png');
     });
 
-    test('resolves the default costume regardless of its stored name casing', () => {
+    test('resolves costumes by id and falls back to the default costume', () => {
         const avatar = { source: 'unused', framing: DEFAULT_VRM_FRAMING, expressionMap: {} };
         const character = {
             id: 'alice', name: 'Alice', systemPrompt: '', createdAt: 0, updatedAt: 0,
+            defaultCostumeId: 'costume-avatar',
             costumes: [
-                { name: 'Default', kind: 'vrm', image: 'portrait.png', vrm: avatar },
-                { name: 'uniform', image: 'uniform.png' },
+                { id: 'costume-uniform', name: 'uniform', image: 'uniform.png' },
+                { id: 'costume-avatar', name: 'Default', kind: 'vrm', image: 'portrait.png', vrm: avatar },
             ],
         } satisfies Character;
 
-        expect(findVisualNovelCostume(character, 'default')?.vrm).toBe(avatar);
-        expect(findVisualNovelCostume(character, 'Default')?.vrm).toBe(avatar);
-        expect(findVisualNovelCostume(character, 'uniform')?.image).toBe('uniform.png');
-        expect(findVisualNovelCostume(character, 'missing')).toBeNull();
-        expect(findVisualNovelCostume(character, null)).toBeNull();
+        expect(findVisualNovelCostume(character, 'costume-avatar')?.vrm).toBe(avatar);
+        expect(findVisualNovelCostume(character, 'costume-uniform')?.image).toBe('uniform.png');
+        // Names are not references; unknown values follow the default costume.
+        expect(findVisualNovelCostume(character, 'uniform')?.vrm).toBe(avatar);
+        expect(findVisualNovelCostume(character, null)?.vrm).toBe(avatar);
+        expect(findVisualNovelCostume({ costumes: [] }, null)).toBeNull();
     });
 });

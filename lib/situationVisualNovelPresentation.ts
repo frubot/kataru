@@ -50,7 +50,7 @@ type InitialPresentationInput = {
     isLoading: boolean;
 };
 
-type SituationVisualNovelInitialCharacter = Pick<Character, 'id' | 'expressions'>;
+type SituationVisualNovelInitialCharacter = Pick<Character, 'id' | 'costumes'>;
 
 function paginateSituationVisualNovelItem(
     item: SituationVisualNovelItem,
@@ -71,7 +71,7 @@ export function resolveSituationVisualNovelInitialCharacterId(
     characters: SituationVisualNovelInitialCharacter[],
 ): string | undefined {
     const hasPortrait = (character: SituationVisualNovelInitialCharacter) => (
-        character.expressions?.some((expression) => expression.image.trim()) === true
+        character.costumes?.some((costume) => costume.kind === 'vrm' || !!costume.image.trim()) === true
     );
     const openingMessage = priorMessages.find(
         (message): message is Extract<SituationPriorMessage, { role: 'assistant' }> => (

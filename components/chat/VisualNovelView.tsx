@@ -6,7 +6,7 @@ import type { Character } from '@/lib/store';
 import type { VrmAvatar } from '@/lib/store/types';
 import { stopTtsPlayback } from '@/lib/ttsPlayer';
 import type { TtsPlaybackStatus } from '@/lib/ttsPlayer';
-import { DEFAULT_COSTUME_NAME, findVisualNovelCostume } from '@/lib/visualNovelPresentation';
+import { findVisualNovelCostume } from '@/lib/visualNovelPresentation';
 import type { VisualNovelCostumeOption } from '@/lib/visualNovelPresentation';
 import { preloadVisualNovelImages } from '@/lib/visualNovelImagePreload';
 import StoredImage from '../StoredImage';
@@ -86,9 +86,10 @@ type VisualNovelViewProps = {
     replySuggestions: ReactNode;
     hasReplySuggestions: boolean;
     isSummarizing: boolean;
-    selectedCostumeName: string;
+    /** 表示中の衣装の id。衣装が無ければ null。 */
+    selectedCostumeId: string | null;
     costumeOptions: VisualNovelCostumeOption[];
-    onSelectCostume: (costumeName: string) => void;
+    onSelectCostume: (costumeId: string) => void;
     showCostumeSelector?: boolean;
     onOpenLog: () => void;
     canEditLatestUserMessage: boolean;
@@ -129,7 +130,7 @@ export default function VisualNovelView({
     replySuggestions,
     hasReplySuggestions,
     isSummarizing,
-    selectedCostumeName,
+    selectedCostumeId,
     costumeOptions,
     onSelectCostume,
     showCostumeSelector = true,
@@ -159,12 +160,13 @@ export default function VisualNovelView({
     const [costumeMenuOpen, setCostumeMenuOpen] = useState(false);
     const costumeMenuRef = useRef<HTMLDivElement>(null);
     const dialogueBodyRef = useRef<HTMLDivElement>(null);
-    const selectedCostume = findVisualNovelCostume(character, selectedCostumeName);
+    const selectedCostume = findVisualNovelCostume(character, selectedCostumeId);
+    const selectedOption = costumeOptions.find((option) => option.id === selectedCostume?.id);
     const vrmAvatar = selectedCostume?.kind === 'vrm' ? selectedCostume.vrm : undefined;
 
     useVisualNovelImagePreload({
         character,
-        costumeName: selectedCostumeName,
+        costumeId: selectedCostumeId,
         currentImage: expressionImage,
         backgroundImage,
     });
@@ -195,8 +197,8 @@ export default function VisualNovelView({
         return () => cancelAnimationFrame(frameId);
     }, [dialogueContent]);
 
-    const selectCostume = (costumeName: string) => {
-        onSelectCostume(costumeName);
+    const selectCostume = (costumeId: string) => {
+        onSelectCostume(costumeId);
         setCostumeMenuOpen(false);
     };
 
@@ -274,14 +276,14 @@ export default function VisualNovelView({
                                 <div className="spinner" />
                             </div>
                         )}
-                        {showCostumeSelector && character && (
+                        {showCostumeSelector && character && costumeOptions.length > 0 && (
                             <div ref={costumeMenuRef} style={{ position: 'relative' }}>
                                 <button
                                     type="button"
                                     className="btn btn-ghost"
                                     onClick={() => setCostumeMenuOpen((open) => !open)}
-                                    title={`衣装変更: ${selectedCostumeName}`}
-                                    style={{ color: selectedCostumeName !== DEFAULT_COSTUME_NAME ? 'var(--accent-primary)' : undefined }}
+                                    title={`衣装変更: ${selectedCostume?.name ?? '未登録'}`}
+                                    style={{ color: selectedOption && !selectedOption.isDefault ? 'var(--accent-primary)' : undefined }}
                                     aria-haspopup="menu"
                                     aria-expanded={costumeMenuOpen}
                                 >
@@ -306,14 +308,14 @@ export default function VisualNovelView({
                                         }}
                                     >
                                         {costumeOptions.map((option) => {
-                                            const active = option.name === selectedCostumeName;
+                                            const active = option.id === selectedCostume?.id;
                                             return (
                                                 <button
-                                                    key={option.name}
+                                                    key={option.id}
                                                     type="button"
                                                     role="menuitemradio"
                                                     aria-checked={active}
-                                                    onClick={() => selectCostume(option.name)}
+                                                    onClick={() => selectCostume(option.id)}
                                                     style={{
                                                         width: '100%',
                                                         display: 'flex',
@@ -350,6 +352,11 @@ export default function VisualNovelView({
                                                         <span style={{ display: 'block', fontSize: '0.8125rem', fontWeight: active ? 600 : 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                                             {option.name} <small>{option.kind === 'vrm' ? '3D' : '2D'}</small>
                                                         </span>
+                                                        {option.isDefault && (
+                                                            <span style={{ display: 'block', fontSize: '0.6875rem', color: 'var(--accent-primary)' }}>
+                                                                デフォルト
+                                                            </span>
+                                                        )}
                                                         <span style={{ display: 'block', fontSize: '0.6875rem', color: 'var(--text-muted)' }}>
                                                             表情 {option.expressionCount}件
                                                         </span>

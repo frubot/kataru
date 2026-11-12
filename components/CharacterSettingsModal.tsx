@@ -1,10 +1,9 @@
 import { useState, useCallback, useRef, useEffect, lazy, Suspense } from 'react';
-import { X, ChevronDown, ChevronRight, RotateCcw, User, ImagePlus, Shirt, Smile } from 'lucide-react';
+import { X, ChevronDown, ChevronRight, RotateCcw, User, Shirt, Smile } from 'lucide-react';
 import type { GeneratedCharacterDraft } from '@/lib/characterGeneration';
 import {
     useStore,
     Character,
-    Costume,
     Expression,
     RealTimeMode,
     DEFAULT_CHARACTER_MAX_HISTORY,
@@ -26,11 +25,22 @@ import { useModalKeyboard } from './useModalKeyboard';
 import { resolveTtsProfile } from '@/lib/tts';
 import { setTtsPlaybackVolume } from '@/lib/ttsPlayer';
 import { getVrmExpressionNames } from '@/lib/vrm';
+import {
+    NEUTRAL_EXPRESSION_NAME,
+    removeCostume,
+    removeCostumeExpression,
+    renameCostumeExpression,
+    resolveActiveCostume,
+    resolveDefaultCostume,
+    setDefaultCostume,
+    upsertCostume,
+    upsertCostumeExpression,
+    type CostumeSet,
+} from '@/lib/costumes';
 
 const VrmAvatarView = lazy(() => import('./VrmAvatarView'));
 
-const NEUTRAL_NAME = 'neutral';
-const DEFAULT_COSTUME_NAME = 'default';
+const NEUTRAL_NAME = NEUTRAL_EXPRESSION_NAME;
 const CHARACTER_PROMPT_SECTION_TITLE = 'プロフィール';
 const SPEECH_STYLE_SECTION_TITLE = '口調';
 const PROTAGONIST_PROMPT_SECTION_TITLE = '{{user}}について';
@@ -60,8 +70,10 @@ function buildInitialCharacterDraft(
         maxCharacters: character?.maxCharacters != null ? String(character.maxCharacters) : '',
         maxHistory: character?.maxHistory != null ? String(character.maxHistory) : '',
         icon: character?.icon ?? null,
-        expressions: character?.expressions ?? [],
-        costumes: character?.costumes ?? [],
+        costumeSet: {
+            costumes: character?.costumes ?? [],
+            defaultCostumeId: resolveDefaultCostume(character)?.id,
+        } as CostumeSet,
         ttsVoice: character?.tts?.voice ?? '',
         ttsSpeed: character?.tts?.speed,
         ttsVolume: character?.tts?.volume,
@@ -121,9 +133,9 @@ function CharacterSettingsModalContent({
     // Avatar
     const [icon, setIcon] = useState<string | null>(initialDraft.icon);
 
-    // Expressions
-    const [expressions, setExpressions] = useState<Expression[]>(initialDraft.expressions);
-    const [costumes, setCostumes] = useState<Costume[]>(initialDraft.costumes);
+    // 衣装と表情（表情は衣装ごとに持つ）
+    const [costumeSet, setCostumeSet] = useState<CostumeSet>(initialDraft.costumeSet);
+    const costumes = costumeSet.costumes;
 
     // TTS overrides (空欄は全体設定に従う)
     const [ttsVoice, setTtsVoice] = useState(initialDraft.ttsVoice);
@@ -133,7 +145,7 @@ function CharacterSettingsModalContent({
     const [expressionsOpen, setExpressionsOpen] = useState(false);
     const [costumesOpen, setCostumesOpen] = useState(false);
     // 左ペインのプレビュー選択。保存対象ではなく表示切替だけに使う。
-    const [previewCostumeName, setPreviewCostumeName] = useState(DEFAULT_COSTUME_NAME);
+    const [previewCostumeId, setPreviewCostumeId] = useState<string | null>(null);
     const [previewExpressionName, setPreviewExpressionName] = useState<string | null>(null);
     const modalRef = useRef<HTMLDivElement>(null);
 
@@ -158,8 +170,7 @@ function CharacterSettingsModalContent({
             maxCharacters,
             maxHistory,
             icon,
-            expressions,
-            costumes,
+            costumeSet,
             ttsVoice,
             ttsSpeed,
             ttsVolume,
@@ -188,8 +199,8 @@ function CharacterSettingsModalContent({
             maxCharacters: maxCharacters ? Math.max(1, Math.round(Number(maxCharacters))) : undefined,
             maxHistory: maxHistory ? Math.min(100, Math.max(1, Number(maxHistory))) : undefined,
             icon: icon ?? undefined,
-            expressions: expressions.length > 0 ? expressions : undefined,
             costumes: costumes.length > 0 ? costumes : undefined,
+            defaultCostumeId: costumes.length > 0 ? resolveDefaultCostume(costumeSet)?.id : undefined,
             tts: (ttsVoice.trim() || ttsSpeed != null || ttsVolume != null)
                 ? { voice: ttsVoice.trim() || undefined, speed: ttsSpeed, volume: ttsVolume }
                 : undefined,
@@ -201,7 +212,7 @@ function CharacterSettingsModalContent({
             updateCharacter(character.id, updates);
         }
         onClose();
-    }, [character, costumes, createCharacter, enableMemory, expressions, icon, initialDraft, isNew, maxCharacters, maxHistory, name, onClose, protagonistPrompt, realTimeMode, speechStyle, systemPrompt, ttsSpeed, ttsVoice, ttsVolume, updateCharacter, userConstraints]);
+    }, [character, costumeSet, costumes, createCharacter, enableMemory, icon, initialDraft, isNew, maxCharacters, maxHistory, name, onClose, protagonistPrompt, realTimeMode, speechStyle, systemPrompt, ttsSpeed, ttsVoice, ttsVolume, updateCharacter, userConstraints]);
 
     const attemptClose = useCallback(() => {
         const currentDraft = {
@@ -215,8 +226,7 @@ function CharacterSettingsModalContent({
             maxCharacters,
             maxHistory,
             icon,
-            expressions,
-            costumes,
+            costumeSet,
             ttsVoice,
             ttsSpeed,
             ttsVolume,
@@ -231,7 +241,7 @@ function CharacterSettingsModalContent({
         }
 
         onClose();
-    }, [character, costumes, enableMemory, expressions, icon, isNew, maxCharacters, maxHistory, name, onClose, protagonistPrompt, realTimeMode, speechStyle, systemPrompt, ttsSpeed, ttsVoice, ttsVolume, userConstraints]);
+    }, [character, costumeSet, enableMemory, icon, isNew, maxCharacters, maxHistory, name, onClose, protagonistPrompt, realTimeMode, speechStyle, systemPrompt, ttsSpeed, ttsVoice, ttsVolume, userConstraints]);
 
     const childModalOpen = imageGenOpen || expressionsOpen || costumesOpen;
     useModalKeyboard({
@@ -277,31 +287,32 @@ function CharacterSettingsModalContent({
         </div>
     );
 
-    const defaultNeutralImage = costumes.find((c) => c.name.toLowerCase() === DEFAULT_COSTUME_NAME)?.image
-        ?? expressions.find((e) => e.name === NEUTRAL_NAME)?.image;
-
-    // ---- 左ペインの立ち絵プレビュー ----
-    const defaultCostume = costumes.find((c) => c.name.toLowerCase() === DEFAULT_COSTUME_NAME) ?? null;
-    const previewCostume = previewCostumeName === DEFAULT_COSTUME_NAME
-        ? defaultCostume
-        : costumes.find((c) => c.name === previewCostumeName) ?? null;
+    // ---- 左ペインの立ち絵プレビュー（未選択・削除済みならデフォルト衣装） ----
+    const defaultCostume = resolveDefaultCostume(costumeSet);
+    const previewCostume = resolveActiveCostume(costumeSet, previewCostumeId);
     const previewVrm = previewCostume?.kind === 'vrm' ? previewCostume.vrm : undefined;
-    const previewExpressionPool: Expression[] = previewCostume && previewCostumeName !== DEFAULT_COSTUME_NAME
-        ? previewCostume.expressions ?? []
-        : expressions;
+    const previewExpressionPool: Expression[] = previewCostume
+        ? [
+            { name: NEUTRAL_NAME, image: previewCostume.image },
+            ...(previewCostume.expressions ?? []).filter((e) => e.name.toLowerCase() !== NEUTRAL_NAME),
+        ]
+        : [];
     const previewExpression = previewExpressionName && !previewVrm
         ? previewExpressionPool.find((e) => e.name === previewExpressionName) ?? null
         : null;
-    const portraitImage = previewExpression?.image ?? previewCostume?.image ?? defaultNeutralImage ?? null;
-    const costumeThumbs = [
-        { name: DEFAULT_COSTUME_NAME, image: defaultCostume?.image ?? defaultNeutralImage ?? icon, isVrm: defaultCostume?.kind === 'vrm' },
-        ...costumes
-            .filter((c) => c.name.toLowerCase() !== DEFAULT_COSTUME_NAME)
-            .map((c) => ({ name: c.name, image: c.image, isVrm: c.kind === 'vrm' })),
-    ];
+    const portraitImage = previewExpression?.image ?? previewCostume?.image ?? null;
+    const costumeThumbs = costumes.map((c) => ({
+        id: c.id,
+        name: c.name,
+        image: c.image,
+        isVrm: c.kind === 'vrm',
+        isDefault: c.id === defaultCostume?.id,
+    }));
     const expressionThumbs: { name: string; image?: string }[] = previewVrm
         ? getVrmExpressionNames(previewVrm).map((entryName) => ({ name: entryName }))
-        : previewExpressionPool.map((e) => ({ name: e.name, image: e.image }));
+        : previewExpressionPool.length > 1
+            ? previewExpressionPool.map((e) => ({ name: e.name, image: e.image }))
+            : [];
 
     // 高度な設定に何かカスタム値が設定されているか
     const hasCustomParams = maxCharacters || maxHistory
@@ -363,12 +374,12 @@ function CharacterSettingsModalContent({
                             <div className="character-profile-thumbs">
                                 {costumeThumbs.map((thumb) => (
                                     <button
-                                        key={`costume:${thumb.name}`}
+                                        key={`costume:${thumb.id}`}
                                         type="button"
-                                        className={`character-profile-thumb${previewCostumeName === thumb.name ? ' selected' : ''}`}
-                                        title={`衣装: ${thumb.name}`}
+                                        className={`character-profile-thumb${previewCostume?.id === thumb.id ? ' selected' : ''}`}
+                                        title={`衣装: ${thumb.name}${thumb.isDefault ? '（デフォルト）' : ''}`}
                                         onClick={() => {
-                                            setPreviewCostumeName(thumb.name);
+                                            setPreviewCostumeId(thumb.id);
                                             setPreviewExpressionName(null);
                                         }}
                                     >
@@ -402,7 +413,8 @@ function CharacterSettingsModalContent({
                         )}
                         {!isMobile && (
                             <div className="character-profile-preview-label">
-                                {previewCostume?.name ?? previewCostumeName}
+                                {previewCostume?.name ?? ''}
+                                {previewCostume && previewCostume.id === defaultCostume?.id && costumes.length > 1 ? '（デフォルト）' : ''}
                                 {previewExpressionName ? ` / ${previewExpressionName}` : ''}
                             </div>
                         )}
@@ -418,7 +430,7 @@ function CharacterSettingsModalContent({
                                         avatar={previewVrm}
                                         expression={previewExpressionName}
                                         name={name || 'キャラクター'}
-                                        fallbackImage={previewCostume?.image ?? defaultNeutralImage ?? icon ?? undefined}
+                                        fallbackImage={previewCostume?.image ?? icon ?? undefined}
                                         interactive
                                         lipSync
                                     />
@@ -443,17 +455,8 @@ function CharacterSettingsModalContent({
                             <button
                                 type="button"
                                 className="btn"
-                                onClick={() => setImageGenOpen(true)}
-                                title="アバターと立ち絵を登録します。表情・衣装差分にも使用されます"
-                            >
-                                <ImagePlus size={13} />
-                                立ち絵
-                            </button>
-                            <button
-                                type="button"
-                                className="btn"
                                 onClick={() => setCostumesOpen(true)}
-                                title={!expressions.some((e) => e.name === NEUTRAL_NAME) ? '生成には「立ち絵」から登録が必要です。アップロードなら直接追加できます' : undefined}
+                                title="立ち絵となる衣装を登録・管理します"
                             >
                                 <Shirt size={13} />
                                 衣装
@@ -477,7 +480,7 @@ function CharacterSettingsModalContent({
                                     type="button"
                                     className="character-profile-icon-button"
                                     onClick={() => setImageGenOpen(true)}
-                                    title="アバター画像を変更"
+                                    title="アイコン画像を変更"
                                 >
                                     {icon ? (
                                         <StoredImage src={icon} alt="avatar" />
@@ -955,122 +958,43 @@ function CharacterSettingsModalContent({
             <ImageGenerationModal
                 isOpen={imageGenOpen}
                 onClose={() => setImageGenOpen(false)}
+                target="icon"
                 transparentFullBody
-                expressionNames={expressions.map((expression) => expression.name)}
-                initialVrm={costumes.find((c) => c.name.toLowerCase() === DEFAULT_COSTUME_NAME && c.kind === 'vrm')?.vrm}
-                vrmPreviewName={name || 'キャラクター'}
-                vrmFallbackImage={icon ?? undefined}
-                onComplete={(avatar, fullBody, vrm) => {
-                    setIcon(avatar);
-                    setExpressions((prev) => {
-                        const next = prev.filter((e) => e.name !== NEUTRAL_NAME);
-                        next.unshift({ name: NEUTRAL_NAME, image: fullBody });
-                        return next;
-                    });
-                    setCostumes((prev) => {
-                        const existingDefault = prev.find((c) => c.name.toLowerCase() === DEFAULT_COSTUME_NAME);
-                        const next = prev.filter((c) => c.name.toLowerCase() !== DEFAULT_COSTUME_NAME);
-                        next.unshift({
-                            name: DEFAULT_COSTUME_NAME,
-                            ...(vrm ? { kind: 'vrm' as const, vrm } : {}),
-                            promptDetail: existingDefault?.promptDetail,
-                            description: existingDefault?.description,
-                            image: fullBody,
-                        });
-                        return next;
-                    });
+                onComplete={(result) => {
+                    if (result.icon) setIcon(result.icon);
                 }}
             />
 
             <ExpressionDiffModal
                 isOpen={expressionsOpen}
                 onClose={() => setExpressionsOpen(false)}
-                expressions={expressions}
-                costumes={costumes}
-                onUpsert={(exp, costumeName) => {
-                    if (costumeName) {
-                        setCostumes((prev) => prev.map((costume) => {
-                            if (costume.name !== costumeName) return costume;
-                            const currentExpressions = costume.expressions ?? [];
-                            const idx = currentExpressions.findIndex((e) => e.name === exp.name);
-                            const expressionsNext = idx >= 0
-                                ? currentExpressions.map((e, i) => (i === idx ? exp : e))
-                                : [...currentExpressions, exp];
-                            return { ...costume, expressions: expressionsNext };
-                        }));
-                        return;
-                    }
-                    setExpressions((prev) => {
-                        const idx = prev.findIndex((e) => e.name === exp.name);
-                        if (idx >= 0) {
-                            const next = [...prev];
-                            next[idx] = exp;
-                            return next;
-                        }
-                        return [...prev, exp];
-                    });
-                }}
-                onRename={(currentName, nextName, costumeName) => {
-                    if (costumeName) {
-                        setCostumes((prev) => prev.map((costume) => (
-                            costume.name === costumeName
-                                ? {
-                                    ...costume,
-                                    expressions: (costume.expressions ?? []).map((expression) => (
-                                        expression.name === currentName
-                                            ? { ...expression, name: nextName }
-                                            : expression
-                                    )),
-                                }
-                                : costume
-                        )));
-                        return;
-                    }
-                    setExpressions((prev) => prev.map((expression) => (
-                        expression.name === currentName
-                            ? { ...expression, name: nextName }
-                            : expression
-                    )));
-                }}
-                onRemove={(name, costumeName) => {
-                    if (costumeName) {
-                        setCostumes((prev) => prev.map((costume) => (
-                            costume.name === costumeName
-                                ? { ...costume, expressions: (costume.expressions ?? []).filter((e) => e.name !== name) }
-                                : costume
-                        )));
-                        return;
-                    }
-                    setExpressions((prev) => prev.filter((e) => e.name !== name));
-                }}
+                costumes={costumeSet.costumes}
+                defaultCostumeId={costumeSet.defaultCostumeId}
+                onUpsert={(exp, costumeId) => setCostumeSet((prev) => ({
+                    ...prev,
+                    costumes: upsertCostumeExpression(prev.costumes, costumeId, exp),
+                }))}
+                onRename={(currentName, nextName, costumeId) => setCostumeSet((prev) => ({
+                    ...prev,
+                    costumes: renameCostumeExpression(prev.costumes, costumeId, currentName, nextName),
+                }))}
+                onRemove={(expressionName, costumeId) => setCostumeSet((prev) => ({
+                    ...prev,
+                    costumes: removeCostumeExpression(prev.costumes, costumeId, expressionName),
+                }))}
             />
 
             <CostumeDiffModal
                 isOpen={costumesOpen}
-                expressionNames={expressions.map((expression) => expression.name)}
                 onClose={() => setCostumesOpen(false)}
-                baseImage={defaultNeutralImage}
-                costumes={costumes}
-                onUpsert={(costume) => setCostumes((prev) => {
-                    const idx = prev.findIndex((c) => c.name === costume.name);
-                    if (idx >= 0) {
-                        const next = [...prev];
-                        next[idx] = costume;
-                        return next;
-                    }
-                    return [...prev, costume];
-                })}
-                onRename={(currentName, nextName) => {
-                    setCostumes((prev) => prev.map((costume) => (
-                        costume.name === currentName
-                            ? { ...costume, name: nextName }
-                            : costume
-                    )));
-                }}
-                onRemove={(name) => setCostumes((prev) => prev.filter((c) => {
-                    if (c.name.toLowerCase() === DEFAULT_COSTUME_NAME) return true;
-                    return c.name !== name;
-                }))}
+                costumes={costumeSet.costumes}
+                defaultCostumeId={costumeSet.defaultCostumeId}
+                ownerName={name}
+                hasIcon={!!icon}
+                onUpsert={(costume) => setCostumeSet((prev) => upsertCostume(prev, costume))}
+                onRemove={(costumeId) => setCostumeSet((prev) => removeCostume(prev, costumeId))}
+                onSetDefault={(costumeId) => setCostumeSet((prev) => setDefaultCostume(prev, costumeId))}
+                onIconChange={setIcon}
             />
         </div>
     );

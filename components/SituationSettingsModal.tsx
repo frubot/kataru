@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, ChevronDown, ChevronRight, ChevronUp, EllipsisVertical, Image as ImageIcon, ImagePlus, MessagesSquare, Plus, RotateCcw, Search, Shirt, Smile, Sparkles, Trash2, User, Users, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, ChevronUp, EllipsisVertical, Image as ImageIcon, MessagesSquare, Plus, RotateCcw, Search, Shirt, Smile, Sparkles, Trash2, User, Users, X } from 'lucide-react';
 import {
     Character,
     Costume,
@@ -8,7 +8,6 @@ import {
     DEFAULT_SITUATION_MAX_TURNS,
     MAX_SITUATION_MAX_TURNS,
     MIN_SITUATION_MAX_TURNS,
-    Expression,
     Room,
     Situation,
     SituationActor,
@@ -17,11 +16,21 @@ import {
 } from '@/lib/store';
 import { generateId } from '@/lib/id';
 import {
-    DEFAULT_COSTUME_NAME,
     getVisualNovelCostumeOptions,
     getVisualNovelExpressionNames,
 } from '@/lib/visualNovelPresentation';
+import {
+    NEUTRAL_EXPRESSION_NAME,
+    removeCostume,
+    removeCostumeExpression,
+    renameCostumeExpression,
+    resolveDefaultCostume,
+    setDefaultCostume,
+    upsertCostume,
+    upsertCostumeExpression,
+} from '@/lib/costumes';
 import CharacterGeneratorModal from './CharacterGeneratorModal';
+import CostumeDiffModal from './CostumeDiffModal';
 import ExpressionDiffModal from './ExpressionDiffModal';
 import ImageGenerationModal from './ImageGenerationModal';
 import SituationBackgroundModal from './SituationBackgroundModal';
@@ -43,13 +52,14 @@ type TemporaryActorDraft = {
     speechStyle: string;
     userConstraints: string;
     icon: string | null;
-    expressions: Expression[];
     costumes: Costume[];
+    defaultCostumeId?: string;
 };
 
 type CharacterActorMeta = {
     id: string;
-    costumeName?: string;
+    /** 着用する衣装の id。未指定ならキャラクターのデフォルト衣装に従う。 */
+    costumeId?: string;
     rolePrompt?: string;
 };
 
@@ -104,8 +114,6 @@ const priorMessageSelectTriggerStyle: CSSProperties = {
     gap: '0.25rem',
 };
 
-const NEUTRAL_EXPRESSION_NAME = 'neutral';
-
 const MAX_HISTORY_SLIDER_MAX = 100;
 const DEFAULT_MAX_HISTORY_SLIDER_VALUE = DEFAULT_CHARACTER_MAX_HISTORY == null
     ? MAX_HISTORY_SLIDER_MAX
@@ -125,7 +133,6 @@ function createTemporaryDraft(): TemporaryActorDraft {
         speechStyle: '',
         userConstraints: '',
         icon: null,
-        expressions: [],
         costumes: [],
     };
 }
@@ -381,6 +388,7 @@ function TemporaryActorSettingsModal({
     const [draft, setDraft] = useState<TemporaryActorDraft>(() => ({ ...actor }));
     const [generatorOpen, setGeneratorOpen] = useState(false);
     const [imageGenOpen, setImageGenOpen] = useState(false);
+    const [costumesOpen, setCostumesOpen] = useState(false);
     const [expressionsOpen, setExpressionsOpen] = useState(false);
     // 左ペインのプレビュー選択。保存対象ではなく表示切替だけに使う。
     const [previewExpressionName, setPreviewExpressionName] = useState<string | null>(null);
@@ -415,7 +423,7 @@ function TemporaryActorSettingsModal({
         isOpen: true,
         containerRef: modalRef,
         onClose: isNew ? onClose : saveAndClose,
-        canClose: !generatorOpen && !imageGenOpen && !expressionsOpen,
+        canClose: !generatorOpen && !imageGenOpen && !costumesOpen && !expressionsOpen,
     });
 
     const sectionStyle: CSSProperties = { marginBottom: '1.25rem' };
@@ -427,18 +435,24 @@ function TemporaryActorSettingsModal({
         letterSpacing: '0.02em',
     };
 
-    // 左ペインの立ち絵プレビュー（衣装差分は扱わず、デフォルト衣装と表情だけを表示する）
-    const defaultCostume = draft.costumes.find((costume) => costume.name.toLowerCase() === DEFAULT_COSTUME_NAME) ?? null;
-    const defaultNeutralImage = defaultCostume?.image
-        ?? draft.expressions.find((expression) => expression.name === NEUTRAL_EXPRESSION_NAME)?.image;
+    // 左ペインの立ち絵プレビュー（デフォルト衣装とその表情を表示する）
+    const defaultCostume = resolveDefaultCostume(draft);
+    const defaultNeutralImage = defaultCostume?.image;
     const previewVrm = defaultCostume?.kind === 'vrm' ? defaultCostume.vrm : undefined;
+    const previewExpressions = (defaultCostume?.expressions ?? [])
+        .filter((expression) => expression.name.toLowerCase() !== NEUTRAL_EXPRESSION_NAME);
     const previewExpression = previewExpressionName && !previewVrm
-        ? draft.expressions.find((expression) => expression.name === previewExpressionName) ?? null
+        ? previewExpressions.find((expression) => expression.name === previewExpressionName) ?? null
         : null;
     const portraitImage = previewExpression?.image ?? defaultNeutralImage ?? null;
     const expressionThumbs: { name: string; image?: string }[] = previewVrm
         ? getVrmExpressionNames(previewVrm).map((name) => ({ name }))
-        : draft.expressions.map((expression) => ({ name: expression.name, image: expression.image }));
+        : defaultCostume && previewExpressions.length > 0
+            ? [
+                { name: NEUTRAL_EXPRESSION_NAME, image: defaultCostume.image },
+                ...previewExpressions.map((expression) => ({ name: expression.name, image: expression.image })),
+            ]
+            : [];
 
     return (
         <>
@@ -560,11 +574,11 @@ function TemporaryActorSettingsModal({
                                 <button
                                     type="button"
                                     className="btn"
-                                    onClick={() => setImageGenOpen(true)}
-                                    title="アバターと立ち絵を登録します。表情差分にも使用されます"
+                                    onClick={() => setCostumesOpen(true)}
+                                    title="立ち絵となる衣装を登録・管理します"
                                 >
-                                    <ImagePlus size={13} />
-                                    立ち絵
+                                    <Shirt size={13} />
+                                    衣装
                                 </button>
                                 <button
                                     type="button"
@@ -585,7 +599,7 @@ function TemporaryActorSettingsModal({
                                         type="button"
                                         className="character-profile-icon-button"
                                         onClick={() => setImageGenOpen(true)}
-                                        title="アバター画像を変更"
+                                        title="アイコン画像を変更"
                                     >
                                         {draft.icon ? (
                                             <StoredImage src={draft.icon} alt="avatar" />
@@ -669,66 +683,48 @@ function TemporaryActorSettingsModal({
             <ImageGenerationModal
                 isOpen={imageGenOpen}
                 onClose={() => setImageGenOpen(false)}
+                target="icon"
                 transparentFullBody
-                expressionNames={draft.expressions.map((expression) => expression.name)}
-                initialVrm={draft.costumes.find((costume) => costume.name.toLowerCase() === DEFAULT_COSTUME_NAME && costume.kind === 'vrm')?.vrm}
-                vrmPreviewName={draft.name || 'キャラクター'}
-                vrmFallbackImage={draft.icon ?? undefined}
-                onComplete={(avatar, fullBody, vrm) => {
-                    setDraft((current) => {
-                        const expressions = current.expressions.filter(
-                            (expression) => expression.name !== NEUTRAL_EXPRESSION_NAME,
-                        );
-                        expressions.unshift({ name: NEUTRAL_EXPRESSION_NAME, image: fullBody });
-                        const existingDefault = current.costumes.find(
-                            (costume) => costume.name.toLowerCase() === DEFAULT_COSTUME_NAME,
-                        );
-                        const costumes = current.costumes.filter(
-                            (costume) => costume.name.toLowerCase() !== DEFAULT_COSTUME_NAME,
-                        );
-                        costumes.unshift({
-                            name: DEFAULT_COSTUME_NAME,
-                            ...(vrm ? { kind: 'vrm' as const, vrm } : {}),
-                            description: existingDefault?.description,
-                            image: fullBody,
-                        });
-                        return { ...current, icon: avatar, expressions, costumes };
-                    });
+                onComplete={(result) => {
+                    if (result.icon) updateDraft({ icon: result.icon });
                     setImageGenOpen(false);
                 }}
+            />
+
+            <CostumeDiffModal
+                isOpen={costumesOpen}
+                onClose={() => setCostumesOpen(false)}
+                costumes={draft.costumes}
+                defaultCostumeId={draft.defaultCostumeId}
+                ownerName={draft.name}
+                hasIcon={!!draft.icon}
+                onUpsert={(costume) => setDraft((current) => ({ ...current, ...upsertCostume(current, costume) }))}
+                onRemove={(costumeId) => setDraft((current) => ({ ...current, ...removeCostume(current, costumeId) }))}
+                onSetDefault={(costumeId) => setDraft((current) => ({ ...current, ...setDefaultCostume(current, costumeId) }))}
+                onIconChange={(icon) => updateDraft({ icon })}
             />
 
             <ExpressionDiffModal
                 isOpen={expressionsOpen}
                 onClose={() => setExpressionsOpen(false)}
-                expressions={draft.expressions}
                 costumes={draft.costumes}
-                showCostumeSettings={false}
-                onUpsert={(expression) => {
-                    setDraft((current) => {
-                        const index = current.expressions.findIndex((item) => item.name === expression.name);
-                        if (index < 0) {
-                            return { ...current, expressions: [...current.expressions, expression] };
-                        }
-                        const expressions = [...current.expressions];
-                        expressions[index] = expression;
-                        return { ...current, expressions };
-                    });
-                }}
-                onRename={(currentName, nextName) => {
+                defaultCostumeId={draft.defaultCostumeId}
+                onUpsert={(expression, costumeId) => {
                     setDraft((current) => ({
                         ...current,
-                        expressions: current.expressions.map((expression) => (
-                            expression.name === currentName
-                                ? { ...expression, name: nextName }
-                                : expression
-                        )),
+                        costumes: upsertCostumeExpression(current.costumes, costumeId, expression),
                     }));
                 }}
-                onRemove={(name) => {
+                onRename={(currentName, nextName, costumeId) => {
                     setDraft((current) => ({
                         ...current,
-                        expressions: current.expressions.filter((expression) => expression.name !== name),
+                        costumes: renameCostumeExpression(current.costumes, costumeId, currentName, nextName),
+                    }));
+                }}
+                onRemove={(name, costumeId) => {
+                    setDraft((current) => ({
+                        ...current,
+                        costumes: removeCostumeExpression(current.costumes, costumeId, name),
                     }));
                 }}
             />
@@ -749,7 +745,7 @@ function buildInitialState(
             selectedCharacterIds.add(actor.characterId);
             characterActorMeta[actor.characterId] = {
                 id: actor.id,
-                costumeName: actor.costumeName,
+                costumeId: actor.costumeId,
                 rolePrompt: actor.rolePrompt,
             };
         } else {
@@ -760,8 +756,8 @@ function buildInitialState(
                 speechStyle: actor.speechStyle ?? '',
                 userConstraints: actor.userConstraints ?? '',
                 icon: actor.icon ?? null,
-                expressions: actor.expressions ?? [],
                 costumes: actor.costumes ?? [],
+                ...(actor.defaultCostumeId ? { defaultCostumeId: actor.defaultCostumeId } : {}),
             });
         }
     }
@@ -1003,24 +999,24 @@ function CharacterSelectionModal({
 
 interface CharacterCostumeMenuProps {
     character: Character;
-    selectedCostumeName: string;
+    /** 選択中の衣装の id。未指定ならデフォルト衣装。 */
+    selectedCostumeId?: string;
     anchor: CostumeMenuState;
-    onSelect: (costumeName: string) => void;
+    onSelect: (costumeId: string) => void;
     onClose: () => void;
 }
 
 function CharacterCostumeMenu({
     character,
-    selectedCostumeName,
+    selectedCostumeId,
     anchor,
     onSelect,
     onClose,
 }: CharacterCostumeMenuProps) {
     const menuRef = useRef<HTMLDivElement>(null);
     const costumeOptions = getVisualNovelCostumeOptions(character);
-    const resolvedCostumeName = costumeOptions.some((option) => option.name === selectedCostumeName)
-        ? selectedCostumeName
-        : DEFAULT_COSTUME_NAME;
+    const resolvedCostumeId = costumeOptions.find((option) => option.id === selectedCostumeId)?.id
+        ?? costumeOptions.find((option) => option.isDefault)?.id;
     const menuWidth = Math.min(240, window.innerWidth - 16);
     const left = Math.max(8, Math.min(anchor.anchorRight - menuWidth, window.innerWidth - menuWidth - 8));
     const placeAbove = window.innerHeight - anchor.anchorBottom < 220 && anchor.anchorTop > window.innerHeight - anchor.anchorBottom;
@@ -1078,14 +1074,14 @@ function CharacterCostumeMenu({
                 衣装
             </div>
             {costumeOptions.map((option) => {
-                const active = option.name === resolvedCostumeName;
+                const active = option.id === resolvedCostumeId;
                 return (
                     <button
-                        key={option.name}
+                        key={option.id}
                         type="button"
                         role="menuitemradio"
                         aria-checked={active}
-                        onClick={() => onSelect(option.name)}
+                        onClick={() => onSelect(option.id)}
                         style={{
                             width: '100%',
                             display: 'flex',
@@ -1120,6 +1116,7 @@ function CharacterCostumeMenu({
                         </span>
                         <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {option.name} <small>{option.kind === 'vrm' ? '3D' : '2D'}</small>
+                            {option.isDefault && <small style={{ display: 'block', color: 'var(--accent-primary)' }}>デフォルト</small>}
                         </span>
                         {active && <Check size={15} style={{ flexShrink: 0, color: 'var(--accent-primary)' }} />}
                     </button>
@@ -1258,7 +1255,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                 icon: character.icon,
                 expressionNames: getVisualNovelExpressionNames(
                     character,
-                    characterActorMeta[character.id]?.costumeName,
+                    characterActorMeta[character.id]?.costumeId,
                 ),
             })),
         ...temporaryActors
@@ -1290,17 +1287,19 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
         }
     };
 
-    const selectCharacterCostume = (characterId: string, costumeName: string) => {
+    const selectCharacterCostume = (characterId: string, costumeId: string) => {
+        const character = characters.find((entry) => entry.id === characterId);
         setCharacterActorMeta((meta) => {
             const current = meta[characterId] ?? { id: characterId };
-            if (costumeName === DEFAULT_COSTUME_NAME) {
+            // デフォルト衣装を選んだときは指定を外し、後からデフォルトを変えても追従させる。
+            if (resolveDefaultCostume(character)?.id === costumeId) {
                 const nextCurrent = { ...current };
-                delete nextCurrent.costumeName;
+                delete nextCurrent.costumeId;
                 return { ...meta, [characterId]: nextCurrent };
             }
             return {
                 ...meta,
-                [characterId]: { ...current, costumeName },
+                [characterId]: { ...current, costumeId },
             };
         });
         setCostumeMenu(null);
@@ -1430,21 +1429,24 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                 id: meta?.id || characterId,
                 type: 'character' as const,
                 characterId,
-                ...(meta?.costumeName ? { costumeName: meta.costumeName } : {}),
+                ...(meta?.costumeId ? { costumeId: meta.costumeId } : {}),
                 ...(meta?.rolePrompt ? { rolePrompt: meta.rolePrompt } : {}),
             };
         }),
-        ...validTemporaryActors.map((actor) => ({
-            id: actor.id,
-            type: 'temporary' as const,
-            name: actor.name.trim(),
-            systemPrompt: actor.systemPrompt.trim(),
-            ...(actor.speechStyle.trim() ? { speechStyle: actor.speechStyle.trim() } : {}),
-            ...(actor.userConstraints.trim() ? { userConstraints: actor.userConstraints.trim() } : {}),
-            ...(actor.icon ? { icon: actor.icon } : {}),
-            ...(actor.expressions.length > 0 ? { expressions: actor.expressions } : {}),
-            ...(actor.costumes.length > 0 ? { costumes: actor.costumes } : {}),
-        })),
+        ...validTemporaryActors.map((actor) => {
+            const defaultCostumeId = resolveDefaultCostume(actor)?.id;
+            return {
+                id: actor.id,
+                type: 'temporary' as const,
+                name: actor.name.trim(),
+                systemPrompt: actor.systemPrompt.trim(),
+                ...(actor.speechStyle.trim() ? { speechStyle: actor.speechStyle.trim() } : {}),
+                ...(actor.userConstraints.trim() ? { userConstraints: actor.userConstraints.trim() } : {}),
+                ...(actor.icon ? { icon: actor.icon } : {}),
+                ...(actor.costumes.length > 0 ? { costumes: actor.costumes } : {}),
+                ...(defaultCostumeId ? { defaultCostumeId } : {}),
+            };
+        }),
     ], [characterActorMeta, selectedCharacterIds, validTemporaryActors]);
 
     const saveAndClose = useCallback(() => {
@@ -1906,10 +1908,9 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, 5.5rem)', gap: '0.5rem', justifyContent: 'start' }}>
                                 {selectedCharacters.map((character) => {
                                     const costumeOptions = getVisualNovelCostumeOptions(character);
-                                    const storedCostumeName = characterActorMeta[character.id]?.costumeName ?? DEFAULT_COSTUME_NAME;
-                                    const selectedCostumeName = costumeOptions.some((option) => option.name === storedCostumeName)
-                                        ? storedCostumeName
-                                        : DEFAULT_COSTUME_NAME;
+                                    const storedCostumeId = characterActorMeta[character.id]?.costumeId;
+                                    const selectedCostumeOption = costumeOptions.find((option) => option.id === storedCostumeId)
+                                        ?? costumeOptions.find((option) => option.isDefault);
                                     const menuOpen = costumeMenu?.characterId === character.id;
                                     return (
                                         <div
@@ -1948,7 +1949,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                                                                 anchorBottom: rect.bottom,
                                                             });
                                                     }}
-                                                    title={`衣装: ${selectedCostumeName}`}
+                                                    title={`衣装: ${selectedCostumeOption?.name ?? '未登録'}`}
                                                     aria-label={`${character.name}の衣装を選択`}
                                                     aria-haspopup="menu"
                                                     aria-expanded={menuOpen}
@@ -1962,7 +1963,7 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
                                                         border: '1px solid var(--border-color)',
                                                         borderRadius: '50%',
                                                         background: 'var(--bg-primary)',
-                                                        color: selectedCostumeName === DEFAULT_COSTUME_NAME
+                                                        color: !selectedCostumeOption || selectedCostumeOption.isDefault
                                                             ? 'var(--text-secondary)'
                                                             : 'var(--accent-primary)',
                                                         cursor: 'pointer',
@@ -2157,9 +2158,9 @@ function SituationSettingsModalForm({ onClose, situation, room, onCreated }: Omi
             {costumeMenu && costumeMenuCharacter && (
                 <CharacterCostumeMenu
                     character={costumeMenuCharacter}
-                    selectedCostumeName={characterActorMeta[costumeMenuCharacter.id]?.costumeName ?? DEFAULT_COSTUME_NAME}
+                    selectedCostumeId={characterActorMeta[costumeMenuCharacter.id]?.costumeId}
                     anchor={costumeMenu}
-                    onSelect={(costumeName) => selectCharacterCostume(costumeMenuCharacter.id, costumeName)}
+                    onSelect={(costumeId) => selectCharacterCostume(costumeMenuCharacter.id, costumeId)}
                     onClose={closeCostumeMenu}
                 />
             )}

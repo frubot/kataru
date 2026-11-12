@@ -1,16 +1,23 @@
 import { useState, useEffect, useRef } from 'react';
-import { Check, X, Loader2, Pencil, Plus, Trash2, RefreshCw, Shirt, Sparkles, Upload } from 'lucide-react';
+import { Box, Check, ImagePlus, X, Loader2, Pencil, Plus, Trash2, RefreshCw, Shirt, Sparkles, Star, Upload, Wand2 } from 'lucide-react';
 import type { Costume } from '@/lib/store';
 import type { VrmAvatar } from '@/lib/store/types';
 import { useStore } from '@/lib/store';
 import { isAiConnectionKind } from '@/lib/aiApi';
 import { useAiConnections } from '@/lib/aiConnections';
+import {
+    collectCostumeExpressionNames,
+    createCostumeId,
+    isCostumeNameTaken,
+    resolveDefaultCostume,
+} from '@/lib/costumes';
 import { serializeModelRef, type ModelRef } from '@/lib/modelDefaults';
 import { readVrmFile } from '@/lib/vrm';
 import { createNameRegistry, nameFromFileName, reserveUniqueName } from '@/lib/nameRegistry';
 import { buildBaseImageRequest, resolveStoredImageUrl } from '@/lib/imageSource';
 import { cropRectToPng, loadImage, resizeToMaxEdge, resizeToMaxEdgeAsJpeg } from '@/lib/imageUtils';
 import { CropArea, createInitialCrop, type CropBox } from './ImageCropArea';
+import ImageGenerationModal, { type ImageGenerationResult } from './ImageGenerationModal';
 import StoredImage from './StoredImage';
 import ModelSelector from './ModelSelector';
 import OptionSelector from './OptionSelector';
@@ -25,40 +32,73 @@ const COSTUME_DETECTION_MAX_EDGE = 1280;
 const COSTUME_DETECTION_JPEG_QUALITY = 0.85;
 const NEW_BUSY_KEY = '__new__';
 const UPLOAD_BUSY_KEY = '__upload__';
-const DEFAULT_COSTUME_NAME = 'default';
+/** 最初の衣装の名前の初期値。予約名ではなく、自由に変更できる。 */
+const INITIAL_COSTUME_NAME = 'default';
 
-type AddMode = 'generate' | 'upload';
+/** 衣装の追加方法。scratch はゼロから生成、generate は既存衣装からの差分生成。 */
+type AddMode = 'scratch' | 'generate' | 'upload' | 'vrm';
 type NameSource = 'manual' | 'filename' | 'ai';
+
+/** ImageGenerationModal で作成中の対象。新しい衣装の作成か、既存衣装の画像の差し替え。 */
+type GenerationTarget =
+    | { kind: 'new'; name: string }
+    | { kind: 'replace'; costume: Costume };
 
 interface Props {
     isOpen: boolean;
     onClose: () => void;
-    baseImage?: string;
     costumes: Costume[];
-    expressionNames?: string[];
+    defaultCostumeId?: string;
+    /** 3Dプレビューに表示する名前。 */
+    ownerName?: string;
+    /** アイコンが設定済みか。未設定なら「アイコンも更新」を既定でオンにする。 */
+    hasIcon: boolean;
     onUpsert: (costume: Costume) => void;
-    onRename: (currentName: string, nextName: string) => void;
-    onRemove: (name: string) => void;
+    onRemove: (costumeId: string) => void;
+    onSetDefault: (costumeId: string) => void;
+    onIconChange: (icon: string) => void;
 }
 
-export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes, expressionNames, onUpsert, onRename, onRemove }: Props) {
+/** 画像の差し替え結果を衣装へ反映する。2D画像なら3Dの設定を外す。 */
+function applyGeneratedImage(costume: Costume, result: ImageGenerationResult): Costume {
+    if (result.vrm) return { ...costume, kind: 'vrm', vrm: result.vrm, image: result.image ?? costume.image };
+    const next: Costume = { ...costume, image: result.image ?? costume.image };
+    delete next.kind;
+    delete next.vrm;
+    return next;
+}
+
+export default function CostumeDiffModal({
+    isOpen,
+    onClose,
+    costumes,
+    defaultCostumeId,
+    ownerName,
+    hasIcon,
+    onUpsert,
+    onRemove,
+    onSetDefault,
+    onIconChange,
+}: Props) {
     const { defaultImageModel, getAiApiConfig } = useStore();
     const { connections } = useAiConnections();
     const [newName, setNewName] = useState('');
     const [newPromptDetail, setNewPromptDetail] = useState('');
     const [nameSource, setNameSource] = useState<NameSource>('manual');
-    const [addMode, setAddMode] = useState<AddMode>('generate');
-    const autoDetectName = nameSource === 'ai';
-    const nameFromFile = addMode === 'upload' && nameSource === 'filename';
+    const [addMode, setAddMode] = useState<AddMode>('scratch');
+    const autoDetectName = addMode !== 'scratch' && addMode !== 'vrm' && nameSource === 'ai';
+    const nameFromFile = (addMode === 'upload' || addMode === 'vrm') && nameSource === 'filename';
     // True when names are assigned per uploaded file, which enables multi-file uploads.
     const autoName = autoDetectName || nameFromFile;
     const [editingVrm, setEditingVrm] = useState<Costume | null>(null);
     const [vrmDraft, setVrmDraft] = useState<VrmAvatar | null>(null);
+    const [generationTarget, setGenerationTarget] = useState<GenerationTarget | null>(null);
     const [model, setModel] = useState<ModelRef>(defaultImageModel);
     const [busy, setBusy] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const abortRef = useRef<AbortController | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const vrmInputRef = useRef<HTMLInputElement>(null);
     const uploadImgRef = useRef<HTMLImageElement>(null);
     const modalRef = useRef<HTMLDivElement>(null);
     const addModalRef = useRef<HTMLDivElement>(null);
@@ -69,11 +109,17 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
     const [uploadCrop, setUploadCrop] = useState<CropBox | null>(null);
     const [uploadFiles, setUploadFiles] = useState<File[]>([]);
     const [uploadIndex, setUploadIndex] = useState(0);
-    const [editingName, setEditingName] = useState<string | null>(null);
+    const [editingId, setEditingId] = useState<string | null>(null);
     const [editingNameValue, setEditingNameValue] = useState('');
     const [editingDescriptionValue, setEditingDescriptionValue] = useState('');
     const [draftImage, setDraftImage] = useState<string | null>(null);
     const [draftName, setDraftName] = useState('');
+    const [baseCostumeId, setBaseCostumeId] = useState<string | null>(null);
+
+    const defaultCostume = resolveDefaultCostume({ costumes, defaultCostumeId });
+    const baseCostume = costumes.find((costume) => costume.id === baseCostumeId) ?? defaultCostume;
+    const baseImage = baseCostume?.image || undefined;
+    const vrmExpressionNames = collectCostumeExpressionNames(costumes);
 
     const selectedConnection = connections.find((connection) => connection.id === model.connectionId) ?? null;
     const selectedKind = selectedConnection?.kind
@@ -82,16 +128,29 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
         || (selectedKind === 'openai-compatible' && selectedConnection?.imageGenerationEnabled === true);
     const transparentImageSupport = useTransparentImageBackground(model);
 
+    const initialAddMode = (): AddMode => (
+        costumes.length === 0 ? 'scratch' : canGenerateDiffs ? 'generate' : 'upload'
+    );
+
+    const openAddModal = () => {
+        setError(null);
+        const mode = initialAddMode();
+        setAddMode(mode);
+        setNewName(costumes.length === 0 ? INITIAL_COSTUME_NAME : '');
+        setBaseCostumeId(defaultCostume?.id ?? null);
+        setAddOpen(true);
+    };
+
     useEffect(() => {
-        if (isOpen && costumes.length === 0) setAddOpen(true);
+        if (isOpen && costumes.length === 0) openAddModal();
         if (!isOpen) {
             setAddOpen(false);
             setNewName('');
             setEditingVrm(null);
             setVrmDraft(null);
+            setGenerationTarget(null);
             setNewPromptDetail('');
             setNameSource('manual');
-            setAddMode(canGenerateDiffs ? 'generate' : 'upload');
             setModel(defaultImageModel);
             setBusy(null);
             setError(null);
@@ -101,11 +160,12 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
             setUploadFiles([]);
             setUploadIndex(0);
             reservedDetectedNamesRef.current.clear();
-            setEditingName(null);
+            setEditingId(null);
             setEditingNameValue('');
             setEditingDescriptionValue('');
             setDraftImage(null);
             setDraftName('');
+            setBaseCostumeId(null);
             abortRef.current?.abort();
             abortRef.current = null;
         }
@@ -131,6 +191,21 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
         reservedDetectedNamesRef.current.clear();
     };
 
+    const switchAddMode = (mode: AddMode) => {
+        setAddMode(mode);
+        if (mode === 'scratch' || mode === 'vrm') {
+            if (nameSource === 'ai') setNameSource('manual');
+        }
+        if (mode === 'scratch' || mode === 'generate') {
+            if (nameSource === 'filename') setNameSource('manual');
+        }
+        clearUploadQueue();
+        setVrmDraft(null);
+        setDraftImage(null);
+        setDraftName('');
+        setError(null);
+    };
+
     const loadUploadSource = async (file: File) => {
         const dataUrl: string = await new Promise((resolve, reject) => {
             const reader = new FileReader();
@@ -154,10 +229,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
         setUploadCrop(source.crop);
     };
 
-    const detectedNameRegistry = () => createNameRegistry([
-        DEFAULT_COSTUME_NAME,
-        ...costumes.map((costume) => costume.name),
-    ]);
+    const detectedNameRegistry = () => createNameRegistry(costumes.map((costume) => costume.name));
 
     const detectCostumeName = async (
         image: string,
@@ -203,7 +275,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
         if (!candidate) {
             throw new Error(`${file?.name ?? 'ファイル'} から衣装名を作成できませんでした。`);
         }
-        // "default" and existing costume names are reserved, so duplicates get a numeric suffix.
+        // Existing costume names are reserved, so duplicates get a numeric suffix.
         return reserveUniqueName(candidate, reservedNames, '衣装名');
     };
 
@@ -221,17 +293,10 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
         ].filter(Boolean).join('\n');
     };
 
-    const isDefaultCostume = (name: string) => name.toLowerCase() === DEFAULT_COSTUME_NAME;
-
     const validateName = () => {
         const name = newName.trim();
         if (!name || busy) return null;
-        const lowerName = name.toLowerCase();
-        if (lowerName === DEFAULT_COSTUME_NAME) {
-            setError('「default」は予約名です。別の衣装名を使ってください。');
-            return null;
-        }
-        if (costumes.some((c) => c.name.toLowerCase() === lowerName)) {
+        if (isCostumeNameTaken(costumes, name)) {
             setError(`「${name}」は既に存在します。`);
             return null;
         }
@@ -267,7 +332,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
         const name = autoDetectName ? '' : validateName();
         if (!autoDetectName && !name) return;
         if (!baseImage) {
-            setError('生成には「アバター画像」から立ち絵の登録が必要です。');
+            setError('差分生成にはベースにする衣装が必要です。');
             return;
         }
         setError(null);
@@ -295,11 +360,12 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
         if (!draftImage || busy) return false;
         const name = autoDetectName ? draftName : validateName();
         if (!name) return false;
-        if (costumes.some((costume) => costume.name.toLowerCase() === name.toLowerCase())) {
+        if (isCostumeNameTaken(costumes, name)) {
             setError(`「${name}」は既に存在します。`);
             return false;
         }
         onUpsert({
+            id: createCostumeId(),
             name,
             promptDetail: newPromptDetail.trim() || undefined,
             image: draftImage,
@@ -320,9 +386,63 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
         }
     };
 
+    const openScratchGeneration = () => {
+        const name = validateName();
+        if (!name) return;
+        setGenerationTarget({ kind: 'new', name });
+    };
+
+    const handleGenerationComplete = (result: ImageGenerationResult) => {
+        const target = generationTarget;
+        if (!target) return;
+        if (result.icon) onIconChange(result.icon);
+        if (target.kind === 'replace') {
+            onUpsert(applyGeneratedImage(target.costume, result));
+        } else if (result.image) {
+            onUpsert({
+                id: createCostumeId(),
+                name: target.name,
+                image: result.image,
+                ...(result.vrm ? { kind: 'vrm' as const, vrm: result.vrm } : {}),
+            });
+            setAddOpen(false);
+            setNewName('');
+            setError(null);
+        }
+        setGenerationTarget(null);
+    };
+
     const handleUploadClick = () => {
         if (!autoName && !validateName()) return;
         fileInputRef.current?.click();
+    };
+
+    const handleVrmClick = () => {
+        if (!autoName && !validateName()) return;
+        vrmInputRef.current?.click();
+    };
+
+    const handleVrmFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (!file) return;
+        if (!file.name.toLowerCase().endsWith('.vrm')) {
+            setError('.vrm ファイルを選択してください。');
+            return;
+        }
+        if (!autoName && !validateName()) return;
+        setBusy(UPLOAD_BUSY_KEY);
+        setError(null);
+        try {
+            if (nameFromFile) {
+                setNewName(reserveFileName(file, detectedNameRegistry()));
+            }
+            setVrmDraft(await readVrmFile(file));
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'VRMの読み込みに失敗しました');
+        } finally {
+            setBusy(null);
+        }
     };
 
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -333,35 +453,9 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
 
         if (!autoName && !validateName()) return;
 
-        if (files.some((file) => file.name.toLowerCase().endsWith('.vrm'))) {
-            if (autoDetectName) {
-                setError('VRMのアップロードでは衣装名の自動判定は使用できません。衣装名を入力して選択してください。');
-                return;
-            }
-            if (files.length > 1) {
-                setError('VRMは1ファイルずつ選択してください。');
-                return;
-            }
-            setBusy(UPLOAD_BUSY_KEY);
-            clearUploadQueue();
-            try {
-                if (nameFromFile) {
-                    setNewName(reserveFileName(files[0], detectedNameRegistry()));
-                }
-                setVrmDraft(await readVrmFile(files[0]));
-            } catch (err) {
-                setError(err instanceof Error ? err.message : 'VRMの読み込みに失敗しました');
-            } finally {
-                setBusy(null);
-            }
-            return;
-        }
-
         const invalidFile = files.find((file) => !file.type.startsWith('image/'));
         if (invalidFile) {
-            setError(autoName
-                ? `${invalidFile.name} は画像ファイルではありません。`
-                : '画像または .vrm ファイルを選択してください。');
+            setError(`${invalidFile.name} は画像ファイルではありません。3Dモデルは「3D(VRM)」から追加してください。`);
             return;
         }
 
@@ -400,7 +494,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                 const source = await loadUploadSource(file);
                 const image = await cropUpload(source.image, source.crop);
                 const name = await resolveUploadName(image, file, null, signal);
-                onUpsert({ name, image });
+                onUpsert({ id: createCostumeId(), name, image });
             } catch (e) {
                 const message = e instanceof Error ? e.message : '画像の処理に失敗しました';
                 setError(`${file.name}: ${message}（ここまでの画像は追加済みです）`);
@@ -427,7 +521,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
         try {
             const image = await cropUpload(uploadImage, uploadCrop);
             const name = await resolveUploadName(image, uploadFiles[uploadIndex], manualName, controller.signal);
-            onUpsert({ name, image });
+            onUpsert({ id: createCostumeId(), name, image });
             setNewName('');
             setNewPromptDetail('');
             const nextIndex = uploadIndex + 1;
@@ -456,46 +550,29 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
         }
     };
 
-    const costumeNameExists = (name: string, currentName?: string) => costumes.some((costume) => (
-        costume.name !== currentName
-        && costume.name.toLowerCase() === name.toLowerCase()
-    ));
-
     const cancelCostumeEdit = () => {
-        setEditingName(null);
+        setEditingId(null);
         setEditingNameValue('');
         setEditingDescriptionValue('');
     };
 
     const saveCostumeEdit = (costume: Costume) => {
-        const currentName = costume.name;
-        const isDefault = isDefaultCostume(currentName);
         const nextName = editingNameValue.trim();
-        if (!isDefault) {
-            if (!nextName) {
-                setError('衣装名を入力してください。');
-                return;
-            }
-            if (nextName.toLowerCase() === DEFAULT_COSTUME_NAME) {
-                setError('「default」は予約名です。別の衣装名を使ってください。');
-                return;
-            }
-            if (costumeNameExists(nextName, currentName)) {
-                setError(`「${nextName}」は既に存在します。`);
-                return;
-            }
+        if (!nextName) {
+            setError('衣装名を入力してください。');
+            return;
         }
-        const finalName = isDefault ? currentName : nextName;
+        if (isCostumeNameTaken(costumes, nextName, costume.id)) {
+            setError(`「${nextName}」は既に存在します。`);
+            return;
+        }
         const nextDescription = editingDescriptionValue.trim();
-        const nameChanged = finalName !== currentName;
+        const nameChanged = nextName !== costume.name;
         const descriptionChanged = nextDescription !== (costume.description?.trim() ?? '');
-        if (nameChanged) {
-            onRename(currentName, finalName);
-        }
         if (nameChanged || descriptionChanged) {
             onUpsert({
                 ...costume,
-                name: finalName,
+                name: nextName,
                 description: nextDescription || undefined,
             });
         }
@@ -503,11 +580,22 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
         setError(null);
     };
 
+    const removeCostume = (costume: Costume) => {
+        if (costumes.length <= 1) return;
+        const isDefault = costume.id === defaultCostume?.id;
+        const nextDefault = isDefault ? costumes.find((entry) => entry.id !== costume.id) : null;
+        const message = nextDefault
+            ? `「${costume.name}」を削除しますか？デフォルトの衣装は「${nextDefault.name}」に変わります。`
+            : `「${costume.name}」を削除しますか？`;
+        if (!confirm(message)) return;
+        if (editingId === costume.id) cancelCostumeEdit();
+        onRemove(costume.id);
+    };
+
     const cardEditDirty = () => {
-        const costume = costumes.find((entry) => entry.name === editingName);
+        const costume = costumes.find((entry) => entry.id === editingId);
         if (!costume) return false;
-        const nameChanged = !isDefaultCostume(costume.name)
-            && editingNameValue.trim() !== costume.name;
+        const nameChanged = editingNameValue.trim() !== costume.name;
         const descriptionChanged = editingDescriptionValue.trim() !== (costume.description?.trim() ?? '');
         return nameChanged || descriptionChanged;
     };
@@ -560,10 +648,24 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
         containerRef: addModalRef,
         onClose: closeAddModal,
         canClose: !busy,
-        onEnter: addMode === 'generate' ? handleAdd : undefined,
+        onEnter: addMode === 'generate' ? handleAdd : addMode === 'scratch' ? openScratchGeneration : undefined,
     });
 
     if (!isOpen) return null;
+
+    const generateDisabled = !!busy || !canGenerateDiffs || (!autoDetectName && !newName.trim()) || !model.model.trim() || !baseImage;
+    const addModeOptions: { mode: AddMode; label: string; icon: React.ReactNode; disabled?: boolean; title?: string }[] = [
+        { mode: 'scratch', label: 'ゼロから生成', icon: <Sparkles size={14} /> },
+        {
+            mode: 'generate',
+            label: '差分生成',
+            icon: <Wand2 size={14} />,
+            disabled: !canGenerateDiffs || costumes.length === 0,
+            title: costumes.length === 0 ? '差分生成には元にする衣装が必要です' : undefined,
+        },
+        { mode: 'upload', label: 'アップロード', icon: <Upload size={14} /> },
+        { mode: 'vrm', label: '3D(VRM)', icon: <Box size={14} /> },
+    ];
 
     return (
         <>
@@ -580,11 +682,11 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                 style={{ maxWidth: 640 }}
                 role="dialog"
                 aria-modal="true"
-                aria-label="衣装差分"
+                aria-label="衣装"
             >
                 <div className="settings-form-modal-actions" style={{ justifyContent: 'space-between' }}>
                     <h2 style={{ margin: 0, paddingLeft: '0.25rem', fontSize: '0.9375rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <Shirt size={18} /> 衣装差分
+                        <Shirt size={18} /> 衣装
                     </h2>
                     <button className="btn btn-ghost" onClick={requestClose} disabled={!!busy} title="閉じる" aria-label="閉じる">
                         <X size={20} />
@@ -592,7 +694,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                 </div>
 
                 <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                    {error && <p style={{ color: 'var(--error)', fontSize: '0.8125rem' }}>{error}</p>}
+                    {error && !addOpen && <p style={{ color: 'var(--error)', fontSize: '0.8125rem' }}>{error}</p>}
 
                     <div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: '0.5rem' }}>
@@ -600,23 +702,25 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                             <button
                                 type="button"
                                 className="btn btn-ghost"
-                                onClick={() => { setError(null); setAddOpen(true); }}
+                                onClick={openAddModal}
                                 style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', fontSize: '0.75rem' }}
                             >
                                 <Plus size={14} /> 追加
                             </button>
                         </div>
-                        {costumes.length === 0 && (
-                            <p style={hintStyle}>まだ登録されていません。衣装を追加するとゲームモードで選択できるようになります。</p>
+                        {costumes.length === 0 ? (
+                            <p style={hintStyle}>まだ登録されていません。衣装を追加すると、立ち絵として表示され、表情差分も登録できるようになります。</p>
+                        ) : (
+                            <p style={{ ...hintStyle, marginTop: 0, marginBottom: '0.5rem' }}>デフォルトの衣装は、会話で衣装を選んでいないときに使われます。</p>
                         )}
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 }}>
                             {costumes.map((costume) => {
-                                const isDefault = isDefaultCostume(costume.name);
+                                const isDefault = costume.id === defaultCostume?.id;
                                 return (
                                     <div
-                                        key={costume.name}
+                                        key={costume.id}
                                         style={{
-                                            border: '1px solid var(--border-color)',
+                                            border: isDefault ? '2px solid var(--accent-primary)' : '1px solid var(--border-color)',
                                             borderRadius: 8,
                                             overflow: 'hidden',
                                             background: 'var(--bg-tertiary)',
@@ -628,42 +732,54 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                                 alt={costume.name}
                                                 style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                                             />
+                                            {isDefault && (
+                                                <span style={{
+                                                    position: 'absolute',
+                                                    top: 6,
+                                                    left: 6,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: 4,
+                                                    padding: '2px 8px',
+                                                    borderRadius: 999,
+                                                    background: 'var(--accent-primary)',
+                                                    color: '#fff',
+                                                    fontSize: '0.6875rem',
+                                                    fontWeight: 600,
+                                                }}>
+                                                    <Star size={11} fill="currentColor" /> デフォルト
+                                                </span>
+                                            )}
                                         </div>
                                         <div style={{ padding: '8px 10px' }}>
-                                            {editingName === costume.name ? (
+                                            {editingId === costume.id ? (
                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                                        {isDefault ? (
-                                                            <div style={{ flex: 1, minWidth: 0, fontSize: '0.8125rem', fontWeight: 500, wordBreak: 'break-all' }}>
-                                                                {costume.name} <small>{costume.kind === 'vrm' ? '3D' : '2D'}</small>
-                                                            </div>
-                                                        ) : (
-                                                            <input
-                                                                type="text"
-                                                                className="input"
-                                                                value={editingNameValue}
-                                                                onChange={(event) => setEditingNameValue(event.target.value)}
-                                                                onKeyDown={(event) => {
-                                                                    if (event.key === 'Enter') {
-                                                                        event.preventDefault();
-                                                                        saveCostumeEdit(costume);
-                                                                    } else if (event.key === 'Escape') {
-                                                                        event.preventDefault();
-                                                                        cancelCostumeEdit();
-                                                                    }
-                                                                }}
-                                                                disabled={!!busy}
-                                                                autoFocus
-                                                                aria-label={`${costume.name}の衣装名`}
-                                                                style={{ minWidth: 0, fontSize: '0.75rem', padding: '4px 8px', borderRadius: 6 }}
-                                                            />
-                                                        )}
+                                                        <input
+                                                            type="text"
+                                                            className="input"
+                                                            value={editingNameValue}
+                                                            onChange={(event) => setEditingNameValue(event.target.value)}
+                                                            onKeyDown={(event) => {
+                                                                if (event.key === 'Enter') {
+                                                                    event.preventDefault();
+                                                                    saveCostumeEdit(costume);
+                                                                } else if (event.key === 'Escape') {
+                                                                    event.preventDefault();
+                                                                    cancelCostumeEdit();
+                                                                }
+                                                            }}
+                                                            disabled={!!busy}
+                                                            autoFocus
+                                                            aria-label={`${costume.name}の衣装名`}
+                                                            style={{ minWidth: 0, fontSize: '0.75rem', padding: '4px 8px', borderRadius: 6 }}
+                                                        />
                                                         <button
                                                             type="button"
                                                             className="btn btn-ghost"
                                                             title="変更を保存"
                                                             aria-label="変更を保存"
-                                                            disabled={!!busy || (!isDefault && !editingNameValue.trim())}
+                                                            disabled={!!busy || !editingNameValue.trim()}
                                                             onClick={() => saveCostumeEdit(costume)}
                                                             style={{ padding: '4px 6px' }}
                                                         >
@@ -700,54 +816,8 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                                 </div>
                                             ) : (
                                                 <div>
-                                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4 }}>
-                                                        <div style={{ flex: 1, minWidth: 0, fontSize: '0.8125rem', fontWeight: 500, wordBreak: 'break-all' }}>
-                                                            {costume.name} <small>{costume.kind === 'vrm' ? '3D' : '2D'}</small>
-                                                        </div>
-                                                        {!isDefault && costume.kind === 'vrm' && (
-                                                            <button
-                                                                type="button"
-                                                                className="btn btn-ghost"
-                                                                title="3D表示・表情を調整"
-                                                                aria-label={`${costume.name}の3D表示・表情を調整`}
-                                                                disabled={!!busy}
-                                                                onClick={() => setEditingVrm(costume)}
-                                                                style={{ padding: '3px 8px', flexShrink: 0 }}
-                                                            >
-                                                                調整
-                                                            </button>
-                                                        )}
-                                                        <button
-                                                            type="button"
-                                                            className="btn btn-ghost"
-                                                            title={isDefault ? '説明を編集' : '名前と説明を編集'}
-                                                            aria-label={isDefault ? `${costume.name}の説明を編集` : `${costume.name}の名前と説明を編集`}
-                                                            disabled={!!busy}
-                                                            onClick={() => {
-                                                                setEditingName(costume.name);
-                                                                setEditingNameValue(costume.name);
-                                                                setEditingDescriptionValue(costume.description ?? '');
-                                                                setError(null);
-                                                            }}
-                                                            style={{ padding: '3px 5px', flexShrink: 0 }}
-                                                        >
-                                                            <Pencil size={13} />
-                                                        </button>
-                                                        {!isDefault && (
-                                                            <button
-                                                                type="button"
-                                                                className="btn btn-ghost"
-                                                                title="削除"
-                                                                aria-label={`${costume.name}を削除`}
-                                                                disabled={!!busy}
-                                                                onClick={() => {
-                                                                    if (confirm(`「${costume.name}」を削除しますか？`)) onRemove(costume.name);
-                                                                }}
-                                                                style={{ padding: '3px 5px', color: 'var(--error)', flexShrink: 0 }}
-                                                            >
-                                                                <Trash2 size={13} />
-                                                            </button>
-                                                        )}
+                                                    <div style={{ fontSize: '0.8125rem', fontWeight: 500, wordBreak: 'break-all' }}>
+                                                        {costume.name} <small>{costume.kind === 'vrm' ? '3D' : '2D'}</small>
                                                     </div>
                                                     {costume.description?.trim() && (
                                                         <p
@@ -757,6 +827,72 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                                             {costume.description}
                                                         </p>
                                                     )}
+                                                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 2, marginTop: 4 }}>
+                                                        {!isDefault && (
+                                                            <button
+                                                                type="button"
+                                                                className="btn btn-ghost"
+                                                                title="デフォルトにする"
+                                                                aria-label={`${costume.name}をデフォルトにする`}
+                                                                disabled={!!busy}
+                                                                onClick={() => onSetDefault(costume.id)}
+                                                                style={{ padding: '3px 5px' }}
+                                                            >
+                                                                <Star size={13} />
+                                                            </button>
+                                                        )}
+                                                        <button
+                                                            type="button"
+                                                            className="btn btn-ghost"
+                                                            title="名前と説明を編集"
+                                                            aria-label={`${costume.name}の名前と説明を編集`}
+                                                            disabled={!!busy}
+                                                            onClick={() => {
+                                                                setEditingId(costume.id);
+                                                                setEditingNameValue(costume.name);
+                                                                setEditingDescriptionValue(costume.description ?? '');
+                                                                setError(null);
+                                                            }}
+                                                            style={{ padding: '3px 5px' }}
+                                                        >
+                                                            <Pencil size={13} />
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            className="btn btn-ghost"
+                                                            title="画像を作り直す"
+                                                            aria-label={`${costume.name}の画像を作り直す`}
+                                                            disabled={!!busy}
+                                                            onClick={() => { setError(null); setGenerationTarget({ kind: 'replace', costume }); }}
+                                                            style={{ padding: '3px 5px' }}
+                                                        >
+                                                            <ImagePlus size={13} />
+                                                        </button>
+                                                        {costume.kind === 'vrm' && (
+                                                            <button
+                                                                type="button"
+                                                                className="btn btn-ghost"
+                                                                title="3D表示・表情を調整"
+                                                                aria-label={`${costume.name}の3D表示・表情を調整`}
+                                                                disabled={!!busy}
+                                                                onClick={() => setEditingVrm(costume)}
+                                                                style={{ padding: '3px 8px' }}
+                                                            >
+                                                                調整
+                                                            </button>
+                                                        )}
+                                                        <button
+                                                            type="button"
+                                                            className="btn btn-ghost"
+                                                            title={costumes.length <= 1 ? '最後の衣装は削除できません' : '削除'}
+                                                            aria-label={`${costume.name}を削除`}
+                                                            disabled={!!busy || costumes.length <= 1}
+                                                            onClick={() => removeCostume(costume)}
+                                                            style={{ padding: '3px 5px', color: 'var(--error)', marginLeft: 'auto' }}
+                                                        >
+                                                            <Trash2 size={13} />
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             )}
                                         </div>
@@ -797,65 +933,82 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
 
                     <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                         <div>
-                            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                                <button
-                                    type="button"
-                                    className={addMode === 'generate' ? 'btn btn-primary' : 'btn btn-ghost'}
-                                    onClick={() => {
-                                        setAddMode('generate');
-                                        if (nameSource === 'filename') setNameSource('manual');
-                                        clearUploadQueue();
-                                        setVrmDraft(null);
-                                    }}
-                                    disabled={!!busy || !canGenerateDiffs}
-                                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-                                >
-                                    <Sparkles size={14} /> 2D生成
-                                </button>
-                                <button
-                                    type="button"
-                                    className={addMode === 'upload' ? 'btn btn-primary' : 'btn btn-ghost'}
-                                    onClick={() => { setAddMode('upload'); setDraftImage(null); setDraftName(''); }}
-                                    disabled={!!busy}
-                                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-                                >
-                                    <Upload size={14} /> アップロード
-                                </button>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 8, marginBottom: 8 }}>
+                                {addModeOptions.map((option) => (
+                                    <button
+                                        key={option.mode}
+                                        type="button"
+                                        className={addMode === option.mode ? 'btn btn-primary' : 'btn btn-ghost'}
+                                        onClick={() => switchAddMode(option.mode)}
+                                        disabled={!!busy || option.disabled}
+                                        title={option.title}
+                                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                                    >
+                                        {option.icon} {option.label}
+                                    </button>
+                                ))}
                             </div>
+                            {addMode === 'scratch' && (
+                                <p style={{ ...hintStyle, marginTop: 0, marginBottom: 8 }}>
+                                    プロンプトから全身の立ち絵を生成します。画像や .vrm のアップロードもできます。
+                                </p>
+                            )}
                             {addMode === 'generate' && (
+                                <>
+                                    <div style={{ marginBottom: 8 }}>
+                                        <label style={fieldLabelStyle}>元にする衣装</label>
+                                        <OptionSelector
+                                            value={baseCostume?.id ?? ''}
+                                            onChange={(value) => {
+                                                setBaseCostumeId(value);
+                                                setDraftImage(null);
+                                                setDraftName('');
+                                            }}
+                                            disabled={!!busy}
+                                            ariaLabel="元にする衣装"
+                                            options={costumes.map((costume) => ({
+                                                value: costume.id,
+                                                label: costume.name,
+                                                ...(costume.id === defaultCostume?.id ? { detail: 'デフォルト' } : {}),
+                                            }))}
+                                        />
+                                    </div>
+                                    <div style={{ marginBottom: 8 }}>
+                                        <label style={fieldLabelStyle}>モデル名</label>
+                                        <ModelSelector
+                                            value={model}
+                                            onChange={setModel}
+                                            outputModality="image"
+                                            disabled={!!busy || !canGenerateDiffs}
+                                            placeholder={`例: ${defaultImageModel.model}`}
+                                        />
+                                    </div>
+                                </>
+                            )}
+                            {addMode !== 'scratch' && (
                                 <div style={{ marginBottom: 8 }}>
-                                    <label style={fieldLabelStyle}>モデル名</label>
-                                    <ModelSelector
-                                        value={model}
-                                        onChange={setModel}
-                                        outputModality="image"
-                                        disabled={!!busy || !canGenerateDiffs}
-                                        placeholder={`例: ${defaultImageModel.model}`}
+                                    <label style={fieldLabelStyle}>衣装名の付け方</label>
+                                    <OptionSelector
+                                        value={nameSource}
+                                        onChange={(value) => {
+                                            setNameSource(value as NameSource);
+                                            clearUploadQueue();
+                                            setDraftImage(null);
+                                            setDraftName('');
+                                            setError(null);
+                                        }}
+                                        disabled={!!busy}
+                                        ariaLabel="衣装名の付け方"
+                                        options={[
+                                            { value: 'manual', label: '手入力' },
+                                            ...(addMode === 'upload' || addMode === 'vrm'
+                                                ? [{ value: 'filename', label: 'ファイル名から', detail: '拡張子を除いたファイル名を衣装名にします' }]
+                                                : []),
+                                            ...(addMode !== 'vrm' ? [{ value: 'ai', label: 'AIで自動判定' }] : []),
+                                        ]}
                                     />
                                 </div>
                             )}
-                            <div style={{ marginBottom: 8 }}>
-                                <label style={fieldLabelStyle}>衣装名の付け方</label>
-                                <OptionSelector
-                                    value={nameSource}
-                                    onChange={(value) => {
-                                        setNameSource(value as NameSource);
-                                        clearUploadQueue();
-                                        setDraftImage(null);
-                                        setDraftName('');
-                                        setError(null);
-                                    }}
-                                    disabled={!!busy}
-                                    ariaLabel="衣装名の付け方"
-                                    options={[
-                                        { value: 'manual', label: '手入力' },
-                                        ...(addMode === 'upload'
-                                            ? [{ value: 'filename', label: 'ファイル名から', detail: '拡張子を除いたファイル名を衣装名にします' }]
-                                            : []),
-                                        { value: 'ai', label: 'AIで自動判定' },
-                                    ]}
-                                />
-                            </div>
                             {addMode === 'generate' && selectedKind === 'openai-compatible' && (
                                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontSize: '0.8125rem', cursor: busy || !model.model.trim() ? 'default' : 'pointer' }}>
                                     <input
@@ -877,13 +1030,13 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                         onChange={(e) => setNewName(e.target.value)}
                                         placeholder="例: casual, school_uniform, dress"
                                         disabled={!!busy}
-                                        data-modal-enter-submit={addMode === 'generate' ? 'true' : undefined}
+                                        data-modal-enter-submit={addMode === 'generate' || addMode === 'scratch' ? 'true' : undefined}
                                     />
                                 </div>
                             )}
                             {addMode === 'generate' && (
                                 <>
-                                    <label style={fieldLabelStyle}>元画像からどう変化させるか</label>
+                                    <label style={fieldLabelStyle}>元の衣装からどう変化させるか</label>
                                     <textarea
                                         className="input"
                                         value={newPromptDetail}
@@ -892,11 +1045,8 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                         disabled={!!busy}
                                         rows={3}
                                         style={{ width: '100%', resize: 'vertical' }}
-                                    />  
+                                    />
                                 </>
-                            )}
-                            {addMode === 'generate' && !baseImage && (
-                                <p style={hintStyle}>生成には「アバター画像」から立ち絵の登録が必要です。アップロードなら衣装差分を直接追加できます。</p>
                             )}
                             {addMode === 'upload' && uploadImage && uploadNatural && uploadCrop && (
                                 <div style={{ marginTop: 8 }}>
@@ -957,9 +1107,16 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                             <input
                                 ref={fileInputRef}
                                 type="file"
-                                accept={autoDetectName ? 'image/*' : 'image/*,.vrm'}
+                                accept="image/*"
                                 multiple={autoName}
                                 onChange={handleFileUpload}
+                                style={{ display: 'none' }}
+                            />
+                            <input
+                                ref={vrmInputRef}
+                                type="file"
+                                accept=".vrm"
+                                onChange={handleVrmFile}
                                 style={{ display: 'none' }}
                             />
                         </div>
@@ -967,7 +1124,28 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                         {error && <p style={{ color: 'var(--error)', fontSize: '0.8125rem' }}>{error}</p>}
 
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
-                            {addMode === 'generate' ? (
+                            {addMode === 'scratch' ? (
+                                <button
+                                    type="button"
+                                    className="btn btn-primary"
+                                    onClick={openScratchGeneration}
+                                    disabled={!!busy || !newName.trim()}
+                                    style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                                >
+                                    <Sparkles size={14} /> 作成画面を開く
+                                </button>
+                            ) : addMode === 'vrm' ? (
+                                <button
+                                    type="button"
+                                    className="btn btn-primary"
+                                    onClick={handleVrmClick}
+                                    disabled={!!busy || (!autoName && !newName.trim())}
+                                    style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                                >
+                                    {busy === UPLOAD_BUSY_KEY && <Loader2 size={16} className="animate-spin" />}
+                                    .vrm を選択
+                                </button>
+                            ) : addMode === 'generate' ? (
                                 <>
                                     {busy && busy !== UPLOAD_BUSY_KEY ? (
                                         <button className="btn btn-ghost" onClick={handleCancelBusy}>
@@ -978,7 +1156,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                             type="button"
                                             className="btn btn-ghost"
                                             onClick={() => { void generateDraft(); }}
-                                            disabled={!!busy || !canGenerateDiffs || (!autoDetectName && !newName.trim()) || !model.model.trim() || !baseImage}
+                                            disabled={generateDisabled}
                                             style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                                         >
                                             <RefreshCw size={14} /> 再生成
@@ -987,7 +1165,7 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                     <button
                                         className="btn btn-primary"
                                         onClick={handleAdd}
-                                        disabled={!!busy || !canGenerateDiffs || (!autoDetectName && !newName.trim()) || !model.model.trim() || !baseImage}
+                                        disabled={generateDisabled}
                                         style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                                     >
                                         {busy === NEW_BUSY_KEY && !draftImage && <Loader2 size={16} className="animate-spin" />}
@@ -998,13 +1176,13 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                             type="button"
                                             className="btn btn-primary"
                                             onClick={handleAddAndClose}
-                                            disabled={!!busy || !canGenerateDiffs || (!autoDetectName && !newName.trim()) || !model.model.trim() || !baseImage}
+                                            disabled={generateDisabled}
                                         >
                                             追加して完了
                                         </button>
                                     )}
                                 </>
-                            ) : addMode === 'upload' && !vrmDraft ? (
+                            ) : (
                                 <>
                                     {uploadImage && (
                                         <button
@@ -1050,20 +1228,37 @@ export default function CostumeDiffModal({ isOpen, onClose, baseImage, costumes,
                                         </button>
                                     )}
                                 </>
-                            ) : null}
+                            )}
                         </div>
                     </div>
                 </div>
             </div>
         )}
 
-        {addOpen && addMode === 'upload' && vrmDraft && !editingVrm && <VrmCostumeEditor name={newName}
+        {generationTarget && (
+            <ImageGenerationModal
+                isOpen
+                onClose={() => setGenerationTarget(null)}
+                target="costume"
+                title={generationTarget.kind === 'replace'
+                    ? `「${generationTarget.costume.name}」の画像を作り直す`
+                    : `「${generationTarget.name}」をゼロから作成`}
+                defaultUpdateIcon={!hasIcon}
+                transparentFullBody
+                expressionNames={vrmExpressionNames}
+                vrmPreviewName={ownerName || 'キャラクター'}
+                vrmFallbackImage={generationTarget.kind === 'replace' ? generationTarget.costume.image : undefined}
+                onComplete={handleGenerationComplete}
+            />
+        )}
+
+        {addOpen && addMode === 'vrm' && vrmDraft && !editingVrm && <VrmCostumeEditor name={newName}
             initialAvatar={vrmDraft}
-            existingNames={costumes.map((costume) => costume.name)} expressionNames={expressionNames}
-            onSave={(costume) => { onUpsert(costume); setNewName(''); setVrmDraft(null); }}
+            existingNames={costumes.map((costume) => costume.name)} expressionNames={vrmExpressionNames}
+            onSave={(costume) => { onUpsert(costume); setNewName(''); setVrmDraft(null); setAddOpen(false); }}
             onCancel={() => setVrmDraft(null)} />}
-        {editingVrm && <VrmCostumeEditor key={editingVrm.name} costume={editingVrm} name={editingVrm.name}
-            existingNames={costumes.map((costume) => costume.name)} expressionNames={expressionNames}
+        {editingVrm && <VrmCostumeEditor key={editingVrm.id} costume={editingVrm} name={editingVrm.name}
+            existingNames={costumes.map((costume) => costume.name)} expressionNames={vrmExpressionNames}
             onSave={(costume) => { onUpsert(costume); setEditingVrm(null); }} onCancel={() => setEditingVrm(null)} />}
         </>
     );

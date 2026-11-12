@@ -5,18 +5,18 @@ import { getVisualNovelPreloadCandidates } from '@/lib/visualNovelPresentation';
 
 export function useVisualNovelImagePreload({
     character,
-    costumeName,
+    costumeId,
     currentImage,
     backgroundImage,
 }: {
     character: Character | null;
-    costumeName: string;
+    costumeId: string | null;
     currentImage: string | null;
     backgroundImage?: string;
 }) {
     const candidates = useMemo(
-        () => getVisualNovelPreloadCandidates(character, costumeName, currentImage),
-        [character, costumeName, currentImage],
+        () => getVisualNovelPreloadCandidates(character, costumeId, currentImage),
+        [character, costumeId, currentImage],
     );
 
     useEffect(() => {

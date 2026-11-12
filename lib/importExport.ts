@@ -331,8 +331,10 @@ function isValidExpression(value: unknown): boolean {
         && isNonEmptyString(value.image);
 }
 
+/** src/db/storage/package.rs の `valid_costume` と対。id は読み込み時の正規化で振られる。 */
 function isValidCostume(value: unknown): boolean {
     return isRecord(value)
+        && (value.id === undefined || (typeof value.id === 'string' && value.id.trim().length > 0))
         && typeof value.name === 'string'
         && value.name.trim().length > 0
         && isOptionalString(value.promptDetail)
@@ -437,9 +439,9 @@ export function reassignIds(parsed: ParsedBackup): ParsedBackup {
         const newRoomId = roomIdMap.get(r.id) ?? generateId();
         const costumeSelections = r.costumeSelections
             ? Object.fromEntries(
-                Object.entries(r.costumeSelections).map(([characterId, costumeName]) => [
+                Object.entries(r.costumeSelections).map(([characterId, costumeReference]) => [
                     actorIdMap.get(characterId) ?? charIdMap.get(characterId) ?? characterId,
-                    costumeName,
+                    costumeReference,
                 ])
             )
             : undefined;

@@ -64,6 +64,58 @@ export function createCharacterSlice(set: StoreSet, get: StoreGet): CharacterSli
             set((state) => ({ characters: state.characters.map((character) => character === submitted ? stored : character) }));
         }
     };
+    /**
+     * 削除された衣装を参照する部屋の衣装選択とシチュエーションの衣装指定を取り除き、
+     * キャラクターのデフォルト衣装に従うようにする。
+     */
+    const clearRemovedCostumeReferences = (characterId: string, removedCostumeIds: Set<string>) => {
+        const state = get();
+        const now = Date.now();
+        const changedGroups: Situation[] = [];
+        const clearedActorIds = new Set<string>();
+        const groups = state.groups.map((group) => {
+            let changed = false;
+            const actors = group.actors.map((actor) => {
+                if (actor.type !== 'character' || actor.characterId !== characterId) return actor;
+                if (!actor.costumeId || !removedCostumeIds.has(actor.costumeId)) return actor;
+                changed = true;
+                clearedActorIds.add(actor.id);
+                const next = { ...actor };
+                delete next.costumeId;
+                return next;
+            });
+            if (!changed) return group;
+            const next = { ...group, actors, updatedAt: now };
+            changedGroups.push(next);
+            return next;
+        });
+
+        const changedRooms: Room[] = [];
+        const rooms = state.rooms.map((room) => {
+            const selections = room.costumeSelections;
+            if (!selections) return room;
+            const keys = room.groupId
+                ? Object.keys(selections).filter((key) => clearedActorIds.has(key))
+                : Object.keys(selections).filter((key) => key === characterId && removedCostumeIds.has(selections[key]));
+            if (keys.length === 0) return room;
+            const nextSelections = { ...selections };
+            for (const key of keys) delete nextSelections[key];
+            const next: Room = {
+                ...room,
+                costumeSelections: Object.keys(nextSelections).length > 0 ? nextSelections : undefined,
+            };
+            changedRooms.push(next);
+            return next;
+        });
+
+        if (changedGroups.length === 0 && changedRooms.length === 0) return;
+        set({ groups, rooms });
+        for (const group of changedGroups) fire(persistGroup(set, get, group));
+        for (const room of changedRooms) {
+            if (shouldPersistRoom(room)) fire(db.putRoom(toStoredRoom(room)));
+        }
+    };
+
     return {
         characters: [],
 
@@ -84,15 +136,26 @@ export function createCharacterSlice(set: StoreSet, get: StoreGet): CharacterSli
         },
 
         updateCharacter: (id, updates) => {
+            let previous: Character | undefined;
             let updated: Character | undefined;
             set((state) => ({
                 characters: state.characters.map((character) => {
                     if (character.id !== id) return character;
+                    previous = character;
                     updated = { ...character, ...updates, updatedAt: Date.now() };
                     return updated;
                 }),
             }));
-            if (updated) fire(persistCharacter(updated));
+            if (!updated || !previous) return;
+            fire(persistCharacter(updated));
+
+            const remainingCostumeIds = new Set((updated.costumes ?? []).map((costume) => costume.id));
+            const removedCostumeIds = new Set(
+                (previous.costumes ?? [])
+                    .map((costume) => costume.id)
+                    .filter((costumeId) => !remainingCostumeIds.has(costumeId)),
+            );
+            if (removedCostumeIds.size > 0) clearRemovedCostumeReferences(id, removedCostumeIds);
         },
 
         deleteCharacter: (id) => {
@@ -213,8 +276,11 @@ export function createCharacterSlice(set: StoreSet, get: StoreGet): CharacterSli
         },
 
         addImportedCharacter: (character) => {
-            // サーバーが永続化済みのCharacter（asset参照）をそのままstateへ追加する。
-            set((state) => ({ characters: [...state.characters, character] }));
+            // サーバーが永続化済みのCharacter（asset参照）をstateへ追加する。
+            // 旧形式のパッケージは衣装データを現行形式へ変換してから保存し直す。
+            const normalized = normalizeCharacters([character])[0];
+            set((state) => ({ characters: [...state.characters, normalized] }));
+            if (normalized !== character) fire(persistCharacter(normalized));
         },
 
         getCharacter: (id) => get().characters.find((character) => character.id === id),

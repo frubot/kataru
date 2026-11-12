@@ -8,6 +8,7 @@ import {
 } from '@/lib/avatarImageGeneration';
 import { useTransparentImageBackground } from '@/lib/useTransparentImageBackground';
 import { CropArea, createInitialCrop, type CropBox } from './ImageCropArea';
+import StoredImage from './StoredImage';
 import { useStore } from '@/lib/store';
 import { isAiConnectionKind } from '@/lib/aiApi';
 import { useAiConnections } from '@/lib/aiConnections';
@@ -24,10 +25,22 @@ const IMAGE_ASPECT_RATIO = '2:3';
 const AVATAR_ASPECT = 1;
 const NEUTRAL_ASPECT = 2 / 3;
 
+/** 作成結果。`icon` はアイコンを更新するときだけ、`image` は衣装を作成するときだけ入る。 */
+export type ImageGenerationResult = {
+    icon?: string;
+    image?: string;
+    vrm?: VrmAvatar;
+};
+
 interface Props {
     isOpen: boolean;
     onClose: () => void;
-    onComplete: (avatarDataUrl: string, fullBodyDataUrl: string, vrm?: VrmAvatar) => void;
+    onComplete: (result: ImageGenerationResult) => void;
+    /** 'costume' は衣装の画像（全身の立ち絵）を作成する。'icon' はアイコンだけを作成する。 */
+    target?: 'costume' | 'icon';
+    /** target が 'costume' のとき「アイコンも更新」を表示し、その初期値に使う。未指定なら表示しない。 */
+    defaultUpdateIcon?: boolean;
+    title?: string;
     transparentFullBody?: boolean;
     /** Existing 2D expression names offered as VRM mapping targets. */
     expressionNames?: string[];
@@ -44,6 +57,9 @@ export default function ImageGenerationModal({
     isOpen,
     onClose,
     onComplete,
+    target = 'costume',
+    defaultUpdateIcon,
+    title,
     transparentFullBody = false,
     expressionNames = [],
     initialVrm,
@@ -63,6 +79,10 @@ export default function ImageGenerationModal({
     const [neutralCrop, setNeutralCrop] = useState<CropBox | null>(null);
     const [cropTarget, setCropTarget] = useState<CropTarget>('avatar');
     const [vrmAvatar, setVrmAvatar] = useState<VrmAvatar | null>(initialVrm ?? null);
+    const [updateIcon, setUpdateIcon] = useState(defaultUpdateIcon ?? false);
+    const createsImage = target === 'costume';
+    const createsIcon = target === 'icon' || updateIcon;
+    const modalTitle = title ?? (target === 'icon' ? 'アイコンの変更' : '衣装をゼロから作成');
     const abortRef = useRef<AbortController | null>(null);
     const modalRef = useRef<HTMLDivElement>(null);
     const imgRef = useRef<HTMLImageElement>(null);
@@ -104,6 +124,7 @@ export default function ImageGenerationModal({
             abortRef.current = null;
         }
         setVrmAvatar(initialVrm ?? null);
+        setUpdateIcon(defaultUpdateIcon ?? false);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen]);
 
@@ -179,6 +200,10 @@ export default function ImageGenerationModal({
         if (!file) return;
         setError(null);
         if (file.name.toLowerCase().endsWith('.vrm')) {
+            if (!createsImage) {
+                setError('アイコンには画像ファイルを選択してください。');
+                return;
+            }
             try {
                 const avatar = await readVrmFile(file);
                 setVrmAvatar(avatar);
@@ -200,8 +225,8 @@ export default function ImageGenerationModal({
             setSource('uploaded');
             setImgNatural({ w: img.width, h: img.height });
             setAvatarCrop(createInitialCrop(img.width, img.height, AVATAR_ASPECT));
-            setNeutralCrop(createInitialCrop(img.width, img.height, NEUTRAL_ASPECT, true));
-            setCropTarget('neutral');
+            setNeutralCrop(createsImage ? createInitialCrop(img.width, img.height, NEUTRAL_ASPECT, true) : null);
+            setCropTarget(createsImage ? 'neutral' : 'avatar');
         } catch (err) {
             setError(err instanceof Error ? err.message : '画像の読み込みに失敗しました');
         }
@@ -224,21 +249,35 @@ export default function ImageGenerationModal({
     };
 
     const handleConfirmVrm = (avatar: VrmAvatar, preview: VrmPreview) => {
-        onComplete(preview.capture('avatar'), preview.capture(), avatar);
+        onComplete({
+            ...(createsIcon ? { icon: preview.capture('avatar') } : {}),
+            image: preview.capture(),
+            vrm: avatar,
+        });
         onClose();
     };
 
     const handleConfirm = async () => {
         if (!fullBody || !avatarCrop) return;
-        const neutral = source === 'uploaded' && neutralCrop
-            ? await cropRectToPng(fullBody, neutralCrop.x, neutralCrop.y, neutralCrop.width, neutralCrop.height)
-            : fullBody;
-        const avatar = source === 'generated' && transparentFullBody
-            ? await cropSquareToPng(fullBody, avatarCrop.x, avatarCrop.y, avatarCrop.width, AVATAR_SIZE)
-            : await cropSquareToJpeg(fullBody, avatarCrop.x, avatarCrop.y, avatarCrop.width, AVATAR_SIZE);
-        onComplete(avatar, neutral);
+        const image = !createsImage
+            ? undefined
+            : source === 'uploaded' && neutralCrop
+                ? await cropRectToPng(fullBody, neutralCrop.x, neutralCrop.y, neutralCrop.width, neutralCrop.height)
+                : fullBody;
+        const icon = !createsIcon
+            ? undefined
+            : source === 'generated' && transparentFullBody
+                ? await cropSquareToPng(fullBody, avatarCrop.x, avatarCrop.y, avatarCrop.width, AVATAR_SIZE)
+                : await cropSquareToJpeg(fullBody, avatarCrop.x, avatarCrop.y, avatarCrop.width, AVATAR_SIZE);
+        onComplete({
+            ...(icon ? { icon } : {}),
+            ...(image ? { image } : {}),
+        });
         onClose();
     };
+
+    // アイコンを作らないときは切り抜き対象を衣装画像に固定する。
+    const effectiveCropTarget: CropTarget = !createsIcon ? 'neutral' : !neutralCrop ? 'avatar' : cropTarget;
 
     const handleRegenerate = () => {
         setFullBody(null);
@@ -265,11 +304,11 @@ export default function ImageGenerationModal({
                 style={{ maxWidth: 640 }}
                 role="dialog"
                 aria-modal="true"
-                aria-label="アバターの変更"
+                aria-label={modalTitle}
             >
                 <div className="settings-form-modal-actions" style={{ justifyContent: 'space-between' }}>
                     <h2 style={{ margin: 0, paddingLeft: '0.25rem', fontSize: '0.9375rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <Sparkles size={18} /> アバターの変更
+                        <Sparkles size={18} /> {modalTitle}
                     </h2>
                     <button className="btn btn-ghost" onClick={handleCancel} disabled={generating} title="閉じる" aria-label="閉じる">
                         <X size={20} />
@@ -277,6 +316,17 @@ export default function ImageGenerationModal({
                 </div>
 
                 <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    {createsImage && defaultUpdateIcon !== undefined && (
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8125rem', cursor: generating ? 'default' : 'pointer' }}>
+                            <input
+                                type="checkbox"
+                                checked={updateIcon}
+                                onChange={(event) => setUpdateIcon(event.target.checked)}
+                                disabled={generating}
+                            />
+                            アイコンも更新
+                        </label>
+                    )}
                     {!fullBody && !vrmAvatar && (
                         <>
                             <div>
@@ -349,11 +399,11 @@ export default function ImageGenerationModal({
                             >
                                 <Upload size={16} /> ファイルからアップロード
                             </button>
-                            <p style={hintStyle}>画像のほか、.vrm の3Dモデルも選択できます</p>
+                            {createsImage && <p style={hintStyle}>画像のほか、.vrm の3Dモデルも選択できます</p>}
                             <input
                                 ref={fileInputRef}
                                 type="file"
-                                accept="image/*,.vrm"
+                                accept={createsImage ? 'image/*,.vrm' : 'image/*'}
                                 onChange={handleFile}
                                 style={{ display: 'none' }}
                             />
@@ -362,7 +412,7 @@ export default function ImageGenerationModal({
 
                     {fullBody && imgNatural && avatarCrop && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                            {source === 'uploaded' && neutralCrop && (
+                            {source === 'uploaded' && neutralCrop && createsIcon && (
                                 <div style={{ display: 'flex', gap: 8 }}>
                                     <button
                                         type="button"
@@ -383,7 +433,7 @@ export default function ImageGenerationModal({
                                 </div>
                             )}
 
-                            {source === 'uploaded' && cropTarget === 'neutral' && neutralCrop ? (
+                            {effectiveCropTarget === 'neutral' && neutralCrop ? (
                                 <CropArea
                                     key="neutral"
                                     imgRef={imgRef}
@@ -394,6 +444,14 @@ export default function ImageGenerationModal({
                                     allowOverflow
                                     onChange={(next) => setNeutralCrop(next)}
                                 />
+                            ) : !createsIcon ? (
+                                <div style={{ width: '100%', maxWidth: 260, margin: '0 auto', aspectRatio: '2 / 3', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border-color)' }}>
+                                    <StoredImage
+                                        src={fullBody}
+                                        alt="衣装のプレビュー"
+                                        style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
+                                    />
+                                </div>
                             ) : (
                                 <CropArea
                                     key="avatar"

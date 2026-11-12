@@ -82,7 +82,8 @@ fn shared_character_fields(character: &Value) -> Map<String, Value> {
             shared.insert(key.to_owned(), value.clone());
         }
     }
-    for key in ["expressions", "costumes"] {
+    // 直下の expressions は旧形式。読み込み側で衣装へ移すため、残っていればそのまま渡す。
+    for key in ["expressions", "costumes", "defaultCostumeId"] {
         if let Some(value) = object.get(key) {
             shared.insert(key.to_owned(), value.clone());
         }
@@ -101,8 +102,11 @@ fn downgrade_vrm_costumes(shared: &mut Map<String, Value>) {
             continue;
         }
         let mut replacement = Map::new();
-        if let Some(name) = costume.get("name") {
-            replacement.insert("name".to_owned(), name.clone());
+        // id はシチュエーションや部屋からの参照に使うため引き継ぐ。
+        for key in ["id", "name"] {
+            if let Some(value) = costume.get(key) {
+                replacement.insert(key.to_owned(), value.clone());
+            }
         }
         replacement.insert("kind".to_owned(), Value::String("image".to_owned()));
         for key in ["image", "promptDetail", "description"] {
@@ -308,10 +312,14 @@ fn valid_costume(value: &Value) -> bool {
         return false;
     };
     let kind = costume.get("kind").and_then(Value::as_str);
+    // id は現行形式で必須だが、旧形式のパッケージには無いため任意とする。
     costume
-        .get("name")
-        .and_then(Value::as_str)
-        .is_some_and(|name| !name.trim().is_empty())
+        .get("id")
+        .is_none_or(|id| id.as_str().is_some_and(|id| !id.trim().is_empty()))
+        && costume
+            .get("name")
+            .and_then(Value::as_str)
+            .is_some_and(|name| !name.trim().is_empty())
         && costume.get("image").is_some_and(valid_image_source)
         && costume.get("promptDetail").is_none_or(Value::is_string)
         && costume.get("description").is_none_or(Value::is_string)
@@ -362,6 +370,7 @@ fn valid_shared_character(object: &Map<String, Value>) -> bool {
             .get("model")
             .is_none_or(|model| model.is_string() || model.is_object())
         && valid_expression_list(object.get("expressions"))
+        && object.get("defaultCostumeId").is_none_or(Value::is_string)
         && object.get("costumes").is_none_or(|costumes| {
             costumes
                 .as_array()
@@ -727,13 +736,25 @@ fn image_source_of(value: &Value) -> Option<&str> {
     value.get("image").and_then(Value::as_str)
 }
 
-/// `resolveCharacterImportPreviewImage` (lib/characterImportPreview.ts) の移植。
+/// インポート確認で表示する画像。デフォルト衣装（`defaultCostumeId`、旧形式では
+/// `default` という名前の衣装）を優先し、旧形式の直下の neutral 表情、先頭の衣装、
+/// アイコンの順にフォールバックする。
 fn preview_image_source(character: &Value) -> Option<&str> {
     let object = character.as_object()?;
-    let default_costume = object
-        .get("costumes")
-        .and_then(Value::as_array)
-        .and_then(|costumes| costumes.iter().find(|&c| name_is(c, "default")));
+    let costumes = object.get("costumes").and_then(Value::as_array);
+    let default_costume_id = object
+        .get("defaultCostumeId")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty());
+    let default_costume = costumes.and_then(|costumes| {
+        default_costume_id
+            .and_then(|id| {
+                costumes
+                    .iter()
+                    .find(|&c| c.get("id").and_then(Value::as_str) == Some(id))
+            })
+            .or_else(|| costumes.iter().find(|&c| name_is(c, "default")))
+    });
     if let Some(costume) = default_costume {
         if let Some(image) = costume
             .get("expressions")
@@ -751,6 +772,12 @@ fn preview_image_source(character: &Value) -> Option<&str> {
         .get("expressions")
         .and_then(Value::as_array)
         .and_then(|expressions| expressions.iter().find(|&e| name_is(e, "neutral")))
+        .and_then(image_source_of)
+    {
+        return Some(image);
+    }
+    if let Some(image) = costumes
+        .and_then(|costumes| costumes.first())
         .and_then(image_source_of)
     {
         return Some(image);
@@ -934,8 +961,10 @@ mod tests {
                 { "name": "neutral", "image": data_url("image/png", &png_bytes("neutral")) },
                 { "name": "happy", "image": data_url("image/jpeg", &jpeg_bytes("happy")) },
             ],
+            "defaultCostumeId": "costume-default",
             "costumes": [
                 {
+                    "id": "costume-default",
                     "name": "default",
                     "image": data_url("image/png", &png_bytes("costume")),
                     "expressions": [
@@ -943,6 +972,7 @@ mod tests {
                     ],
                 },
                 {
+                    "id": "costume-3d",
                     "name": "3d",
                     "kind": "vrm",
                     "image": data_url("image/png", &png_bytes("costume-3d")),
@@ -1097,7 +1127,9 @@ mod tests {
             &zip_entry(&package, "character.json").expect("read character entry"),
         )
         .expect("parse shared character");
+        assert_eq!(shared["defaultCostumeId"], "costume-default");
         let downgraded = &shared["costumes"][1];
+        assert_eq!(downgraded["id"], "costume-3d");
         assert_eq!(downgraded["name"], "3d");
         assert_eq!(downgraded["kind"], "image");
         assert_eq!(downgraded["promptDetail"], "3d model");
@@ -1117,7 +1149,76 @@ mod tests {
         let stored =
             import_character_package(&mut target_db, &package).expect("import downgraded package");
         assert_eq!(stored["costumes"][1]["kind"], "image");
+        assert_eq!(stored["costumes"][1]["id"], "costume-3d");
         assert!(stored["costumes"][1].get("vrm").is_none());
+        assert_eq!(stored["defaultCostumeId"], "costume-default");
+    }
+
+    #[test]
+    fn inspect_prefers_default_costume_id_over_legacy_name() {
+        let icon = png_bytes("icon");
+        let legacy_default = png_bytes("legacy-default");
+        let chosen = png_bytes("chosen");
+        let id_of = sha256_hex;
+        let character = json!({
+            "name": "A",
+            "systemPrompt": "s",
+            "icon": format!("asset:{}", id_of(&icon)),
+            "defaultCostumeId": "costume-chosen",
+            "costumes": [
+                { "id": "costume-legacy", "name": "default", "image": format!("asset:{}", id_of(&legacy_default)) },
+                { "id": "costume-chosen", "name": "renamed", "image": format!("asset:{}", id_of(&chosen)) },
+            ],
+        });
+        let package = package_of(
+            &character,
+            [&icon, &legacy_default, &chosen]
+                .into_iter()
+                .map(|data| asset_entry(data, "png"))
+                .collect(),
+        );
+        assert_eq!(
+            inspect_character_package(&package)
+                .expect("inspect")
+                .preview_image
+                .expect("preview"),
+            format!("data:image/png;base64,{}", BASE64.encode(&chosen))
+        );
+
+        // デフォルトの指定もdefault衣装も無ければ先頭の衣装。
+        let first_only = json!({
+            "name": "A",
+            "systemPrompt": "s",
+            "costumes": [{ "id": "c1", "name": "uniform", "image": format!("asset:{}", id_of(&chosen)) }],
+        });
+        let package = package_of(&first_only, vec![asset_entry(&chosen, "png")]);
+        assert_eq!(
+            inspect_character_package(&package)
+                .expect("inspect first")
+                .preview_image
+                .expect("preview"),
+            format!("data:image/png;base64,{}", BASE64.encode(&chosen))
+        );
+    }
+
+    #[test]
+    fn package_validation_accepts_legacy_costumes_and_rejects_invalid_ids() {
+        let legacy = json!({ "name": "A", "systemPrompt": "s", "costumes": [{ "name": "default", "image": "data:image/png;base64,AA==" }] });
+        assert!(valid_shared_character(legacy.as_object().expect("object")));
+        let current = json!({
+            "name": "A",
+            "systemPrompt": "s",
+            "defaultCostumeId": "c1",
+            "costumes": [{ "id": "c1", "name": "casual", "image": "data:image/png;base64,AA==" }],
+        });
+        assert!(valid_shared_character(current.as_object().expect("object")));
+        for invalid in [
+            json!({ "name": "A", "systemPrompt": "s", "costumes": [{ "id": 1, "name": "c", "image": "data:image/png;base64,AA==" }] }),
+            json!({ "name": "A", "systemPrompt": "s", "costumes": [{ "id": " ", "name": "c", "image": "data:image/png;base64,AA==" }] }),
+            json!({ "name": "A", "systemPrompt": "s", "defaultCostumeId": 3 }),
+        ] {
+            assert!(!valid_shared_character(invalid.as_object().expect("object")));
+        }
     }
 
     #[test]

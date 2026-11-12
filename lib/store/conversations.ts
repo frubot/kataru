@@ -170,9 +170,10 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
 
         createSituationRoom: (input) => {
             const validCharacterIds = new Set(get().characters.map((c) => c.id));
+            const charactersById = new Map(get().characters.map((c) => [c.id, c]));
             const actors = uniqueSituationActors(
                 input.actors
-                    .map((actor) => normalizeSituationActor(actor, validCharacterIds))
+                    .map((actor) => normalizeSituationActor(actor, validCharacterIds, charactersById))
                     .filter((actor): actor is SituationActor => actor != null)
             );
             if (actors.length === 0) return '';
@@ -421,12 +422,13 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
                 ...(() => {
                     const now = Date.now();
                     const validCharacterIds = new Set(state.characters.map((c) => c.id));
+                    const charactersById = new Map(state.characters.map((c) => [c.id, c]));
                     const groups = state.groups.map((g) => {
                         if (g.id !== id) return g;
                         const normalizedActors = updates.actors
                             ? uniqueSituationActors(
                                 updates.actors
-                                    .map((actor) => normalizeSituationActor(actor, validCharacterIds))
+                                    .map((actor) => normalizeSituationActor(actor, validCharacterIds, charactersById))
                                     .filter((actor): actor is SituationActor => actor != null)
                             )
                             : g.actors;

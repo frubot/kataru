@@ -75,16 +75,16 @@ import {
     updateSituationVisualNovelStageRoster,
 } from '@/lib/situationVisualNovelPresentation';
 import type { SituationVisualNovelStageRoster } from '@/lib/situationVisualNovelPresentation';
+import { resolveDefaultCostume } from '@/lib/costumes';
 import { buildNarrationSpeechSegments, buildSpeechText } from '@/lib/tts';
 import { useTtsEntry } from '@/lib/ttsPlayer';
 import {
-    DEFAULT_COSTUME_NAME,
     findVisualNovelCostume,
     getVisualNovelCostumeOptions,
     getVisualNovelExpressionNames,
     getVisualNovelMotionNames,
     getVisualNovelPreloadCandidates,
-    resolveVisualNovelCostumeName,
+    resolveVisualNovelCostumeId,
     resolveVisualNovelExpressionImage,
     shouldTriggerVisualNovelBounce,
 } from '@/lib/visualNovelPresentation';
@@ -150,9 +150,10 @@ type ConversationCharacter = {
     maxHistory?: number;
     enableMemory?: boolean;
     realTimeMode?: Character['realTimeMode'];
-    expressions?: { name: string }[];
-    motions?: { name: string }[];
+    /** 会話で使う衣装の id。部屋の衣装選択が無いときはこの衣装を使う。 */
+    defaultCostumeId?: string;
     costumes?: {
+        id: string;
         name: string;
         description?: string;
         expressions?: { name: string }[];
@@ -179,14 +180,14 @@ function toConversationCharacter(character: Character | null): ConversationChara
         maxHistory: character.maxHistory,
         enableMemory: character.enableMemory,
         realTimeMode: character.realTimeMode,
-        // Resolved through the default costume so a VRM avatar exposes its mapped names.
-        expressions: getVisualNovelExpressionNames(character).map((name) => ({ name })),
-        motions: getVisualNovelMotionNames(character).map((name) => ({ name })),
+        defaultCostumeId: resolveDefaultCostume(character)?.id,
+        // Names are resolved per costume so a VRM avatar exposes its mapped names.
         costumes: character.costumes?.map((costume) => ({
+            id: costume.id,
             name: costume.name,
             description: costume.description,
-            expressions: getVisualNovelExpressionNames(character, costume.name).map((name) => ({ name })),
-            motions: getVisualNovelMotionNames(character, costume.name).map((name) => ({ name })),
+            expressions: getVisualNovelExpressionNames(character, costume.id).map((name) => ({ name })),
+            motions: getVisualNovelMotionNames(character, costume.id).map((name) => ({ name })),
         })),
     };
 }
@@ -2297,8 +2298,8 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         ? situationVnSceneCharacter ?? situationVnInitialCharacter
         : soloVnCharacter;
 
-    const vnSelectedCostumeName = useMemo(
-        () => resolveVisualNovelCostumeName(room, vnCharacter),
+    const vnSelectedCostumeId = useMemo(
+        () => resolveVisualNovelCostumeId(room, vnCharacter),
         [room, vnCharacter],
     );
     const vnCostumeOptions = useMemo(
@@ -2310,12 +2311,12 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         () => resolveVisualNovelExpressionImage(
             vnCharacter,
             situationVnPresentation.sceneExpression ?? null,
-            vnSelectedCostumeName,
+            vnSelectedCostumeId,
         ),
         [
             situationVnPresentation.sceneExpression,
             vnCharacter,
-            vnSelectedCostumeName,
+            vnSelectedCostumeId,
         ],
     );
     // ナレーションでは立ち絵のキャラクターが話しているわけではないので跳ねさせない。
@@ -2463,8 +2464,8 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             return participant ? [participant] : [];
         });
         return stageParticipants.map((participant) => {
-            const costumeName = resolveVisualNovelCostumeName(room, participant);
-            const costume = findVisualNovelCostume(participant, costumeName);
+            const costumeId = resolveVisualNovelCostumeId(room, participant);
+            const costume = findVisualNovelCostume(participant, costumeId);
             const vrm = costume?.kind === 'vrm' ? costume.vrm : undefined;
             const expression = expressions[participant.id] ?? null;
             return {
@@ -2472,7 +2473,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 name: participant.name,
                 image: vrm
                     ? costume?.image ?? null
-                    : resolveVisualNovelExpressionImage(participant, expression, costumeName),
+                    : resolveVisualNovelExpressionImage(participant, expression, costumeId),
                 expression,
                 motion: sceneMotion?.characterId === participant.id
                     ? { name: sceneMotion.name, nonce: sceneMotion.nonce }
@@ -2508,8 +2509,8 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         const sources: string[] = [];
         const seen = new Set<string>();
         for (const participant of groupCharacters ?? []) {
-            const costumeName = resolveVisualNovelCostumeName(room, participant);
-            for (const candidate of getVisualNovelPreloadCandidates(participant, costumeName, undefined, 8)) {
+            const costumeId = resolveVisualNovelCostumeId(room, participant);
+            for (const candidate of getVisualNovelPreloadCandidates(participant, costumeId, undefined, 8)) {
                 if (!candidate || currentImages.has(candidate) || seen.has(candidate)) continue;
                 seen.add(candidate);
                 sources.push(candidate);
@@ -2531,13 +2532,14 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         setTimeout(() => textareaRef.current?.focus(), 0);
     }, [closeMention, isLoading, isSummarizing, latestEditableUserMessage, room]);
 
-    const handleSelectVnCostume = (costumeName: string) => {
+    const handleSelectVnCostume = (costumeId: string) => {
         if (!room || !vnCharacter || isSituationVisualNovelMode) return;
         const nextSelections = { ...(room.costumeSelections ?? {}) };
-        if (costumeName === DEFAULT_COSTUME_NAME) {
+        // Selecting the default costume clears the choice so the room follows later default changes.
+        if (resolveDefaultCostume(vnCharacter)?.id === costumeId) {
             delete nextSelections[vnCharacter.id];
         } else {
-            nextSelections[vnCharacter.id] = costumeName;
+            nextSelections[vnCharacter.id] = costumeId;
         }
         updateRoomSettings(room.id, {
             costumeSelections: Object.keys(nextSelections).length > 0 ? nextSelections : undefined,
@@ -2802,7 +2804,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     replySuggestions={replySuggestions}
                     hasReplySuggestions={showReplySuggestions}
                     isSummarizing={isSummarizing}
-                    selectedCostumeName={vnSelectedCostumeName}
+                    selectedCostumeId={vnSelectedCostumeId}
                     costumeOptions={vnCostumeOptions}
                     onSelectCostume={handleSelectVnCostume}
                     showCostumeSelector={!isSituationVisualNovelMode}

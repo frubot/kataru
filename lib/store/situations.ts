@@ -1,11 +1,12 @@
+import { resolveStoredCostumeReference, type CostumeOwner } from '../costumes';
 import { generateId } from '../id';
+import { migrateCostumeOwner } from '../visualDiffMigration';
 import {
     DEFAULT_SITUATION_MAX_TURNS,
     MAX_SITUATION_MAX_TURNS,
     MIN_SITUATION_MAX_TURNS,
     type Character,
     type Costume,
-    type Expression,
     type RealTimeMode,
     type Room,
     type Situation,
@@ -52,9 +53,30 @@ function storedSituationMaxTurns(situation: Situation): number {
     return normalizeSituationMaxTurns(legacyDirector.maxAutoTurns);
 }
 
+/**
+ * キャラクター参加者の衣装指定を衣装 id に解決する。旧形式の `costumeName` は
+ * キャラクターの衣装から id に変換し、`default` や不明な名前は未指定にする。
+ * `characters` が無い場合は旧形式の名前を解決できないため未指定にし、id は検証せずに残す。
+ */
+function resolveActorCostumeId(
+    rawActor: Record<string, unknown>,
+    character: CostumeOwner | undefined,
+    hasCharacters: boolean,
+): string | undefined {
+    if (typeof rawActor.costumeId === 'string') {
+        const costumeId = rawActor.costumeId.trim();
+        if (!costumeId) return undefined;
+        if (!hasCharacters) return costumeId;
+        return character?.costumes?.some((costume) => costume.id === costumeId) ? costumeId : undefined;
+    }
+    if (!hasCharacters) return undefined;
+    return resolveStoredCostumeReference(character, rawActor.costumeName);
+}
+
 export function normalizeSituationActor(
     rawActor: unknown,
     validCharacterIds: Set<string>,
+    characters?: ReadonlyMap<string, CostumeOwner>,
 ): SituationActor | null {
     if (!isRecord(rawActor)) return null;
     const type = rawActor.type;
@@ -62,12 +84,12 @@ export function normalizeSituationActor(
         const characterId = typeof rawActor.characterId === 'string' ? rawActor.characterId.trim() : '';
         if (!characterId || !validCharacterIds.has(characterId)) return null;
         const id = typeof rawActor.id === 'string' && rawActor.id.trim() ? rawActor.id.trim() : characterId;
-        const costumeName = typeof rawActor.costumeName === 'string' ? rawActor.costumeName.trim() : '';
+        const costumeId = resolveActorCostumeId(rawActor, characters?.get(characterId), characters != null);
         return {
             id,
             type: 'character',
             characterId,
-            ...(costumeName && costumeName.toLowerCase() !== 'default' ? { costumeName } : {}),
+            ...(costumeId ? { costumeId } : {}),
             ...(typeof rawActor.rolePrompt === 'string' && rawActor.rolePrompt.trim()
                 ? { rolePrompt: rawActor.rolePrompt.trim() }
                 : {}),
@@ -78,6 +100,11 @@ export function normalizeSituationActor(
         if (!name) return null;
         const systemPrompt = typeof rawActor.systemPrompt === 'string' ? rawActor.systemPrompt.trim() : '';
         const id = typeof rawActor.id === 'string' && rawActor.id.trim() ? rawActor.id.trim() : generateId();
+        const visuals = migrateCostumeOwner<{ expressions?: unknown; costumes?: Costume[]; defaultCostumeId?: string }>({
+            ...('expressions' in rawActor ? { expressions: rawActor.expressions } : {}),
+            ...(Array.isArray(rawActor.costumes) ? { costumes: rawActor.costumes as Costume[] } : {}),
+            ...(typeof rawActor.defaultCostumeId === 'string' ? { defaultCostumeId: rawActor.defaultCostumeId } : {}),
+        });
         return {
             id,
             type: 'temporary',
@@ -95,8 +122,8 @@ export function normalizeSituationActor(
                 : {}),
             ...(typeof rawActor.maxCharacters === 'number' ? { maxCharacters: rawActor.maxCharacters } : {}),
             ...(typeof rawActor.maxHistory === 'number' ? { maxHistory: rawActor.maxHistory } : {}),
-            ...(Array.isArray(rawActor.expressions) ? { expressions: rawActor.expressions as Expression[] } : {}),
-            ...(Array.isArray(rawActor.costumes) ? { costumes: rawActor.costumes as Costume[] } : {}),
+            ...(visuals.costumes && visuals.costumes.length > 0 ? { costumes: visuals.costumes } : {}),
+            ...(visuals.defaultCostumeId ? { defaultCostumeId: visuals.defaultCostumeId } : {}),
         };
     }
     return null;
@@ -122,10 +149,8 @@ export function getSituationCostumeSelections(
     const selections = Object.fromEntries(
         actors.flatMap((actor) => {
             if (actor.type !== 'character') return [];
-            const costumeName = actor.costumeName?.trim();
-            return costumeName && costumeName.toLowerCase() !== 'default'
-                ? [[actor.id, costumeName] as const]
-                : [];
+            const costumeId = actor.costumeId?.trim();
+            return costumeId ? [[actor.id, costumeId] as const] : [];
         }),
     );
     return Object.keys(selections).length > 0 ? selections : undefined;
@@ -192,10 +217,11 @@ export function normalizeSituation(
     situation: Situation,
     validCharacterIds: Set<string>,
     now = Date.now(),
+    characters?: ReadonlyMap<string, CostumeOwner>,
 ): Situation | null {
     const actors = uniqueSituationActors(
         situation.actors
-            .map((actor) => normalizeSituationActor(actor, validCharacterIds))
+            .map((actor) => normalizeSituationActor(actor, validCharacterIds, characters))
             .filter((actor): actor is SituationActor => actor != null),
     );
     if (actors.length === 0) return null;
@@ -255,14 +281,32 @@ export function resolveSituationParticipants(
                 maxCharacters: actor.maxCharacters,
                 maxHistory: actor.maxHistory,
                 enableMemory: false,
-                expressions: actor.expressions,
                 costumes: actor.costumes,
+                defaultCostumeId: actor.defaultCostumeId,
                 createdAt: situation.createdAt ?? now,
                 updatedAt: actor.id ? situation.updatedAt ?? now : now,
                 rolePrompt: actor.rolePrompt,
             };
         })
         .filter((participant): participant is SituationParticipant => participant != null);
+}
+
+/**
+ * 単体チャットの部屋の衣装選択を衣装 id に揃える。旧形式の衣装名は id に変換し、
+ * `default` や存在しない衣装・キャラクターへの選択は取り除く。
+ */
+export function normalizeCharacterRoomCostumeSelections(
+    selections: Record<string, string> | undefined,
+    characters: ReadonlyMap<string, CostumeOwner>,
+): Record<string, string> | undefined {
+    if (!isRecord(selections)) return undefined;
+    const normalized = Object.fromEntries(
+        Object.entries(selections).flatMap(([characterId, reference]) => {
+            const costumeId = resolveStoredCostumeReference(characters.get(characterId), reference);
+            return costumeId ? [[characterId, costumeId] as const] : [];
+        }),
+    );
+    return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
 export function normalizeGroupData(params: {
@@ -272,12 +316,13 @@ export function normalizeGroupData(params: {
 }): { groups: Situation[]; rooms: Room[]; changedGroups: Situation[]; changedRooms: Room[] } {
     const now = Date.now();
     const validCharacterIds = new Set(params.characters.map((character) => character.id));
+    const charactersById = new Map(params.characters.map((character) => [character.id, character]));
     const groupsById = new Map<string, Situation>();
     const changedGroups: Situation[] = [];
     const changedRooms: Room[] = [];
 
     for (const group of params.groups) {
-        const normalizedGroup = normalizeSituation(group, validCharacterIds, now);
+        const normalizedGroup = normalizeSituation(group, validCharacterIds, now, charactersById);
         if (!normalizedGroup) continue;
         groupsById.set(normalizedGroup.id, normalizedGroup);
         if (JSON.stringify(normalizedGroup) !== JSON.stringify(group)) changedGroups.push(normalizedGroup);
@@ -321,6 +366,12 @@ export function normalizeGroupData(params: {
                 next.characterId !== room.characterId
                 || JSON.stringify(next.costumeSelections ?? {}) !== JSON.stringify(room.costumeSelections ?? {})
             ) {
+                changed = true;
+            }
+        } else if (!room.groupId && room.costumeSelections) {
+            const costumeSelections = normalizeCharacterRoomCostumeSelections(room.costumeSelections, charactersById);
+            if (JSON.stringify(costumeSelections ?? {}) !== JSON.stringify(room.costumeSelections)) {
+                next = { ...next, costumeSelections };
                 changed = true;
             }
         }

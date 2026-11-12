@@ -309,15 +309,15 @@ describe('situation visual novel presentation', () => {
 
     test('uses the first speaking actor as the initial character', () => {
         expect(resolveSituationVisualNovelInitialCharacterId(priorMessages, [
-            { id: 'actor-b', expressions: [{ name: 'neutral', image: 'portrait-b' }] },
-            { id: 'actor-a', expressions: [{ name: 'neutral', image: 'portrait-a' }] },
+            { id: 'actor-b', costumes: [{ id: 'costume-b', name: 'default', image: 'portrait-b' }] },
+            { id: 'actor-a', costumes: [{ id: 'costume-a', name: 'default', image: 'portrait-a' }] },
         ])).toBe('actor-a');
     });
 
     test('prefers an available portrait when the first speaking actor has none', () => {
         expect(resolveSituationVisualNovelInitialCharacterId(priorMessages, [
             { id: 'actor-a' },
-            { id: 'actor-b', expressions: [{ name: 'neutral', image: 'portrait-b' }] },
+            { id: 'actor-b', costumes: [{ id: 'costume-b', name: 'default', image: 'portrait-b' }] },
         ])).toBe('actor-b');
     });
 
@@ -326,7 +326,7 @@ describe('situation visual novel presentation', () => {
             { id: 'prior-user', role: 'user', content: 'こんにちは。' },
         ], [
             { id: 'actor-a' },
-            { id: 'actor-b', expressions: [{ name: 'neutral', image: 'portrait-b' }] },
+            { id: 'actor-b', costumes: [{ id: 'costume-b', name: 'default', image: 'portrait-b' }] },
         ])).toBe('actor-b');
     });
 

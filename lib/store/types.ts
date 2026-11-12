@@ -14,12 +14,17 @@ export interface Expression {
 }
 
 export interface Costume {
+    /** 不変の識別子。部屋やシチュエーションからの参照に使う。 */
+    id: string;
+    /** 表示名。重複しない限り自由に変更できる。 */
     name: string;
     kind?: 'image' | 'vrm';
     promptDetail?: string;
     /** 会話でキャラクターへコンテキストとして渡される衣装の説明。 */
     description?: string;
+    /** 衣装の基本画像。neutral の表情として扱う（VRMではプレビュー画像）。 */
     image: string;
+    /** neutral 以外の表情差分。 */
     expressions?: Expression[];
     vrm?: VrmAvatar;
 }
@@ -68,8 +73,9 @@ export interface Character {
         speed?: number;
         volume?: number;
     };
-    expressions?: Expression[];
     costumes?: Costume[];
+    /** デフォルト衣装の id。無効なときは先頭の衣装をデフォルトとして扱う。 */
+    defaultCostumeId?: string;
     createdAt: number;
     updatedAt: number;
 }
@@ -190,7 +196,8 @@ export type SituationActor =
         id: string;
         type: 'character';
         characterId: string;
-        costumeName?: string;
+        /** 着用する衣装の id。未指定ならキャラクターのデフォルト衣装に従う。 */
+        costumeId?: string;
         rolePrompt?: string;
     }
     | {
@@ -204,8 +211,8 @@ export type SituationActor =
         rolePrompt?: string;
         maxCharacters?: number;
         maxHistory?: number;
-        expressions?: Expression[];
         costumes?: Costume[];
+        defaultCostumeId?: string;
     };
 
 /** シチュエーションの1ターンでキャラクターが話せる最大発言数の既定値と範囲。 */
@@ -293,6 +300,7 @@ export interface Room {
     summaryHistory?: SummaryRevision[];
     maxMentionChain?: number;
     viewMode?: RoomViewMode;
+    /** characterId（シチュエーションでは actorId）→ 衣装 id。未選択はデフォルト衣装に従う。 */
     costumeSelections?: Record<string, string>;
     replySuggestions?: RoomReplySuggestions;
     secretMode?: boolean;
@@ -543,7 +551,7 @@ export interface AppState {
     setSummaryInspectorEnabled: (enabled: boolean) => void;
 
     createCharacter: (name: string, systemPrompt?: string, extras?: CharacterExtras) => string;
-    updateCharacter: (id: string, updates: Partial<Pick<Character, 'name' | 'systemPrompt' | 'favorite' | 'speechStyle' | 'protagonistPrompt' | 'userConstraints' | 'icon' | 'maxCharacters' | 'maxHistory' | 'enableMemory' | 'realTimeMode' | 'tts' | 'expressions' | 'costumes'>>) => void;
+    updateCharacter: (id: string, updates: Partial<Pick<Character, 'name' | 'systemPrompt' | 'favorite' | 'speechStyle' | 'protagonistPrompt' | 'userConstraints' | 'icon' | 'maxCharacters' | 'maxHistory' | 'enableMemory' | 'realTimeMode' | 'tts' | 'costumes' | 'defaultCostumeId'>>) => void;
     deleteCharacter: (id: string) => void;
     duplicateCharacter: (id: string) => string;
     addImportedCharacter: (character: Character) => void;

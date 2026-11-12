@@ -150,7 +150,8 @@ describe('store pure helpers', () => {
             id: 'character-1',
             name: '葵',
             systemPrompt: '',
-            costumes: [{ name: '制服', image: 'uniform-image' }],
+            costumes: [{ id: 'costume-uniform', name: '制服', image: 'uniform-image' }],
+            defaultCostumeId: 'costume-uniform',
             createdAt: 1,
             updatedAt: 1,
         };
@@ -159,8 +160,9 @@ describe('store pure helpers', () => {
             type: 'character',
             characterId: character.id,
             costumeName: ' 制服 ',
-        }, new Set([character.id]));
-        expect(actor).toMatchObject({ costumeName: '制服' });
+        }, new Set([character.id]), new Map([[character.id, character]]));
+        expect(actor).toMatchObject({ costumeId: 'costume-uniform' });
+        expect(actor).not.toHaveProperty('costumeName');
         if (!actor) throw new Error('Expected a normalized actor');
 
         const situation: Situation = {
@@ -187,8 +189,8 @@ describe('store pure helpers', () => {
             rooms: [room],
         });
 
-        expect(getSituationCostumeSelections(situation.actors)).toEqual({ 'actor-1': '制服' });
-        expect(normalized.rooms[0].costumeSelections).toEqual({ 'actor-1': '制服' });
+        expect(getSituationCostumeSelections(situation.actors)).toEqual({ 'actor-1': 'costume-uniform' });
+        expect(normalized.rooms[0].costumeSelections).toEqual({ 'actor-1': 'costume-uniform' });
         expect(normalized.changedRooms).toHaveLength(1);
     });
 
@@ -260,7 +262,7 @@ describe('store pure helpers', () => {
 
     test('keeps default and temporary situation actors out of costume selections', () => {
         expect(getSituationCostumeSelections([
-            { id: 'actor-1', type: 'character', characterId: 'character-1', costumeName: 'default' },
+            { id: 'actor-1', type: 'character', characterId: 'character-1' },
             { id: 'actor-2', type: 'temporary', name: '通行人', systemPrompt: '' },
         ])).toBeUndefined();
     });

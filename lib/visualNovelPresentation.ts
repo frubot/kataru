@@ -1,8 +1,11 @@
+import {
+    NEUTRAL_EXPRESSION_NAME,
+    resolveActiveCostume,
+    resolveDefaultCostume,
+    type CostumeOwner,
+} from './costumes';
 import type { Character, Costume, Room, VnTypingSpeed } from './store/types';
 import { getVrmExpressionNames, getVrmMotionNames } from './vrm';
-
-export const DEFAULT_COSTUME_NAME = 'default';
-const NEUTRAL_EXPRESSION_NAME = 'neutral';
 
 const VN_TYPING_DEFAULT_DELAY_MS = 24;
 const VN_TYPING_COMMA_DELAY_MS = 70;
@@ -16,14 +19,16 @@ const VN_TYPING_SPEED_MULTIPLIER: Record<VnTypingSpeed, number> = {
 };
 
 export type VisualNovelCostumeOption = {
+    id: string;
     name: string;
     kind?: 'image' | 'vrm';
     image?: string | null;
     expressionCount: number;
+    isDefault: boolean;
 };
 
-type VisualNovelExpressionSource = Pick<Character, 'expressions' | 'costumes'>;
-type VisualNovelMotionSource = Pick<Character, 'costumes'>;
+type VisualNovelExpressionSource = CostumeOwner;
+type VisualNovelMotionSource = CostumeOwner;
 
 export type VisualNovelBounceSnapshot = {
     contextKey: string | null;
@@ -41,102 +46,67 @@ export function shouldTriggerVisualNovelBounce(
         && previous.messageKey !== current.messageKey;
 }
 
-function findCostume(character: Character | null | undefined, costumeName: string | null | undefined) {
-    if (!character || !costumeName || costumeName === DEFAULT_COSTUME_NAME) return null;
-    return (character.costumes ?? []).find((costume) => costume.name === costumeName) ?? null;
-}
-
-function findDefaultCostume(character: Pick<Character, 'costumes'> | null | undefined) {
-    return (character?.costumes ?? []).find((costume) => costume.name.toLowerCase() === DEFAULT_COSTUME_NAME) ?? null;
-}
-
+/** 選択中（無効ならデフォルト）の衣装。衣装が無ければ null。 */
 export function findVisualNovelCostume(
-    character: Pick<Character, 'costumes'> | null | undefined,
-    costumeName: string | null | undefined,
+    character: CostumeOwner | null | undefined,
+    costumeId?: string | null,
 ): Costume | null {
-    if (!character || !costumeName) return null;
-    if (costumeName === DEFAULT_COSTUME_NAME) return findDefaultCostume(character);
-    return (character.costumes ?? []).find((costume) => costume.name === costumeName) ?? null;
+    return resolveActiveCostume(character, costumeId);
 }
 
-export function resolveVisualNovelCostumeName(
+/**
+ * 部屋で表示する衣装の id。部屋の選択が有効ならそれを、未選択・削除済みなら
+ * キャラクターのデフォルト衣装を返す。衣装が無ければ null。
+ */
+export function resolveVisualNovelCostumeId(
     room: Room | null | undefined,
-    character: Character | null | undefined,
-): string {
-    if (!room || !character) return DEFAULT_COSTUME_NAME;
-    const selectedName = room.costumeSelections?.[character.id];
-    if (!selectedName || selectedName === DEFAULT_COSTUME_NAME) return DEFAULT_COSTUME_NAME;
-    return findCostume(character, selectedName) ? selectedName : DEFAULT_COSTUME_NAME;
+    character: (CostumeOwner & Pick<Character, 'id'>) | null | undefined,
+): string | null {
+    if (!character) return null;
+    const selectedId = room?.costumeSelections?.[character.id];
+    return resolveActiveCostume(character, selectedId)?.id ?? null;
 }
 
 export function resolveVisualNovelExpressionImage(
-    character: Character | null | undefined,
+    character: CostumeOwner | null | undefined,
     emotion: string | null,
-    costumeName = DEFAULT_COSTUME_NAME,
+    costumeId?: string | null,
 ): string | null {
-    if (!character) return null;
-    const selectedCostume = findCostume(character, costumeName);
-    if (selectedCostume) {
-        const costumeExpressions = selectedCostume.expressions ?? [];
-        const requested = emotion && emotion.toLowerCase() !== NEUTRAL_EXPRESSION_NAME
-            ? costumeExpressions.find((expression) => expression.name.toLowerCase() === emotion.toLowerCase())
-            : undefined;
-        return requested?.image ?? selectedCostume.image ?? null;
-    }
-
-    const expressions = character.expressions ?? [];
-    const findExpression = (name: string) => expressions.find(
-        (expression) => expression.name.toLowerCase() === name.toLowerCase(),
-    );
-    const requested = emotion ? findExpression(emotion) : undefined;
-    const neutral = findExpression(NEUTRAL_EXPRESSION_NAME);
-    return requested?.image ?? neutral?.image ?? expressions[0]?.image ?? null;
+    const costume = resolveActiveCostume(character, costumeId);
+    if (!costume) return null;
+    const requested = emotion && emotion.toLowerCase() !== NEUTRAL_EXPRESSION_NAME
+        ? (costume.expressions ?? []).find((expression) => expression.name.toLowerCase() === emotion.toLowerCase())
+        : undefined;
+    return requested?.image ?? costume.image ?? null;
 }
 
 export function getVisualNovelCostumeOptions(
-    character: Character | null | undefined,
+    character: CostumeOwner | null | undefined,
 ): VisualNovelCostumeOption[] {
     if (!character) return [];
-    const defaultCostume = findDefaultCostume(character);
-    const defaultVrm = defaultCostume?.kind === 'vrm' ? defaultCostume.vrm : undefined;
-    const defaultImage = defaultCostume?.image
-        ?? resolveVisualNovelExpressionImage(character, null, DEFAULT_COSTUME_NAME);
-    return [
-        {
-            name: DEFAULT_COSTUME_NAME,
-            ...(defaultVrm ? { kind: 'vrm' as const } : {}),
-            image: defaultImage,
-            expressionCount: defaultVrm
-                ? getVrmExpressionNames(defaultVrm).length - 1
-                : character.expressions?.length ?? 0,
-        },
-        ...(character.costumes ?? [])
-            .filter((costume) => costume.name.toLowerCase() !== DEFAULT_COSTUME_NAME)
-            .map((costume) => ({
-                name: costume.name,
-                ...(costume.kind ? { kind: costume.kind } : {}),
-                image: costume.image,
-                expressionCount: costume.kind === 'vrm' && costume.vrm ? getVrmExpressionNames(costume.vrm).length - 1 : costume.expressions?.length ?? 0,
-            })),
-    ];
+    const defaultCostumeId = resolveDefaultCostume(character)?.id;
+    return (character.costumes ?? []).map((costume) => ({
+        id: costume.id,
+        name: costume.name,
+        ...(costume.kind ? { kind: costume.kind } : {}),
+        image: costume.image,
+        expressionCount: costume.kind === 'vrm' && costume.vrm
+            ? getVrmExpressionNames(costume.vrm).length - 1
+            : (costume.expressions ?? []).filter((expression) => expression.name.toLowerCase() !== NEUTRAL_EXPRESSION_NAME).length,
+        isDefault: costume.id === defaultCostumeId,
+    }));
 }
 
 export function getVisualNovelExpressionNames(
     character: VisualNovelExpressionSource | null | undefined,
-    costumeName = DEFAULT_COSTUME_NAME,
+    costumeId?: string | null,
 ): string[] {
-    if (!character) return [];
-    const selectedCostume = costumeName !== DEFAULT_COSTUME_NAME
-        ? (character.costumes ?? []).find((costume) => costume.name === costumeName)
-        : null;
-    // The avatar flow stores a 3D model on the reserved default costume; its usable
-    // names come from the expression map rather than the flat 2D expression list.
-    const activeCostume = selectedCostume ?? findDefaultCostume(character);
-    const names = activeCostume?.kind === 'vrm' && activeCostume.vrm
+    const activeCostume = resolveActiveCostume(character, costumeId);
+    if (!activeCostume) return [];
+    // A 3D costume exposes the names of its expression map rather than 2D variants.
+    const names = activeCostume.kind === 'vrm' && activeCostume.vrm
         ? getVrmExpressionNames(activeCostume.vrm)
-        : selectedCostume
-            ? [NEUTRAL_EXPRESSION_NAME, ...(selectedCostume.expressions ?? []).map((expression) => expression.name)]
-            : (character.expressions ?? []).map((expression) => expression.name);
+        : [NEUTRAL_EXPRESSION_NAME, ...(activeCostume.expressions ?? []).map((expression) => expression.name)];
     const seen = new Set<string>();
     return names
         .map((name) => name.trim())
@@ -150,14 +120,10 @@ export function getVisualNovelExpressionNames(
 
 export function getVisualNovelMotionNames(
     character: VisualNovelMotionSource | null | undefined,
-    costumeName = DEFAULT_COSTUME_NAME,
+    costumeId?: string | null,
 ): string[] {
-    if (!character) return [];
-    const selectedCostume = costumeName !== DEFAULT_COSTUME_NAME
-        ? (character.costumes ?? []).find((costume) => costume.name === costumeName)
-        : null;
     // One-shot motions only exist on VRM avatars; 2D costumes never expose names.
-    const activeCostume = selectedCostume ?? findDefaultCostume(character);
+    const activeCostume = resolveActiveCostume(character, costumeId);
     const names = activeCostume?.kind === 'vrm' && activeCostume.vrm
         ? getVrmMotionNames(activeCostume.vrm)
         : [];
@@ -173,8 +139,8 @@ export function getVisualNovelMotionNames(
 }
 
 export function getVisualNovelPreloadCandidates(
-    character: Character | null | undefined,
-    costumeName = DEFAULT_COSTUME_NAME,
+    character: CostumeOwner | null | undefined,
+    costumeId?: string | null,
     currentImage?: string | null,
     limit = 24,
 ): string[] {
@@ -188,18 +154,16 @@ export function getVisualNovelPreloadCandidates(
         candidates.push(source);
     };
 
-    const selectedCostume = findCostume(character, costumeName);
-    if (selectedCostume) {
-        for (const expression of selectedCostume.expressions ?? []) add(expression.image);
-        add(selectedCostume.image);
-    } else {
-        for (const expression of character.expressions ?? []) add(expression.image);
+    const activeCostume = resolveActiveCostume(character, costumeId);
+    if (activeCostume) {
+        for (const expression of activeCostume.expressions ?? []) add(expression.image);
+        add(activeCostume.image);
     }
 
     // Costume changes are user-driven and can happen before the next response, so warm each
     // alternative's base image after the likely expression variants for the active costume.
     for (const costume of character.costumes ?? []) {
-        if (costume.name !== selectedCostume?.name) add(costume.image);
+        if (costume.id !== activeCostume?.id) add(costume.image);
     }
 
     return candidates;

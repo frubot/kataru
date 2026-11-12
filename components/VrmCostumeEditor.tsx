@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { createCostumeId } from '@/lib/costumes';
 import type { Costume, VrmAvatar } from '@/lib/store/types';
 import type { VrmPreview } from './VrmAvatarView';
 import VrmEditorModal from './VrmEditorModal';
@@ -18,9 +19,16 @@ export default function VrmCostumeEditor({ costume, initialAvatar, name, existin
     const [avatar, setAvatar] = useState<VrmAvatar | undefined>(costume?.vrm ?? initialAvatar);
     const confirm = (next: VrmAvatar, preview: VrmPreview) => {
         const trimmed = name.trim();
-        if (!trimmed || trimmed.toLowerCase() === 'default') throw new Error('default以外の衣装名を入力してください。');
+        if (!trimmed) throw new Error('衣装名を入力してください。');
         if (!costume && existingNames.some((entry) => entry.toLowerCase() === trimmed.toLowerCase())) throw new Error('同じ衣装名が既にあります。');
-        onSave({ name: trimmed, kind: 'vrm', image: preview.capture(), vrm: next, promptDetail: costume?.promptDetail, description: costume?.description });
+        onSave({
+            ...costume,
+            id: costume?.id ?? createCostumeId(),
+            name: costume?.name ?? trimmed,
+            kind: 'vrm',
+            image: preview.capture(),
+            vrm: next,
+        });
     };
     return <VrmEditorModal
         avatar={avatar}

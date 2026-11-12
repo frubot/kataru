@@ -5,6 +5,7 @@ import { useStore } from '@/lib/store';
 import { isAiConnectionKind } from '@/lib/aiApi';
 import { useAiConnections } from '@/lib/aiConnections';
 import { serializeModelRef, type ModelRef } from '@/lib/modelDefaults';
+import { NEUTRAL_EXPRESSION_NAME, resolveActiveCostume, resolveDefaultCostume } from '@/lib/costumes';
 import {
     createExpressionNameRegistry,
     reserveUniqueExpressionName,
@@ -24,8 +25,7 @@ import OptionSelector from './OptionSelector';
 import { useModalKeyboard } from './useModalKeyboard';
 import { useTransparentImageBackground } from '@/lib/useTransparentImageBackground';
 
-const NEUTRAL_NAME = 'neutral';
-const DEFAULT_COSTUME_NAME = 'default';
+const NEUTRAL_NAME = NEUTRAL_EXPRESSION_NAME;
 const MAX_EDGE = 1536;
 const EXPRESSION_ASPECT_RATIO = '2:3';
 const EXPRESSION_ASPECT = 2 / 3;
@@ -40,27 +40,26 @@ type NameSource = 'manual' | 'filename' | 'ai';
 interface Props {
     isOpen: boolean;
     onClose: () => void;
-    expressions: Expression[];
     costumes: Costume[];
-    showCostumeSettings?: boolean;
-    onUpsert: (expression: Expression, costumeName?: string) => void;
-    onRename: (currentName: string, nextName: string, costumeName?: string) => void;
-    onRemove: (name: string, costumeName?: string) => void;
+    defaultCostumeId?: string;
+    onUpsert: (expression: Expression, costumeId: string) => void;
+    onRename: (currentName: string, nextName: string, costumeId: string) => void;
+    onRemove: (name: string, costumeId: string) => void;
 }
 
 export default function ExpressionDiffModal({
     isOpen,
     onClose,
-    expressions,
     costumes,
-    showCostumeSettings = true,
+    defaultCostumeId,
     onUpsert,
     onRename,
     onRemove,
 }: Props) {
     const { defaultImageModel, getAiApiConfig } = useStore();
     const { connections } = useAiConnections();
-    const [selectedCostumeName, setSelectedCostumeName] = useState(DEFAULT_COSTUME_NAME);
+    // 未選択（null）のときはデフォルト衣装を編集する。
+    const [selectedCostumeId, setSelectedCostumeId] = useState<string | null>(null);
     const [newName, setNewName] = useState('');
     const [newPromptDetail, setNewPromptDetail] = useState('');
     const [nameSource, setNameSource] = useState<NameSource>('manual');
@@ -98,7 +97,7 @@ export default function ExpressionDiffModal({
     useEffect(() => {
         if (!isOpen) {
             setAddOpen(false);
-            setSelectedCostumeName(DEFAULT_COSTUME_NAME);
+            setSelectedCostumeId(null);
             setNewName('');
             setNewPromptDetail('');
             setNameSource('manual');
@@ -128,41 +127,20 @@ export default function ExpressionDiffModal({
         }
     }, [addMode, canGenerateDiffs]);
 
-    useEffect(() => {
-        if (!showCostumeSettings) {
-            setSelectedCostumeName(DEFAULT_COSTUME_NAME);
-            return;
-        }
-        if (selectedCostumeName === DEFAULT_COSTUME_NAME) return;
-        if (!costumes.some((costume) => costume.name === selectedCostumeName)) {
-            setSelectedCostumeName(DEFAULT_COSTUME_NAME);
-        }
-    }, [costumes, selectedCostumeName, showCostumeSettings]);
-
-    const additionalCostumes = costumes.filter((costume) => costume.kind !== 'vrm' && costume.name.toLowerCase() !== DEFAULT_COSTUME_NAME);
-    const defaultIsVrm = selectedCostumeName === DEFAULT_COSTUME_NAME
-        && costumes.some((costume) => costume.name.toLowerCase() === DEFAULT_COSTUME_NAME && costume.kind === 'vrm');
-    const selectedCostume = selectedCostumeName === DEFAULT_COSTUME_NAME
-        ? null
-        : additionalCostumes.find((costume) => costume.name === selectedCostumeName) ?? null;
+    // 削除などで選択中の衣装が無くなったときは resolveActiveCostume がデフォルト衣装に戻す。
+    const defaultCostume = resolveDefaultCostume({ costumes, defaultCostumeId });
+    const selectedCostume = resolveActiveCostume({ costumes, defaultCostumeId }, selectedCostumeId);
+    const selectedIsVrm = selectedCostume?.kind === 'vrm';
     const selectedCostumeExpressions = selectedCostume
-        ? (selectedCostume.expressions ?? []).filter((e) => e.name !== NEUTRAL_NAME)
+        ? (selectedCostume.expressions ?? []).filter((e) => e.name.toLowerCase() !== NEUTRAL_NAME)
         : [];
-    const defaultNeutral = expressions.find((e) => e.name === NEUTRAL_NAME);
-    const selectedCostumeNeutral: Expression | null = selectedCostume
+    // 衣装の neutral は衣装画像そのもの。
+    const neutral: Expression | null = selectedCostume?.image
         ? { name: NEUTRAL_NAME, image: selectedCostume.image }
         : null;
-    const neutral = selectedCostumeNeutral ?? defaultNeutral;
-    const displayExpressions: Expression[] = selectedCostumeNeutral
-        ? [selectedCostumeNeutral, ...selectedCostumeExpressions]
-        : expressions;
-
-    useEffect(() => {
-        if (isOpen && !defaultIsVrm && displayExpressions.length === 0) {
-            setAddOpen(true);
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isOpen]);
+    const displayExpressions: Expression[] = neutral
+        ? [neutral, ...selectedCostumeExpressions]
+        : selectedCostumeExpressions;
 
     const clearUploadDraft = () => {
         setUploadImage(null);
@@ -208,8 +186,12 @@ export default function ExpressionDiffModal({
     const validateManualName = () => {
         const name = newName.trim();
         if (!name || busy) return null;
-        if (selectedCostume && name.toLowerCase() === NEUTRAL_NAME) {
-            setError('衣装選択中の neutral は衣装画像そのものです。別の表情名を使ってください。');
+        if (!selectedCostume) {
+            setError('表情を追加するには、先に「衣装」から衣装を登録してください。');
+            return null;
+        }
+        if (name.toLowerCase() === NEUTRAL_NAME) {
+            setError('neutral は衣装画像そのものです。別の表情名を使ってください。');
             return null;
         }
         if (nameExists(name)) {
@@ -309,7 +291,7 @@ export default function ExpressionDiffModal({
         const name = autoDetectName ? '' : validateManualName();
         if (!autoDetectName && !name) return;
         if (!neutral) {
-            setError('生成には「アバター画像」から立ち絵の登録が必要です。');
+            setError('生成には「衣装」から衣装の登録が必要です。');
             return;
         }
         setError(null);
@@ -335,7 +317,7 @@ export default function ExpressionDiffModal({
     };
 
     const confirmDraft = () => {
-        if (!draftImage || busy) return false;
+        if (!draftImage || busy || !selectedCostume) return false;
         const name = autoDetectName ? draftName : validateManualName();
         if (!name) return false;
         if (nameExists(name)) {
@@ -346,7 +328,7 @@ export default function ExpressionDiffModal({
             name,
             promptDetail: newPromptDetail.trim() || undefined,
             image: draftImage,
-        }, selectedCostume?.name);
+        }, selectedCostume.id);
         setNewName('');
         setNewPromptDetail('');
         setDraftImage(null);
@@ -376,6 +358,10 @@ export default function ExpressionDiffModal({
         if (files.length === 0) return;
 
         if (!autoName && !validateManualName()) return;
+        if (!selectedCostume) {
+            setError('表情を追加するには、先に「衣装」から衣装を登録してください。');
+            return;
+        }
         const invalidFile = files.find((file) => !file.type.startsWith('image/'));
         if (invalidFile) {
             setError(`${invalidFile.name} は画像ファイルではありません。`);
@@ -418,7 +404,7 @@ export default function ExpressionDiffModal({
                 const source = await loadUploadSource(file);
                 const image = await cropUpload(source.image, source.crop);
                 const name = await resolveUploadName(image, file, null, signal);
-                onUpsert({ name, image }, selectedCostume?.name);
+                if (selectedCostume) onUpsert({ name, image }, selectedCostume.id);
             } catch (e) {
                 const message = e instanceof Error ? e.message : '画像の処理に失敗しました';
                 setError(`${file.name}: ${message}（ここまでの画像は追加済みです）`);
@@ -436,7 +422,7 @@ export default function ExpressionDiffModal({
 
     const handleConfirmUpload = async (finishAfter = false): Promise<boolean> => {
         const manualName = autoName ? null : validateManualName();
-        if ((!autoName && !manualName) || !uploadImage || !uploadCrop) return false;
+        if ((!autoName && !manualName) || !uploadImage || !uploadCrop || !selectedCostume) return false;
 
         setBusy(UPLOAD_BUSY_KEY);
         setError(null);
@@ -445,7 +431,7 @@ export default function ExpressionDiffModal({
         try {
             const image = await cropUpload(uploadImage, uploadCrop);
             const name = await resolveUploadName(image, uploadFiles[uploadIndex], manualName, controller.signal);
-            onUpsert({ name, image }, selectedCostume?.name);
+            onUpsert({ name, image }, selectedCostume.id);
             setNewName('');
             setNewPromptDetail('');
             const nextIndex = uploadIndex + 1;
@@ -484,8 +470,12 @@ export default function ExpressionDiffModal({
             setError(`「${nextName}」は既に存在します。`);
             return;
         }
-        if (nextName !== currentName) {
-            onRename(currentName, nextName, selectedCostume?.name);
+        if (nextName.toLowerCase() === NEUTRAL_NAME) {
+            setError('neutral は衣装画像そのものです。別の表情名を使ってください。');
+            return;
+        }
+        if (nextName !== currentName && selectedCostume) {
+            onRename(currentName, nextName, selectedCostume.id);
         }
         setEditingName(null);
         setEditingNameValue('');
@@ -541,7 +531,7 @@ export default function ExpressionDiffModal({
         containerRef: addModalRef,
         onClose: closeAddModal,
         canClose: !busy,
-        onEnter: !defaultIsVrm && addMode === 'generate' ? handleAdd : undefined,
+        onEnter: !selectedIsVrm && addMode === 'generate' ? handleAdd : undefined,
     });
 
     if (!isOpen) return null;
@@ -573,13 +563,13 @@ export default function ExpressionDiffModal({
                 </div>
 
                 <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                    {showCostumeSettings && (
+                    {costumes.length > 1 && (
                         <div>
-                            <label style={labelStyle}>コスチューム</label>
+                            <label style={labelStyle}>衣装</label>
                             <OptionSelector
-                                value={selectedCostumeName}
-                                onChange={(name) => {
-                                    setSelectedCostumeName(name);
+                                value={selectedCostume?.id ?? ''}
+                                onChange={(costumeId) => {
+                                    setSelectedCostumeId(costumeId);
                                     clearUploadQueue();
                                     setEditingName(null);
                                     setEditingNameValue('');
@@ -588,22 +578,27 @@ export default function ExpressionDiffModal({
                                     setError(null);
                                 }}
                                 disabled={!!busy}
-                                ariaLabel="コスチューム"
-                                options={[
-                                    { value: DEFAULT_COSTUME_NAME, label: 'default' },
-                                    ...additionalCostumes.map((costume) => ({
-                                        value: costume.name,
-                                        label: costume.name,
-                                    })),
-                                ]}
+                                ariaLabel="衣装"
+                                options={costumes.map((costume) => ({
+                                    value: costume.id,
+                                    label: costume.name,
+                                    detail: [
+                                        costume.kind === 'vrm' ? '3D' : '2D',
+                                        costume.id === defaultCostume?.id ? 'デフォルト' : null,
+                                    ].filter(Boolean).join(' / '),
+                                }))}
                             />
                         </div>
                     )}
 
-                    {defaultIsVrm ? (
+                    {!selectedCostume ? (
                         <p style={hintStyle}>
-                            default は3Dモデルのため表情差分はありません。表情の対応は「アバターの変更」のVRM設定で行います。
-                            {additionalCostumes.length > 0 && ' 別のコスチュームを選択すると、その衣装の表情差分を編集できます。'}
+                            表情を追加するには、先に「衣装」から衣装を登録してください。表情差分は衣装ごとに登録します。
+                        </p>
+                    ) : selectedIsVrm ? (
+                        <p style={hintStyle}>
+                            「{selectedCostume.name}」は3Dモデルのため表情差分はありません。表情の対応は「衣装」の「調整」で行います。
+                            {costumes.length > 1 && ' 別の衣装を選択すると、その衣装の表情差分を編集できます。'}
                         </p>
                     ) : (
                         <>
@@ -621,13 +616,13 @@ export default function ExpressionDiffModal({
                                 <Plus size={14} /> 追加
                             </button>
                         </div>
-                        {displayExpressions.length === 0 && (
-                            <p style={hintStyle}>まだ登録されていません。画像生成またはアップロードでデフォルトの立ち絵を追加できます。</p>
+                        {selectedCostumeExpressions.length === 0 && (
+                            <p style={hintStyle}>neutral 以外の表情はまだ登録されていません。neutral には衣装の画像が使われます。</p>
                         )}
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 }}>
                             {displayExpressions.map((exp) => (
                                 <div
-                                    key={selectedCostume ? `${selectedCostume.name}:${exp.name}` : exp.name}
+                                    key={`${selectedCostume.id}:${exp.name}`}
                                     style={{
                                         border: '1px solid var(--border-color)',
                                         borderRadius: 8,
@@ -696,7 +691,7 @@ export default function ExpressionDiffModal({
                                                 <div style={{ flex: 1, minWidth: 0, fontSize: '0.8125rem', fontWeight: 500, wordBreak: 'break-all' }}>
                                                     {exp.name}
                                                 </div>
-                                                {!(selectedCostume && exp.name === NEUTRAL_NAME) && (
+                                                {exp !== neutral && (
                                                     <>
                                                         <button
                                                             type="button"
@@ -720,7 +715,7 @@ export default function ExpressionDiffModal({
                                                             aria-label={`${exp.name}を削除`}
                                                             disabled={!!busy}
                                                             onClick={() => {
-                                                                if (confirm(`「${exp.name}」を削除しますか？`)) onRemove(exp.name, selectedCostume?.name);
+                                                                if (confirm(`「${exp.name}」を削除しますか？`)) onRemove(exp.name, selectedCostume.id);
                                                             }}
                                                             style={{ padding: '3px 5px', color: 'var(--error)', flexShrink: 0 }}
                                                         >
@@ -867,7 +862,7 @@ export default function ExpressionDiffModal({
                                 </>
                             )}
                             {addMode === 'generate' && !neutral && (
-                                <p style={hintStyle}>生成には「アバター画像」から立ち絵の登録が必要です。アップロードなら neutral(デフォルトの表情) や表情差分を直接追加できます。</p>
+                                <p style={hintStyle}>生成には「衣装」から衣装の登録が必要です。</p>
                             )}
                             {addMode === 'upload' && uploadImage && uploadNatural && uploadCrop && (
                                 <div style={{ marginTop: 8 }}>

@@ -7,7 +7,8 @@ import {
     getVisualNovelPreloadCandidates,
     getVisualNovelTypingDelay,
     getStreamingVisualNovelVisibleContent,
-    resolveVisualNovelCostumeName,
+    findVisualNovelCostume,
+    resolveVisualNovelCostumeId,
     resolveVisualNovelExpressionImage,
     shouldTriggerVisualNovelBounce,
     splitStreamingVisualNovelMessage,
@@ -20,12 +21,16 @@ const character: Character = {
     name: 'Alice',
     systemPrompt: '',
     icon: 'icon.png',
-    expressions: [
-        { name: 'neutral', image: 'neutral.png' },
-        { name: 'happy', image: 'happy.png' },
-    ],
+    defaultCostumeId: 'costume-casual',
     costumes: [
         {
+            id: 'costume-casual',
+            name: 'casual',
+            image: 'neutral.png',
+            expressions: [{ name: 'happy', image: 'happy.png' }],
+        },
+        {
+            id: 'costume-uniform',
             name: 'uniform',
             image: 'uniform.png',
             expressions: [{ name: 'happy', image: 'uniform-happy.png' }],
@@ -40,35 +45,46 @@ const room = {
     characterId: character.id,
     name: 'Room',
     messages: [],
-    costumeSelections: { [character.id]: 'uniform' },
+    costumeSelections: { [character.id]: 'costume-uniform' },
     createdAt: 0,
     updatedAt: 0,
 } satisfies Room;
 
 describe('visual novel costume and expression presentation', () => {
-    test('keeps only an existing selected costume', () => {
-        expect(resolveVisualNovelCostumeName(room, character)).toBe('uniform');
-        expect(resolveVisualNovelCostumeName({ ...room, costumeSelections: { [character.id]: 'missing' } }, character)).toBe('default');
+    test('keeps only an existing selected costume and otherwise follows the default', () => {
+        expect(resolveVisualNovelCostumeId(room, character)).toBe('costume-uniform');
+        expect(resolveVisualNovelCostumeId({ ...room, costumeSelections: { [character.id]: 'missing' } }, character)).toBe('costume-casual');
+        expect(resolveVisualNovelCostumeId({ ...room, costumeSelections: undefined }, character)).toBe('costume-casual');
+        expect(resolveVisualNovelCostumeId(room, { ...character, costumes: [] })).toBeNull();
     });
 
-    test('uses a costume expression before the costume or character fallback', () => {
-        expect(resolveVisualNovelExpressionImage(character, 'happy', 'uniform')).toBe('uniform-happy.png');
-        expect(resolveVisualNovelExpressionImage(character, 'sad', 'uniform')).toBe('uniform.png');
+    test('follows a changed default costume and falls back to the first costume', () => {
+        const unselected = { ...room, costumeSelections: undefined };
+        expect(resolveVisualNovelCostumeId(unselected, { ...character, defaultCostumeId: 'costume-uniform' })).toBe('costume-uniform');
+        expect(resolveVisualNovelCostumeId(unselected, { ...character, defaultCostumeId: 'removed' })).toBe('costume-casual');
+        expect(findVisualNovelCostume(character, null)?.name).toBe('casual');
+        expect(findVisualNovelCostume(character, 'costume-uniform')?.name).toBe('uniform');
+    });
+
+    test('uses a costume expression before the costume image', () => {
+        expect(resolveVisualNovelExpressionImage(character, 'happy', 'costume-uniform')).toBe('uniform-happy.png');
+        expect(resolveVisualNovelExpressionImage(character, 'sad', 'costume-uniform')).toBe('uniform.png');
         expect(resolveVisualNovelExpressionImage(character, 'happy')).toBe('happy.png');
         expect(resolveVisualNovelExpressionImage(character, 'missing')).toBe('neutral.png');
+        expect(resolveVisualNovelExpressionImage(character, 'neutral')).toBe('neutral.png');
     });
 
     test('returns null instead of the icon when no standing image is configured', () => {
-        const bare: Character = { ...character, expressions: [], costumes: [] };
+        const bare: Character = { ...character, costumes: [] };
         expect(resolveVisualNovelExpressionImage(bare, null)).toBeNull();
         expect(resolveVisualNovelExpressionImage(bare, 'happy')).toBeNull();
-        expect(resolveVisualNovelExpressionImage(bare, 'happy', 'uniform')).toBeNull();
+        expect(resolveVisualNovelExpressionImage(bare, 'happy', 'costume-uniform')).toBeNull();
     });
 
-    test('builds a default option alongside non-default costumes', () => {
+    test('lists every costume once and marks the default', () => {
         expect(getVisualNovelCostumeOptions(character)).toEqual([
-            { name: 'default', image: 'neutral.png', expressionCount: 2 },
-            { name: 'uniform', image: 'uniform.png', expressionCount: 1 },
+            { id: 'costume-casual', name: 'casual', image: 'neutral.png', expressionCount: 1, isDefault: true },
+            { id: 'costume-uniform', name: 'uniform', image: 'uniform.png', expressionCount: 1, isDefault: false },
         ]);
     });
 
@@ -77,18 +93,21 @@ describe('visual novel costume and expression presentation', () => {
         expect(getVisualNovelExpressionNames({
             ...character,
             costumes: [{
+                id: 'costume-uniform',
                 name: 'uniform',
                 image: 'uniform.png',
                 expressions: [{ name: 'wink', image: 'uniform-wink.png' }],
             }],
-        }, 'uniform')).toEqual(['neutral', 'wink']);
+        }, 'costume-uniform')).toEqual(['neutral', 'wink']);
+        expect(getVisualNovelExpressionNames({ ...character, costumes: [] })).toEqual([]);
     });
 
     test('prioritizes next expression variants and deduplicates the current image', () => {
-        expect(getVisualNovelPreloadCandidates(character, 'uniform', 'uniform-happy.png')).toEqual([
+        expect(getVisualNovelPreloadCandidates(character, 'costume-uniform', 'uniform-happy.png')).toEqual([
             'uniform.png',
+            'neutral.png',
         ]);
-        expect(getVisualNovelPreloadCandidates(character, 'default', 'neutral.png')).toEqual([
+        expect(getVisualNovelPreloadCandidates(character, null, 'neutral.png')).toEqual([
             'happy.png',
             'uniform.png',
         ]);
@@ -97,13 +116,17 @@ describe('visual novel costume and expression presentation', () => {
     test('caps preload candidates without returning empty or duplicate sources', () => {
         const duplicated: Character = {
             ...character,
-            expressions: [
-                { name: 'neutral', image: 'same.png' },
-                { name: 'happy', image: 'same.png' },
-                { name: 'sad', image: 'sad.png' },
-            ],
+            costumes: [{
+                id: 'costume-casual',
+                name: 'casual',
+                image: 'same.png',
+                expressions: [
+                    { name: 'happy', image: 'same.png' },
+                    { name: 'sad', image: 'sad.png' },
+                ],
+            }],
         };
-        expect(getVisualNovelPreloadCandidates(duplicated, 'default', null, 2)).toEqual([
+        expect(getVisualNovelPreloadCandidates(duplicated, null, null, 2)).toEqual([
             'same.png',
             'sad.png',
         ]);

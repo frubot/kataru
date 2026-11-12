@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Check, ImagePlus, X, Loader2, Pencil, Plus, Trash2, RefreshCw, Shirt, Sparkles, Star, Upload, Wand2 } from 'lucide-react';
+import { Check, ImagePlus, X, Loader2, Pencil, Plus, Trash2, RefreshCw, Shirt, Smile, Sparkles, Star, Upload, Wand2 } from 'lucide-react';
 import type { Costume } from '@/lib/store';
 import type { VrmAvatar } from '@/lib/store/types';
 import { useStore } from '@/lib/store';
@@ -61,6 +61,8 @@ interface Props {
     onRemove: (costumeId: string) => void;
     onSetDefault: (costumeId: string) => void;
     onIconChange: (icon: string) => void;
+    /** Moves to the expression diffs of the given costume; the button is hidden when omitted. */
+    onOpenExpressions?: (costumeId: string) => void;
 }
 
 /** 画像の差し替え結果を衣装へ反映する。2D画像なら3Dの設定を外す。 */
@@ -83,6 +85,7 @@ export default function CostumeDiffModal({
     onRemove,
     onSetDefault,
     onIconChange,
+    onOpenExpressions,
 }: Props) {
     const { defaultImageModel, getAiApiConfig } = useStore();
     const { connections } = useAiConnections();
@@ -613,6 +616,16 @@ export default function CostumeDiffModal({
         onClose();
     };
 
+    /** Leaves this modal for the costume's expression diffs, after the same unsaved-edit check as closing. */
+    const openExpressions = (costume: Costume) => {
+        if (busy || !onOpenExpressions) return;
+        if (cardEditDirty()
+            && !window.confirm('編集内容はまだ保存されていません。保存せずに表情差分を開きますか？')) {
+            return;
+        }
+        onOpenExpressions(costume.id);
+    };
+
     const handleCancelBusy = () => {
         abortRef.current?.abort();
         setBusy(null);
@@ -731,7 +744,7 @@ export default function CostumeDiffModal({
                                     <div
                                         key={costume.id}
                                         style={{
-                                            border: isDefault ? '2px solid var(--accent-primary)' : '1px solid var(--border-color)',
+                                            border: '1px solid var(--border-color)',
                                             borderRadius: 8,
                                             overflow: 'hidden',
                                             background: 'var(--bg-tertiary)',
@@ -850,6 +863,19 @@ export default function CostumeDiffModal({
                                                                 style={{ padding: '3px 5px' }}
                                                             >
                                                                 <Star size={13} />
+                                                            </button>
+                                                        )}
+                                                        {onOpenExpressions && costume.kind !== 'vrm' && (
+                                                            <button
+                                                                type="button"
+                                                                className="btn btn-ghost"
+                                                                title="表情差分を開く"
+                                                                aria-label={`${costume.name}の表情差分を開く`}
+                                                                disabled={!!busy}
+                                                                onClick={() => openExpressions(costume)}
+                                                                style={{ padding: '3px 5px' }}
+                                                            >
+                                                                <Smile size={13} />
                                                             </button>
                                                         )}
                                                         <button

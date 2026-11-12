@@ -42,6 +42,8 @@ interface Props {
     onClose: () => void;
     costumes: Costume[];
     defaultCostumeId?: string;
+    /** Costume selected when the modal opens; the default costume when omitted. */
+    initialCostumeId?: string | null;
     onUpsert: (expression: Expression, costumeId: string) => void;
     onRename: (currentName: string, nextName: string, costumeId: string) => void;
     onRemove: (name: string, costumeId: string) => void;
@@ -52,6 +54,7 @@ export default function ExpressionDiffModal({
     onClose,
     costumes,
     defaultCostumeId,
+    initialCostumeId,
     onUpsert,
     onRename,
     onRemove,
@@ -95,6 +98,7 @@ export default function ExpressionDiffModal({
     const [draftName, setDraftName] = useState('');
 
     useEffect(() => {
+        if (isOpen) setSelectedCostumeId(initialCostumeId ?? null);
         if (!isOpen) {
             setAddOpen(false);
             setSelectedCostumeId(null);

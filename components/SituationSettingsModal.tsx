@@ -390,6 +390,8 @@ function TemporaryActorSettingsModal({
     const [imageGenOpen, setImageGenOpen] = useState(false);
     const [costumesOpen, setCostumesOpen] = useState(false);
     const [expressionsOpen, setExpressionsOpen] = useState(false);
+    // 表情差分モーダルを開いたときに選択する衣装。null ならデフォルト衣装。
+    const [expressionsCostumeId, setExpressionsCostumeId] = useState<string | null>(null);
     // 左ペインのプレビュー選択。保存対象ではなく表示切替だけに使う。
     const [previewExpressionName, setPreviewExpressionName] = useState<string | null>(null);
     const modalRef = useRef<HTMLDivElement>(null);
@@ -583,7 +585,7 @@ function TemporaryActorSettingsModal({
                                 <button
                                     type="button"
                                     className="btn"
-                                    onClick={() => setExpressionsOpen(true)}
+                                    onClick={() => { setExpressionsCostumeId(null); setExpressionsOpen(true); }}
                                 >
                                     <Smile size={13} />
                                     表情
@@ -702,6 +704,11 @@ function TemporaryActorSettingsModal({
                 onRemove={(costumeId) => setDraft((current) => ({ ...current, ...removeCostume(current, costumeId) }))}
                 onSetDefault={(costumeId) => setDraft((current) => ({ ...current, ...setDefaultCostume(current, costumeId) }))}
                 onIconChange={(icon) => updateDraft({ icon })}
+                onOpenExpressions={(costumeId) => {
+                    setCostumesOpen(false);
+                    setExpressionsCostumeId(costumeId);
+                    setExpressionsOpen(true);
+                }}
             />
 
             <ExpressionDiffModal
@@ -709,6 +716,7 @@ function TemporaryActorSettingsModal({
                 onClose={() => setExpressionsOpen(false)}
                 costumes={draft.costumes}
                 defaultCostumeId={draft.defaultCostumeId}
+                initialCostumeId={expressionsCostumeId}
                 onUpsert={(expression, costumeId) => {
                     setDraft((current) => ({
                         ...current,

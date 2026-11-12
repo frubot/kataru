@@ -143,6 +143,8 @@ function CharacterSettingsModalContent({
     const [ttsVolume, setTtsVolume] = useState<number | undefined>(initialDraft.ttsVolume);
     const [imageGenOpen, setImageGenOpen] = useState(false);
     const [expressionsOpen, setExpressionsOpen] = useState(false);
+    // 表情差分モーダルを開いたときに選択する衣装。null ならデフォルト衣装。
+    const [expressionsCostumeId, setExpressionsCostumeId] = useState<string | null>(null);
     const [costumesOpen, setCostumesOpen] = useState(false);
     // 左ペインのプレビュー選択。保存対象ではなく表示切替だけに使う。
     const [previewCostumeId, setPreviewCostumeId] = useState<string | null>(null);
@@ -464,7 +466,7 @@ function CharacterSettingsModalContent({
                             <button
                                 type="button"
                                 className="btn"
-                                onClick={() => setExpressionsOpen(true)}
+                                onClick={() => { setExpressionsCostumeId(null); setExpressionsOpen(true); }}
                             >
                                 <Smile size={13} />
                                 表情
@@ -970,6 +972,7 @@ function CharacterSettingsModalContent({
                 onClose={() => setExpressionsOpen(false)}
                 costumes={costumeSet.costumes}
                 defaultCostumeId={costumeSet.defaultCostumeId}
+                initialCostumeId={expressionsCostumeId}
                 onUpsert={(exp, costumeId) => setCostumeSet((prev) => ({
                     ...prev,
                     costumes: upsertCostumeExpression(prev.costumes, costumeId, exp),
@@ -995,6 +998,11 @@ function CharacterSettingsModalContent({
                 onRemove={(costumeId) => setCostumeSet((prev) => removeCostume(prev, costumeId))}
                 onSetDefault={(costumeId) => setCostumeSet((prev) => setDefaultCostume(prev, costumeId))}
                 onIconChange={setIcon}
+                onOpenExpressions={(costumeId) => {
+                    setCostumesOpen(false);
+                    setExpressionsCostumeId(costumeId);
+                    setExpressionsOpen(true);
+                }}
             />
         </div>
     );

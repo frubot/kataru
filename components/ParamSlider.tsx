@@ -1,6 +1,7 @@
 import { RotateCcw } from 'lucide-react';
 import { CHAT_SAMPLING_PARAMS, type ChatSamplingKey } from '@/lib/chatSampling';
 import InfoButton from './InfoButton';
+import SliderValueInput from './SliderValueInput';
 
 /** 生成パラメータ1つ分のスライダー。未設定（null）のときは既定値を薄く表示する。 */
 interface ParamSliderProps {
@@ -41,16 +42,16 @@ export default function ParamSlider({ paramKey, value, onChange }: ParamSliderPr
                     <InfoButton text={param.hint} />
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <span style={{
-                        fontSize: '0.8125rem',
-                        fontWeight: 600,
-                        color: isCustom ? 'var(--accent-primary)' : 'var(--text-muted)',
-                        minWidth: '3.5rem',
-                        textAlign: 'right',
-                        fontVariantNumeric: 'tabular-nums',
-                    }}>
-                        {formatValue(displayValue)}
-                    </span>
+                    <SliderValueInput
+                        value={displayValue}
+                        label={formatValue(displayValue)}
+                        min={param.min}
+                        max={param.max}
+                        decimals={isInteger ? 0 : 3}
+                        color={isCustom ? 'var(--accent-primary)' : 'var(--text-muted)'}
+                        ariaLabel={param.label}
+                        onCommit={onChange}
+                    />
                     {isCustom && (
                         <button
                             type="button"

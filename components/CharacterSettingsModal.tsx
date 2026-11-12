@@ -18,8 +18,9 @@ import StoredImage from './StoredImage';
 import InfoButton from './InfoButton';
 import RealTimeModeSelector, { REAL_TIME_MODE_DESCRIPTION, toRealTimeMode } from './RealTimeModeSelector';
 import TtsVoiceField from './TtsVoiceField';
-import TtsSpeedSlider, { formatTtsSpeed } from './TtsSpeedSlider';
-import TtsVolumeSlider, { formatTtsVolume } from './TtsVolumeSlider';
+import TtsSpeedSlider, { formatTtsSpeed, TTS_SPEED_SLIDER_MAX, TTS_SPEED_SLIDER_MIN } from './TtsSpeedSlider';
+import TtsVolumeSlider, { formatTtsVolume, TTS_VOLUME_SLIDER_MAX, TTS_VOLUME_SLIDER_MIN } from './TtsVolumeSlider';
+import SliderValueInput from './SliderValueInput';
 import TtsPreviewButton from './TtsPreviewButton';
 import { useModalKeyboard } from './useModalKeyboard';
 import { resolveTtsProfile } from '@/lib/tts';
@@ -677,16 +678,17 @@ function CharacterSettingsModalContent({
                                             <InfoButton text="読み上げ速度です。未設定では全体設定の値を使用します。" />
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                            <span style={{
-                                                fontSize: '0.8125rem',
-                                                fontWeight: 600,
-                                                color: ttsSpeed != null ? 'var(--accent-primary)' : 'var(--text-muted)',
-                                                minWidth: '3.5rem',
-                                                textAlign: 'right',
-                                                fontVariantNumeric: 'tabular-nums',
-                                            }}>
-                                                {ttsSpeed != null ? formatTtsSpeed(ttsSpeed) : '全体設定'}
-                                            </span>
+                                            <SliderValueInput
+                                                value={ttsSpeed ?? defaultTtsSpeed}
+                                                label={ttsSpeed != null ? formatTtsSpeed(ttsSpeed) : '全体設定'}
+                                                min={TTS_SPEED_SLIDER_MIN}
+                                                max={TTS_SPEED_SLIDER_MAX}
+                                                decimals={2}
+                                                unit="x"
+                                                color={ttsSpeed != null ? 'var(--accent-primary)' : 'var(--text-muted)'}
+                                                ariaLabel="読み上げ速度"
+                                                onCommit={setTtsSpeed}
+                                            />
                                             {ttsSpeed != null && (
                                                 <button
                                                     type="button"
@@ -734,16 +736,21 @@ function CharacterSettingsModalContent({
                                             <InfoButton text="読み上げ音量です。未設定では全体設定の値を使用します。" />
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                            <span style={{
-                                                fontSize: '0.8125rem',
-                                                fontWeight: 600,
-                                                color: ttsVolume != null ? 'var(--accent-primary)' : 'var(--text-muted)',
-                                                minWidth: '3.5rem',
-                                                textAlign: 'right',
-                                                fontVariantNumeric: 'tabular-nums',
-                                            }}>
-                                                {ttsVolume != null ? formatTtsVolume(ttsVolume) : '全体設定'}
-                                            </span>
+                                            <SliderValueInput
+                                                value={ttsVolume ?? defaultTtsVolume}
+                                                label={ttsVolume != null ? formatTtsVolume(ttsVolume) : '全体設定'}
+                                                min={TTS_VOLUME_SLIDER_MIN}
+                                                max={TTS_VOLUME_SLIDER_MAX}
+                                                decimals={0}
+                                                scale={100}
+                                                unit="%"
+                                                color={ttsVolume != null ? 'var(--accent-primary)' : 'var(--text-muted)'}
+                                                ariaLabel="読み上げ音量"
+                                                onCommit={(volume) => {
+                                                    setTtsVolume(volume);
+                                                    setTtsPlaybackVolume(volume);
+                                                }}
+                                            />
                                             {ttsVolume != null && (
                                                 <button
                                                     type="button"
@@ -820,16 +827,17 @@ function CharacterSettingsModalContent({
                                                     <InfoButton text="APIへ送信する直近のユーザー発話数です（AI返信も対応範囲を含めます）" />
                                                 </div>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                                    <span style={{
-                                                        fontSize: '0.8125rem',
-                                                        fontWeight: 600,
-                                                        color: isCustom ? 'var(--accent-primary)' : 'var(--text-muted)',
-                                                        minWidth: '3.5rem',
-                                                        textAlign: 'right',
-                                                        fontVariantNumeric: 'tabular-nums',
-                                                    }}>
-                                                        {isCustom ? `${maxHistory} 件` : DEFAULT_MAX_HISTORY_LABEL}
-                                                    </span>
+                                                    <SliderValueInput
+                                                        value={sliderVal}
+                                                        label={isCustom ? `${maxHistory} 件` : DEFAULT_MAX_HISTORY_LABEL}
+                                                        min={1}
+                                                        max={MAX_HISTORY_SLIDER_MAX}
+                                                        decimals={0}
+                                                        unit="件"
+                                                        color={isCustom ? 'var(--accent-primary)' : 'var(--text-muted)'}
+                                                        ariaLabel="Max History"
+                                                        onCommit={(v) => setMaxHistory(v === DEFAULT_MAX_HISTORY_SLIDER_VALUE ? '' : String(v))}
+                                                    />
                                                     {isCustom && (
                                                         <button
                                                             type="button"

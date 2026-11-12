@@ -19,9 +19,14 @@ import ParamSlider from '@/components/ParamSlider';
 import WordReplacementEditor from '@/components/WordReplacementEditor';
 import PromptSectionEditor from '@/components/PromptSectionEditor';
 import TtsVoiceField from '@/components/TtsVoiceField';
-import TtsSpeedSlider, { formatTtsSpeed } from '@/components/TtsSpeedSlider';
-import TtsVolumeSlider, { formatTtsVolume } from '@/components/TtsVolumeSlider';
-import TtsCaptionCfgScaleSlider, { formatTtsCaptionCfgScale } from '@/components/TtsCaptionCfgScaleSlider';
+import TtsSpeedSlider, { formatTtsSpeed, TTS_SPEED_SLIDER_MAX, TTS_SPEED_SLIDER_MIN } from '@/components/TtsSpeedSlider';
+import TtsVolumeSlider, { formatTtsVolume, TTS_VOLUME_SLIDER_MAX, TTS_VOLUME_SLIDER_MIN } from '@/components/TtsVolumeSlider';
+import TtsCaptionCfgScaleSlider, {
+    formatTtsCaptionCfgScale,
+    TTS_CAPTION_CFG_SCALE_SLIDER_MAX,
+    TTS_CAPTION_CFG_SCALE_SLIDER_MIN,
+} from '@/components/TtsCaptionCfgScaleSlider';
+import SliderValueInput from '@/components/SliderValueInput';
 import TtsChunkMinCharsSlider from '@/components/TtsChunkMinCharsSlider';
 import TtsPreviewButton from '@/components/TtsPreviewButton';
 import KeyboardSettingsPanel from '@/components/KeyboardSettingsPanel';
@@ -1433,16 +1438,17 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                                 onChange={setTtsSpeed}
                                             />
                                         </div>
-                                        <span style={{
-                                            fontSize: '0.8125rem',
-                                            fontWeight: 600,
-                                            color: 'var(--accent-primary)',
-                                            minWidth: '3.5rem',
-                                            textAlign: 'right',
-                                            fontVariantNumeric: 'tabular-nums',
-                                        }}>
-                                            {formatTtsSpeed(ttsSpeed)}
-                                        </span>
+                                        <SliderValueInput
+                                            value={ttsSpeed}
+                                            label={formatTtsSpeed(ttsSpeed)}
+                                            min={TTS_SPEED_SLIDER_MIN}
+                                            max={TTS_SPEED_SLIDER_MAX}
+                                            decimals={2}
+                                            unit="x"
+                                            color="var(--accent-primary)"
+                                            ariaLabel="読み上げ速度"
+                                            onCommit={setTtsSpeed}
+                                        />
                                     </div>
                                 </div>
                                 <div className="global-settings-selector-row">
@@ -1464,16 +1470,18 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                                 onChange={setTtsVolume}
                                             />
                                         </div>
-                                        <span style={{
-                                            fontSize: '0.8125rem',
-                                            fontWeight: 600,
-                                            color: 'var(--accent-primary)',
-                                            minWidth: '3.5rem',
-                                            textAlign: 'right',
-                                            fontVariantNumeric: 'tabular-nums',
-                                        }}>
-                                            {formatTtsVolume(ttsVolume)}
-                                        </span>
+                                        <SliderValueInput
+                                            value={ttsVolume}
+                                            label={formatTtsVolume(ttsVolume)}
+                                            min={TTS_VOLUME_SLIDER_MIN}
+                                            max={TTS_VOLUME_SLIDER_MAX}
+                                            decimals={0}
+                                            scale={100}
+                                            unit="%"
+                                            color="var(--accent-primary)"
+                                            ariaLabel="読み上げ音量"
+                                            onCommit={setTtsVolume}
+                                        />
                                     </div>
                                 </div>
                                 {renderDebugToggle({
@@ -1549,16 +1557,17 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                                         onChange={setTtsCaptionCfgScale}
                                                     />
                                                 </div>
-                                                <span style={{
-                                                    fontSize: '0.8125rem',
-                                                    fontWeight: 600,
-                                                    color: 'var(--accent-primary)',
-                                                    minWidth: '3.5rem',
-                                                    textAlign: 'right',
-                                                    fontVariantNumeric: 'tabular-nums',
-                                                }}>
-                                                    {formatTtsCaptionCfgScale(ttsCaptionCfgScale)}
-                                                </span>
+                                                <SliderValueInput
+                                                    value={ttsCaptionCfgScale}
+                                                    label={formatTtsCaptionCfgScale(ttsCaptionCfgScale)}
+                                                    min={TTS_CAPTION_CFG_SCALE_SLIDER_MIN}
+                                                    max={TTS_CAPTION_CFG_SCALE_SLIDER_MAX}
+                                                    decimals={1}
+                                                    color="var(--accent-primary)"
+                                                    disabled={!ttsActionCaption}
+                                                    ariaLabel="演技指示の強さ"
+                                                    onCommit={setTtsCaptionCfgScale}
+                                                />
                                             </div>
                                         </div>
                                         {renderDebugToggle({
@@ -1589,16 +1598,17 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                                         onChange={setTtsChunkMinChars}
                                                     />
                                                 </div>
-                                                <span style={{
-                                                    fontSize: '0.8125rem',
-                                                    fontWeight: 600,
-                                                    color: 'var(--accent-primary)',
-                                                    minWidth: '3.5rem',
-                                                    textAlign: 'right',
-                                                    fontVariantNumeric: 'tabular-nums',
-                                                }}>
-                                                    {ttsChunkMinChars}
-                                                </span>
+                                                <SliderValueInput
+                                                    value={ttsChunkMinChars}
+                                                    label={String(ttsChunkMinChars)}
+                                                    min={TTS_CHUNK_MIN_CHARS_MIN}
+                                                    max={TTS_CHUNK_MIN_CHARS_MAX}
+                                                    decimals={0}
+                                                    color="var(--accent-primary)"
+                                                    disabled={!ttsStreamingEnabled}
+                                                    ariaLabel="読み上げ分割の最小文字数"
+                                                    onCommit={setTtsChunkMinChars}
+                                                />
                                             </div>
                                         </div>
                                         <div className="global-settings-selector-row">
@@ -1623,16 +1633,17 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                                         onChange={setTtsFirstChunkMinChars}
                                                     />
                                                 </div>
-                                                <span style={{
-                                                    fontSize: '0.8125rem',
-                                                    fontWeight: 600,
-                                                    color: 'var(--accent-primary)',
-                                                    minWidth: '3.5rem',
-                                                    textAlign: 'right',
-                                                    fontVariantNumeric: 'tabular-nums',
-                                                }}>
-                                                    {ttsFirstChunkMinChars}
-                                                </span>
+                                                <SliderValueInput
+                                                    value={ttsFirstChunkMinChars}
+                                                    label={String(ttsFirstChunkMinChars)}
+                                                    min={TTS_FIRST_CHUNK_MIN_CHARS_MIN}
+                                                    max={TTS_FIRST_CHUNK_MIN_CHARS_MAX}
+                                                    decimals={0}
+                                                    color="var(--accent-primary)"
+                                                    disabled={!ttsStreamingEnabled}
+                                                    ariaLabel="最初の分割の最小文字数"
+                                                    onCommit={setTtsFirstChunkMinChars}
+                                                />
                                             </div>
                                         </div>
                                     </>

@@ -31,6 +31,7 @@ import PromptSectionEditor from './PromptSectionEditor';
 import OptionSelector from './OptionSelector';
 import RealTimeModeSelector, { REAL_TIME_MODE_DESCRIPTION, toRealTimeMode } from './RealTimeModeSelector';
 import { useModalKeyboard } from './useModalKeyboard';
+import SliderValueInput from './SliderValueInput';
 import { getVrmExpressionNames } from '@/lib/vrm';
 
 const VrmAvatarView = lazy(() => import('./VrmAvatarView'));
@@ -157,18 +158,17 @@ function MaxAutoTurnsSlider({ value, onChange }: MaxAutoTurnsSliderProps) {
                 >
                     会話の連鎖上限
                 </label>
-                <span
-                    style={{
-                        fontSize: '0.8125rem',
-                        fontWeight: 600,
-                        color: 'var(--accent-primary)',
-                        minWidth: '3.5rem',
-                        textAlign: 'right',
-                        fontVariantNumeric: 'tabular-nums',
-                    }}
-                >
-                    {value}回
-                </span>
+                <SliderValueInput
+                    value={value}
+                    label={`${value}回`}
+                    min={1}
+                    max={10}
+                    decimals={0}
+                    unit="回"
+                    color="var(--accent-primary)"
+                    ariaLabel="会話の連鎖上限"
+                    onCommit={(v) => onChange(String(v))}
+                />
             </div>
 
             <div style={{ position: 'relative', height: '24px', display: 'flex', alignItems: 'center' }}>
@@ -260,18 +260,17 @@ function MaxHistorySlider({ value, onChange }: MaxHistorySliderProps) {
                     履歴上限
                 </label>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <span
-                        style={{
-                            fontSize: '0.8125rem',
-                            fontWeight: 600,
-                            color: isCustom ? 'var(--accent-primary)' : 'var(--text-muted)',
-                            minWidth: '3.5rem',
-                            textAlign: 'right',
-                            fontVariantNumeric: 'tabular-nums',
-                        }}
-                    >
-                        {isCustom ? `${value}件` : DEFAULT_MAX_HISTORY_LABEL}
-                    </span>
+                    <SliderValueInput
+                        value={sliderValue}
+                        label={isCustom ? `${value}件` : DEFAULT_MAX_HISTORY_LABEL}
+                        min={1}
+                        max={MAX_HISTORY_SLIDER_MAX}
+                        decimals={0}
+                        unit="件"
+                        color={isCustom ? 'var(--accent-primary)' : 'var(--text-muted)'}
+                        ariaLabel="履歴上限"
+                        onCommit={(next) => onChange(next === DEFAULT_MAX_HISTORY_SLIDER_VALUE ? '' : String(next))}
+                    />
                     {isCustom && (
                         <button
                             type="button"

@@ -1077,7 +1077,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         htmlFor="reply-delay-seconds-input"
                                         style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
                                     >
-                                        返信までの待ち時間（秒）
+                                        入力中の返信待ち時間（秒）
                                     </label>
                                     <div
                                         className="global-settings-selector-control"
@@ -1090,7 +1090,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                                 max={MAX_REPLY_DELAY_SECONDS}
                                                 step={0.5}
                                                 value={replyDelaySeconds}
-                                                ariaLabel="返信までの待ち時間（秒）"
+                                                ariaLabel="入力中の返信待ち時間（秒）"
                                                 onChange={setReplyDelaySeconds}
                                             />
                                         </div>
@@ -1101,13 +1101,13 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                             max={MAX_REPLY_DELAY_SECONDS}
                                             decimals={1}
                                             color="var(--accent-primary)"
-                                            ariaLabel="返信までの待ち時間（秒）"
+                                            ariaLabel="入力中の返信待ち時間（秒）"
                                             onCommit={setReplyDelaySeconds}
                                         />
                                     </div>
                                 </div>
                                 <p style={{ margin: '-0.25rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                                    メッセージ・ベーシックモードで、送信してからこの時間だけ入力や追加の送信がなければ返信を始めます。続けて送ったメッセージはまとめて読まれます。0秒にすると送信後すぐに返信します。
+                                    メッセージ・ベーシックモードで、送信後に次のメッセージを入力している間、最後の入力からこの時間だけ返信を待ちます。入力していなければ、少しの猶予の後にすぐ返信を始めます。続けて送ったメッセージはまとめて読まれます。0秒にすると送信後すぐに返信します。
                                 </p>
 
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>

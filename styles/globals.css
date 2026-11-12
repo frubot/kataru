@@ -5650,6 +5650,28 @@ body {
   align-items: flex-end;
 }
 
+/* メッセージモードでは操作ボタンをバブルの左側に置く */
+.user-message-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 0.25rem;
+  max-width: 100%;
+}
+
+.user-message-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  max-width: 80%;
+  min-width: 0;
+}
+
+.user-message-body > .message-bubble.user,
+.user-message-body > .user-message-attachments {
+  max-width: 100%;
+}
+
 /* ユーザー発言をAIが読んだことを示す控えめな表示 */
 .message-read-receipt {
   margin-top: 0.125rem;

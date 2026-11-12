@@ -5,11 +5,13 @@ import {
     clearPendingReplyMarker,
     collectRetainedPreviewBubbles,
     getPendingReplyMarker,
-    getReadTrailingUserMessageIds,
+    getReadUserMessageIds,
     getTrailingUserMessageIds,
     getUserMessageRunRange,
     hasUnansweredUserMessages,
+    REPLY_TYPING_GRACE_MS,
     replyDelayMilliseconds,
+    resolvePendingReplyWaitMs,
     savePendingReplyMarker,
 } from '../lib/chatReplyQueue';
 import {
@@ -78,10 +80,30 @@ describe('consecutive user messages', () => {
         expect(getUserMessageRunRange(messages, 10)).toBeNull();
     });
 
-    test('marks only trailing messages the AI has started reading', () => {
-        const messages = [user('u1'), assistant('a1'), user('u2'), user('u3')];
-        const read = getReadTrailingUserMessageIds(messages, new Set(['u1', 'u2']));
-        expect([...read]).toEqual(['u2']);
+    test('keeps answered messages read and marks unanswered ones once reading starts', () => {
+        const messages = [user('u1'), user('u2'), assistant('a1'), user('u3'), user('u4')];
+        // 返信を受けた u1・u2 は記録が無くても（リロード後でも）既読のまま。
+        const read = getReadUserMessageIds(messages, new Set(['u3']));
+        expect([...read].sort()).toEqual(['u1', 'u2', 'u3']);
+        expect([...getReadUserMessageIds(messages, new Set())].sort()).toEqual(['u1', 'u2']);
+    });
+});
+
+describe('pending reply wait time', () => {
+    test('waits the configured delay only while the next message is being typed', () => {
+        expect(resolvePendingReplyWaitMs(10_000, true)).toBe(10_000);
+        expect(resolvePendingReplyWaitMs(10_000, false)).toBe(REPLY_TYPING_GRACE_MS);
+    });
+
+    test('never waits longer than a short configured delay', () => {
+        expect(resolvePendingReplyWaitMs(500, false)).toBe(500);
+        expect(resolvePendingReplyWaitMs(500, true)).toBe(500);
+    });
+
+    test('replies immediately without a grace period when the delay is zero', () => {
+        expect(resolvePendingReplyWaitMs(0, false)).toBe(0);
+        expect(resolvePendingReplyWaitMs(0, true)).toBe(0);
+        expect(resolvePendingReplyWaitMs(Number.NaN, true)).toBe(0);
     });
 });
 

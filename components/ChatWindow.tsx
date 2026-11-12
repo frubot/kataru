@@ -32,11 +32,12 @@ import {
     clearPendingReplyMarker,
     collectRetainedPreviewBubbles,
     getPendingReplyMarker,
-    getReadTrailingUserMessageIds,
+    getReadUserMessageIds,
     getTrailingUserMessageIds,
     getUserMessageRunRange,
     hasUnansweredUserMessages,
     replyDelayMilliseconds,
+    resolvePendingReplyWaitMs,
     savePendingReplyMarker,
 } from '@/lib/chatReplyQueue';
 import {
@@ -569,6 +570,9 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const usesReplyQueue = isBasicMode || isMessageMode;
     const replyDelayMs = replyDelayMilliseconds(replyDelaySeconds);
     const replyDelayMsRef = useRef(replyDelayMs);
+    // 入力欄に下書き（文字・添付）があるか。設定した待ち時間は入力中にだけ使う。
+    const hasComposerDraft = input.trim() !== '' || (isBasicMode && attachments.length > 0);
+    const hasComposerDraftRef = useRef(hasComposerDraft);
     const currentGenerationContext: ChatGenerationContext = {
         character,
         situation,
@@ -578,6 +582,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const currentGenerationContextRef = useRef(currentGenerationContext);
     useEffect(() => {
         replyDelayMsRef.current = replyDelayMs;
+        hasComposerDraftRef.current = hasComposerDraft;
         currentGenerationContextRef.current = {
             character,
             situation,
@@ -611,17 +616,26 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             return next;
         });
     }, []);
-    const startPendingReplyTimer = useCallback((roomId: string, entry: PendingReplyEntry) => {
+    /**
+     * 返信待ちのタイマーを（掛け直して）始める。入力欄に下書きがあれば設定した
+     * 待ち時間、空なら次の連投を打ち始めるための短い猶予だけ待つ。
+     */
+    const startPendingReplyTimer = useCallback((
+        roomId: string,
+        entry: PendingReplyEntry,
+        hasDraft: boolean = hasComposerDraftRef.current,
+    ) => {
         if (entry.timer) clearTimeout(entry.timer);
         entry.timer = setTimeout(() => {
             entry.timer = null;
             runPendingReplyRef.current(roomId);
-        }, replyDelayMsRef.current);
+        }, resolvePendingReplyWaitMs(replyDelayMsRef.current, hasDraft));
     }, []);
     /** 返信待ちを登録（または延長）する。待ち時間が切れると返信を生成する。 */
     const schedulePendingReply = useCallback((
         roomId: string,
         snapshot: Omit<PendingReplyEntry, 'timer'>,
+        hasDraft?: boolean,
     ) => {
         const existing = pendingRepliesRef.current.get(roomId);
         const entry: PendingReplyEntry = {
@@ -637,12 +651,16 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 console.warn('Pending reply marker save failed:', error);
             });
         }
-        startPendingReplyTimer(roomId, entry);
+        startPendingReplyTimer(roomId, entry, hasDraft);
     }, [setPendingReplyRoomActive, startPendingReplyTimer]);
-    /** 入力中は返信を待たせる。返信待ちが無ければ何もしない。 */
-    const extendPendingReply = useCallback((roomId: string) => {
+    /**
+     * 入力欄が変わったら返信待ちのタイマーを掛け直す。打っている間は設定した
+     * 待ち時間を待ち、全部消して空になったら短い猶予で返信する。
+     * 返信待ちが無ければ何もしない。
+     */
+    const updatePendingReplyForDraft = useCallback((roomId: string, hasDraft: boolean) => {
         const entry = pendingRepliesRef.current.get(roomId);
-        if (entry?.timer) startPendingReplyTimer(roomId, entry);
+        if (entry?.timer) startPendingReplyTimer(roomId, entry, hasDraft);
     }, [startPendingReplyTimer]);
     /** 返信待ちを取り消す。送信済みのメッセージはそのまま残る。 */
     const takePendingReply = useCallback((
@@ -1673,7 +1691,9 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         originalRoomName: string;
     }) => {
         const messageMode = isMessageMode;
-        const appendAndSchedule = () => {
+        // 直後の送信では入力欄を空にしたばかりなので下書きなしとして扱う。割り込みの
+        // 後始末を待った場合は、その間に打ち始めた下書きを ref から読む。
+        const appendAndSchedule = (hasDraft?: boolean) => {
             addMessage(
                 roomId,
                 'user',
@@ -1699,11 +1719,11 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 context,
                 generateTitle,
                 originalRoomName,
-            });
+            }, hasDraft);
         };
         const previous = interruptChainsRef.current.get(roomId);
         if (!previous && !hasGenerationSession(roomId) && !turnFlowsRef.current.has(roomId)) {
-            appendAndSchedule();
+            appendAndSchedule(false);
             return;
         }
         const step = (previous ?? Promise.resolve())
@@ -2183,10 +2203,10 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         return null;
     }, [processedMessages]);
 
-    // 末尾の連投のうち、AIが読み始めたもの。メッセージ・ベーシックモードで「既読」を付ける。
+    // 返信を受けた発言と、AIが読み始めた末尾の連投。メッセージ・ベーシックモードで「既読」を付ける。
     const readUserMessageIds = useMemo(
         () => usesReplyQueue && room
-            ? getReadTrailingUserMessageIds(room.messages, readMessageIds)
+            ? getReadUserMessageIds(room.messages, readMessageIds)
             : new Set<string>(),
         [readMessageIds, room, usesReplyQueue],
     );
@@ -2586,16 +2606,20 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         if (added.length > 0) {
             setAttachments((current) => [...current, ...added]);
             // 添付の追加も入力中として返信を待たせる。
-            if (currentRoomId) extendPendingReply(currentRoomId);
+            if (currentRoomId) updatePendingReplyForDraft(currentRoomId, true);
         }
         if (errors.length > 0) {
             showChatNotice(errors[0]);
         }
-    }, [attachments, chatInputDisabled, currentRoomId, extendPendingReply, isBasicMode, showChatNotice]);
+    }, [attachments, chatInputDisabled, currentRoomId, updatePendingReplyForDraft, isBasicMode, showChatNotice]);
 
     const handleRemoveAttachment = useCallback((attachmentId: string) => {
         setAttachments((current) => current.filter((item) => item.id !== attachmentId));
-    }, []);
+        if (currentRoomId) {
+            const remaining = attachments.filter((item) => item.id !== attachmentId).length;
+            updatePendingReplyForDraft(currentRoomId, input.trim() !== '' || remaining > 0);
+        }
+    }, [attachments, currentRoomId, input, updatePendingReplyForDraft]);
 
     const handlePreviewAttachmentImage = useCallback((src: string, name: string) => {
         if (!src) return;
@@ -2623,8 +2647,13 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             handleEditMessageChange(e.target.value);
         } else {
             handleInputChange(e);
-            // 入力中は返信を待たせる。
-            if (currentRoomId) extendPendingReply(currentRoomId);
+            // 打っている間は設定した待ち時間だけ返信を待たせ、空に戻したら短い猶予で返信する。
+            if (currentRoomId) {
+                updatePendingReplyForDraft(
+                    currentRoomId,
+                    e.target.value.trim() !== '' || (isBasicMode && attachments.length > 0),
+                );
+            }
         }
     };
     const handleInsertAsterisk = () => {
@@ -2639,6 +2668,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         } else {
             setInput(nextValue);
             closeMention();
+            if (currentRoomId) updatePendingReplyForDraft(currentRoomId, true);
         }
         setTimeout(() => {
             const inputElement = textareaRef.current;

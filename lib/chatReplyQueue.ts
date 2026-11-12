@@ -58,14 +58,41 @@ export function getUserMessageRunRange(
 }
 
 /**
- * 既読表示の対象となるユーザー発言のid。末尾の連投のうち、AIが読んだ
- * （そのメッセージを含む生成が始まった）ものだけを返す。
+ * 既読表示の対象となるユーザー発言のid。後ろにアシスタントの返信がある
+ * 発言は返信を受けた＝読まれたものとして扱うので、永続化しなくても
+ * リロード後に同じ表示になる。返信がまだ無い末尾の連投は、AIが読み始めた
+ * （そのメッセージを含む生成が始まった）ものだけを `readMessageIds` で判定する。
  */
-export function getReadTrailingUserMessageIds(
+export function getReadUserMessageIds(
     messages: readonly ReplyQueueMessage[],
     readMessageIds: ReadonlySet<string>,
 ): Set<string> {
-    return new Set(getTrailingUserMessageIds(messages).filter((id) => readMessageIds.has(id)));
+    const read = new Set<string>();
+    let hasLaterAssistant = false;
+    for (let index = messages.length - 1; index >= 0; index--) {
+        const message = messages[index];
+        if (message.role === 'assistant') {
+            hasLaterAssistant = true;
+        } else if (hasLaterAssistant || readMessageIds.has(message.id)) {
+            read.add(message.id);
+        }
+    }
+    return read;
+}
+
+/**
+ * 送信後、入力欄が空のときに次の連投を打ち始めるための短い猶予（ミリ秒）。
+ * 設定した待ち時間は入力中にだけ使う。
+ */
+export const REPLY_TYPING_GRACE_MS = 2000;
+
+/**
+ * 返信待ちのタイマーの長さ。入力欄に下書きがある間は設定した待ち時間を、
+ * 空なら短い猶予だけ待つ。待ち時間が0なら猶予なしで即時に返信する。
+ */
+export function resolvePendingReplyWaitMs(replyDelayMs: number, hasDraft: boolean): number {
+    if (!Number.isFinite(replyDelayMs) || replyDelayMs <= 0) return 0;
+    return hasDraft ? replyDelayMs : Math.min(REPLY_TYPING_GRACE_MS, replyDelayMs);
 }
 
 export type RetainedPreviewBubble = {

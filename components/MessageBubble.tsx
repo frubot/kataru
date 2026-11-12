@@ -126,6 +126,152 @@ export default memo(function MessageBubble({
         textarea.setSelectionRange(textarea.value.length, textarea.value.length);
     }, [isEditing]);
 
+    const userMessageBody = (
+        <>
+            {hasAttachments && (
+                <div className="user-message-attachments animate-slide-up">
+                    {attachments!.map((attachment) => (
+                        attachment.kind === 'image' ? (
+                            attachment.data && onPreviewImage ? (
+                                <button
+                                    key={attachment.id}
+                                    type="button"
+                                    className="message-attachment-image-card message-attachment-image-button"
+                                    onClick={() => onPreviewImage(attachment.data, attachment.name)}
+                                    title={`${attachment.name} を拡大表示`}
+                                    aria-label={`${attachment.name} を拡大表示`}
+                                >
+                                    <StoredImage
+                                        src={attachment.data}
+                                        alt={attachment.name}
+                                        className="message-attachment-image"
+                                    />
+                                </button>
+                            ) : (
+                                <div key={attachment.id} className="message-attachment-image-card">
+                                    <StoredImage
+                                        src={attachment.data}
+                                        alt={attachment.name}
+                                        className="message-attachment-image"
+                                    />
+                                </div>
+                            )
+                        ) : (
+                            <div
+                                key={attachment.id}
+                                className="message-attachment-file-card"
+                                title={attachment.name}
+                            >
+                                <FileText size={16} className="message-attachment-file-icon" />
+                                <span className="message-attachment-file-name">{attachment.name}</span>
+                            </div>
+                        )
+                    ))}
+                </div>
+            )}
+            {isEditing ? (
+                <form
+                    className="inline-message-editor"
+                    onSubmit={(e) => {
+                        e.preventDefault();
+                        onSubmitEdit();
+                    }}
+                >
+                    <textarea
+                        ref={editTextareaRef}
+                        className="input inline-message-edit-input"
+                        value={editContent}
+                        onChange={(e) => onEditChange(e.target.value)}
+                        disabled={isLoading}
+                        rows={Math.min(8, Math.max(2, editContent.split('\n').length))}
+                    />
+                    <div className="inline-message-edit-actions">
+                        <button
+                            type="button"
+                            className="btn btn-ghost"
+                            onClick={onCancelEdit}
+                            disabled={isLoading}
+                        >
+                            <X size={14} />
+                            キャンセル
+                        </button>
+                        <button
+                            type="submit"
+                            className="btn btn-primary"
+                            disabled={isLoading || (!editContent.trim() && !hasAttachments)}
+                        >
+                            <ArrowUp size={14} />
+                            送信
+                        </button>
+                    </div>
+                </form>
+            ) : (
+                userSegments.map((segment, segmentIndex) => (
+                    segment.type === 'action' ? (
+                        <div
+                            key={`${messageId}-segment-${segmentIndex}`}
+                            className="assistant-action-description animate-slide-up"
+                        >
+                            <ReactMarkdown>{segment.content}</ReactMarkdown>
+                        </div>
+                    ) : (
+                        <div
+                            key={`${messageId}-segment-${segmentIndex}`}
+                            className={`message-bubble user animate-slide-up${segmentIndex > 0 ? ' user-segment-continuation' : ''}`}
+                        >
+                            <ReactMarkdown>{formatAssistantSegment(segment.content)}</ReactMarkdown>
+                        </div>
+                    )
+                ))
+            )}
+        </>
+    );
+
+    const userMessageActions = (
+        <div
+            className="edit-btn-wrapper"
+            style={{
+                opacity: isHovered && !isEditing ? 1 : 0,
+                pointerEvents: isHovered && !isEditing ? 'auto' : 'none',
+                transition: 'opacity 0.15s ease',
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: '0.375rem',
+                // メッセージモードではバブルの左隣、下端揃えで並べる。
+                ...(isMessageMode
+                    ? { flexShrink: 0, alignSelf: 'flex-end' }
+                    : { marginTop: '0.25rem', marginRight: '0.25rem' }),
+            }}
+        >
+            <button
+                type="button"
+                className="btn btn-ghost edit-btn message-action-button"
+                onClick={() => onCopy(messageId, userCopyText)}
+                style={{
+                    color: isCopied ? 'var(--accent-primary)' : 'var(--text-muted)',
+                    transition: 'color 0.15s ease',
+                }}
+                title={isCopied ? 'コピー済み' : 'コピー'}
+                aria-label={isCopied ? 'コピー済み' : 'コピー'}
+            >
+                {isCopied ? <Check size={12} /> : <Copy size={12} />}
+            </button>
+            <button
+                type="button"
+                className="btn btn-ghost edit-btn message-action-button"
+                onClick={() => onEdit(messageId, index, content)}
+                style={{
+                    color: 'var(--text-muted)',
+                }}
+                title={isArchived ? 'ここまで巻き戻して編集' : 'メッセージを編集'}
+                aria-label={isArchived ? 'ここまで巻き戻して編集' : 'メッセージを編集'}
+                disabled={isLoading}
+            >
+                <Pencil size={12} />
+            </button>
+        </div>
+    );
+
     return (
         <div className={isContinuationRow ? 'message-continuation' : undefined} style={isArchived ? { opacity: 0.45 } : undefined}>
             {showArchiveDivider && (
@@ -153,147 +299,20 @@ export default memo(function MessageBubble({
                         onTouchStart(messageId);
                     }}
                 >
-                    {hasAttachments && (
-                        <div className="user-message-attachments animate-slide-up">
-                            {attachments!.map((attachment) => (
-                                attachment.kind === 'image' ? (
-                                    attachment.data && onPreviewImage ? (
-                                        <button
-                                            key={attachment.id}
-                                            type="button"
-                                            className="message-attachment-image-card message-attachment-image-button"
-                                            onClick={() => onPreviewImage(attachment.data, attachment.name)}
-                                            title={`${attachment.name} を拡大表示`}
-                                            aria-label={`${attachment.name} を拡大表示`}
-                                        >
-                                            <StoredImage
-                                                src={attachment.data}
-                                                alt={attachment.name}
-                                                className="message-attachment-image"
-                                            />
-                                        </button>
-                                    ) : (
-                                        <div key={attachment.id} className="message-attachment-image-card">
-                                            <StoredImage
-                                                src={attachment.data}
-                                                alt={attachment.name}
-                                                className="message-attachment-image"
-                                            />
-                                        </div>
-                                    )
-                                ) : (
-                                    <div
-                                        key={attachment.id}
-                                        className="message-attachment-file-card"
-                                        title={attachment.name}
-                                    >
-                                        <FileText size={16} className="message-attachment-file-icon" />
-                                        <span className="message-attachment-file-name">{attachment.name}</span>
-                                    </div>
-                                )
-                            ))}
-                        </div>
-                    )}
-                    {isEditing ? (
-                        <form
-                            className="inline-message-editor"
-                            onSubmit={(e) => {
-                                e.preventDefault();
-                                onSubmitEdit();
-                            }}
-                        >
-                            <textarea
-                                ref={editTextareaRef}
-                                className="input inline-message-edit-input"
-                                value={editContent}
-                                onChange={(e) => onEditChange(e.target.value)}
-                                disabled={isLoading}
-                                rows={Math.min(8, Math.max(2, editContent.split('\n').length))}
-                            />
-                            <div className="inline-message-edit-actions">
-                                <button
-                                    type="button"
-                                    className="btn btn-ghost"
-                                    onClick={onCancelEdit}
-                                    disabled={isLoading}
-                                >
-                                    <X size={14} />
-                                    キャンセル
-                                </button>
-                                <button
-                                    type="submit"
-                                    className="btn btn-primary"
-                                    disabled={isLoading || (!editContent.trim() && !hasAttachments)}
-                                >
-                                    <ArrowUp size={14} />
-                                    送信
-                                </button>
+                    {isMessageMode && !isEditing ? (
+                        <div className="user-message-row">
+                            {userMessageActions}
+                            <div className="user-message-body">
+                                {userMessageBody}
                             </div>
-                        </form>
-                    ) : (
-                        userSegments.map((segment, segmentIndex) => (
-                            segment.type === 'action' ? (
-                                <div
-                                    key={`${messageId}-segment-${segmentIndex}`}
-                                    className="assistant-action-description animate-slide-up"
-                                >
-                                    <ReactMarkdown>{segment.content}</ReactMarkdown>
-                                </div>
-                            ) : (
-                                <div
-                                    key={`${messageId}-segment-${segmentIndex}`}
-                                    className={`message-bubble user animate-slide-up${segmentIndex > 0 ? ' user-segment-continuation' : ''}`}
-                                >
-                                    <ReactMarkdown>{formatAssistantSegment(segment.content)}</ReactMarkdown>
-                                </div>
-                            )
-                        ))
-                    )}
+                        </div>
+                    ) : userMessageBody}
                     {isRead && !isEditing && (
                         <div className="message-read-receipt" aria-label="既読">
                             既読
                         </div>
                     )}
-                    <div
-                        className="edit-btn-wrapper"
-                        style={{
-                            opacity: isHovered && !isEditing ? 1 : 0,
-                            pointerEvents: isHovered && !isEditing ? 'auto' : 'none',
-                            transition: 'opacity 0.15s ease',
-                            display: 'flex',
-                            justifyContent: 'flex-end',
-                            gap: '0.375rem',
-                            marginTop: '0.25rem',
-                            marginRight: '0.25rem',
-                        }}
-                    >
-                        <button
-                            type="button"
-                            className="btn btn-ghost edit-btn message-action-button"
-                            onClick={() => onCopy(messageId, userCopyText)}
-                            style={{
-                                color: isCopied ? 'var(--accent-primary)' : 'var(--text-muted)',
-                                transition: 'color 0.15s ease',
-                            }}
-                            title={isCopied ? 'コピー済み' : 'コピー'}
-                            aria-label={isCopied ? 'コピー済み' : 'コピー'}
-                        >
-                            {isCopied ? <Check size={12} /> : <Copy size={12} />}
-                        </button>
-                        <button
-                            type="button"
-                            className="btn btn-ghost edit-btn message-action-button"
-                            onClick={() => onEdit(messageId, index, content)}
-                            style={{
-                                color: 'var(--text-muted)',
-                            }}
-                            title={isArchived ? 'ここまで巻き戻して編集' : 'メッセージを編集'}
-                            aria-label={isArchived ? 'ここまで巻き戻して編集' : 'メッセージを編集'}
-                            disabled={isLoading}
-                        >
-                            <Pencil size={12} />
-                        </button>
-                    </div>
+                    {!isMessageMode && userMessageActions}
                 </div>
             ) : (
                 <div

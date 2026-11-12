@@ -287,3 +287,39 @@ describe('deleteMessagesFrom persisted tail', () => {
             .toHaveLength(1);
     });
 });
+
+describe('pending turn restore with consecutive user messages', () => {
+    test('restores the reply without dropping any consecutive user message', async () => {
+        mockMetaStorage();
+        const original = [
+            message('u1', 1),
+            message('a1', 2, 'assistant'),
+            message('u2', 3),
+            message('u3', 4),
+            message('u4', 5),
+            message('a2', 6, 'assistant'),
+        ];
+        let messages = [...original];
+        const cutFrom = getChatRegenerationCutIndex(messages, { allowEmptyReplyRound: false })!;
+        expect(cutFrom).toBe(5);
+        await savePendingTurnRestore({
+            ...restore('room-1'),
+            fromIndex: cutFrom,
+            messages: messages.slice(cutFrom),
+        });
+        // 再生成で返信だけを消し、生成途中でリロードされた状態から復元する。
+        messages = messages.slice(0, cutFrom);
+        const snapshot = await getPendingTurnRestore('room-1');
+        await rollbackRestorableMessages(snapshot!, {
+            getCurrentRoom: () => ({ id: 'room-1', messages }),
+            deleteMessagesFrom: async (_roomId, fromIndex) => {
+                messages = messages.slice(0, fromIndex);
+            },
+            restoreMessagesAt: async (_roomId, fromIndex, restored) => {
+                messages = [...messages.slice(0, fromIndex), ...restored];
+            },
+        });
+
+        expect(messages).toEqual(original);
+    });
+});

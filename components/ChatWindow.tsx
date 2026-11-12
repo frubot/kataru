@@ -29,6 +29,17 @@ import {
 import { getChatRegenerationCutIndex } from '@/lib/chatRegeneration';
 import { removeSubmittedUserMessage, rollbackRestorableMessages } from '@/lib/chatTurnRollback';
 import {
+    clearPendingReplyMarker,
+    collectRetainedPreviewBubbles,
+    getPendingReplyMarker,
+    getReadTrailingUserMessageIds,
+    getTrailingUserMessageIds,
+    getUserMessageRunRange,
+    hasUnansweredUserMessages,
+    replyDelayMilliseconds,
+    savePendingReplyMarker,
+} from '@/lib/chatReplyQueue';
+import {
     clearPendingTurnRestore,
     getPendingTurnRestore,
     getPendingTurnRestores,
@@ -291,7 +302,33 @@ type ChatRetryRequest =
     | {
         kind: 'continue';
         roomId: string;
+    }
+    | {
+        /** 連投への返信生成の再試行。送信済みのメッセージはそのまま残っている。 */
+        kind: 'reply';
+        roomId: string;
     };
+
+/** 生成リクエストに載せる会話相手。部屋を離れた後に生成する場合は送信時の値を使う。 */
+type ChatGenerationContext = {
+    character: Character | null;
+    situation: Situation | null | undefined;
+    groupCharacters: SituationParticipant[] | null | undefined;
+    isSecretMode: boolean;
+};
+
+/** 待ち時間中の返信。タイマーが切れるか部屋を離れたときに生成を始める。 */
+type PendingReplyEntry = {
+    timer: ReturnType<typeof setTimeout> | null;
+    /** 最後の送信直後の部屋。部屋を離れるとストアのメッセージが消えるため保持する。 */
+    room: Room;
+    context: ChatGenerationContext;
+    generateTitle: boolean;
+    originalRoomName: string;
+};
+
+const INTERRUPT_IDLE_POLL_MS = 50;
+const INTERRUPT_IDLE_TIMEOUT_MS = 15_000;
 
 type ChatGenerationMode = 'reply' | 'continue';
 
@@ -374,6 +411,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         chatWallpaper,
         ttsEnabled,
         ttsNarrationEnabled,
+        replyDelaySeconds,
     } = useStore();
     const isGroupRoom = situation != null || (groupCharacters != null && groupCharacters.length > 1);
     const rawRoomViewMode = resolveRoomViewMode(room);
@@ -402,6 +440,11 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const [previewAttachmentImage, setPreviewAttachmentImage] = useState<PreviewedAttachmentImage | null>(null);
     const [streamingPreview, setStreamingPreview] = useState<ChatStreamingPreview | null>(null);
     const [streamedFinalMessageIds, setStreamedFinalMessageIds] = useState<Set<string>>(() => new Set());
+    // 割り込み時に、画面に見えていた確定済みの吹き出しを残すために参照する。
+    const streamingPreviewRef = useRef(streamingPreview);
+    useEffect(() => {
+        streamingPreviewRef.current = streamingPreview;
+    }, [streamingPreview]);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const resumedJobsRef = useRef<Set<string>>(new Set());
     const cancelledJobResultsRef = useRef<Map<string, RustTurnResponse | undefined>>(new Map());
@@ -521,6 +564,123 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         };
     }, [currentRoomId]);
     const isLoading = currentRoomId ? activeGenerationRoomIds.has(currentRoomId) : false;
+    // メッセージ・ベーシックモードでは、送信後の待ち時間でまとめて返信し、
+    // 生成中の送信は割り込みとして扱う。ゲームモードは従来どおり1送信1返信。
+    const usesReplyQueue = isBasicMode || isMessageMode;
+    const replyDelayMs = replyDelayMilliseconds(replyDelaySeconds);
+    const replyDelayMsRef = useRef(replyDelayMs);
+    const currentGenerationContext: ChatGenerationContext = {
+        character,
+        situation,
+        groupCharacters,
+        isSecretMode,
+    };
+    const currentGenerationContextRef = useRef(currentGenerationContext);
+    useEffect(() => {
+        replyDelayMsRef.current = replyDelayMs;
+        currentGenerationContextRef.current = {
+            character,
+            situation,
+            groupCharacters,
+            isSecretMode,
+        };
+    });
+    // AIが読んだ（そのメッセージを含む返信生成が始まった）ユーザー発言。
+    const [readMessageIds, setReadMessageIds] = useState<ReadonlySet<string>>(() => new Set());
+    const markMessagesRead = useCallback((messageIds: readonly string[]) => {
+        if (messageIds.length === 0) return;
+        setReadMessageIds((current) => {
+            if (messageIds.every((id) => current.has(id))) return current;
+            const next = new Set(current);
+            for (const id of messageIds) next.add(id);
+            return next;
+        });
+    }, []);
+    const pendingRepliesRef = useRef<Map<string, PendingReplyEntry>>(new Map());
+    const [pendingReplyRoomIds, setPendingReplyRoomIds] = useState<ReadonlySet<string>>(() => new Set());
+    const runPendingReplyRef = useRef<(roomId: string) => void>(() => undefined);
+    const setPendingReplyRoomActive = useCallback((roomId: string, active: boolean) => {
+        setPendingReplyRoomIds((current) => {
+            if (current.has(roomId) === active) return current;
+            const next = new Set(current);
+            if (active) {
+                next.add(roomId);
+            } else {
+                next.delete(roomId);
+            }
+            return next;
+        });
+    }, []);
+    const startPendingReplyTimer = useCallback((roomId: string, entry: PendingReplyEntry) => {
+        if (entry.timer) clearTimeout(entry.timer);
+        entry.timer = setTimeout(() => {
+            entry.timer = null;
+            runPendingReplyRef.current(roomId);
+        }, replyDelayMsRef.current);
+    }, []);
+    /** 返信待ちを登録（または延長）する。待ち時間が切れると返信を生成する。 */
+    const schedulePendingReply = useCallback((
+        roomId: string,
+        snapshot: Omit<PendingReplyEntry, 'timer'>,
+    ) => {
+        const existing = pendingRepliesRef.current.get(roomId);
+        const entry: PendingReplyEntry = {
+            ...snapshot,
+            timer: existing?.timer ?? null,
+            generateTitle: snapshot.generateTitle || existing?.generateTitle === true,
+            originalRoomName: existing?.originalRoomName ?? snapshot.originalRoomName,
+        };
+        pendingRepliesRef.current.set(roomId, entry);
+        setPendingReplyRoomActive(roomId, true);
+        if (snapshot.room.secretMode !== true) {
+            void savePendingReplyMarker(roomId).catch((error) => {
+                console.warn('Pending reply marker save failed:', error);
+            });
+        }
+        startPendingReplyTimer(roomId, entry);
+    }, [setPendingReplyRoomActive, startPendingReplyTimer]);
+    /** 入力中は返信を待たせる。返信待ちが無ければ何もしない。 */
+    const extendPendingReply = useCallback((roomId: string) => {
+        const entry = pendingRepliesRef.current.get(roomId);
+        if (entry?.timer) startPendingReplyTimer(roomId, entry);
+    }, [startPendingReplyTimer]);
+    /** 返信待ちを取り消す。送信済みのメッセージはそのまま残る。 */
+    const takePendingReply = useCallback((
+        roomId: string,
+        { clearMarker = true }: { clearMarker?: boolean } = {},
+    ): PendingReplyEntry | undefined => {
+        const entry = pendingRepliesRef.current.get(roomId);
+        if (entry?.timer) clearTimeout(entry.timer);
+        if (entry) entry.timer = null;
+        pendingRepliesRef.current.delete(roomId);
+        setPendingReplyRoomActive(roomId, false);
+        if (clearMarker) {
+            void clearPendingReplyMarker(roomId).catch((error) => {
+                console.warn('Pending reply marker cleanup failed:', error);
+            });
+        }
+        return entry;
+    }, [setPendingReplyRoomActive]);
+    // 生成を伴う操作（送信・再生成・続き・返信待ちの生成）が部屋ごとに
+    // いくつ進行中か。割り込みは、止めた操作の後始末（ロールバック等）が
+    // 終わってから新しい発言を追加する。
+    const turnFlowsRef = useRef<Map<string, number>>(new Map());
+    const beginTurnFlow = useCallback((roomId: string) => {
+        turnFlowsRef.current.set(roomId, (turnFlowsRef.current.get(roomId) ?? 0) + 1);
+        let ended = false;
+        return () => {
+            if (ended) return;
+            ended = true;
+            const remaining = (turnFlowsRef.current.get(roomId) ?? 1) - 1;
+            if (remaining > 0) {
+                turnFlowsRef.current.set(roomId, remaining);
+            } else {
+                turnFlowsRef.current.delete(roomId);
+            }
+        };
+    }, []);
+    // 割り込み送信の処理順。同じ部屋の送信は前の割り込みが終わってから行う。
+    const interruptChainsRef = useRef<Map<string, Promise<void>>>(new Map());
     const isVisualNovelLogOpen = isVisualNovelMode && vnLogOpen;
     const situationVnPresentation = useSituationVisualNovelPresentation({
         active: isVisualNovelMode && loadingRoomHistoryId !== room?.id,
@@ -801,6 +961,9 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         session.continuationBaseMessageId = job.generationMode === 'continue'
             ? getLatestActiveChatMessage(sourceRoom?.messages ?? [])?.id
             : undefined;
+        if (job.generationMode !== 'continue') {
+            markMessagesRead(getTrailingUserMessageIds(sourceRoom?.messages ?? []));
+        }
         const controller = new AbortController();
         if (!attachGenerationController(session, controller)) {
             resumedJobsRef.current.delete(job.jobId);
@@ -869,6 +1032,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         hasGenerationSession,
         isVisualNovelMode,
         logChatError,
+        markMessagesRead,
         pollConversationJob,
         recordJobDebugLogs,
         refreshConversationRoom,
@@ -947,6 +1111,67 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         setEditingMessage(null);
         setAttachments([]);
     }, [currentRoomId]);
+
+    // アンマウント時は返信待ちを生成せず、永続化した印で次回に再開する。
+    // この effect は下の部屋切替 effect より先に宣言し、後始末が先に走るようにする。
+    const unmountingRef = useRef(false);
+    useEffect(() => {
+        unmountingRef.current = false;
+        const pendingReplies = pendingRepliesRef.current;
+        return () => {
+            unmountingRef.current = true;
+            for (const entry of pendingReplies.values()) {
+                if (entry.timer) clearTimeout(entry.timer);
+                entry.timer = null;
+            }
+            pendingReplies.clear();
+        };
+    }, []);
+
+    // 待ち時間中に部屋を離れたら、その部屋の連投へすぐに返信を始める。
+    // 離れた部屋のメッセージはストアから外れるので、送信時のスナップショットで生成する。
+    useEffect(() => {
+        const roomId = currentRoomId;
+        if (!roomId) return;
+        const pendingReplies = pendingRepliesRef.current;
+        return () => {
+            if (unmountingRef.current || !pendingReplies.has(roomId)) return;
+            runPendingReplyRef.current(roomId);
+        };
+    }, [currentRoomId]);
+
+    // リロードなどで待ち時間のタイマーが消えた返信待ちを、部屋を開いたときに再開する。
+    const roomHistoryReady = !!currentRoomId && loadingRoomHistoryId !== currentRoomId;
+    useEffect(() => {
+        if (!currentRoomId || !roomHistoryReady || !usesReplyQueue) return;
+        let cancelled = false;
+        void getPendingReplyMarker(currentRoomId)
+            .then((marker) => {
+                if (cancelled || !marker) return;
+                const latestRoom = useStore.getState().getCurrentRoom();
+                if (
+                    latestRoom?.id !== currentRoomId
+                    || pendingRepliesRef.current.has(currentRoomId)
+                    || hasGenerationSession(currentRoomId)
+                ) return;
+                if (!hasUnansweredUserMessages(latestRoom.messages)) {
+                    void clearPendingReplyMarker(currentRoomId);
+                    return;
+                }
+                schedulePendingReply(currentRoomId, {
+                    room: latestRoom,
+                    context: currentGenerationContextRef.current,
+                    generateTitle: false,
+                    originalRoomName: latestRoom.name,
+                });
+            })
+            .catch((error) => {
+                console.warn('Pending reply recovery failed:', error);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [currentRoomId, hasGenerationSession, roomHistoryReady, schedulePendingReply, usesReplyQueue]);
 
     useEffect(() => {
         if (!isBasicMode) {
@@ -1105,7 +1330,12 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         }
 
         if (room) {
-            cancelGenerationSession(room.id);
+            if (pendingRepliesRef.current.has(room.id) && !hasGenerationSession(room.id)) {
+                // 待ち時間中の停止は返信待ちだけを取り消す。送信済みのメッセージは残す。
+                takePendingReply(room.id);
+                return;
+            }
+            void cancelGenerationSession(room.id);
         }
         setIsSummarizing(false);
     };
@@ -1114,7 +1344,14 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         session: ChatGenerationSession,
         sourceRoom: Room,
         generationMode: ChatGenerationMode = 'reply',
+        context: ChatGenerationContext = currentGenerationContext,
     ): Promise<ChatGenerationResult> => {
+        const {
+            character: contextCharacter,
+            situation: contextSituation,
+            groupCharacters: contextGroupCharacters,
+            isSecretMode: contextSecretMode,
+        } = context;
         const abortedResult = (): ChatGenerationResult => ({
             status: 'aborted',
             retainedMessages: hasRetainedCancelledMessages(
@@ -1133,6 +1370,10 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         session.continuationBaseMessageId = generationMode === 'continue'
             ? getLatestActiveChatMessage(sourceRoom.messages)?.id
             : undefined;
+        if (generationMode === 'reply') {
+            // AIが読み始めた時点で、末尾の連投を既読にする。
+            markMessagesRead(getTrailingUserMessageIds(sourceRoom.messages));
+        }
         let keepStreamingPreview = false;
         setStreamingPreview((current) => current?.roomId === sourceRoom.id ? null : current);
 
@@ -1145,11 +1386,11 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             const accepted = await submitConversationJob<RustTurnResponse>({
                     jobId: session.jobId,
                     room: toConversationRoom(sourceRoom),
-                    character: toConversationCharacter(character),
-                    situation: toConversationSituation(situation),
-                    groupCharacters: groupCharacters?.map(toConversationParticipant),
+                    character: toConversationCharacter(contextCharacter),
+                    situation: toConversationSituation(contextSituation),
+                    groupCharacters: contextGroupCharacters?.map(toConversationParticipant),
                     messages: capMessageAttachmentData(sourceRoom.messages),
-                    secretMode: isSecretMode,
+                    secretMode: contextSecretMode,
                     summaryModel: serializeModelRef(globalSummaryModel),
                     conversationCompressionEnabled,
                     memoryGateModel: serializeModelRef(memoryGateModel),
@@ -1180,7 +1421,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 return finalizeAbortedResult();
             }
             if (job.status === 'failed') {
-                recordJobDebugLogs(job.partialResult, sourceRoom, isSecretMode);
+                recordJobDebugLogs(job.partialResult, sourceRoom, contextSecretMode);
                 resumedJobsRef.current.add(session.jobId);
                 throw new ChatGenerationJobError(job.error);
             }
@@ -1192,7 +1433,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     data: job.result,
                     sourceRoom,
                     jobId: session.jobId,
-                    isSecretMode,
+                    isSecretMode: contextSecretMode,
                     debugEnabled: fullJsonDebugEnabled,
                 },
                 {
@@ -1252,10 +1493,17 @@ export default function ChatWindow({ room, character, situation, groupName, grou
 
         dismissChatNotice();
         setReplySuggestionState(null);
+        takePendingReply(latestRoom.id);
+        const endTurnFlow = beginTurnFlow(latestRoom.id);
         const session = startGenerationSession(latestRoom.id);
-        const generationResult = await generateRustTurn(session, latestRoom, 'continue');
-        finishGenerationSession(session);
-        setIsSummarizing(false);
+        let generationResult: ChatGenerationResult;
+        try {
+            generationResult = await generateRustTurn(session, latestRoom, 'continue');
+        } finally {
+            finishGenerationSession(session);
+            setIsSummarizing(false);
+            endTurnFlow();
+        }
 
         if (
             generationResult.status === 'error'
@@ -1270,6 +1518,213 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 showChatErrorNotice(generationResult.error, { type: 'retry', label: '再試行' });
             } else {
                 showChatErrorNotice(generationResult.error);
+            }
+        }
+    };
+
+    /**
+     * 末尾の連投へ返信を生成する。送信済みのユーザー発言は失敗しても消さず、
+     * 再試行（または追加の送信）で返信を作り直せるようにする。
+     */
+    const generatePendingReply = async (
+        roomId: string,
+        sourceRoom: Room,
+        context: ChatGenerationContext,
+        { generateTitle = false, originalRoomName = sourceRoom.name }: {
+            generateTitle?: boolean;
+            originalRoomName?: string;
+        } = {},
+    ) => {
+        if (!hasUnansweredUserMessages(sourceRoom.messages)) {
+            void clearPendingReplyMarker(roomId).catch((error) => {
+                console.warn('Pending reply marker cleanup failed:', error);
+            });
+            return;
+        }
+        const endTurnFlow = beginTurnFlow(roomId);
+        const session = startGenerationSession(roomId);
+        // 生成が始まればジョブ側で再開・復元できるので、返信待ちの印は外す。
+        void clearPendingReplyMarker(roomId).catch((error) => {
+            console.warn('Pending reply marker cleanup failed:', error);
+        });
+        let result: ChatGenerationResult;
+        try {
+            result = await generateRustTurn(session, sourceRoom, 'reply', context);
+        } finally {
+            finishGenerationSession(session);
+            setIsSummarizing(false);
+            endTurnFlow();
+        }
+        if (result.status === 'success') {
+            if (generateTitle) void generateInitialRoomTitle(roomId, originalRoomName);
+            return;
+        }
+        if (result.status !== 'error' || !result.error || getCurrentRoom()?.id !== roomId) return;
+        if (isRetryableGenerationError(result.error)) {
+            retrySubmissionRef.current = { kind: 'reply', roomId };
+            showChatErrorNotice(result.error, { type: 'retry', label: '再試行' });
+        } else {
+            showChatErrorNotice(result.error);
+        }
+    };
+
+    // 待ち時間が切れた（または部屋を離れた）ときに返信待ちを生成へ進める。
+    // タイマーから呼ばれるので、最新の描画の値を使えるよう ref に入れておく。
+    const runPendingReply = (roomId: string) => {
+        const entry = pendingRepliesRef.current.get(roomId);
+        if (!entry) return;
+        if (hasGenerationSession(roomId) || interruptChainsRef.current.has(roomId)) {
+            // 別の生成（再開したジョブなど）や割り込みの後始末が終わるまで待つ。
+            startPendingReplyTimer(roomId, entry);
+            return;
+        }
+        takePendingReply(roomId, { clearMarker: false });
+        const latestRoom = getCurrentRoom();
+        const isActiveRoom = latestRoom?.id === roomId
+            && useStore.getState().loadingRoomHistoryId !== roomId;
+        void generatePendingReply(
+            roomId,
+            isActiveRoom ? latestRoom : entry.room,
+            isActiveRoom ? currentGenerationContextRef.current : entry.context,
+            { generateTitle: entry.generateTitle, originalRoomName: entry.originalRoomName },
+        ).catch((error) => {
+            logChatError('Pending reply generation failed:', error);
+        });
+    };
+    useEffect(() => {
+        runPendingReplyRef.current = runPendingReply;
+    });
+
+    /** 返信待ちを飛ばして、末尾の連投へすぐに返信させる。 */
+    const requestReplyNow = async () => {
+        const latestRoom = getCurrentRoom();
+        if (!latestRoom || hasGenerationSession(latestRoom.id) || isSummarizing) return;
+        if (!hasUnansweredUserMessages(latestRoom.messages)) return;
+        dismissChatNotice();
+        setReplySuggestionState(null);
+        const entry = takePendingReply(latestRoom.id, { clearMarker: false });
+        await generatePendingReply(latestRoom.id, latestRoom, currentGenerationContext, {
+            generateTitle: entry?.generateTitle,
+            originalRoomName: entry?.originalRoomName,
+        });
+    };
+
+    const waitForTurnFlowsToSettle = async (roomId: string) => {
+        const startedAt = Date.now();
+        while (
+            (turnFlowsRef.current.has(roomId) || hasGenerationSession(roomId))
+            && Date.now() - startedAt < INTERRUPT_IDLE_TIMEOUT_MS
+        ) {
+            await new Promise((resolve) => setTimeout(resolve, INTERRUPT_IDLE_POLL_MS));
+        }
+    };
+
+    /**
+     * 生成中の送信（割り込み）。実行中の生成を止め、画面に確定済みとして
+     * 見えていた吹き出しは残してから、新しい発言を受け付ける。
+     */
+    const interruptGeneration = async (roomId: string, messageMode: boolean) => {
+        const preview = streamingPreviewRef.current?.roomId === roomId
+            ? streamingPreviewRef.current
+            : null;
+        const retainedBubbles = collectRetainedPreviewBubbles(preview, messageMode);
+        // 編集・再生成のジョブは、止めると元の発言へ戻すので吹き出しは残さない。
+        const restoresPreviousTurn = preview
+            ? (await getPendingTurnRestore(roomId).catch(() => undefined))?.jobId === preview.jobId
+            : false;
+        const cancelled = await cancelGenerationSession(roomId);
+        await waitForTurnFlowsToSettle(roomId);
+        await pendingCancelledAppliesRef.current.get(roomId);
+        if (
+            cancelled
+            && cancelled.status !== 'completed'
+            && !restoresPreviousTurn
+            && !hasRetainedCancelledMessages(cancelled.partialResult as RustTurnResponse | undefined)
+        ) {
+            retainedBubbles.forEach((bubble, index) => {
+                addMessage(
+                    roomId,
+                    'assistant',
+                    bubble.content,
+                    bubble.characterId,
+                    index === 0 && preview?.continuationOfMessageId
+                        ? { continuesPrevious: true }
+                        : undefined,
+                );
+            });
+        }
+        if (preview) clearStreamingPreview(preview.jobId);
+    };
+
+    /** 返信待ちの列へ発言を加える。生成中なら割り込んでから加える。 */
+    const submitToReplyQueue = async ({
+        roomId,
+        content,
+        attachments: messageAttachments,
+        context,
+        generateTitle,
+        originalRoomName,
+    }: {
+        roomId: string;
+        content: string;
+        attachments?: MessageAttachment[];
+        context: ChatGenerationContext;
+        generateTitle: boolean;
+        originalRoomName: string;
+    }) => {
+        const messageMode = isMessageMode;
+        const appendAndSchedule = () => {
+            addMessage(
+                roomId,
+                'user',
+                content,
+                undefined,
+                messageAttachments ? { attachments: messageAttachments } : undefined,
+            );
+            const state = useStore.getState();
+            const roomAfterUserMessage = state.rooms.find((candidate) => candidate.id === roomId);
+            if (!roomAfterUserMessage) return;
+            if (state.currentRoomId !== roomId || state.loadingRoomHistoryId === roomId) {
+                // 割り込みの後始末中に部屋を離れた場合、ストア上の履歴は不完全なので
+                // ここでは生成しない。返信待ちの印を残し、部屋を開き直したときに再開する。
+                if (roomAfterUserMessage.secretMode !== true) {
+                    void savePendingReplyMarker(roomId).catch((error) => {
+                        console.warn('Pending reply marker save failed:', error);
+                    });
+                }
+                return;
+            }
+            schedulePendingReply(roomId, {
+                room: roomAfterUserMessage,
+                context,
+                generateTitle,
+                originalRoomName,
+            });
+        };
+        const previous = interruptChainsRef.current.get(roomId);
+        if (!previous && !hasGenerationSession(roomId) && !turnFlowsRef.current.has(roomId)) {
+            appendAndSchedule();
+            return;
+        }
+        const step = (previous ?? Promise.resolve())
+            .then(async () => {
+                if (hasGenerationSession(roomId)) {
+                    await interruptGeneration(roomId, messageMode);
+                } else {
+                    await waitForTurnFlowsToSettle(roomId);
+                }
+                appendAndSchedule();
+            })
+            .catch((error) => {
+                logChatError('Interrupting generation failed:', error);
+                appendAndSchedule();
+            });
+        interruptChainsRef.current.set(roomId, step);
+        try {
+            await step;
+        } finally {
+            if (interruptChainsRef.current.get(roomId) === step) {
+                interruptChainsRef.current.delete(roomId);
             }
         }
     };
@@ -1289,10 +1744,13 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 ? (editDraft.attachments ?? [])
                 : (isBasicMode ? (attachmentsOverride ?? attachments) : []);
         const hasSubmittedAttachments = submittedAttachments.length > 0;
+        // 待ち時間つきの送信と割り込みはメッセージ・ベーシックモードの通常送信だけ。
+        // 編集の送信は従来どおりすぐに返信を作り直す。
+        const queueReply = !editDraft && usesReplyQueue && (replyDelayMs > 0 || isLoading);
         if (
             (!submittedInput.trim() && !hasSubmittedAttachments)
             || !room
-            || isLoading
+            || (isLoading && !queueReply)
             || isSummarizing
             || (isVisualNovelMode && situationVnPresentation.locked)
         ) return;
@@ -1306,11 +1764,31 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             && !isSecretMode;
         const originalRoomName = room.name;
         const previousReplySuggestionState = replySuggestionState;
+
+        if (queueReply) {
+            dismissChatNotice();
+            setReplySuggestionState(null);
+            setInput('');
+            if (!suggestedReply) {
+                attachmentReadSessionRef.current += 1;
+                setAttachments([]);
+            }
+            await submitToReplyQueue({
+                roomId: room.id,
+                content: userMessage,
+                attachments: hasSubmittedAttachments ? submittedAttachments : undefined,
+                context: currentGenerationContext,
+                generateTitle: shouldGenerateTitleAfterFirstReply,
+                originalRoomName,
+            });
+            return;
+        }
         let editCutIndex = -1;
         let editTargetsCompressedHistory = false;
         let editDeletedMessages: Message[] = [];
         let editDeletedMemories: MemoryRecord[] = [];
         let editCompressionSnapshot: RoomCompressionSnapshot | null = null;
+        let editFollowingRunMessages: Message[] = [];
 
         if (editDraft) {
             const latestRoom = getCurrentRoom();
@@ -1326,10 +1804,18 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             }
             editTargetsCompressedHistory = latestRoom.messages[editCutIndex].archived === true;
             editDeletedMessages = latestRoom.messages.slice(editCutIndex);
+            // 連投の途中を編集しても、同じ連投の後続メッセージは消さずに残す。
+            const run = getUserMessageRunRange(latestRoom.messages, editCutIndex);
+            editFollowingRunMessages = run
+                ? latestRoom.messages.slice(editCutIndex + 1, run.end)
+                : [];
         }
 
         dismissChatNotice();
         setReplySuggestionState(null);
+        // 編集・通常送信のどちらでもこの送信で返信を作るので、返信待ちは不要になる。
+        takePendingReply(room.id);
+        const endTurnFlow = beginTurnFlow(room.id);
         const session = startGenerationSession(room.id);
         const canRestoreTurn = room.secretMode !== true && room.isDraft !== true;
         // 生成が完了・中断・失敗として確定したときだけスナップショットを捨てる。
@@ -1386,6 +1872,15 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 undefined,
                 hasSubmittedAttachments ? { attachments: submittedAttachments } : undefined,
             );
+            for (const following of editFollowingRunMessages) {
+                addMessage(
+                    room.id,
+                    'user',
+                    following.content,
+                    undefined,
+                    following.attachments?.length ? { attachments: following.attachments } : undefined,
+                );
+            }
 
             const roomAfterUserMessage = getCurrentRoom();
             if (!roomAfterUserMessage) return;
@@ -1473,6 +1968,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         } finally {
             finishGenerationSession(session);
             setIsSummarizing(false);
+            endTurnFlow();
             if (turnSettled) {
                 void clearPendingTurnRestore(room.id, session.jobId).catch((error) => {
                     console.warn('Pending turn restore cleanup failed:', error);
@@ -1500,7 +1996,9 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         dismissChatNotice();
         const retryPromise = retry.kind === 'continue'
             ? handleContinue()
-            : handleSubmit(undefined, retry.editDraft, retry.suggestedReply, retry.input, retry.attachments);
+            : retry.kind === 'reply'
+                ? requestReplyNow()
+                : handleSubmit(undefined, retry.editDraft, retry.suggestedReply, retry.input, retry.attachments);
         void retryPromise
             .catch((error) => {
                 logChatError('Chat retry failed:', error);
@@ -1524,6 +2022,8 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         if (cutFrom == null) return;
         const messagesToDelete = room.messages.slice(cutFrom);
 
+        takePendingReply(room.id);
+        const endTurnFlow = beginTurnFlow(room.id);
         const session = startGenerationSession(room.id);
         const canRestoreTurn = room.secretMode !== true && room.isDraft !== true;
         let turnSettled = false;
@@ -1588,6 +2088,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         } finally {
             finishGenerationSession(session);
             setIsSummarizing(false);
+            endTurnFlow();
             if (turnSettled) {
                 void clearPendingTurnRestore(room.id, session.jobId).catch((error) => {
                     console.warn('Pending turn restore cleanup failed:', error);
@@ -1681,6 +2182,14 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         }
         return null;
     }, [processedMessages]);
+
+    // 末尾の連投のうち、AIが読み始めたもの。メッセージ・ベーシックモードで「既読」を付ける。
+    const readUserMessageIds = useMemo(
+        () => usesReplyQueue && room
+            ? getReadTrailingUserMessageIds(room.messages, readMessageIds)
+            : new Set<string>(),
+        [readMessageIds, room, usesReplyQueue],
+    );
 
     const latestEditableUserMessage = useMemo(() => {
         if (!room) return null;
@@ -2032,21 +2541,39 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             : '返信を入力';
     const situationVnInputLocked = isVisualNovelMode && situationVnPresentation.locked;
     const previousSituationVnInputLockedRef = useRef(situationVnInputLocked);
-    const chatInputDisabled = isLoading
+    // メッセージ・ベーシックモードでは生成中も入力・送信（割り込み）できる。
+    const canInterruptGeneration = usesReplyQueue && !isEditingMessage;
+    const inputLockedByGeneration = isLoading && !canInterruptGeneration;
+    const chatInputDisabled = inputLockedByGeneration
         || isSummarizing
         || situationVnInputLocked
         || (isEditingMessage && !isInlineVnEditing);
     const activeAttachments = isBasicMode && !isEditingMessage ? attachments : [];
     const hasActiveAttachments = activeAttachments.length > 0;
+    const hasChatDraft = !!input.trim() || hasActiveAttachments;
+    const isReplyPending = !!currentRoomId && pendingReplyRoomIds.has(currentRoomId);
     const canContinue = isChatContinuationAvailable({
         input,
         hasAttachments: hasActiveAttachments,
         messages: room?.messages ?? EMPTY_MESSAGES,
-        blocked: chatInputDisabled || isEditingMessage,
+        blocked: chatInputDisabled || isEditingMessage || isLoading,
     });
+    // 返信待ちを取り消した後や返信に失敗した後は、空の入力で送ると返信を頼める。
+    const canRequestReply = usesReplyQueue
+        && !hasChatDraft
+        && !isLoading
+        && !isReplyPending
+        && !isSummarizing
+        && !isEditingMessage
+        && hasUnansweredUserMessages(room?.messages ?? EMPTY_MESSAGES);
     const chatInputSubmitDisabled = chatInputDisabled || (isInlineVnEditing
         ? !editingMessage?.content.trim() && !(editingMessage?.attachments?.length)
-        : (!input.trim() && !hasActiveAttachments && !canContinue) || isEditingMessage);
+        : (!hasChatDraft && !canContinue && !canRequestReply) || isEditingMessage);
+    // 下書きがあるときは送信ボタン、無いときは停止ボタン（生成中・返信待ち中）を出す。
+    const showStopButton = (isLoading && !(canInterruptGeneration && hasChatDraft))
+        || isSummarizing
+        || (situationVnInputLocked && isTypewriterActive)
+        || (isReplyPending && !hasChatDraft && !isInlineVnEditing);
 
     const handleSelectAttachmentFiles = useCallback(async (files: File[]) => {
         if (!isBasicMode || chatInputDisabled) return;
@@ -2058,11 +2585,13 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         if (readSession !== attachmentReadSessionRef.current) return;
         if (added.length > 0) {
             setAttachments((current) => [...current, ...added]);
+            // 添付の追加も入力中として返信を待たせる。
+            if (currentRoomId) extendPendingReply(currentRoomId);
         }
         if (errors.length > 0) {
             showChatNotice(errors[0]);
         }
-    }, [attachments, chatInputDisabled, isBasicMode, showChatNotice]);
+    }, [attachments, chatInputDisabled, currentRoomId, extendPendingReply, isBasicMode, showChatNotice]);
 
     const handleRemoveAttachment = useCallback((attachmentId: string) => {
         setAttachments((current) => current.filter((item) => item.id !== attachmentId));
@@ -2094,6 +2623,8 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             handleEditMessageChange(e.target.value);
         } else {
             handleInputChange(e);
+            // 入力中は返信を待たせる。
+            if (currentRoomId) extendPendingReply(currentRoomId);
         }
     };
     const handleInsertAsterisk = () => {
@@ -2164,6 +2695,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                             ? groupName ?? 'シチュエーション'
                             : character?.name
                     }
+                    typing={isLoading && usesReplyQueue}
                     isMobile={isMobile}
                     onOpenSidebar={onOpenSidebar}
                     debugEnabled={debugPanelEnabled}
@@ -2312,6 +2844,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     touchedMessageId={touchedMessageId}
                     copiedMessageId={copiedMessageId}
                     streamedFinalMessageIds={streamedFinalMessageIds}
+                    readMessageIds={readUserMessageIds}
                     typingMessageId={typingMessageId}
                     isTypewriterActive={isTypewriterActive}
                     editingMessage={
@@ -2353,23 +2886,22 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     placeholder={chatInputPlaceholder}
                     disabled={chatInputDisabled}
                     redirectDisabled={
-                        isLoading
+                        inputLockedByGeneration
                         || situationVnInputLocked
                         || (isEditingMessage && !isInlineVnEditing)
                     }
                     submitDisabled={chatInputSubmitDisabled}
-                    submitMode={canContinue ? 'continue' : 'send'}
+                    submitMode={canContinue ? 'continue' : canRequestReply ? 'reply' : 'send'}
                     isMobile={isMobile}
                     isInlineEditing={isInlineVnEditing}
-                    isBusy={
-                        isLoading
-                        || isSummarizing
-                        || (situationVnInputLocked && isTypewriterActive)
-                    }
+                    isBusy={showStopButton}
+                    stopTitle={isReplyPending && !isLoading ? '返信待ちを取り消す' : undefined}
                     isTypewriterActive={isTypewriterActive}
                     onSubmit={() => {
                         if (canContinue) {
                             void handleContinue();
+                        } else if (canRequestReply) {
+                            void requestReplyNow();
                         } else {
                             void handleSubmit();
                         }

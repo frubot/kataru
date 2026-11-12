@@ -167,6 +167,8 @@ type ChatMessagesViewProps = {
     touchedMessageId: string | null;
     copiedMessageId: string | null;
     streamedFinalMessageIds: Set<string>;
+    /** 「既読」を付けるユーザー発言のid。 */
+    readMessageIds?: ReadonlySet<string>;
     typingMessageId: string | null;
     isTypewriterActive: boolean;
     editingMessage: EditingMessage;
@@ -259,6 +261,7 @@ export default function ChatMessagesView({
     touchedMessageId,
     copiedMessageId,
     streamedFinalMessageIds,
+    readMessageIds,
     typingMessageId,
     isTypewriterActive,
     editingMessage,
@@ -473,6 +476,7 @@ export default function ChatMessagesView({
                 isLoading={interactionsDisabled}
                 isHovered={hoveredMessageId === message.id || touchedMessageId === message.id}
                 isCopied={copiedMessageId === message.id}
+                isRead={message.role === 'user' && readMessageIds?.has(message.id) === true}
                 disableEntranceAnimation={streamedFinalMessageIds.has(message.id)}
                 isTypewriterActive={isTypewriterActive && message.id === typingMessageId}
                 formatAssistantActions={formatAssistantActions}

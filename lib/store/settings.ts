@@ -107,6 +107,16 @@ export function isVnTypingSpeed(value: unknown): value is VnTypingSpeed {
     return value === 'slow' || value === 'default' || value === 'fast';
 }
 
+export const DEFAULT_REPLY_DELAY_SECONDS = 3;
+export const MAX_REPLY_DELAY_SECONDS = 30;
+
+/** 返信待ち時間（秒）を0〜上限の0.5秒刻みに丸める。不正な値は既定値にする。 */
+export function normalizeReplyDelaySeconds(value: unknown): number {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_REPLY_DELAY_SECONDS;
+    const clamped = Math.min(MAX_REPLY_DELAY_SECONDS, Math.max(0, value));
+    return Math.round(clamped * 2) / 2;
+}
+
 export function normalizeVnMaxStageSprites(value: unknown): number {
     if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_VN_MAX_STAGE_SPRITES;
     return Math.min(MAX_VN_MAX_STAGE_SPRITES, Math.max(0, Math.floor(value)));
@@ -244,6 +254,7 @@ type SettingsSlice = Pick<
     | 'defaultViewMode'
     | 'vnTypingSpeed'
     | 'vnMaxStageSprites'
+    | 'replyDelaySeconds'
     | 'userName'
     | 'userProfile'
     | 'keyboardShortcuts'
@@ -293,6 +304,7 @@ type SettingsSlice = Pick<
     | 'toggleTheme'
     | 'setVnTypingSpeed'
     | 'setVnMaxStageSprites'
+    | 'setReplyDelaySeconds'
     | 'setUserName'
     | 'setUserProfile'
     | 'setKeyboardShortcut'
@@ -350,6 +362,7 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         defaultViewMode: DEFAULT_VIEW_MODE,
         vnTypingSpeed: DEFAULT_VN_TYPING_SPEED,
         vnMaxStageSprites: DEFAULT_VN_MAX_STAGE_SPRITES,
+        replyDelaySeconds: DEFAULT_REPLY_DELAY_SECONDS,
         userName: '',
         userProfile: '',
         keyboardShortcuts: createDefaultKeyboardShortcuts(),
@@ -419,6 +432,11 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
             const vnMaxStageSprites = normalizeVnMaxStageSprites(max);
             set({ vnMaxStageSprites });
             fire(db.setMeta('vnMaxStageSprites', vnMaxStageSprites));
+        },
+        setReplyDelaySeconds: (seconds) => {
+            const replyDelaySeconds = normalizeReplyDelaySeconds(seconds);
+            set({ replyDelaySeconds });
+            fire(db.setMeta('replyDelaySeconds', replyDelaySeconds));
         },
         setUserName: (userName) => {
             set({ userName });

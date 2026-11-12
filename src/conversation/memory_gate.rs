@@ -110,13 +110,26 @@ pub(super) fn evaluate_memory_gate(
     Ok(MemoryGateDecision { used_memory_ids })
 }
 
+/// 末尾のユーザーターンを切り出す。連投した連続するユーザー発言はまとめて1ターンとする。
 fn split_latest_turn(history: &[Value], continuation: bool) -> (&[Value], Option<String>) {
-    match history.split_last() {
-        Some((last, previous)) if !continuation && string(last, "role") == "user" => {
-            (previous, Some(message_text_with_attachments(last, true)))
-        }
-        _ => (history, None),
+    if continuation {
+        return (history, None);
     }
+    let trailing_users = history
+        .iter()
+        .rev()
+        .take_while(|message| string(message, "role") == "user")
+        .count();
+    if trailing_users == 0 {
+        return (history, None);
+    }
+    let (previous, latest) = history.split_at(history.len() - trailing_users);
+    let text = latest
+        .iter()
+        .map(|message| message_text_with_attachments(message, true))
+        .collect::<Vec<_>>()
+        .join("\n");
+    (previous, Some(text))
 }
 
 fn used_question_id(index: usize) -> String {

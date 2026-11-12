@@ -412,6 +412,11 @@ export interface AppState {
     vnTypingSpeed: VnTypingSpeed;
     /** シチュエーションのゲームモードで同時に表示する立ち絵の上限。0なら制限なし。 */
     vnMaxStageSprites: number;
+    /**
+     * メッセージ・ベーシックモードで、ユーザーの送信後に返信生成を始めるまでの待ち時間（秒）。
+     * 待ち時間中に入力・送信があると計測し直し、連投をまとめて1回の返信にする。0なら即時に生成する。
+     */
+    replyDelaySeconds: number;
     /** プロンプト内の `{{user}}` を置き換える名前。空なら `ユーザー`。 */
     userName: string;
     /** 全キャラクター共通で伝える `{{user}}` 自身の設定（Markdown）。 */
@@ -489,6 +494,7 @@ export interface AppState {
     toggleTheme: () => void;
     setVnTypingSpeed: (speed: VnTypingSpeed) => void;
     setVnMaxStageSprites: (max: number) => void;
+    setReplyDelaySeconds: (seconds: number) => void;
     setUserName: (name: string) => void;
     setUserProfile: (profile: string) => void;
     setKeyboardShortcut: (action: KeyboardShortcutAction, shortcut: KeyboardShortcut) => void;

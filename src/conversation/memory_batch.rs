@@ -543,9 +543,14 @@ fn plan_batch(
     if pending.is_empty() {
         return BatchPlan::Nothing;
     }
+    // 連投した連続するユーザー発言は1ターンとして数える。
     let user_turns = pending
         .iter()
-        .filter(|message| string(message, "role") == "user")
+        .enumerate()
+        .filter(|(index, message)| {
+            string(message, "role") == "user"
+                && (*index == 0 || string(&pending[index - 1], "role") != "user")
+        })
         .count();
     if let MemoryBatchTrigger::Threshold(required) = trigger
         && user_turns < required

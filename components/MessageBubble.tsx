@@ -22,6 +22,8 @@ interface MessageBubbleProps {
     isLoading: boolean;
     isHovered: boolean;
     isCopied: boolean;
+    /** ユーザー発言をAIが読んだ（返信の生成が始まった）か。 */
+    isRead?: boolean;
     disableEntranceAnimation?: boolean;
     isTypewriterActive?: boolean;
     formatAssistantActions?: boolean;
@@ -65,6 +67,7 @@ export default memo(function MessageBubble({
     isLoading,
     isHovered,
     isCopied,
+    isRead = false,
     disableEntranceAnimation = false,
     isTypewriterActive,
     formatAssistantActions = true,
@@ -245,6 +248,11 @@ export default memo(function MessageBubble({
                                 </div>
                             )
                         ))
+                    )}
+                    {isRead && !isEditing && (
+                        <div className="message-read-receipt" aria-label="既読">
+                            既読
+                        </div>
                     )}
                     <div
                         className="edit-btn-wrapper"

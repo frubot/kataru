@@ -108,13 +108,17 @@ export function useChatGenerationSessions({
         session.controller = null;
     }, [setRoomActive]);
 
-    const cancelSession = useCallback((roomId: string) => {
+    /**
+     * 部屋の生成を止める。止めた（または既に完了していた）ジョブの状態で
+     * 解決する。停止に失敗した場合や生成が無い場合は null。
+     */
+    const cancelSession = useCallback((roomId: string): Promise<CancelledConversationJob | null> => {
         const session = sessionsRef.current.get(roomId);
-        if (!session) return;
+        if (!session) return Promise.resolve(null);
 
-        void cancelRemoteRef.current(session.jobId)
+        return cancelRemoteRef.current(session.jobId)
             .then((job) => {
-                if (job.status === 'completed') return;
+                if (job.status === 'completed') return job;
                 session.cancelled = true;
                 session.controller?.abort();
                 session.controller = null;
@@ -123,9 +127,11 @@ export function useChatGenerationSessions({
                     setRoomActive(roomId, false);
                 }
                 onCancelledRef.current?.(roomId, job);
+                return job;
             })
             .catch((error) => {
                 onCancelErrorRef.current(error);
+                return null;
             });
     }, [setRoomActive]);
 

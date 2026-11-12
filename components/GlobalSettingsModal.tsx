@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Check, ChevronDown, RefreshCw, ExternalLink, Plus, type LucideIcon } from 'lucide-react';
-import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, RoomViewMode, VOICEVOX_TTS_MODEL, DEFAULT_USER_NAME, getDefaultModelDefaults, TTS_CHUNK_MIN_CHARS_MAX, TTS_CHUNK_MIN_CHARS_MIN, TTS_FIRST_CHUNK_MIN_CHARS_MAX, TTS_FIRST_CHUNK_MIN_CHARS_MIN } from '@/lib/store';
+import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, RoomViewMode, VOICEVOX_TTS_MODEL, DEFAULT_USER_NAME, MAX_REPLY_DELAY_SECONDS, getDefaultModelDefaults, TTS_CHUNK_MIN_CHARS_MAX, TTS_CHUNK_MIN_CHARS_MIN, TTS_FIRST_CHUNK_MIN_CHARS_MAX, TTS_FIRST_CHUNK_MIN_CHARS_MIN } from '@/lib/store';
 import { AI_CONNECTION_KIND_LABELS, isAiConnectionKind, type AiConnectionKind } from '@/lib/aiApi';
 import { useAiConnections, type AiConnectionStatus } from '@/lib/aiConnections';
 import { isReasoningEffort, MODEL_DEFAULT_FIELDS, modelRefsEqual, rebaseModelDefaults, REASONING_EFFORT_OPTIONS, type ModelRef, type ModelRoleKey } from '@/lib/modelDefaults';
@@ -485,7 +485,7 @@ function RoleModelField({
 
 export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding }: GlobalSettingsModalProps) {
     const {
-        themeMode, themePalette, chatWallpaper, defaultViewMode, vnTypingSpeed, vnMaxStageSprites,
+        themeMode, themePalette, chatWallpaper, defaultViewMode, vnTypingSpeed, vnMaxStageSprites, replyDelaySeconds,
         userName, setUserName,
         userProfile, setUserProfile,
         summaryModel, setSummaryModel,
@@ -524,7 +524,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         replySuggestionsEnabled, setReplySuggestionsEnabled,
         fullJsonDebugEnabled, detailedErrorLoggingEnabled, fullJsonDebugLogs,
         memoryInspectorEnabled, summaryInspectorEnabled,
-        setThemeMode, setThemePalette, setChatWallpaper, setDefaultViewMode, setVnTypingSpeed, setVnMaxStageSprites,
+        setThemeMode, setThemePalette, setChatWallpaper, setDefaultViewMode, setVnTypingSpeed, setVnMaxStageSprites, setReplyDelaySeconds,
         setFullJsonDebugEnabled, setDetailedErrorLoggingEnabled, clearFullJsonDebugLogs,
         setMemoryInspectorEnabled, setSummaryInspectorEnabled,
         clearAllHistory, resetApplication, mergeBackup, restoreBackup,
@@ -1071,6 +1071,44 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                         />
                                     </div>
                                 </div>
+
+                                <div className="global-settings-selector-row">
+                                    <label
+                                        htmlFor="reply-delay-seconds-input"
+                                        style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
+                                    >
+                                        返信までの待ち時間（秒）
+                                    </label>
+                                    <div
+                                        className="global-settings-selector-control"
+                                        style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}
+                                    >
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <TtsChunkMinCharsSlider
+                                                id="reply-delay-seconds-input"
+                                                min={0}
+                                                max={MAX_REPLY_DELAY_SECONDS}
+                                                step={0.5}
+                                                value={replyDelaySeconds}
+                                                ariaLabel="返信までの待ち時間（秒）"
+                                                onChange={setReplyDelaySeconds}
+                                            />
+                                        </div>
+                                        <SliderValueInput
+                                            value={replyDelaySeconds}
+                                            label={replyDelaySeconds.toFixed(1)}
+                                            min={0}
+                                            max={MAX_REPLY_DELAY_SECONDS}
+                                            decimals={1}
+                                            color="var(--accent-primary)"
+                                            ariaLabel="返信までの待ち時間（秒）"
+                                            onCommit={setReplyDelaySeconds}
+                                        />
+                                    </div>
+                                </div>
+                                <p style={{ margin: '-0.25rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                                    メッセージ・ベーシックモードで、送信してからこの時間だけ入力や追加の送信がなければ返信を始めます。続けて送ったメッセージはまとめて読まれます。0秒にすると送信後すぐに返信します。
+                                </p>
 
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>

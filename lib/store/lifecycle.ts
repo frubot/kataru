@@ -64,6 +64,8 @@ import {
     DEFAULT_VN_TYPING_SPEED,
     isVnTypingSpeed,
     normalizeVnMaxStageSprites,
+    normalizeReplyDelaySeconds,
+    DEFAULT_REPLY_DELAY_SECONDS,
     isRoomViewMode,
     normalizeTtsCaptionCfgScale,
     normalizeTtsChunkMinChars,
@@ -140,7 +142,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
         hydrate: async () => {
             if (get().hydrated) return;
             await db.migrateLegacyDatabase();
-            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, storedChatWallpaper, storedDefaultViewMode, currentRoomId, vnTypingSpeed, storedKeyboardShortcuts, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedModelDefaults, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedRoleApiTypes, storedConversationCompressionEnabled, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion, storedTtsEnabled, storedTtsConnectionId, storedTtsModel, storedTtsVoice, storedTtsSpeed, storedTtsVolume, storedTtsAutoPlay, storedTtsActionCaption, storedTtsCaptionCfgScale, storedTtsChunkMinChars, storedTtsFirstChunkMinChars, storedTtsStreamingEnabled, storedTtsNarrationEnabled, storedTtsNarratorVoice, storedMemoryGateEnabled, storedMemoryBatchUserTurns, storedReasoningEffort, storedUserName, storedUserProfile, storedChatSampling, storedVnMaxStageSprites, storedWordReplacements, storedCoreMemoryMaxChars] = await Promise.all([
+            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, storedChatWallpaper, storedDefaultViewMode, currentRoomId, vnTypingSpeed, storedKeyboardShortcuts, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedModelDefaults, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedRoleApiTypes, storedConversationCompressionEnabled, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion, storedTtsEnabled, storedTtsConnectionId, storedTtsModel, storedTtsVoice, storedTtsSpeed, storedTtsVolume, storedTtsAutoPlay, storedTtsActionCaption, storedTtsCaptionCfgScale, storedTtsChunkMinChars, storedTtsFirstChunkMinChars, storedTtsStreamingEnabled, storedTtsNarrationEnabled, storedTtsNarratorVoice, storedMemoryGateEnabled, storedMemoryBatchUserTurns, storedReasoningEffort, storedUserName, storedUserProfile, storedChatSampling, storedVnMaxStageSprites, storedWordReplacements, storedCoreMemoryMaxChars, storedReplyDelaySeconds] = await Promise.all([
                 db.getAllCharacters(),
                 db.getAllGroups(),
                 db.getAllRooms(),
@@ -204,6 +206,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 db.getMeta<unknown>('vnMaxStageSprites'),
                 db.getMeta<unknown>('wordReplacements'),
                 db.getMeta<unknown>('coreMemoryMaxChars'),
+                db.getMeta<unknown>('replyDelaySeconds'),
             ]);
             // Drop any previously stored client-side API key from IndexedDB.
             if (legacyOpenAiCompatibleApiKey !== undefined) {
@@ -362,6 +365,10 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
             writeThemeCache(resolvedTheme.mode, resolvedTheme.palette);
             const resolvedVnTypingSpeed = isVnTypingSpeed(vnTypingSpeed) ? vnTypingSpeed : DEFAULT_VN_TYPING_SPEED;
             const resolvedVnMaxStageSprites = normalizeVnMaxStageSprites(storedVnMaxStageSprites);
+            const resolvedReplyDelaySeconds = normalizeReplyDelaySeconds(storedReplyDelaySeconds);
+            if (storedReplyDelaySeconds !== undefined && storedReplyDelaySeconds !== resolvedReplyDelaySeconds) {
+                fire(db.setMeta('replyDelaySeconds', resolvedReplyDelaySeconds));
+            }
             const resolvedKeyboardShortcuts = normalizeKeyboardShortcuts(storedKeyboardShortcuts);
             if (themeMode !== resolvedTheme.mode) fire(db.setMeta('themeMode', resolvedTheme.mode));
             if (themePalette !== resolvedTheme.palette) fire(db.setMeta('themePalette', resolvedTheme.palette));
@@ -476,6 +483,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 defaultViewMode: resolvedDefaultViewMode,
                 vnTypingSpeed: resolvedVnTypingSpeed,
                 vnMaxStageSprites: resolvedVnMaxStageSprites,
+                replyDelaySeconds: resolvedReplyDelaySeconds,
                 userName: resolvedUserName,
                 userProfile: resolvedUserProfile,
                 keyboardShortcuts: resolvedKeyboardShortcuts,
@@ -539,6 +547,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 defaultViewMode: DEFAULT_VIEW_MODE,
                 vnTypingSpeed: DEFAULT_VN_TYPING_SPEED,
                 vnMaxStageSprites: DEFAULT_VN_MAX_STAGE_SPRITES,
+                replyDelaySeconds: DEFAULT_REPLY_DELAY_SECONDS,
                 userName: '',
                 userProfile: '',
                 keyboardShortcuts: createDefaultKeyboardShortcuts(),

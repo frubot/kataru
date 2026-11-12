@@ -154,22 +154,26 @@ fn chat_model_selection(payload: &Value) -> AppResult<RoleSelection> {
 }
 
 /// 最新のユーザー発言で名前を呼ばれた参加者。複数いれば、文中で最初に出てきた人。
+/// ユーザーが連投した場合は、末尾の連続するユーザー発言を新しい順に調べる。
 fn addressed_participant<'a>(history: &[Value], participants: &'a [Value]) -> Option<&'a Value> {
-    let latest = history
-        .last()
-        .filter(|message| string(message, "role") == "user")?;
-    let content = string(latest, "content");
-    participants
+    history
         .iter()
-        .filter_map(|actor| {
-            let name = string(actor, "name");
-            (!name.is_empty())
-                .then(|| content.find(&name))
-                .flatten()
-                .map(|position| (position, actor))
+        .rev()
+        .take_while(|message| string(message, "role") == "user")
+        .find_map(|message| {
+            let content = string(message, "content");
+            participants
+                .iter()
+                .filter_map(|actor| {
+                    let name = string(actor, "name");
+                    (!name.is_empty())
+                        .then(|| content.find(&name))
+                        .flatten()
+                        .map(|position| (position, actor))
+                })
+                .min_by_key(|(position, _)| *position)
+                .map(|(_, actor)| actor)
         })
-        .min_by_key(|(position, _)| *position)
-        .map(|(_, actor)| actor)
 }
 
 pub async fn turn(
@@ -1012,12 +1016,14 @@ async fn generate_for_character(
         "role": "system",
         "content": system_prompt,
     })];
-    request_messages.extend(history.iter().map(|message| {
-        json!({
-            "role": string(message, "role"),
-            "content": history_message_content(message),
-        })
-    }));
+    request_messages.extend(merge_consecutive_user_messages(history.iter().map(
+        |message| {
+            json!({
+                "role": string(message, "role"),
+                "content": history_message_content(message),
+            })
+        },
+    )));
     if let Some(note) = real_time_note(
         RealTimeMode::from_settings(character),
         now_ms() as i64,
@@ -1383,7 +1389,70 @@ fn ensemble_request_history(history: &[Value], message_mode: bool) -> Vec<Value>
         }
     }
     flush(&mut output, &mut turns);
+    merge_consecutive_user_messages(output)
+}
+
+/// 連続するユーザー発言を1つのリクエストメッセージにまとめる。
+///
+/// ユーザーが返信を待たずに連投すると履歴に `user` が並ぶ。厳密に
+/// user/assistant の交互を要求するチャットテンプレートやプロバイダでは
+/// エラーになるため、APIへ送る直前にまとめる。保存データは別々のまま。
+/// 本文が文字列同士なら改行2つで連結し、どちらかが配列（画像添付）なら
+/// パーツ配列として連結する。
+fn merge_consecutive_user_messages(messages: impl IntoIterator<Item = Value>) -> Vec<Value> {
+    let mut output: Vec<Value> = Vec::new();
+    for message in messages {
+        let is_user = message.get("role").and_then(Value::as_str) == Some("user");
+        let previous_is_user = output
+            .last()
+            .and_then(|previous| previous.get("role"))
+            .and_then(Value::as_str)
+            == Some("user");
+        if !(is_user && previous_is_user) {
+            output.push(message);
+            continue;
+        }
+        let Some(previous) = output.last_mut() else {
+            continue;
+        };
+        let current = message.get("content").cloned().unwrap_or(Value::Null);
+        let existing = previous
+            .get_mut("content")
+            .map(Value::take)
+            .unwrap_or(Value::Null);
+        previous["content"] = merge_user_contents(existing, current);
+    }
     output
+}
+
+fn merge_user_contents(existing: Value, current: Value) -> Value {
+    fn into_parts(content: Value) -> Vec<Value> {
+        match content {
+            Value::Array(parts) => parts,
+            Value::String(text) if !text.is_empty() => {
+                vec![json!({ "type": "text", "text": text })]
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    match (existing, current) {
+        (Value::String(left), Value::String(right)) => {
+            if left.is_empty() {
+                Value::String(right)
+            } else if right.is_empty() {
+                Value::String(left)
+            } else {
+                Value::String(format!("{left}\n\n{right}"))
+            }
+        }
+        (Value::Null, other) | (other, Value::Null) => other,
+        (left, right) => {
+            let mut parts = into_parts(left);
+            parts.extend(into_parts(right));
+            Value::Array(parts)
+        }
+    }
 }
 
 fn ensemble_preview_turns(
@@ -1771,7 +1840,7 @@ async fn maybe_summarize(
     participants: &[Value],
 ) -> AppResult<(Option<String>, Vec<Value>)> {
     let existing = (!previous_summary.is_empty()).then_some(previous_summary);
-    if !enabled || count_user_messages(history) <= history_limit {
+    if !enabled || count_user_turns(history) <= history_limit {
         return Ok((existing, history.to_vec()));
     }
     let cut = summary_cut(history, prior_message_count);
@@ -1830,18 +1899,18 @@ async fn search_memories(
     room_id: &str,
     messages: &[Value],
 ) -> AppResult<Vec<ScoredMemory>> {
-    let query = messages
+    // 連投した場合は末尾の連続するユーザー発言をまとめて検索クエリにする。
+    let latest_user_turn = latest_user_turn(messages);
+    let query_source = if latest_user_turn.is_empty() {
+        messages
+    } else {
+        latest_user_turn
+    };
+    let query = query_source
         .iter()
-        .rev()
-        .find(|message| string(message, "role") == "user")
         .map(|message| message_text_with_attachments(message, true))
-        .unwrap_or_else(|| {
-            messages
-                .iter()
-                .map(|message| message_text_with_attachments(message, true))
-                .collect::<Vec<_>>()
-                .join("\n")
-        });
+        .collect::<Vec<_>>()
+        .join("\n");
     let recent_ids = messages
         .iter()
         .filter_map(|message| message.get("id").and_then(Value::as_str))
@@ -2869,20 +2938,43 @@ fn prepend_situation_prior_messages(
     prior_message_count
 }
 
-fn count_user_messages(messages: &[Value]) -> usize {
-    messages
+/// `index` のメッセージがユーザーターンの先頭か。ユーザーが連投した
+/// 連続する `user` は、返信を1回だけ受ける1ターンとして数える。
+fn is_user_turn_start(messages: &[Value], index: usize) -> bool {
+    string(&messages[index], "role") == "user"
+        && (index == 0 || string(&messages[index - 1], "role") != "user")
+}
+
+/// 最後のユーザーターン（最後のユーザー発言と、その直前に連続するユーザー発言）。
+fn latest_user_turn(messages: &[Value]) -> &[Value] {
+    let Some(last_user) = messages
         .iter()
-        .filter(|message| string(message, "role") == "user")
+        .rposition(|message| string(message, "role") == "user")
+    else {
+        return &[];
+    };
+    let start = (0..=last_user)
+        .rev()
+        .find(|&index| is_user_turn_start(messages, index))
+        .unwrap_or(0);
+    &messages[start..=last_user]
+}
+
+/// ユーザーターン数。連続する `user` は1ターンとして数える。
+fn count_user_turns(messages: &[Value]) -> usize {
+    (0..messages.len())
+        .filter(|&index| is_user_turn_start(messages, index))
         .count()
 }
 
-fn cut_before_last_user_messages(messages: &[Value], keep: usize) -> usize {
+/// 末尾から `keep` 個のユーザーターンを残す切り位置。連投の途中では切らない。
+fn cut_before_last_user_turns(messages: &[Value], keep: usize) -> usize {
     if keep == 0 {
         return messages.len();
     }
     let mut seen = 0;
     for index in (0..messages.len()).rev() {
-        if string(&messages[index], "role") == "user" {
+        if is_user_turn_start(messages, index) {
             seen += 1;
             if seen == keep {
                 return index;
@@ -2893,7 +2985,7 @@ fn cut_before_last_user_messages(messages: &[Value], keep: usize) -> usize {
 }
 
 fn slice_by_user_history(messages: &[Value], limit: usize) -> Vec<Value> {
-    let cut = cut_before_last_user_messages(messages, limit);
+    let cut = cut_before_last_user_turns(messages, limit);
     messages[cut..].to_vec()
 }
 
@@ -2920,7 +3012,7 @@ fn with_continuation_trigger(mut messages: Vec<Value>, enabled: bool) -> Vec<Val
 }
 
 fn summary_cut(messages: &[Value], prior_message_count: usize) -> usize {
-    cut_before_last_user_messages(messages, SUMMARY_RECENT_USER_TURNS_TO_KEEP)
+    cut_before_last_user_turns(messages, SUMMARY_RECENT_USER_TURNS_TO_KEEP)
         .max(prior_message_count.min(messages.len()))
 }
 
@@ -3624,7 +3716,105 @@ mod tests {
             json!({"role":"assistant","content":"b"}),
         ];
         assert_eq!(slice_by_user_history(&messages, 1).len(), 2);
-        assert_eq!(cut_before_last_user_messages(&messages, 1), 2);
+        assert_eq!(cut_before_last_user_turns(&messages, 1), 2);
+    }
+
+    #[test]
+    fn consecutive_user_messages_count_as_one_turn() {
+        let messages = vec![
+            json!({"role":"user","content":"1"}),
+            json!({"role":"assistant","content":"a"}),
+            json!({"role":"user","content":"2"}),
+            json!({"role":"user","content":"3"}),
+            json!({"role":"user","content":"4"}),
+            json!({"role":"assistant","content":"b"}),
+        ];
+        assert_eq!(count_user_turns(&messages), 2);
+        assert_eq!(cut_before_last_user_turns(&messages, 1), 2);
+        assert_eq!(slice_by_user_history(&messages, 1).len(), 4);
+        assert_eq!(cut_before_last_user_turns(&messages, 2), 0);
+        assert_eq!(cut_before_last_user_turns(&messages, 3), 0);
+        assert_eq!(latest_user_turn(&messages).len(), 3);
+        assert_eq!(latest_user_turn(&messages)[0]["content"], "2");
+    }
+
+    #[test]
+    fn summary_cut_keeps_consecutive_user_messages_together() {
+        let mut messages = Vec::new();
+        for turn in 0..4 {
+            messages.push(json!({"id": format!("u{turn}a"), "role":"user","content":"a"}));
+            messages.push(json!({"id": format!("u{turn}b"), "role":"user","content":"b"}));
+            messages.push(json!({"id": format!("a{turn}"), "role":"assistant","content":"r"}));
+        }
+        // 直近3ターンを残すので、最初のターン（3件）だけが要約対象になる。
+        let cut = summary_cut(&messages, 0);
+        assert_eq!(cut, 3);
+        assert_eq!(
+            summary_checkpoint_user_message_id(&messages, cut, 0).as_deref(),
+            Some("u0b")
+        );
+    }
+
+    #[test]
+    fn consecutive_user_text_messages_are_merged_for_requests() {
+        let merged = merge_consecutive_user_messages(vec![
+            json!({"role":"system","content":"sys"}),
+            json!({"role":"user","content":"おはよう"}),
+            json!({"role":"user","content":"今日は寒いね"}),
+            json!({"role":"assistant","content":"そうだね"}),
+            json!({"role":"user","content":"ねえ"}),
+        ]);
+        assert_eq!(merged.len(), 4);
+        assert_eq!(merged[1]["content"], "おはよう\n\n今日は寒いね");
+        assert_eq!(merged[2]["role"], "assistant");
+        assert_eq!(merged[3]["content"], "ねえ");
+    }
+
+    #[test]
+    fn consecutive_user_messages_with_image_parts_are_merged_into_parts() {
+        let merged = merge_consecutive_user_messages(vec![
+            json!({"role":"user","content":"これ見て"}),
+            json!({"role":"user","content":[
+                {"type":"image_url","image_url":{"url":"data:image/png;base64,AA"}}
+            ]}),
+            json!({"role":"user","content":"かわいいでしょ"}),
+        ]);
+        assert_eq!(merged.len(), 1);
+        let parts = merged[0]["content"].as_array().expect("parts");
+        assert_eq!(parts.len(), 3);
+        assert_eq!(parts[0], json!({"type":"text","text":"これ見て"}));
+        assert_eq!(parts[1]["type"], "image_url");
+        assert_eq!(parts[2], json!({"type":"text","text":"かわいいでしょ"}));
+    }
+
+    #[test]
+    fn ensemble_history_merges_consecutive_user_messages() {
+        let history = vec![
+            json!({"role": "user", "content": "おはよう"}),
+            json!({"role": "user", "content": "凛はいる？"}),
+            json!({"role": "assistant", "characterId": "rin", "content": "いるよ"}),
+        ];
+        let messages = ensemble_request_history(&history, true);
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0]["role"], "user");
+        assert_eq!(messages[0]["content"], "おはよう\n\n凛はいる？");
+        assert_eq!(messages[1]["role"], "assistant");
+    }
+
+    #[test]
+    fn addressed_participant_looks_through_consecutive_user_messages() {
+        let participants = vec![
+            json!({"id": "rin", "name": "凛"}),
+            json!({"id": "aoi", "name": "葵"}),
+        ];
+        let history = vec![
+            json!({"role": "user", "content": "葵、ちょっといい？"}),
+            json!({"role": "user", "content": "相談があるんだ"}),
+        ];
+        assert_eq!(
+            addressed_participant(&history, &participants).map(|actor| string(actor, "id")),
+            Some("aoi".to_owned())
+        );
     }
 
     #[test]

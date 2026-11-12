@@ -5,6 +5,8 @@ interface TtsChunkMinCharsSliderProps {
     min: number;
     max: number;
     value: number;
+    /** 刻み幅。省略時は整数刻み。 */
+    step?: number;
     disabled?: boolean;
     ariaLabel: string;
     onChange: (chars: number) => void;
@@ -17,6 +19,7 @@ export default function TtsChunkMinCharsSlider({
     min,
     max,
     value,
+    step = TTS_CHUNK_MIN_CHARS_SLIDER_STEP,
     disabled = false,
     ariaLabel,
     onChange,
@@ -50,7 +53,7 @@ export default function TtsChunkMinCharsSlider({
                     aria-label={ariaLabel}
                     min={min}
                     max={max}
-                    step={TTS_CHUNK_MIN_CHARS_SLIDER_STEP}
+                    step={step}
                     value={Math.max(min, Math.min(max, value))}
                     disabled={disabled}
                     onChange={(event) => onChange(Number(event.target.value))}

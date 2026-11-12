@@ -38,6 +38,8 @@ type ChatHeaderProps = {
     roomId: string;
     roomName: string;
     subtitle?: string;
+    /** 相手が返信を作っている間、サブタイトルの代わりに「入力中…」を出す。 */
+    typing?: boolean;
     isMobile: boolean;
     onOpenSidebar: () => void;
     debugEnabled: boolean;
@@ -66,6 +68,7 @@ export default function ChatHeader({
     roomId,
     roomName,
     subtitle,
+    typing = false,
     isMobile,
     onOpenSidebar,
     debugEnabled,
@@ -135,7 +138,11 @@ export default function ChatHeader({
                         {roomName}
                     </h2>
                     <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {subtitle}
+                        {typing ? (
+                            <span className="chat-header-typing" role="status" aria-live="polite">
+                                入力中…
+                            </span>
+                        ) : subtitle}
                     </p>
                 </div>
             </div>

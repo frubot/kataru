@@ -5650,6 +5650,33 @@ body {
   align-items: flex-end;
 }
 
+/* ユーザー発言をAIが読んだことを示す控えめな表示 */
+.message-read-receipt {
+  margin-top: 0.125rem;
+  margin-right: 0.375rem;
+  font-size: 0.65rem;
+  line-height: 1.2;
+  color: var(--text-muted);
+  user-select: none;
+  animation: message-read-receipt-in 0.2s ease-out;
+}
+
+@keyframes message-read-receipt-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* 相手が返信を作っている間のヘッダー表示 */
+.chat-header-typing {
+  color: var(--accent-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message-read-receipt {
+    animation: none;
+  }
+}
+
 .inline-message-editor {
   width: min(100%, 560px);
   display: flex;

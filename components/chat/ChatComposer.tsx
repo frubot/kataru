@@ -41,10 +41,13 @@ type ChatComposerProps<TMention extends MentionCandidate> = {
     disabled: boolean;
     redirectDisabled: boolean;
     submitDisabled: boolean;
-    submitMode: 'send' | 'continue';
+    /** send: 送信 / continue: 続きを生成 / reply: 送信済みの連投へ今すぐ返信させる。 */
+    submitMode: 'send' | 'continue' | 'reply';
     isMobile: boolean;
     isInlineEditing: boolean;
     isBusy: boolean;
+    /** 停止ボタンの説明。省略時は「生成を中断」。 */
+    stopTitle?: string;
     isTypewriterActive: boolean;
     onSubmit: () => void;
     onSubmitEdit: () => void;
@@ -85,6 +88,7 @@ export default function ChatComposer<TMention extends MentionCandidate>({
     isMobile,
     isInlineEditing,
     isBusy,
+    stopTitle,
     isTypewriterActive,
     onSubmit,
     onSubmitEdit,
@@ -139,6 +143,14 @@ export default function ChatComposer<TMention extends MentionCandidate>({
             inputRef.current?.focus();
         }
     }, [focusKey, inputRef]);
+
+    const submitLabel = isInlineEditing
+        ? '編集して送信'
+        : submitMode === 'continue'
+            ? '続きを生成'
+            : submitMode === 'reply'
+                ? '今すぐ返信をもらう'
+                : '送信';
 
     const handleSubmit = (event: FormEvent) => {
         event.preventDefault();
@@ -377,7 +389,8 @@ export default function ChatComposer<TMention extends MentionCandidate>({
                         className="btn btn-primary chat-input-send"
                         onClick={onStop}
                         style={isTypewriterActive ? undefined : { backgroundColor: '#ef4444' }}
-                        title={isTypewriterActive ? '全文表示' : '生成を中断'}
+                        title={isTypewriterActive ? '全文表示' : stopTitle ?? '生成を中断'}
+                        aria-label={isTypewriterActive ? '全文表示' : stopTitle ?? '生成を中断'}
                     >
                         {isTypewriterActive
                             ? <ChevronsDown size={16} />
@@ -400,18 +413,10 @@ export default function ChatComposer<TMention extends MentionCandidate>({
                             type="submit"
                             className="btn btn-primary chat-input-send"
                             disabled={submitDisabled}
-                            title={isInlineEditing
-                                ? '編集して送信'
-                                : submitMode === 'continue'
-                                    ? '続きを生成'
-                                    : '送信'}
-                            aria-label={isInlineEditing
-                                ? '編集して送信'
-                                : submitMode === 'continue'
-                                    ? '続きを生成'
-                                    : '送信'}
+                            title={submitLabel}
+                            aria-label={submitLabel}
                         >
-                            {submitMode === 'continue' && !isInlineEditing
+                            {submitMode !== 'send' && !isInlineEditing
                                 ? <Play size={16} fill="currentColor" />
                                 : <ArrowUp size={16} />}
                         </button>

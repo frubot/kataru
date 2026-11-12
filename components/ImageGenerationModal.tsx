@@ -48,6 +48,8 @@ interface Props {
     initialVrm?: VrmAvatar;
     vrmPreviewName?: string;
     vrmFallbackImage?: string;
+    /** false hides the file upload (images and .vrm); defaults to true. */
+    allowUpload?: boolean;
 }
 
 type ImageSource = 'generated' | 'uploaded';
@@ -65,6 +67,7 @@ export default function ImageGenerationModal({
     initialVrm,
     vrmPreviewName,
     vrmFallbackImage,
+    allowUpload = true,
 }: Props) {
     const { defaultImageModel, getAiApiConfig } = useStore();
     const { connections } = useAiConnections();
@@ -94,12 +97,15 @@ export default function ImageGenerationModal({
         || (selectedKind === 'openai-compatible' && selectedConnection?.imageGenerationEnabled === true);
     const transparentImageSupport = useTransparentImageBackground(model);
     const useNativeTransparentBackground = transparentFullBody && transparentImageSupport.supported;
+    const uploadFallbackHint = allowUpload
+        ? 'ファイルからアップロードしてください。'
+        : '衣装の追加画面の「アップロード」から追加してください。';
     const providerImageGenerationHint = selectedKind === 'anthropic'
-        ? 'Anthropic互換APIでは画像生成を利用できません。ファイルからアップロードしてください。'
+        ? `Anthropic互換APIでは画像生成を利用できません。${uploadFallbackHint}`
         : selectedKind === 'openai-compatible'
         ? selectedConnection?.imageGenerationEnabled === true
             ? 'OpenAI互換APIでは、テキストからの画像生成だけを試します。'
-            : 'この接続先での画像生成は無効です。ファイルからアップロードしてください。'
+            : `この接続先での画像生成は無効です。${uploadFallbackHint}`
         : null;
     const imageGenerationHint = providerImageGenerationHint
         ?? (transparentFullBody
@@ -385,28 +391,32 @@ export default function ImageGenerationModal({
                                 </div>
                             </div>
                             {error && <p style={{ color: 'var(--error)', fontSize: '0.8125rem' }}>{error}</p>}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <div style={{ flex: 1, height: 1, background: 'var(--border-color)' }} />
-                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>または</span>
-                                <div style={{ flex: 1, height: 1, background: 'var(--border-color)' }} />
-                            </div>
-                            <button
-                                type="button"
-                                className="btn btn-ghost"
-                                onClick={() => fileInputRef.current?.click()}
-                                disabled={generating}
-                                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-                            >
-                                <Upload size={16} /> ファイルからアップロード
-                            </button>
-                            {createsImage && <p style={hintStyle}>画像のほか、.vrm の3Dモデルも選択できます</p>}
-                            <input
-                                ref={fileInputRef}
-                                type="file"
-                                accept={createsImage ? 'image/*,.vrm' : 'image/*'}
-                                onChange={handleFile}
-                                style={{ display: 'none' }}
-                            />
+                            {allowUpload && (
+                                <>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <div style={{ flex: 1, height: 1, background: 'var(--border-color)' }} />
+                                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>または</span>
+                                        <div style={{ flex: 1, height: 1, background: 'var(--border-color)' }} />
+                                    </div>
+                                    <button
+                                        type="button"
+                                        className="btn btn-ghost"
+                                        onClick={() => fileInputRef.current?.click()}
+                                        disabled={generating}
+                                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                                    >
+                                        <Upload size={16} /> ファイルからアップロード
+                                    </button>
+                                    {createsImage && <p style={hintStyle}>画像のほか、.vrm の3Dモデルも選択できます</p>}
+                                    <input
+                                        ref={fileInputRef}
+                                        type="file"
+                                        accept={createsImage ? 'image/*,.vrm' : 'image/*'}
+                                        onChange={handleFile}
+                                        style={{ display: 'none' }}
+                                    />
+                                </>
+                            )}
                         </>
                     )}
 

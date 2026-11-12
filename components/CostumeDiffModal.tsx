@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Box, Check, ImagePlus, X, Loader2, Pencil, Plus, Trash2, RefreshCw, Shirt, Sparkles, Star, Upload, Wand2 } from 'lucide-react';
+import { Check, ImagePlus, X, Loader2, Pencil, Plus, Trash2, RefreshCw, Shirt, Sparkles, Star, Upload, Wand2 } from 'lucide-react';
 import type { Costume } from '@/lib/store';
 import type { VrmAvatar } from '@/lib/store/types';
 import { useStore } from '@/lib/store';
@@ -36,7 +36,11 @@ const UPLOAD_BUSY_KEY = '__upload__';
 const INITIAL_COSTUME_NAME = 'default';
 
 /** 衣装の追加方法。scratch はゼロから生成、generate は既存衣装からの差分生成。 */
-type AddMode = 'scratch' | 'generate' | 'upload' | 'vrm';
+type AddMode = 'scratch' | 'generate' | 'upload';
+
+const IMAGE_GENERATION_DISABLED_TITLE = '画像生成モデルの接続先で画像生成が無効です';
+
+const isVrmFile = (file: File) => file.name.toLowerCase().endsWith('.vrm');
 type NameSource = 'manual' | 'filename' | 'ai';
 
 /** ImageGenerationModal で作成中の対象。新しい衣装の作成か、既存衣装の画像の差し替え。 */
@@ -86,8 +90,8 @@ export default function CostumeDiffModal({
     const [newPromptDetail, setNewPromptDetail] = useState('');
     const [nameSource, setNameSource] = useState<NameSource>('manual');
     const [addMode, setAddMode] = useState<AddMode>('scratch');
-    const autoDetectName = addMode !== 'scratch' && addMode !== 'vrm' && nameSource === 'ai';
-    const nameFromFile = (addMode === 'upload' || addMode === 'vrm') && nameSource === 'filename';
+    const autoDetectName = addMode !== 'scratch' && nameSource === 'ai';
+    const nameFromFile = addMode === 'upload' && nameSource === 'filename';
     // True when names are assigned per uploaded file, which enables multi-file uploads.
     const autoName = autoDetectName || nameFromFile;
     const [editingVrm, setEditingVrm] = useState<Costume | null>(null);
@@ -98,7 +102,6 @@ export default function CostumeDiffModal({
     const [error, setError] = useState<string | null>(null);
     const abortRef = useRef<AbortController | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const vrmInputRef = useRef<HTMLInputElement>(null);
     const uploadImgRef = useRef<HTMLImageElement>(null);
     const modalRef = useRef<HTMLDivElement>(null);
     const addModalRef = useRef<HTMLDivElement>(null);
@@ -124,12 +127,12 @@ export default function CostumeDiffModal({
     const selectedConnection = connections.find((connection) => connection.id === model.connectionId) ?? null;
     const selectedKind = selectedConnection?.kind
         ?? (isAiConnectionKind(model.connectionId) ? model.connectionId : null);
-    const canGenerateDiffs = selectedKind === 'openrouter'
+    const canGenerateImages = selectedKind === 'openrouter'
         || (selectedKind === 'openai-compatible' && selectedConnection?.imageGenerationEnabled === true);
     const transparentImageSupport = useTransparentImageBackground(model);
 
     const initialAddMode = (): AddMode => (
-        costumes.length === 0 ? 'scratch' : canGenerateDiffs ? 'generate' : 'upload'
+        !canGenerateImages ? 'upload' : costumes.length === 0 ? 'scratch' : 'generate'
     );
 
     const openAddModal = () => {
@@ -173,10 +176,11 @@ export default function CostumeDiffModal({
     }, [isOpen]);
 
     useEffect(() => {
-        if (!canGenerateDiffs && addMode === 'generate') {
+        // Both generation modes need image generation; fall back to uploads.
+        if (!canGenerateImages && (addMode === 'generate' || addMode === 'scratch')) {
             setAddMode('upload');
         }
-    }, [addMode, canGenerateDiffs]);
+    }, [addMode, canGenerateImages]);
 
     const clearUploadDraft = () => {
         setUploadImage(null);
@@ -193,7 +197,7 @@ export default function CostumeDiffModal({
 
     const switchAddMode = (mode: AddMode) => {
         setAddMode(mode);
-        if (mode === 'scratch' || mode === 'vrm') {
+        if (mode === 'scratch') {
             if (nameSource === 'ai') setNameSource('manual');
         }
         if (mode === 'scratch' || mode === 'generate') {
@@ -328,7 +332,7 @@ export default function CostumeDiffModal({
     };
 
     const generateDraft = async () => {
-        if (busy || !model.model.trim() || !canGenerateDiffs) return;
+        if (busy || !model.model.trim() || !canGenerateImages) return;
         const name = autoDetectName ? '' : validateName();
         if (!autoDetectName && !name) return;
         if (!baseImage) {
@@ -417,24 +421,14 @@ export default function CostumeDiffModal({
         fileInputRef.current?.click();
     };
 
-    const handleVrmClick = () => {
-        if (!autoName && !validateName()) return;
-        vrmInputRef.current?.click();
-    };
-
-    const handleVrmFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        e.target.value = '';
-        if (!file) return;
-        if (!file.name.toLowerCase().endsWith('.vrm')) {
-            setError('.vrm ファイルを選択してください。');
-            return;
-        }
-        if (!autoName && !validateName()) return;
+    /** Opens the VRM editor for one .vrm file. AI naming cannot read a 3D
+     *  model, so any automatic naming mode falls back to the file name. */
+    const prepareVrmUpload = async (file: File) => {
         setBusy(UPLOAD_BUSY_KEY);
         setError(null);
+        clearUploadQueue();
         try {
-            if (nameFromFile) {
+            if (autoName) {
                 setNewName(reserveFileName(file, detectedNameRegistry()));
             }
             setVrmDraft(await readVrmFile(file));
@@ -453,9 +447,19 @@ export default function CostumeDiffModal({
 
         if (!autoName && !validateName()) return;
 
+        // The file extension decides between the 2D image and 3D (VRM) flows.
+        const vrmFiles = files.filter(isVrmFile);
+        if (vrmFiles.length > 0) {
+            if (files.length > 1) {
+                setError('.vrm ファイルは1つずつ選択してください。画像と同時には選択できません。');
+                return;
+            }
+            await prepareVrmUpload(vrmFiles[0]);
+            return;
+        }
         const invalidFile = files.find((file) => !file.type.startsWith('image/'));
         if (invalidFile) {
-            setError(`${invalidFile.name} は画像ファイルではありません。3Dモデルは「3D(VRM)」から追加してください。`);
+            setError(`${invalidFile.name} は画像ファイルでも .vrm ファイルでもありません。`);
             return;
         }
 
@@ -653,18 +657,25 @@ export default function CostumeDiffModal({
 
     if (!isOpen) return null;
 
-    const generateDisabled = !!busy || !canGenerateDiffs || (!autoDetectName && !newName.trim()) || !model.model.trim() || !baseImage;
+    const generateDisabled = !!busy || !canGenerateImages || (!autoDetectName && !newName.trim()) || !model.model.trim() || !baseImage;
     const addModeOptions: { mode: AddMode; label: string; icon: React.ReactNode; disabled?: boolean; title?: string }[] = [
-        { mode: 'scratch', label: 'ゼロから生成', icon: <Sparkles size={14} /> },
+        {
+            mode: 'scratch',
+            label: 'ゼロから生成',
+            icon: <Sparkles size={14} />,
+            disabled: !canGenerateImages,
+            title: !canGenerateImages ? IMAGE_GENERATION_DISABLED_TITLE : undefined,
+        },
         {
             mode: 'generate',
             label: '差分生成',
             icon: <Wand2 size={14} />,
-            disabled: !canGenerateDiffs || costumes.length === 0,
-            title: costumes.length === 0 ? '差分生成には元にする衣装が必要です' : undefined,
+            disabled: !canGenerateImages || costumes.length === 0,
+            title: !canGenerateImages
+                ? IMAGE_GENERATION_DISABLED_TITLE
+                : costumes.length === 0 ? '差分生成には元にする衣装が必要です' : undefined,
         },
         { mode: 'upload', label: 'アップロード', icon: <Upload size={14} /> },
-        { mode: 'vrm', label: '3D(VRM)', icon: <Box size={14} /> },
     ];
 
     return (
@@ -950,7 +961,12 @@ export default function CostumeDiffModal({
                             </div>
                             {addMode === 'scratch' && (
                                 <p style={{ ...hintStyle, marginTop: 0, marginBottom: 8 }}>
-                                    プロンプトから全身の立ち絵を生成します。画像や .vrm のアップロードもできます。
+                                    プロンプトから全身の立ち絵を生成します。
+                                </p>
+                            )}
+                            {addMode === 'upload' && !uploadImage && (
+                                <p style={{ ...hintStyle, marginTop: 0, marginBottom: 8 }}>
+                                    画像または .vrm の3Dモデルを選択できます。拡張子から自動で判別します。
                                 </p>
                             )}
                             {addMode === 'generate' && (
@@ -979,7 +995,7 @@ export default function CostumeDiffModal({
                                             value={model}
                                             onChange={setModel}
                                             outputModality="image"
-                                            disabled={!!busy || !canGenerateDiffs}
+                                            disabled={!!busy || !canGenerateImages}
                                             placeholder={`例: ${defaultImageModel.model}`}
                                         />
                                     </div>
@@ -1001,10 +1017,14 @@ export default function CostumeDiffModal({
                                         ariaLabel="衣装名の付け方"
                                         options={[
                                             { value: 'manual', label: '手入力' },
-                                            ...(addMode === 'upload' || addMode === 'vrm'
+                                            ...(addMode === 'upload'
                                                 ? [{ value: 'filename', label: 'ファイル名から', detail: '拡張子を除いたファイル名を衣装名にします' }]
                                                 : []),
-                                            ...(addMode !== 'vrm' ? [{ value: 'ai', label: 'AIで自動判定' }] : []),
+                                            {
+                                                value: 'ai',
+                                                label: 'AIで自動判定',
+                                                ...(addMode === 'upload' ? { detail: '.vrm はファイル名を衣装名にします' } : {}),
+                                            },
                                         ]}
                                     />
                                 </div>
@@ -1107,16 +1127,9 @@ export default function CostumeDiffModal({
                             <input
                                 ref={fileInputRef}
                                 type="file"
-                                accept="image/*"
+                                accept="image/*,.vrm"
                                 multiple={autoName}
                                 onChange={handleFileUpload}
-                                style={{ display: 'none' }}
-                            />
-                            <input
-                                ref={vrmInputRef}
-                                type="file"
-                                accept=".vrm"
-                                onChange={handleVrmFile}
                                 style={{ display: 'none' }}
                             />
                         </div>
@@ -1133,17 +1146,6 @@ export default function CostumeDiffModal({
                                     style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                                 >
                                     <Sparkles size={14} /> 作成画面を開く
-                                </button>
-                            ) : addMode === 'vrm' ? (
-                                <button
-                                    type="button"
-                                    className="btn btn-primary"
-                                    onClick={handleVrmClick}
-                                    disabled={!!busy || (!autoName && !newName.trim())}
-                                    style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-                                >
-                                    {busy === UPLOAD_BUSY_KEY && <Loader2 size={16} className="animate-spin" />}
-                                    .vrm を選択
                                 </button>
                             ) : addMode === 'generate' ? (
                                 <>
@@ -1248,11 +1250,12 @@ export default function CostumeDiffModal({
                 expressionNames={vrmExpressionNames}
                 vrmPreviewName={ownerName || 'キャラクター'}
                 vrmFallbackImage={generationTarget.kind === 'replace' ? generationTarget.costume.image : undefined}
+                allowUpload={generationTarget.kind === 'replace'}
                 onComplete={handleGenerationComplete}
             />
         )}
 
-        {addOpen && addMode === 'vrm' && vrmDraft && !editingVrm && <VrmCostumeEditor name={newName}
+        {addOpen && addMode === 'upload' && vrmDraft && !editingVrm && <VrmCostumeEditor name={newName}
             initialAvatar={vrmDraft}
             existingNames={costumes.map((costume) => costume.name)} expressionNames={vrmExpressionNames}
             onSave={(costume) => { onUpsert(costume); setNewName(''); setVrmDraft(null); setAddOpen(false); }}

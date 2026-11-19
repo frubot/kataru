@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, ChevronRight, Loader2, Plus, Sparkles, Upload, User, X } from 'lucide-react';
 import type { GeneratedCharacterDraft } from '@/lib/characterGeneration';
 import {
@@ -16,13 +16,18 @@ interface CharacterAddModalProps {
     onClose: () => void;
     onCreate: () => void;
     onGenerated: (draft: GeneratedCharacterDraft) => void;
+    /** 開いた直後に確認画面を表示するパッケージ（サイドバーへのドロップなど）。 */
+    initialFile?: File | null;
 }
+
+const PACKAGE_FILE_PATTERN = /\.(kataru|zip)$/i;
 
 export default function CharacterAddModal({
     isOpen,
     onClose,
     onCreate,
     onGenerated,
+    initialFile = null,
 }: CharacterAddModalProps) {
     const { addImportedCharacter } = useStore();
     const [packageFile, setPackageFile] = useState<{
@@ -35,16 +40,45 @@ export default function CharacterAddModal({
     const [characterGeneratorOpen, setCharacterGeneratorOpen] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const modalRef = useRef<HTMLDivElement>(null);
+    // 読込中に別のファイルが渡された場合、古い確認結果で上書きしない。
+    const readRequestRef = useRef(0);
     const busy = isReading || isImporting;
+
+    const readPackageFile = useCallback(async (file: File) => {
+        const request = ++readRequestRef.current;
+        setPackageFile(null);
+        if (!PACKAGE_FILE_PATTERN.test(file.name)) {
+            setImportError('キャラクターファイル（.kataru）ではありません');
+            return;
+        }
+
+        setImportError(null);
+        setIsReading(true);
+        try {
+            const inspection = await inspectCharacterPackage(file);
+            if (request === readRequestRef.current) setPackageFile({ file, inspection });
+        } catch (error) {
+            if (request === readRequestRef.current) {
+                setImportError(error instanceof Error ? error.message : 'インポートに失敗しました');
+            }
+        } finally {
+            if (request === readRequestRef.current) setIsReading(false);
+        }
+    }, []);
 
     useEffect(() => {
         if (isOpen) return;
+        readRequestRef.current += 1;
         setPackageFile(null);
         setImportError(null);
         setIsReading(false);
         setIsImporting(false);
         setCharacterGeneratorOpen(false);
     }, [isOpen]);
+
+    useEffect(() => {
+        if (isOpen && initialFile) void readPackageFile(initialFile);
+    }, [initialFile, isOpen, readPackageFile]);
 
     const attemptClose = () => {
         if (!busy && !characterGeneratorOpen) onClose();
@@ -63,18 +97,7 @@ export default function CharacterAddModal({
         const file = event.target.files?.[0];
         event.target.value = '';
         if (!file || busy) return;
-
-        setImportError(null);
-        setIsReading(true);
-        try {
-            const inspection = await inspectCharacterPackage(file);
-            setPackageFile({ file, inspection });
-        } catch (error) {
-            setPackageFile(null);
-            setImportError(error instanceof Error ? error.message : 'インポートに失敗しました');
-        } finally {
-            setIsReading(false);
-        }
+        await readPackageFile(file);
     };
 
     const handleImport = async () => {

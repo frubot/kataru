@@ -113,6 +113,7 @@ export default function Home() {
 
     // Character settings modal state
     const [characterAddModalOpen, setCharacterAddModalOpen] = useState(false);
+    const [droppedCharacterFile, setDroppedCharacterFile] = useState<File | null>(null);
     const [characterModalOpen, setCharacterModalOpen] = useState(false);
     const [editingCharacter, setEditingCharacter] = useState<Character | null>(null);
     const [isNewCharacter, setIsNewCharacter] = useState(false);
@@ -153,6 +154,21 @@ export default function Home() {
     const toggleSidebar = useCallback(() => {
         if (isMobileLayout()) setMobileSidebarOpen((open) => !open);
         else setDesktopSidebarOpen((open) => !open);
+    }, []);
+
+    // 受け付けない場所にファイルを落としたとき、WebViewがそのファイルへ移動しないようにする。
+    useEffect(() => {
+        const blockStrayFileDrop = (event: DragEvent) => {
+            if (event.defaultPrevented || !event.dataTransfer?.types.includes('Files')) return;
+            event.preventDefault();
+            if (event.type === 'dragover') event.dataTransfer.dropEffect = 'none';
+        };
+        window.addEventListener('dragover', blockStrayFileDrop);
+        window.addEventListener('drop', blockStrayFileDrop);
+        return () => {
+            window.removeEventListener('dragover', blockStrayFileDrop);
+            window.removeEventListener('drop', blockStrayFileDrop);
+        };
     }, []);
 
     useEffect(() => subscribeDesktopEvents((event) => {
@@ -244,6 +260,10 @@ export default function Home() {
                     onOpenSettings={() => setShowSettings(true)}
                     onOpenCharacterSettings={handleOpenCharacterSettings}
                     onOpenCharacterAdd={() => setCharacterAddModalOpen(true)}
+                    onDropCharacterFile={(file) => {
+                        setDroppedCharacterFile(file);
+                        setCharacterAddModalOpen(true);
+                    }}
                     isOpen={mobileSidebarOpen}
                     isDesktopOpen={desktopSidebarOpen}
                     onClose={() => setMobileSidebarOpen(false)}
@@ -274,13 +294,19 @@ export default function Home() {
             <ErrorBoundary>
                 <CharacterAddModal
                     isOpen={characterAddModalOpen}
-                    onClose={() => setCharacterAddModalOpen(false)}
+                    initialFile={droppedCharacterFile}
+                    onClose={() => {
+                        setCharacterAddModalOpen(false);
+                        setDroppedCharacterFile(null);
+                    }}
                     onCreate={() => {
                         setCharacterAddModalOpen(false);
+                        setDroppedCharacterFile(null);
                         handleOpenCharacterSettings(null, true);
                     }}
                     onGenerated={(draft) => {
                         setCharacterAddModalOpen(false);
+                        setDroppedCharacterFile(null);
                         handleOpenCharacterSettings(null, true, draft);
                     }}
                 />

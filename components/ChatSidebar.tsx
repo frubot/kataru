@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Plus, Settings, Trash2, ChevronDown, ChevronRight, User, Users, Copy, EllipsisVertical, PanelLeftClose, PanelLeftOpen, Search, Share2, SquarePen, X, Folder, FolderOpen, FolderPlus, FolderInput, FolderOutput, Pencil } from 'lucide-react';
+import { Plus, Settings, Trash2, ChevronDown, ChevronRight, User, Users, Copy, EllipsisVertical, PanelLeftClose, PanelLeftOpen, Search, Share2, SquarePen, X, Folder, FolderOpen, FolderPlus, FolderInput, FolderOutput, Pencil, Upload } from 'lucide-react';
 import { useStore, Character, Situation, resolveSituationParticipants, type Room } from '@/lib/store';
 import * as db from '@/lib/db';
 import { generateId } from '@/lib/id';
@@ -137,13 +137,14 @@ interface ChatSidebarProps {
     onOpenSettings: () => void;
     onOpenCharacterSettings: (character: Character | null, isNew: boolean) => void;
     onOpenCharacterAdd: () => void;
+    onDropCharacterFile: (file: File) => void;
     isOpen: boolean;
     isDesktopOpen: boolean;
     onClose: () => void;
     onToggleDesktop: () => void;
 }
 
-export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, onOpenCharacterAdd, isOpen, isDesktopOpen, onClose, onToggleDesktop }: ChatSidebarProps) {
+export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, onOpenCharacterAdd, onDropCharacterFile, isOpen, isDesktopOpen, onClose, onToggleDesktop }: ChatSidebarProps) {
     const { characters, groups, rooms, currentRoomId, createRoom, createRoomForSituation, setCurrentRoom, deleteRoom, deleteSituation, duplicateSituation, deleteCharacter, duplicateCharacter } = useStore();
     const [expandedCharacters, setExpandedCharacters] = useState<Set<string>>(new Set());
     const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set(groups.map((g) => g.id)));
@@ -166,6 +167,7 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, o
     const [dragSource, setDragSource] = useState<SidebarDragSource | null>(null);
     const dragSourceRef = useRef<SidebarDragSource | null>(null);
     const [dropIndicator, setDropIndicator] = useState<SidebarDropIndicator | null>(null);
+    const [isFileDragOver, setIsFileDragOver] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
@@ -466,6 +468,36 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, o
             if (!(related instanceof Node) || !event.currentTarget.contains(related)) showDropIndicator(null);
         },
     });
+
+    // ---- 外部ファイルのドロップ（キャラクターの読み込み） ----
+
+    const isExternalFileDrag = (event: React.DragEvent) => (
+        !dragSourceRef.current && event.dataTransfer.types.includes('Files')
+    );
+
+    const handleFileDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+        if (!isExternalFileDrag(event)) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'copy';
+        if (!isFileDragOver) setIsFileDragOver(true);
+    };
+
+    const handleFileDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
+        const related = event.relatedTarget;
+        if (!(related instanceof Node) || !event.currentTarget.contains(related)) setIsFileDragOver(false);
+    };
+
+    const handleFileDrop = (event: React.DragEvent<HTMLDivElement>) => {
+        if (!isExternalFileDrag(event)) return;
+        event.preventDefault();
+        setIsFileDragOver(false);
+        const files = Array.from(event.dataTransfer.files);
+        const file = files.find((candidate) => /\.(kataru|zip)$/i.test(candidate.name)) ?? files[0];
+        if (!file) return;
+        setContextMenu(null);
+        onClose();
+        onDropCharacterFile(file);
+    };
 
     const getDropPosition = (section: SidebarSectionKey, key: string) => (
         dropIndicator?.section === section && dropIndicator.key === key ? dropIndicator.position : undefined
@@ -999,7 +1031,19 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, o
                 className={`sidebar-overlay ${isOpen ? 'open' : ''}`}
                 onClick={onClose}
             />
-            <div className={`sidebar ${isOpen ? 'open' : ''}`}>
+            <div
+                className={`sidebar ${isOpen ? 'open' : ''} ${isFileDragOver ? 'file-drop-active' : ''}`}
+                onDragEnter={handleFileDragOver}
+                onDragOver={handleFileDragOver}
+                onDragLeave={handleFileDragLeave}
+                onDrop={handleFileDrop}
+            >
+                {isFileDragOver && (
+                    <div className="sidebar-file-drop-overlay" aria-hidden="true">
+                        <Upload size={28} />
+                        <span>キャラクターを読み込む</span>
+                    </div>
+                )}
                 <div className="sidebar-header" style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                     <div className="sidebar-desktop-controls desktop-only">
                         <img className="sidebar-brand" src="/logo.png" alt="" />

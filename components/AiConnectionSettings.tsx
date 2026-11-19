@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Pencil, RefreshCw, Save, Trash2 } from 'lucide-react';
+import { RefreshCw, Save, Trash2 } from 'lucide-react';
 
 import { AI_CONNECTION_KIND_LABELS, type AiConnectionKind } from '@/lib/aiApi';
 import {
@@ -137,34 +137,27 @@ function AiConnectionCard({ connection }: { connection: AiConnectionStatus }) {
             <div className="ai-connection-heading">
                 <div>
                     <strong>{connection.name}</strong>
-                    <span>{connection.baseUrl ?? AI_CONNECTION_KIND_LABELS[connection.kind]}</span>
                 </div>
                 <span className="ai-connection-heading-side">
-                    <span className="ai-connection-badges">
-                        <span className="ai-connection-badge">{AI_CONNECTION_KIND_LABELS[connection.kind]}</span>
-                        {connection.builtin && <span className="ai-connection-badge muted">組み込み</span>}
-                    </span>
-                    <span className="ai-connection-icon-actions">
+                    <span className="ai-connection-actions">
                         <button
                             type="button"
-                            className={editing ? 'ai-connection-icon-button edit active' : 'ai-connection-icon-button edit'}
-                            title={editing ? '編集を閉じる' : '設定を編集'}
-                            aria-label={`${connection.name}の設定を編集`}
+                            className={editing ? 'ai-connection-action-button active' : 'ai-connection-action-button'}
+                            aria-label={`${connection.name}の設定を${editing ? '閉じる' : '編集'}`}
                             aria-expanded={editing}
                             onClick={() => setEditing((prev) => !prev)}
                         >
-                            <Pencil size={14} aria-hidden="true" />
+                            {editing ? '閉じる' : '編集'}
                         </button>
                         {connection.deletable && (
                             <button
                                 type="button"
-                                className="ai-connection-icon-button danger"
+                                className="ai-connection-action-button danger"
                                 disabled={saving}
-                                title="接続先を削除"
                                 aria-label={`${connection.name}を削除`}
                                 onClick={handleDelete}
                             >
-                                <Trash2 size={14} aria-hidden="true" />
+                                削除
                             </button>
                         )}
                     </span>

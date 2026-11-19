@@ -3124,10 +3124,19 @@ body {
   text-align: left;
 }
 
-.desktop-menu-item:hover,
+.desktop-menu-item:hover:not(:disabled),
 .desktop-menu-item:focus-visible {
   background: var(--bg-hover);
   outline: none;
+}
+
+.desktop-menu-item:disabled {
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.desktop-text-menu .desktop-menu-item {
+  padding-left: 0.625rem;
 }
 
 .desktop-menu-check {

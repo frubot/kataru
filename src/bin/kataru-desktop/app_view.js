@@ -7,6 +7,9 @@
   window.addEventListener('focus', () => window.ipc.postMessage('activation'));
   window.addEventListener('blur', () => window.ipc.postMessage('activation'));
 
+  // ブラウザ既定のコンテキストメニューは出さない。入力欄の編集メニューは画面側で表示する。
+  window.addEventListener('contextmenu', (event) => event.preventDefault());
+
   // テーマはhtml要素のclassで切り替わる。
   const properties = {
     bg: '--bg-primary',

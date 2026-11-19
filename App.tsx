@@ -13,6 +13,7 @@ import AppSkeleton from '@/components/AppSkeleton';
 import FirstRunGuide from '@/components/FirstRunGuide';
 import DesktopMenu from '@/components/DesktopMenu';
 import DesktopDownloadNotice from '@/components/DesktopDownloadNotice';
+import DesktopTextContextMenu from '@/components/DesktopTextContextMenu';
 import { isDesktopApp, subscribeDesktopEvents } from '@/lib/desktopApp';
 
 /** サイドバーがオーバーレイ表示になる幅。styles/globals.cssのブレークポイントと合わせる。 */
@@ -322,6 +323,7 @@ export default function Home() {
                 />
             </ErrorBoundary>
             {isDesktopApp() && <DesktopDownloadNotice />}
+            {isDesktopApp() && <DesktopTextContextMenu />}
             {isDesktopApp() && (
                 <DesktopMenu
                     sidebarVisible={() => (isMobileLayout() ? mobileSidebarOpen : desktopSidebarOpen)}

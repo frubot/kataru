@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Check, ImagePlus, X, Loader2, Pencil, Plus, Trash2, RefreshCw, Shirt, Smile, Sparkles, Star, Upload, Wand2 } from 'lucide-react';
+import { Check, ImagePlus, X, Loader2, Pencil, Plus, Trash2, RefreshCw, Shirt, Smile, Sparkles, Star, Upload, User, Wand2 } from 'lucide-react';
 import type { Costume } from '@/lib/store';
 import type { VrmAvatar } from '@/lib/store/types';
 import { useStore } from '@/lib/store';
@@ -15,7 +15,7 @@ import { serializeModelRef, type ModelRef } from '@/lib/modelDefaults';
 import { readVrmFile } from '@/lib/vrm';
 import { createNameRegistry, nameFromFileName, reserveUniqueName } from '@/lib/nameRegistry';
 import { buildBaseImageRequest, resolveStoredImageUrl } from '@/lib/imageSource';
-import { cropRectToPng, loadImage, resizeToMaxEdge, resizeToMaxEdgeAsJpeg } from '@/lib/imageUtils';
+import { cropRectToPng, cropSquareToPng, loadImage, resizeToMaxEdge, resizeToMaxEdgeAsJpeg } from '@/lib/imageUtils';
 import { CropArea, createInitialCrop, type CropBox } from './ImageCropArea';
 import ImageGenerationModal, { type ImageGenerationResult } from './ImageGenerationModal';
 import StoredImage from './StoredImage';
@@ -32,6 +32,8 @@ const COSTUME_DETECTION_MAX_EDGE = 1280;
 const COSTUME_DETECTION_JPEG_QUALITY = 0.85;
 const NEW_BUSY_KEY = '__new__';
 const UPLOAD_BUSY_KEY = '__upload__';
+const ICON_BUSY_KEY = '__icon__';
+const ICON_SIZE = 128;
 /** 最初の衣装の名前の初期値。予約名ではなく、自由に変更できる。 */
 const INITIAL_COSTUME_NAME = 'default';
 
@@ -48,6 +50,14 @@ type GenerationTarget =
     | { kind: 'new'; name: string }
     | { kind: 'replace'; costume: Costume };
 
+/** 衣装の画像からアイコンを切り抜いている途中の状態。 */
+type IconDraft = {
+    costumeName: string;
+    src: string;
+    natural: { w: number; h: number };
+    crop: CropBox;
+};
+
 interface Props {
     isOpen: boolean;
     onClose: () => void;
@@ -55,7 +65,7 @@ interface Props {
     defaultCostumeId?: string;
     /** 3Dプレビューに表示する名前。 */
     ownerName?: string;
-    /** アイコンが設定済みか。未設定なら「アイコンも更新」を既定でオンにする。 */
+    /** アイコンが設定済みか。未設定なら、作成した画像をアイコンにも使う選択を既定にする。 */
     hasIcon: boolean;
     onUpsert: (costume: Costume) => void;
     onRemove: (costumeId: string) => void;
@@ -121,6 +131,9 @@ export default function CostumeDiffModal({
     const [draftImage, setDraftImage] = useState<string | null>(null);
     const [draftName, setDraftName] = useState('');
     const [baseCostumeId, setBaseCostumeId] = useState<string | null>(null);
+    const [iconDraft, setIconDraft] = useState<IconDraft | null>(null);
+    const iconModalRef = useRef<HTMLDivElement>(null);
+    const iconImgRef = useRef<HTMLImageElement>(null);
 
     const defaultCostume = resolveDefaultCostume({ costumes, defaultCostumeId });
     const baseCostume = costumes.find((costume) => costume.id === baseCostumeId) ?? defaultCostume;
@@ -172,6 +185,7 @@ export default function CostumeDiffModal({
             setDraftImage(null);
             setDraftName('');
             setBaseCostumeId(null);
+            setIconDraft(null);
             abortRef.current?.abort();
             abortRef.current = null;
         }
@@ -626,6 +640,48 @@ export default function CostumeDiffModal({
         onOpenExpressions(costume.id);
     };
 
+    /** Opens the square crop for using the costume's image as the icon. */
+    const openIconCrop = async (costume: Costume) => {
+        if (busy) return;
+        setError(null);
+        setBusy(ICON_BUSY_KEY);
+        try {
+            const src = resolveStoredImageUrl(costume.image);
+            const img = await loadImage(src);
+            setIconDraft({
+                costumeName: costume.name,
+                src,
+                natural: { w: img.width, h: img.height },
+                crop: createInitialCrop(img.width, img.height, 1),
+            });
+        } catch {
+            setError(`「${costume.name}」の画像の読み込みに失敗しました。`);
+        } finally {
+            setBusy(null);
+        }
+    };
+
+    const confirmIconCrop = async () => {
+        if (!iconDraft || busy) return;
+        setBusy(ICON_BUSY_KEY);
+        try {
+            const { src, crop } = iconDraft;
+            onIconChange(await cropSquareToPng(src, crop.x, crop.y, crop.width, ICON_SIZE));
+            setIconDraft(null);
+            setError(null);
+        } catch {
+            setError('アイコンの切り抜きに失敗しました。');
+        } finally {
+            setBusy(null);
+        }
+    };
+
+    const closeIconCrop = () => {
+        if (busy) return;
+        setIconDraft(null);
+        setError(null);
+    };
+
     const handleCancelBusy = () => {
         abortRef.current?.abort();
         setBusy(null);
@@ -666,6 +722,14 @@ export default function CostumeDiffModal({
         onClose: closeAddModal,
         canClose: !busy,
         onEnter: addMode === 'generate' ? handleAdd : addMode === 'scratch' ? openScratchGeneration : undefined,
+    });
+
+    useModalKeyboard({
+        isOpen: isOpen && !!iconDraft,
+        containerRef: iconModalRef,
+        onClose: closeIconCrop,
+        canClose: !busy,
+        onEnter: () => { void confirmIconCrop(); },
     });
 
     if (!isOpen) return null;
@@ -718,7 +782,7 @@ export default function CostumeDiffModal({
                 </div>
 
                 <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                    {error && !addOpen && <p style={{ color: 'var(--error)', fontSize: '0.8125rem' }}>{error}</p>}
+                    {error && !addOpen && !iconDraft && <p style={{ color: 'var(--error)', fontSize: '0.8125rem' }}>{error}</p>}
 
                     <div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: '0.5rem' }}>
@@ -876,6 +940,17 @@ export default function CostumeDiffModal({
                                                                 <Smile size={13} />
                                                             </button>
                                                         )}
+                                                        <button
+                                                            type="button"
+                                                            className="btn btn-ghost"
+                                                            title="アイコンにする"
+                                                            aria-label={`${costume.name}をアイコンにする`}
+                                                            disabled={!!busy || !costume.image}
+                                                            onClick={() => { void openIconCrop(costume); }}
+                                                            style={{ padding: '3px 5px' }}
+                                                        >
+                                                            <User size={13} />
+                                                        </button>
                                                         <button
                                                             type="button"
                                                             className="btn btn-ghost"
@@ -1250,6 +1325,58 @@ export default function CostumeDiffModal({
                                     )}
                                 </>
                             )}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {iconDraft && (
+            <div
+                className="modal-overlay"
+                onPointerDown={(e) => {
+                    if (e.target === e.currentTarget) closeIconCrop();
+                }}
+            >
+                <div
+                    ref={iconModalRef}
+                    className="modal-content settings-form-modal"
+                    onClick={(e) => e.stopPropagation()}
+                    style={{ maxWidth: 480 }}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label={`「${iconDraft.costumeName}」をアイコンにする`}
+                >
+                    <div className="settings-form-modal-actions" style={{ justifyContent: 'space-between' }}>
+                        <h2 style={{ margin: 0, paddingLeft: '0.25rem', fontSize: '0.9375rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <User size={18} /> 「{iconDraft.costumeName}」をアイコンにする
+                        </h2>
+                        <button className="btn btn-ghost" onClick={closeIconCrop} disabled={!!busy} title="閉じる" aria-label="閉じる">
+                            <X size={20} />
+                        </button>
+                    </div>
+                    <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        <CropArea
+                            imgRef={iconImgRef}
+                            src={iconDraft.src}
+                            natural={iconDraft.natural}
+                            crop={iconDraft.crop}
+                            aspect={1}
+                            onChange={(next) => setIconDraft((current) => (current ? { ...current, crop: next } : current))}
+                        />
+                        {error && <p style={{ color: 'var(--error)', fontSize: '0.8125rem' }}>{error}</p>}
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                            <button type="button" className="btn btn-ghost" onClick={closeIconCrop} disabled={!!busy}>
+                                キャンセル
+                            </button>
+                            <button
+                                type="button"
+                                className="btn btn-primary"
+                                onClick={() => { void confirmIconCrop(); }}
+                                disabled={!!busy}
+                            >
+                                アイコンにする
+                            </button>
                         </div>
                     </div>
                 </div>

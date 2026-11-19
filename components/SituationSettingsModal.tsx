@@ -21,6 +21,7 @@ import {
 } from '@/lib/visualNovelPresentation';
 import {
     NEUTRAL_EXPRESSION_NAME,
+    createCostumeId,
     removeCostume,
     removeCostumeExpression,
     renameCostumeExpression,
@@ -687,8 +688,16 @@ function TemporaryActorSettingsModal({
                 onClose={() => setImageGenOpen(false)}
                 target="icon"
                 transparentFullBody
+                costumes={draft.costumes}
                 onComplete={(result) => {
                     if (result.icon) updateDraft({ icon: result.icon });
+                    const { image, costumeName } = result;
+                    if (image && costumeName) {
+                        setDraft((current) => ({
+                            ...current,
+                            ...upsertCostume(current, { id: createCostumeId(), name: costumeName, image }),
+                        }));
+                    }
                     setImageGenOpen(false);
                 }}
             />

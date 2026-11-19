@@ -13,7 +13,8 @@ import { useStore } from '@/lib/store';
 import { isAiConnectionKind } from '@/lib/aiApi';
 import { useAiConnections } from '@/lib/aiConnections';
 import { serializeModelRef, type ModelRef } from '@/lib/modelDefaults';
-import type { VrmAvatar } from '@/lib/store/types';
+import type { Costume, VrmAvatar } from '@/lib/store/types';
+import { isCostumeNameTaken } from '@/lib/costumes';
 import { readVrmFile } from '@/lib/vrm';
 import ModelSelector from './ModelSelector';
 import VrmEditorModal from './VrmEditorModal';
@@ -24,11 +25,17 @@ const AVATAR_SIZE = 128;
 const IMAGE_ASPECT_RATIO = '2:3';
 const AVATAR_ASPECT = 1;
 const NEUTRAL_ASPECT = 2 / 3;
+/** 最初の衣装の名前の初期値。 */
+const INITIAL_COSTUME_NAME = 'default';
 
-/** 作成結果。`icon` はアイコンを更新するときだけ、`image` は衣装を作成するときだけ入る。 */
+/**
+ * 作成結果。`icon` はアイコンを更新するときだけ、`image` は衣装を作成するときだけ入る。
+ * `costumeName` は target が 'icon' の画面から衣装も作成したときの衣装名。
+ */
 export type ImageGenerationResult = {
     icon?: string;
     image?: string;
+    costumeName?: string;
     vrm?: VrmAvatar;
 };
 
@@ -36,10 +43,15 @@ interface Props {
     isOpen: boolean;
     onClose: () => void;
     onComplete: (result: ImageGenerationResult) => void;
-    /** 'costume' は衣装の画像（全身の立ち絵）を作成する。'icon' はアイコンだけを作成する。 */
+    /**
+     * 'costume' は衣装の画像（全身の立ち絵）を、'icon' はアイコンを作成する。
+     * 画像ができた後の確定画面で、もう一方にも使うかを選べる。
+     */
     target?: 'costume' | 'icon';
-    /** target が 'costume' のとき「アイコンも更新」を表示し、その初期値に使う。未指定なら表示しない。 */
+    /** target が 'costume' のとき、アイコンにも使う選択の初期値。 */
     defaultUpdateIcon?: boolean;
+    /** target が 'icon' のとき、登録済みの衣装を渡すと衣装としても追加できる。 */
+    costumes?: Costume[];
     title?: string;
     transparentFullBody?: boolean;
     /** Existing 2D expression names offered as VRM mapping targets. */
@@ -61,6 +73,7 @@ export default function ImageGenerationModal({
     onComplete,
     target = 'costume',
     defaultUpdateIcon,
+    costumes,
     title,
     transparentFullBody = false,
     expressionNames = [],
@@ -82,9 +95,12 @@ export default function ImageGenerationModal({
     const [neutralCrop, setNeutralCrop] = useState<CropBox | null>(null);
     const [cropTarget, setCropTarget] = useState<CropTarget>('avatar');
     const [vrmAvatar, setVrmAvatar] = useState<VrmAvatar | null>(initialVrm ?? null);
-    const [updateIcon, setUpdateIcon] = useState(defaultUpdateIcon ?? false);
-    const createsImage = target === 'costume';
-    const createsIcon = target === 'icon' || updateIcon;
+    // 衣装とアイコンの両方に使うか。false のときは target の側だけを作成する。
+    const [useForBoth, setUseForBoth] = useState(target === 'costume' && (defaultUpdateIcon ?? false));
+    const [costumeName, setCostumeName] = useState('');
+    const canChooseUsage = target === 'costume' || costumes !== undefined;
+    const createsImage = target === 'costume' || useForBoth;
+    const createsIcon = target === 'icon' || useForBoth;
     const modalTitle = title ?? (target === 'icon' ? 'アイコンの変更' : '衣装をゼロから作成');
     const abortRef = useRef<AbortController | null>(null);
     const modalRef = useRef<HTMLDivElement>(null);
@@ -128,7 +144,8 @@ export default function ImageGenerationModal({
             abortRef.current = null;
         }
         setVrmAvatar(initialVrm ?? null);
-        setUpdateIcon(defaultUpdateIcon ?? false);
+        setUseForBoth(target === 'costume' && (defaultUpdateIcon ?? false));
+        setCostumeName(costumes?.length === 0 ? INITIAL_COSTUME_NAME : '');
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen]);
 
@@ -204,7 +221,7 @@ export default function ImageGenerationModal({
         if (!file) return;
         setError(null);
         if (file.name.toLowerCase().endsWith('.vrm')) {
-            if (!createsImage) {
+            if (target === 'icon') {
                 setError('アイコンには画像ファイルを選択してください。');
                 return;
             }
@@ -229,7 +246,7 @@ export default function ImageGenerationModal({
             setSource('uploaded');
             setImgNatural({ w: img.width, h: img.height });
             setAvatarCrop(createInitialCrop(img.width, img.height, AVATAR_ASPECT));
-            setNeutralCrop(createsImage ? createInitialCrop(img.width, img.height, NEUTRAL_ASPECT, true) : null);
+            setNeutralCrop(canChooseUsage ? createInitialCrop(img.width, img.height, NEUTRAL_ASPECT, true) : null);
             setCropTarget(createsImage ? 'neutral' : 'avatar');
         } catch (err) {
             setError(err instanceof Error ? err.message : '画像の読み込みに失敗しました');
@@ -261,8 +278,27 @@ export default function ImageGenerationModal({
         onClose();
     };
 
+    const handleUsageChange = (both: boolean) => {
+        setUseForBoth(both);
+        setError(null);
+        // 新しく増えた側の切り抜きを先に表示する。
+        if (both) setCropTarget(target === 'costume' ? 'avatar' : 'neutral');
+    };
+
     const handleConfirm = async () => {
         if (!fullBody || !avatarCrop) return;
+        const newCostumeName = target === 'icon' && createsImage ? costumeName.trim() : undefined;
+        if (newCostumeName !== undefined) {
+            if (!newCostumeName) {
+                setError('衣装名を入力してください。');
+                return;
+            }
+            if (isCostumeNameTaken(costumes ?? [], newCostumeName)) {
+                setError(`「${newCostumeName}」は既に存在します。`);
+                return;
+            }
+        }
+        setError(null);
         const image = !createsImage
             ? undefined
             : source === 'uploaded' && neutralCrop
@@ -276,12 +312,15 @@ export default function ImageGenerationModal({
         onComplete({
             ...(icon ? { icon } : {}),
             ...(image ? { image } : {}),
+            ...(image && newCostumeName ? { costumeName: newCostumeName } : {}),
         });
         onClose();
     };
 
-    // アイコンを作らないときは切り抜き対象を衣装画像に固定する。
-    const effectiveCropTarget: CropTarget = !createsIcon ? 'neutral' : !neutralCrop ? 'avatar' : cropTarget;
+    // 片方だけを作るときは、切り抜き対象をその側に固定する。
+    const effectiveCropTarget: CropTarget = !createsIcon
+        ? 'neutral'
+        : !createsImage || !neutralCrop ? 'avatar' : cropTarget;
 
     const handleRegenerate = () => {
         setFullBody(null);
@@ -290,6 +329,7 @@ export default function ImageGenerationModal({
         setAvatarCrop(null);
         setNeutralCrop(null);
         setCropTarget('avatar');
+        setError(null);
     };
 
     if (!isOpen) return null;
@@ -320,17 +360,6 @@ export default function ImageGenerationModal({
                 </div>
 
                 <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                    {createsImage && defaultUpdateIcon !== undefined && (
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8125rem', cursor: generating ? 'default' : 'pointer' }}>
-                            <input
-                                type="checkbox"
-                                checked={updateIcon}
-                                onChange={(event) => setUpdateIcon(event.target.checked)}
-                                disabled={generating}
-                            />
-                            アイコンも更新
-                        </label>
-                    )}
                     {!fullBody && !vrmAvatar && (
                         <>
                             <div>
@@ -420,7 +449,46 @@ export default function ImageGenerationModal({
 
                     {fullBody && imgNatural && avatarCrop && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                            {source === 'uploaded' && neutralCrop && createsIcon && (
+                            {canChooseUsage && (
+                                <div>
+                                    <label style={labelStyle}>使い道</label>
+                                    <div style={{ display: 'flex', gap: 8 }} role="group" aria-label="使い道">
+                                        <button
+                                            type="button"
+                                            className={useForBoth ? 'btn btn-ghost' : 'btn btn-primary'}
+                                            aria-pressed={!useForBoth}
+                                            onClick={() => handleUsageChange(false)}
+                                            style={{ flex: 1 }}
+                                        >
+                                            {target === 'costume' ? '衣装のみ' : 'アイコンのみ'}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className={useForBoth ? 'btn btn-primary' : 'btn btn-ghost'}
+                                            aria-pressed={useForBoth}
+                                            onClick={() => handleUsageChange(true)}
+                                            style={{ flex: 1 }}
+                                        >
+                                            衣装とアイコン
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                            {target === 'icon' && createsImage && (
+                                <div>
+                                    <label htmlFor="image-generation-costume-name" style={labelStyle}>衣装名</label>
+                                    <input
+                                        id="image-generation-costume-name"
+                                        type="text"
+                                        className="input"
+                                        value={costumeName}
+                                        onChange={(e) => setCostumeName(e.target.value)}
+                                        placeholder="例: casual, school_uniform, dress"
+                                    />
+                                </div>
+                            )}
+
+                            {source === 'uploaded' && neutralCrop && createsIcon && createsImage && (
                                 <div style={{ display: 'flex', gap: 8 }}>
                                     <button
                                         type="button"
@@ -428,7 +496,7 @@ export default function ImageGenerationModal({
                                         onClick={() => setCropTarget('neutral')}
                                         style={{ flex: 1 }}
                                     >
-                                        neutral 2:3
+                                        衣装の切り抜き
                                     </button>
                                     <button
                                         type="button"
@@ -436,7 +504,7 @@ export default function ImageGenerationModal({
                                         onClick={() => setCropTarget('avatar')}
                                         style={{ flex: 1 }}
                                     >
-                                        アバター
+                                        アイコンの切り抜き
                                     </button>
                                 </div>
                             )}
@@ -472,6 +540,7 @@ export default function ImageGenerationModal({
                                 />
                             )}
 
+                            {error && <p style={{ color: 'var(--error)', fontSize: '0.8125rem' }}>{error}</p>}
                             <div className="image-generation-inline-actions">
                                 <button className="btn btn-ghost" onClick={handleRegenerate}>再生成</button>
                                 <button className="btn btn-primary" onClick={handleConfirm}>確定</button>

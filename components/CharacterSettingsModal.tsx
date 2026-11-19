@@ -27,6 +27,7 @@ import { setTtsPlaybackVolume } from '@/lib/ttsPlayer';
 import { getVrmExpressionNames } from '@/lib/vrm';
 import {
     NEUTRAL_EXPRESSION_NAME,
+    createCostumeId,
     removeCostume,
     removeCostumeExpression,
     renameCostumeExpression,
@@ -962,8 +963,13 @@ function CharacterSettingsModalContent({
                 onClose={() => setImageGenOpen(false)}
                 target="icon"
                 transparentFullBody
+                costumes={costumeSet.costumes}
                 onComplete={(result) => {
                     if (result.icon) setIcon(result.icon);
+                    const { image, costumeName } = result;
+                    if (image && costumeName) {
+                        setCostumeSet((prev) => upsertCostume(prev, { id: createCostumeId(), name: costumeName, image }));
+                    }
                 }}
             />
 

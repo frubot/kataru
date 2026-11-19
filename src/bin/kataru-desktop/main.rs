@@ -12,11 +12,16 @@ use kataru::{AppError, Config, Server};
 use tao::{
     dpi::LogicalSize,
     event::{Event, WindowEvent},
-    event_loop::{ControlFlow, EventLoop, EventLoopBuilder},
+    event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy},
     window::{Window, WindowBuilder},
 };
 use tokio::{runtime::Runtime, sync::oneshot};
 use wry::{NewWindowResponse, WebContext, WebView, WebViewBuilder};
+
+#[cfg(windows)]
+mod keys;
+#[cfg(windows)]
+mod title_bar;
 
 /// 二重起動時に既存のウインドウを探すためのクラス名。
 #[cfg(windows)]
@@ -29,6 +34,10 @@ const BIND_RETRY_TIMEOUT: Duration = Duration::from_secs(6);
 enum UserEvent {
     ServerStopped(Result<(), String>),
     ForceExit,
+    #[cfg(windows)]
+    TitleBar(title_bar::Command),
+    #[cfg(windows)]
+    AppView(title_bar::AppViewMessage),
 }
 
 fn main() {
@@ -78,33 +87,48 @@ fn run() -> Result<(), String> {
 
     let window = build_window(&event_loop)?;
     let mut web_context = WebContext::new(Some(config.data_dir.join("webview")));
+    #[cfg(windows)]
+    let mut title_bar = title_bar::TitleBar::build(&window, &mut web_context, proxy.clone())
+        .map_err(webview_error)?;
     let mut webview = Some(build_webview(
         &window,
         &mut web_context,
         &launch_url,
         origin,
+        proxy.clone(),
     )?);
     let mut shutdown_sender = Some(shutdown_sender);
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
-        match event {
+        let close_requested = matches!(
+            event,
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
                 ..
-            } => {
-                // WebViewを先に破棄して接続を切り、サーバーの終了待ちが長引かないようにする。
-                window.set_visible(false);
-                webview.take();
-                if let Some(sender) = shutdown_sender.take() {
-                    let _ = sender.send(());
-                }
-                let proxy = proxy.clone();
-                thread::spawn(move || {
-                    thread::sleep(SHUTDOWN_TIMEOUT);
-                    let _ = proxy.send_event(UserEvent::ForceExit);
-                });
             }
+        );
+        #[cfg(windows)]
+        let close_requested = close_requested
+            || matches!(
+                event,
+                Event::UserEvent(UserEvent::TitleBar(title_bar::Command::Close))
+            );
+        if close_requested {
+            // WebViewを先に破棄して接続を切り、サーバーの終了待ちが長引かないようにする。
+            window.set_visible(false);
+            webview.take();
+            if let Some(sender) = shutdown_sender.take() {
+                let _ = sender.send(());
+            }
+            let proxy = proxy.clone();
+            thread::spawn(move || {
+                thread::sleep(SHUTDOWN_TIMEOUT);
+                let _ = proxy.send_event(UserEvent::ForceExit);
+            });
+            return;
+        }
+        match event {
             // 画面からの更新要求でもサーバーが止まるため、そのときもウインドウを閉じて終了する。
             Event::UserEvent(UserEvent::ServerStopped(result)) => {
                 if let Err(message) = result {
@@ -113,9 +137,105 @@ fn run() -> Result<(), String> {
                 *control_flow = ControlFlow::Exit;
             }
             Event::UserEvent(UserEvent::ForceExit) => *control_flow = ControlFlow::Exit,
+            #[cfg(windows)]
+            Event::WindowEvent {
+                event: WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. },
+                ..
+            } => {
+                title_bar.layout(&window);
+                if let Some(view) = &webview {
+                    let _ = view.set_bounds(title_bar::app_bounds(&window));
+                }
+            }
+            #[cfg(windows)]
+            Event::WindowEvent {
+                event: WindowEvent::Focused(_),
+                ..
+            } => update_activation(&window, &title_bar, webview.as_ref()),
+            #[cfg(windows)]
+            Event::UserEvent(UserEvent::TitleBar(command)) => {
+                handle_title_bar_command(command, &window, &title_bar, webview.as_ref());
+            }
+            #[cfg(windows)]
+            Event::UserEvent(UserEvent::AppView(message)) => {
+                handle_app_view_message(message, &window, &mut title_bar, webview.as_ref());
+            }
             _ => {}
         }
     });
+}
+
+/// アクティブ状態をタイトルバーに反映する。ほかのウインドウへ移ったら、開いているメニューも閉じる。
+#[cfg(windows)]
+fn update_activation(window: &Window, title_bar: &title_bar::TitleBar, app_view: Option<&WebView>) {
+    if !title_bar.update_active(window)
+        && let Some(view) = app_view
+    {
+        title_bar::close_menu(view);
+    }
+}
+
+#[cfg(windows)]
+fn handle_title_bar_command(
+    command: title_bar::Command,
+    window: &Window,
+    title_bar: &title_bar::TitleBar,
+    app_view: Option<&WebView>,
+) {
+    use title_bar::Command;
+
+    match command {
+        Command::Ready => title_bar.sync(window),
+        Command::ActivationChanged => update_activation(window, title_bar, app_view),
+        Command::Drag => {
+            let _ = window.drag_window();
+        }
+        Command::Minimize => window.set_minimized(true),
+        Command::ToggleMaximize => window.set_maximized(!window.is_maximized()),
+        Command::Resize(direction) => {
+            let _ = window.drag_resize_window(direction);
+        }
+        Command::ToggleSidebar => {
+            if let Some(view) = app_view {
+                title_bar::toggle_sidebar(view);
+            }
+        }
+        Command::OpenMenu { menu, left } => {
+            if let Some(view) = app_view {
+                title_bar::open_menu(view, window, menu, left);
+            }
+        }
+        Command::CloseMenu => {
+            if let Some(view) = app_view {
+                title_bar::close_menu(view);
+            }
+        }
+        // 閉じる操作はイベントループの先頭で処理している。
+        Command::Close => {}
+    }
+}
+
+#[cfg(windows)]
+fn handle_app_view_message(
+    message: title_bar::AppViewMessage,
+    window: &Window,
+    title_bar: &mut title_bar::TitleBar,
+    app_view: Option<&WebView>,
+) {
+    use title_bar::AppViewMessage;
+
+    match message {
+        AppViewMessage::Theme(theme) => title_bar.set_theme(theme),
+        AppViewMessage::ActivationChanged => update_activation(window, title_bar, app_view),
+        AppViewMessage::MenuClosed => title_bar.clear_open_menu(),
+        AppViewMessage::Shortcut(shortcut) => {
+            // メニューの項目を押した時点でアプリ画面にフォーカスは戻っているが、確実に戻してから送る。
+            if let Some(view) = app_view {
+                let _ = view.focus();
+            }
+            shortcut.send();
+        }
+    }
 }
 
 /// ポートを確保する。すでにデスクトップ版が起動していれば、そのウインドウを前面に出して `None` を返す。
@@ -151,9 +271,12 @@ fn build_window(event_loop: &EventLoop<UserEvent>) -> Result<Window, String> {
         use tao::platform::windows::{IconExtWindows, WindowBuilderExtWindows};
         // build.rsで実行ファイルに埋め込んだアイコン（リソースID 1）を使う。
         let icon = tao::window::Icon::from_resource(1, None).ok();
+        // タイトルバーは独自に描画する。影を残すと、左右と下の縁はOS標準の方法でリサイズできる。
         builder
             .with_window_classname(WINDOW_CLASS)
             .with_window_icon(icon)
+            .with_decorations(false)
+            .with_undecorated_shadow(true)
     };
     builder
         .build(event_loop)
@@ -165,6 +288,7 @@ fn build_webview(
     web_context: &mut WebContext,
     launch_url: &str,
     origin: String,
+    #[cfg_attr(not(windows), allow(unused_variables))] proxy: EventLoopProxy<UserEvent>,
 ) -> Result<WebView, String> {
     let builder = WebViewBuilder::new_with_web_context(web_context)
         .with_url(launch_url)
@@ -193,18 +317,22 @@ fn build_webview(
             .ok_or_else(|| "ウインドウを作成できませんでした。".to_owned())?;
         builder.build_gtk(container)
     };
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
+    let result = title_bar::configure_app_view(builder, window, proxy).build_as_child(window);
+    #[cfg(not(any(windows, target_os = "linux")))]
     let result = builder.build(window);
 
-    result.map_err(|error| {
-        if cfg!(windows) {
-            format!(
-                "画面を表示できませんでした。Microsoft Edge WebView2ランタイムがインストールされているか確認してください。\n\n{error}"
-            )
-        } else {
-            format!("画面を表示できませんでした: {error}")
-        }
-    })
+    result.map_err(webview_error)
+}
+
+fn webview_error(error: wry::Error) -> String {
+    if cfg!(windows) {
+        format!(
+            "画面を表示できませんでした。Microsoft Edge WebView2ランタイムがインストールされているか確認してください。\n\n{error}"
+        )
+    } else {
+        format!("画面を表示できませんでした: {error}")
+    }
 }
 
 fn is_external_web_url(url: &str, origin: &str) -> bool {

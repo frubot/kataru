@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import type { GeneratedCharacterDraft } from '@/lib/characterGeneration';
 import { CURRENT_ONBOARDING_VERSION, useStore, Character, getThemeClassName, resolveSituationParticipants } from '@/lib/store';
@@ -11,6 +11,15 @@ import MemoryListModal from '@/components/MemoryListModal';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import AppSkeleton from '@/components/AppSkeleton';
 import FirstRunGuide from '@/components/FirstRunGuide';
+import DesktopMenu from '@/components/DesktopMenu';
+import { isDesktopApp, subscribeDesktopEvents } from '@/lib/desktopApp';
+
+/** サイドバーがオーバーレイ表示になる幅。styles/globals.cssのブレークポイントと合わせる。 */
+const MOBILE_LAYOUT_QUERY = '(max-width: 768px)';
+
+function isMobileLayout(): boolean {
+    return window.matchMedia(MOBILE_LAYOUT_QUERY).matches;
+}
 
 const HYDRATE_TIMEOUT_MS = 15_000;
 
@@ -139,6 +148,15 @@ export default function Home() {
             window.clearTimeout(timeoutId);
         };
     }, [hydrate, hydrateAttempt]);
+
+    const toggleSidebar = useCallback(() => {
+        if (isMobileLayout()) setMobileSidebarOpen((open) => !open);
+        else setDesktopSidebarOpen((open) => !open);
+    }, []);
+
+    useEffect(() => subscribeDesktopEvents((event) => {
+        if (event.type === 'toggle-sidebar') toggleSidebar();
+    }), [toggleSidebar]);
 
     useEffect(() => {
         if (mounted && hydrated) {
@@ -276,6 +294,17 @@ export default function Home() {
                     }}
                 />
             </ErrorBoundary>
+            {isDesktopApp() && (
+                <DesktopMenu
+                    sidebarVisible={() => (isMobileLayout() ? mobileSidebarOpen : desktopSidebarOpen)}
+                    onToggleSidebar={toggleSidebar}
+                    onOpenSettings={() => setShowSettings(true)}
+                    onShowOnboarding={() => {
+                        setShowSettings(false);
+                        setShowOnboardingAgain(true);
+                    }}
+                />
+            )}
             <ErrorBoundary>
                 <CharacterSettingsModal
                     isOpen={characterModalOpen}

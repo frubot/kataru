@@ -55,8 +55,8 @@ desktop = ["dep:wry", "dep:tao", "dep:windows-sys"]
 
 [[bin]]
 name = "kataru-desktop"
-path = "src/bin/kataru-desktop.rs"
+path = "src/bin/kataru-desktop/main.rs"
 required-features = ["desktop"]
 
 [target."cfg(windows)".dependencies]
-windows-sys = { version = "0.61", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation"], optional = true }
+windows-sys = { version = "0.61", features = ["Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_Foundation"], optional = true }

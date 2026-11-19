@@ -3,6 +3,7 @@ import { Plus, Settings, Trash2, ChevronDown, ChevronRight, User, Users, Copy, E
 import { useStore, Character, Situation, resolveSituationParticipants, type Room } from '@/lib/store';
 import * as db from '@/lib/db';
 import { generateId } from '@/lib/id';
+import { isDesktopApp } from '@/lib/desktopApp';
 import {
     SIDEBAR_LAYOUT_META_KEY,
     createFolder,
@@ -1015,16 +1016,19 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, o
                         >
                             <Search size={18} />
                         </button>
-                        <button
-                            type="button"
-                            className="btn btn-ghost sidebar-icon-button sidebar-toggle-button"
-                            onClick={onToggleDesktop}
-                            title={desktopSidebarTitle}
-                            aria-label={desktopSidebarTitle}
-                            aria-expanded={isDesktopOpen}
-                        >
-                            <DesktopSidebarIcon size={18} />
-                        </button>
+                        {/* デスクトップ版ではタイトルバーに同じボタンがある。 */}
+                        {!isDesktopApp() && (
+                            <button
+                                type="button"
+                                className="btn btn-ghost sidebar-icon-button sidebar-toggle-button"
+                                onClick={onToggleDesktop}
+                                title={desktopSidebarTitle}
+                                aria-label={desktopSidebarTitle}
+                                aria-expanded={isDesktopOpen}
+                            >
+                                <DesktopSidebarIcon size={18} />
+                            </button>
+                        )}
                     </div>
                     <div className="sidebar-mobile-controls mobile-only">
                         <img className="sidebar-brand" src="/logo.png" alt="" />

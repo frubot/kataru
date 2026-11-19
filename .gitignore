@@ -28,6 +28,7 @@
 *.db-shm
 *.db-wal
 /kataru-data/
+/.kataru-dev/
 /.kataru-smoke-*/
 
 # misc

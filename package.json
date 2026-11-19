@@ -14,7 +14,7 @@
     "test:migration": "node --experimental-strip-types --test tests/aiSettingsMigration.test.mjs",
     "test:branch": "node --experimental-strip-types --test tests/conversationBranch.test.mjs",
     "dev": "node --env-file=.env.local scripts/dev.mjs",
-    "dev:server": "cargo run -- --dev-origin http://127.0.0.1:3000",
+    "dev:server": "cargo run -- --dev-origin http://127.0.0.1:3000 --data-dir .kataru-dev",
     "dev:ui": "vite",
     "start": "node scripts/start.mjs",
     "smoke:binary": "node scripts/smoke-binary.mjs",

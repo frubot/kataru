@@ -136,8 +136,18 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      - name: Clippy desktop app
+        if: runner.os == 'Windows'
+        run: cargo clippy --bins --locked --features desktop -- -D warnings
+
       - name: Build release binary
+        if: runner.os != 'Windows'
         run: cargo build --release --locked
+
+      # Windowsではデスクトップ版（kataru-desktop.exe）も同時にビルドします
+      - name: Build release binaries with desktop app
+        if: runner.os == 'Windows'
+        run: cargo build --release --locked --features desktop
 
       - name: Smoke test
         run: npm run smoke:binary
@@ -149,8 +159,11 @@ jobs:
           Copy-Item `
             -LiteralPath target/release/kataru.exe `
             -Destination "${{ matrix.updater_binary }}"
+          Copy-Item `
+            -LiteralPath target/release/kataru-desktop.exe `
+            -Destination kataru-desktop-windows-x64.exe
           Compress-Archive `
-            -LiteralPath target/release/kataru.exe `
+            -LiteralPath target/release/kataru.exe, target/release/kataru-desktop.exe `
             -DestinationPath "${{ matrix.archive }}"
 
       - name: Package Unix binary
@@ -167,6 +180,7 @@ jobs:
           path: |
             ${{ matrix.archive }}
             ${{ matrix.updater_binary }}
+            kataru-desktop-windows-x64.exe
           if-no-files-found: error
           retention-days: 14
 

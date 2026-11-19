@@ -6,6 +6,7 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     process::{self, Command},
+    sync::OnceLock,
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -27,6 +28,8 @@ const MAX_UPDATE_SIZE: u64 = 128 * 1024 * 1024;
 const UPDATE_TIMEOUT: Duration = Duration::from_secs(120);
 const INTERNAL_APPLY_COMMAND: &str = "__apply-update";
 const INTERNAL_CLEANUP_COMMAND: &str = "__cleanup-update";
+
+static ASSET_PREFIX: OnceLock<&'static str> = OnceLock::new();
 
 #[derive(Clone, Debug, Deserialize)]
 struct GitHubAsset {
@@ -598,13 +601,20 @@ fn version_text(version: &[u64]) -> String {
         .join(".")
 }
 
-fn update_asset_name() -> Option<&'static str> {
-    match (env::consts::OS, env::consts::ARCH) {
-        ("windows", "x86_64") => Some("kataru-windows-x64.exe"),
-        ("linux", "x86_64") => Some("kataru-linux-x64"),
-        ("macos", "aarch64") => Some("kataru-macos-arm64"),
-        _ => None,
-    }
+/// 更新ファイル名の接頭辞を設定する。デスクトップ版は `kataru-desktop` を使う。
+pub fn set_asset_prefix(prefix: &'static str) {
+    let _ = ASSET_PREFIX.set(prefix);
+}
+
+fn update_asset_name() -> Option<String> {
+    let platform = match (env::consts::OS, env::consts::ARCH) {
+        ("windows", "x86_64") => "windows-x64.exe",
+        ("linux", "x86_64") => "linux-x64",
+        ("macos", "aarch64") => "macos-arm64",
+        _ => return None,
+    };
+    let prefix = ASSET_PREFIX.get().copied().unwrap_or("kataru");
+    Some(format!("{prefix}-{platform}"))
 }
 
 #[cfg(unix)]

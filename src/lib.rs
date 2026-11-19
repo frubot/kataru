@@ -2,7 +2,7 @@ mod ai;
 mod ai_config;
 mod auth;
 mod character_package;
-mod config;
+pub mod config;
 mod conversation;
 mod core_memory;
 mod db;
@@ -12,7 +12,7 @@ mod error;
 mod hashing;
 mod logging;
 mod static_assets;
-mod update;
+pub mod update;
 mod user_placeholder;
 
 use std::{
@@ -41,9 +41,9 @@ use tower_http::{
     trace::TraceLayer,
 };
 
-use crate::{
+use crate::db::{Database, handle_storage_command};
+pub use crate::{
     config::Config,
-    db::{Database, handle_storage_command},
     error::{AppError, AppResult},
 };
 
@@ -83,15 +83,8 @@ struct SecurityState {
     development_origin: Option<Arc<str>>,
 }
 
-#[tokio::main]
-async fn main() {
-    if let Err(error) = run().await {
-        eprintln!("Kataruを起動できませんでした: {error}");
-        std::process::exit(1);
-    }
-}
-
-async fn run() -> AppResult<()> {
+/// .envの読み込みとログ初期化を行う。CLI版・デスクトップ版の起動時に最初に呼ぶ。
+pub fn init_process() {
     // .envはRUST_LOGやAI接続の環境変数に効かせるため、ログ初期化より先に読み込む。
     let env_files = env_file::load();
     let verbose = logging::verbose_requested();
@@ -99,117 +92,163 @@ async fn run() -> AppResult<()> {
     for path in &env_files {
         tracing::info!(file = %path.display(), "loaded environment variables");
     }
+}
 
-    if update::run_special_command_if_requested().await? {
+/// CLI版のエントリーポイント。サブコマンドがなければサーバーを起動してブラウザを開く。
+pub async fn run_cli() -> AppResult<()> {
+    init_process();
+    if run_cli_command_if_requested().await? {
         return Ok(());
+    }
+
+    let config = Config::from_args()?;
+    let server = Server::bind(&config).await?;
+    println!("Kataru: {}", server.launch_url());
+    if config.open_browser
+        && let Err(error) = webbrowser::open(server.launch_url())
+    {
+        tracing::warn!(url = %config.origin(), %error, "failed to open browser");
+    }
+    server.serve(shutdown_signal()).await
+}
+
+async fn run_cli_command_if_requested() -> AppResult<bool> {
+    if update::run_special_command_if_requested().await? {
+        return Ok(true);
     }
     if ai_config::run_cli_command_if_requested()? {
-        return Ok(());
+        return Ok(true);
     }
     if auth::run_cli_command_if_requested()? {
-        return Ok(());
+        return Ok(true);
     }
     if ai::run_models_cli_command_if_requested().await? {
-        return Ok(());
+        return Ok(true);
     }
     if let Some(exit_code) = doctor::run_cli_command_if_requested().await? {
         if exit_code != 0 {
             std::process::exit(exit_code);
         }
-        return Ok(());
+        return Ok(true);
     }
+    Ok(false)
+}
 
-    let config = Config::from_args()?;
-    let database = Database::open(&config.database_path)?;
-    let ai_config = ai_config::AiConfigManager::open(&config.data_dir)?;
-    let model_catalog_cache = ai::ModelCatalogCache::open(&config.data_dir)?;
-    let http_client = Client::builder()
-        .user_agent(format!("Kataru/{}", env!("CARGO_PKG_VERSION")))
-        .build()?;
-    let mut allowed_origins = vec![config.origin()];
-    if let Some(origin) = &config.development_origin {
-        allowed_origins.push(origin.clone());
-    }
-    let allowed_origins: Arc<[String]> = Arc::from(allowed_origins);
-    let update_shutdown = Arc::new(Notify::new());
-    let state = AppState {
-        database,
-        http_client,
-        model_catalog_cache,
-        application_origin: config.origin(),
-        configuration_origins: allowed_origins.clone(),
-        ai_config,
-        conversation_jobs: conversation::jobs::ConversationJobs::default(),
-        update_shutdown: update_shutdown.clone(),
-        pending_update_marker: Arc::new(Mutex::new(None)),
-    };
+/// 待受ポートを確保済みで、まだリクエストを処理していないサーバー。
+pub struct Server {
+    listener: TcpListener,
+    app: Router,
+    state: AppState,
+    launch_url: String,
+}
 
-    let auth = if config.auth_disabled {
-        auth::Auth::disabled()
-    } else {
-        let token = match &config.fixed_token {
-            Some(token) => token.clone(),
-            None => auth::load_or_create_token(&config.data_dir)?,
+impl Server {
+    /// 待受ポートを確保してからDBと設定を開く。ポート使用中は `AppError::Io(AddrInUse)` を返す。
+    pub async fn bind(config: &Config) -> AppResult<Self> {
+        // 二重起動時にDBへ触れる前に失敗させるため、ポートを最初に確保する。
+        let listener = TcpListener::bind(config.bind_address()).await?;
+        let database = Database::open(&config.database_path)?;
+        let ai_config = ai_config::AiConfigManager::open(&config.data_dir)?;
+        let model_catalog_cache = ai::ModelCatalogCache::open(&config.data_dir)?;
+        let http_client = Client::builder()
+            .user_agent(format!("Kataru/{}", env!("CARGO_PKG_VERSION")))
+            .build()?;
+        let mut allowed_origins = vec![config.origin()];
+        if let Some(origin) = &config.development_origin {
+            allowed_origins.push(origin.clone());
+        }
+        let allowed_origins: Arc<[String]> = Arc::from(allowed_origins);
+        let state = AppState {
+            database,
+            http_client,
+            model_catalog_cache,
+            application_origin: config.origin(),
+            configuration_origins: allowed_origins.clone(),
+            ai_config,
+            conversation_jobs: conversation::jobs::ConversationJobs::default(),
+            update_shutdown: Arc::new(Notify::new()),
+            pending_update_marker: Arc::new(Mutex::new(None)),
         };
-        auth::Auth::new(token, config.port)
-    };
-    let launch_url = auth.token().map_or_else(
-        || config.origin(),
-        |token| auth::launch_url(&config.origin(), token),
-    );
-    let security = SecurityState {
-        authority: Arc::from(config.authority()),
-        allowed_origins,
-        auth,
-        development_origin: config.development_origin.as_deref().map(Arc::from),
-    };
 
-    let api = api_router();
+        let auth = if config.auth_disabled {
+            auth::Auth::disabled()
+        } else {
+            let token = match &config.fixed_token {
+                Some(token) => token.clone(),
+                None => auth::load_or_create_token(&config.data_dir)?,
+            };
+            auth::Auth::new(token, config.port)
+        };
+        let launch_url = auth.token().map_or_else(
+            || config.origin(),
+            |token| auth::launch_url(&config.origin(), token),
+        );
+        let security = SecurityState {
+            authority: Arc::from(config.authority()),
+            allowed_origins,
+            auth,
+            development_origin: config.development_origin.as_deref().map(Arc::from),
+        };
 
-    let app = Router::new()
-        .nest("/api", api)
-        .fallback(static_assets::serve)
-        .with_state(state.clone())
-        .layer(middleware::from_fn_with_state(security, security_guard))
-        .layer(CompressionLayer::new().compress_when(response_compression_predicate()))
-        .layer(
-            TraceLayer::new_for_http()
-                .make_span_with(logging::make_http_span)
-                .on_response(logging::on_http_response),
+        let app = Router::new()
+            .nest("/api", api_router())
+            .fallback(static_assets::serve)
+            .with_state(state.clone())
+            .layer(middleware::from_fn_with_state(security, security_guard))
+            .layer(CompressionLayer::new().compress_when(response_compression_predicate()))
+            .layer(
+                TraceLayer::new_for_http()
+                    .make_span_with(logging::make_http_span)
+                    .on_response(logging::on_http_response),
+            )
+            .layer(middleware::from_fn(logging::assign_request_id));
+
+        // ログファイルに残らないよう、トークン付きURLはtracingに渡さない。
+        tracing::info!(
+            url = %config.origin(),
+            auth = !config.auth_disabled,
+            database = %state.database.path().display(),
+            "Kataru started"
+        );
+        Ok(Self {
+            listener,
+            app,
+            state,
+            launch_url,
+        })
+    }
+
+    /// 認証トークン付きの起動URL。
+    pub fn launch_url(&self) -> &str {
+        &self.launch_url
+    }
+
+    /// `shutdown` が完了するか、画面から更新が要求されるまでリクエストを処理する。
+    pub async fn serve(self, shutdown: impl Future<Output = ()> + Send + 'static) -> AppResult<()> {
+        let update_shutdown = self.state.update_shutdown.clone();
+        axum::serve(
+            self.listener,
+            self.app
+                .into_make_service_with_connect_info::<SocketAddr>(),
         )
-        .layer(middleware::from_fn(logging::assign_request_id));
-
-    let listener = TcpListener::bind(config.bind_address()).await?;
-    let url = config.origin();
-    // ログファイルに残らないよう、トークン付きURLはtracingに渡さない。
-    tracing::info!(
-        url = %url,
-        auth = !config.auth_disabled,
-        database = %state.database.path().display(),
-        "Kataru started"
-    );
-    println!("Kataru: {launch_url}");
-    if config.open_browser
-        && let Err(error) = webbrowser::open(&launch_url)
-    {
-        tracing::warn!(url = %url, %error, "failed to open browser");
+        .with_graceful_shutdown(async move {
+            tokio::select! {
+                () = shutdown => {}
+                () = update_shutdown.notified() => {}
+            }
+        })
+        .await?;
+        if let Some(marker) = self
+            .state
+            .pending_update_marker
+            .lock()
+            .map_err(|_| AppError::Internal("更新状態のロックに失敗しました。".to_owned()))?
+            .take()
+        {
+            update::mark_update_ready(&marker)?;
+        }
+        Ok(())
     }
-
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .with_graceful_shutdown(shutdown_signal(update_shutdown))
-    .await?;
-    if let Some(marker) = state
-        .pending_update_marker
-        .lock()
-        .map_err(|_| AppError::Internal("更新状態のロックに失敗しました。".to_owned()))?
-        .take()
-    {
-        update::mark_update_ready(&marker)?;
-    }
-    Ok(())
 }
 
 fn api_router() -> Router<AppState> {
@@ -428,7 +467,7 @@ async fn security_guard(
     next.run(request).await
 }
 
-async fn shutdown_signal(update_shutdown: Arc<Notify>) {
+async fn shutdown_signal() {
     let ctrl_c = async {
         if let Err(error) = tokio::signal::ctrl_c().await {
             tracing::error!(%error, "failed to install Ctrl+C handler");
@@ -451,7 +490,6 @@ async fn shutdown_signal(update_shutdown: Arc<Notify>) {
     tokio::select! {
         () = ctrl_c => {}
         () = terminate => {}
-        () = update_shutdown.notified() => {}
     }
 }
 

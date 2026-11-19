@@ -32,6 +32,15 @@ OpenRouter、OpenAI互換API、Anthropic APIに対応しています。TypeSafe 
 2. 実行ファイル（`kataru` または `kataru.exe`）を起動します。
 3. ブラウザが自動で開きます（開かない場合は <http://127.0.0.1:37371> を開いてください）。
 
+### デスクトップ版（Windows）
+
+Windows向けアーカイブには、ブラウザを使わずアプリのウインドウで開くデスクトップ版 `kataru-desktop.exe` も含まれています。データの保存先はブラウザ版と共通です。
+
+- ウインドウを閉じるとKataruも終了します。
+- 起動中にもう一度開くと、表示中のウインドウが前面に出ます。
+- ブラウザ版と同じポートを使うため、両方を同時には起動できません。
+- 表示には Microsoft Edge WebView2 ランタイムを使用します（Windows 11 には標準で入っています）。
+
 ### AI接続先の設定
 
 Kataruでは複数のAI接続先を登録し、キャラクターごとや用途別モデルに自由に割り当てて利用できます。
@@ -201,6 +210,14 @@ npm run build:binary
 
 - **Windows**: `target/release/kataru.exe`
 - **macOS / Linux**: `target/release/kataru`
+
+デスクトップ版も含めてビルドする場合:
+
+```bash
+npm run build:desktop
+```
+
+出力先は `target/release/kataru-desktop.exe` です。
 
 ビルド済みバイナリの起動:
 

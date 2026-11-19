@@ -5,6 +5,7 @@
   "scripts": {
     "build": "vite build",
     "build:binary": "npm run build && cargo build --release",
+    "build:desktop": "npm run build && cargo build --release --features desktop",
     "check:release-version": "node scripts/check-release-version.mjs",
     "check:rust": "cargo test",
     "dummy:api": "node scripts/dummy-api-server.mjs",

@@ -17,7 +17,8 @@ export default defineConfig({
         watch: { ignored: ['**/target/**'] },
         proxy: {
             '/api': {
-                target: 'http://127.0.0.1:37371',
+                // 開発用サーバーは通常版と同時に起動できるよう別ポートで待ち受ける。
+                target: 'http://127.0.0.1:37372',
                 changeOrigin: true,
             },
         },

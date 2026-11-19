@@ -1,6 +1,7 @@
 //! Kataruのデスクトップ版。サーバーを同じプロセスで起動し、ネイティブウインドウのWebViewで画面を表示する。
 
-#![cfg_attr(windows, windows_subsystem = "windows")]
+// 開発用のデバッグビルドでは、ログを見られるようにコンソールを残す。
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 use std::{
     io::ErrorKind,
@@ -26,6 +27,9 @@ mod title_bar;
 /// 二重起動時に既存のウインドウを探すためのクラス名。
 #[cfg(windows)]
 const WINDOW_CLASS: &str = "KataruDesktopWindow";
+/// 開発版のクラス名。通常版と同時に起動しても、互いのウインドウを前面に出さないよう分ける。
+#[cfg(windows)]
+const DEVELOPMENT_WINDOW_CLASS: &str = "KataruDesktopDevelopmentWindow";
 /// ウインドウを閉じてから、処理中のリクエストを待つ最大時間。
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 /// 終了処理中・起動処理中の既存インスタンスとポートが競合したときに待つ最大時間。
@@ -67,7 +71,8 @@ fn run() -> Result<(), String> {
         return Ok(());
     };
     let launch_url = server.launch_url().to_owned();
-    let origin = config.origin();
+    let mut app_origins = vec![config.origin()];
+    app_origins.extend(config.development_origin.clone());
 
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
@@ -85,7 +90,7 @@ fn run() -> Result<(), String> {
         });
     }
 
-    let window = build_window(&event_loop)?;
+    let window = build_window(&event_loop, config.development_origin.is_some())?;
     let mut web_context = WebContext::new(Some(config.data_dir.join("webview")));
     #[cfg(windows)]
     let mut title_bar = title_bar::TitleBar::build(&window, &mut web_context, proxy.clone())
@@ -94,7 +99,7 @@ fn run() -> Result<(), String> {
         &window,
         &mut web_context,
         &launch_url,
-        origin,
+        app_origins,
         proxy.clone(),
     )?);
     let mut shutdown_sender = Some(shutdown_sender);
@@ -245,7 +250,7 @@ fn bind_or_focus_existing(runtime: &Runtime, config: &Config) -> Result<Option<S
         match runtime.block_on(Server::bind(config)) {
             Ok(server) => return Ok(Some(server)),
             Err(AppError::Io(error)) if error.kind() == ErrorKind::AddrInUse => {
-                if focus_existing_window() {
+                if focus_existing_window(config.development_origin.is_some()) {
                     return Ok(None);
                 }
                 if Instant::now() >= deadline {
@@ -261,9 +266,13 @@ fn bind_or_focus_existing(runtime: &Runtime, config: &Config) -> Result<Option<S
     }
 }
 
-fn build_window(event_loop: &EventLoop<UserEvent>) -> Result<Window, String> {
+fn build_window(event_loop: &EventLoop<UserEvent>, development: bool) -> Result<Window, String> {
     let builder = WindowBuilder::new()
-        .with_title("Kataru")
+        .with_title(if development {
+            "Kataru（開発版）"
+        } else {
+            "Kataru"
+        })
         .with_inner_size(LogicalSize::new(1280.0, 820.0))
         .with_min_inner_size(LogicalSize::new(480.0, 600.0));
     #[cfg(windows)]
@@ -273,7 +282,7 @@ fn build_window(event_loop: &EventLoop<UserEvent>) -> Result<Window, String> {
         let icon = tao::window::Icon::from_resource(1, None).ok();
         // タイトルバーは独自に描画する。影を残すと、左右と下の縁はOS標準の方法でリサイズできる。
         builder
-            .with_window_classname(WINDOW_CLASS)
+            .with_window_classname(window_class(development))
             .with_window_icon(icon)
             .with_decorations(false)
             .with_undecorated_shadow(true)
@@ -287,7 +296,7 @@ fn build_webview(
     window: &Window,
     web_context: &mut WebContext,
     launch_url: &str,
-    origin: String,
+    app_origins: Vec<String>,
     #[cfg_attr(not(windows), allow(unused_variables))] proxy: EventLoopProxy<UserEvent>,
 ) -> Result<WebView, String> {
     let builder = WebViewBuilder::new_with_web_context(web_context)
@@ -295,7 +304,7 @@ fn build_webview(
         .with_devtools(cfg!(debug_assertions))
         // アプリ外のページはWebView内で開かず、既定のブラウザに渡す。
         .with_navigation_handler(move |url| {
-            if is_external_web_url(&url, &origin) {
+            if is_external_web_url(&url, &app_origins) {
                 open_in_browser(&url);
                 return false;
             }
@@ -335,14 +344,15 @@ fn webview_error(error: wry::Error) -> String {
     }
 }
 
-fn is_external_web_url(url: &str, origin: &str) -> bool {
+/// アプリ画面のオリジン（開発版ではVite開発サーバーも含む）以外のWebページかどうか。
+fn is_external_web_url(url: &str, app_origins: &[String]) -> bool {
     if !(url.starts_with("http://") || url.starts_with("https://")) {
         return false;
     }
-    let Some(rest) = url.strip_prefix(origin) else {
-        return true;
-    };
-    !(rest.is_empty() || rest.starts_with(['/', '?', '#']))
+    !app_origins.iter().any(|origin| {
+        url.strip_prefix(origin.as_str())
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with(['/', '?', '#']))
+    })
 }
 
 fn open_in_browser(url: &str) {
@@ -356,14 +366,23 @@ fn to_wide(value: &str) -> Vec<u16> {
     value.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
+#[cfg(windows)]
+fn window_class(development: bool) -> &'static str {
+    if development {
+        DEVELOPMENT_WINDOW_CLASS
+    } else {
+        WINDOW_CLASS
+    }
+}
+
 /// 表示中のデスクトップ版ウインドウがあれば前面に出す。
 #[cfg(windows)]
-fn focus_existing_window() -> bool {
+fn focus_existing_window(development: bool) -> bool {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         FindWindowW, IsIconic, IsWindowVisible, SW_RESTORE, SetForegroundWindow, ShowWindow,
     };
 
-    let class_name = to_wide(WINDOW_CLASS);
+    let class_name = to_wide(window_class(development));
     // SAFETY: class_nameはNUL終端済みで、呼び出し中は有効なバッファを指している。
     let window = unsafe { FindWindowW(class_name.as_ptr(), std::ptr::null()) };
     // SAFETY: windowはFindWindowWが返したハンドルで、各APIは無効なハンドルに対して失敗を返すだけ。
@@ -380,7 +399,7 @@ fn focus_existing_window() -> bool {
 }
 
 #[cfg(not(windows))]
-fn focus_existing_window() -> bool {
+fn focus_existing_window(_development: bool) -> bool {
     false
 }
 
@@ -412,13 +431,34 @@ mod tests {
 
     #[test]
     fn only_other_web_origins_are_external() {
-        let origin = "http://127.0.0.1:37371";
-        assert!(!is_external_web_url("http://127.0.0.1:37371/", origin));
-        assert!(!is_external_web_url("http://127.0.0.1:37371", origin));
-        assert!(!is_external_web_url("http://127.0.0.1:37371/?token=x", origin));
-        assert!(!is_external_web_url("about:blank", origin));
-        assert!(!is_external_web_url("blob:http://127.0.0.1:37371/abc", origin));
-        assert!(is_external_web_url("http://127.0.0.1:373710/", origin));
-        assert!(is_external_web_url("https://openrouter.ai/", origin));
+        let origins = ["http://127.0.0.1:37371".to_owned()];
+        let origins = origins.as_slice();
+        assert!(!is_external_web_url("http://127.0.0.1:37371/", origins));
+        assert!(!is_external_web_url("http://127.0.0.1:37371", origins));
+        assert!(!is_external_web_url(
+            "http://127.0.0.1:37371/?token=x",
+            origins
+        ));
+        assert!(!is_external_web_url("about:blank", origins));
+        assert!(!is_external_web_url(
+            "blob:http://127.0.0.1:37371/abc",
+            origins
+        ));
+        assert!(is_external_web_url("http://127.0.0.1:373710/", origins));
+        assert!(is_external_web_url("https://openrouter.ai/", origins));
+    }
+
+    #[test]
+    fn development_ui_origin_is_not_external() {
+        let origins = [
+            "http://127.0.0.1:37372".to_owned(),
+            "http://127.0.0.1:3000".to_owned(),
+        ];
+        assert!(!is_external_web_url("http://127.0.0.1:3000/", &origins));
+        assert!(!is_external_web_url(
+            "http://127.0.0.1:37372/?token=x",
+            &origins
+        ));
+        assert!(is_external_web_url("http://127.0.0.1:30000/", &origins));
     }
 }

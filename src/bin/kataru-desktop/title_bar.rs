@@ -106,6 +106,8 @@ pub enum AppViewMessage {
     ActivationChanged,
     MenuClosed,
     Shortcut(Shortcut),
+    /// 最後にダウンロードしたファイルをエクスプローラーで表示する。
+    RevealDownload,
 }
 
 impl AppViewMessage {
@@ -116,6 +118,7 @@ impl AppViewMessage {
         match message {
             ACTIVATION_MESSAGE => Some(Self::ActivationChanged),
             "menu-closed" => Some(Self::MenuClosed),
+            "reveal-download" => Some(Self::RevealDownload),
             _ => parse_theme_message(message).map(Self::Theme),
         }
     }
@@ -193,10 +196,14 @@ pub fn configure_app_view<'a>(
     window: &Window,
     proxy: EventLoopProxy<UserEvent>,
 ) -> WebViewBuilder<'a> {
+    let download_proxy = proxy.clone();
     builder
         .with_bounds(app_bounds(window))
         .with_initialization_script(APP_VIEW_SCRIPT)
         .with_hotkeys_zoom(true)
+        .with_download_completed_handler(move |_url, path, success| {
+            let _ = download_proxy.send_event(UserEvent::DownloadFinished { path, success });
+        })
         .with_ipc_handler(move |request| {
             if let Some(message) = AppViewMessage::parse(request.body()) {
                 let _ = proxy.send_event(UserEvent::AppView(message));
@@ -205,7 +212,7 @@ pub fn configure_app_view<'a>(
 }
 
 /// アプリ画面へ、タイトルバーの操作を通知する。
-fn emit_to_app_view(view: &WebView, detail: &Value) {
+pub fn emit_to_app_view(view: &WebView, detail: &Value) {
     let _ = view.evaluate_script(&format!(
         "window.dispatchEvent(new CustomEvent('kataru-desktop', {{ detail: {detail} }}))"
     ));
@@ -313,6 +320,10 @@ mod tests {
         assert_eq!(
             AppViewMessage::parse("menu-closed"),
             Some(AppViewMessage::MenuClosed)
+        );
+        assert_eq!(
+            AppViewMessage::parse("reveal-download"),
+            Some(AppViewMessage::RevealDownload)
         );
         assert_eq!(AppViewMessage::parse("shortcut:alt-f4"), None);
         assert_eq!(AppViewMessage::parse("close"), None);

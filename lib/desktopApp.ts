@@ -17,7 +17,9 @@ export type DesktopEvent =
     | { type: 'toggle-sidebar' }
     /** `left` はタイトルバー上の位置（物理ピクセル）。 */
     | { type: 'open-menu'; menu: DesktopMenuName; left: number }
-    | { type: 'close-menu' };
+    | { type: 'close-menu' }
+    /** `fileName` は保存できたときだけ入る。 */
+    | { type: 'download-finished'; success: boolean; fileName: string | null };
 
 type DesktopWindow = Window & {
     kataruDesktop?: boolean;
@@ -40,6 +42,11 @@ export function sendDesktopShortcut(shortcut: DesktopShortcut): void {
 
 export function notifyDesktopMenuClosed(): void {
     postDesktopMessage('menu-closed');
+}
+
+/** 最後にダウンロードしたファイルをエクスプローラーで表示する。 */
+export function revealDesktopDownload(): void {
+    postDesktopMessage('reveal-download');
 }
 
 export function subscribeDesktopEvents(handler: (event: DesktopEvent) => void): () => void {

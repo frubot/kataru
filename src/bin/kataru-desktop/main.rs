@@ -3,6 +3,8 @@
 // 開発用のデバッグビルドでは、ログを見られるようにコンソールを残す。
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+#[cfg(windows)]
+use std::path::PathBuf;
 use std::{
     io::ErrorKind,
     thread,
@@ -19,6 +21,8 @@ use tao::{
 use tokio::{runtime::Runtime, sync::oneshot};
 use wry::{NewWindowResponse, WebContext, WebView, WebViewBuilder};
 
+#[cfg(windows)]
+mod downloads;
 #[cfg(windows)]
 mod keys;
 #[cfg(windows)]
@@ -42,6 +46,8 @@ enum UserEvent {
     TitleBar(title_bar::Command),
     #[cfg(windows)]
     AppView(title_bar::AppViewMessage),
+    #[cfg(windows)]
+    DownloadFinished { path: Option<PathBuf>, success: bool },
 }
 
 fn main() {
@@ -103,6 +109,8 @@ fn run() -> Result<(), String> {
         proxy.clone(),
     )?);
     let mut shutdown_sender = Some(shutdown_sender);
+    #[cfg(windows)]
+    let mut downloads = downloads::Downloads::default();
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -163,7 +171,17 @@ fn run() -> Result<(), String> {
             }
             #[cfg(windows)]
             Event::UserEvent(UserEvent::AppView(message)) => {
-                handle_app_view_message(message, &window, &mut title_bar, webview.as_ref());
+                handle_app_view_message(
+                    message,
+                    &window,
+                    &mut title_bar,
+                    &downloads,
+                    webview.as_ref(),
+                );
+            }
+            #[cfg(windows)]
+            Event::UserEvent(UserEvent::DownloadFinished { path, success }) => {
+                downloads.finished(webview.as_ref(), path, success);
             }
             _ => {}
         }
@@ -225,6 +243,7 @@ fn handle_app_view_message(
     message: title_bar::AppViewMessage,
     window: &Window,
     title_bar: &mut title_bar::TitleBar,
+    downloads: &downloads::Downloads,
     app_view: Option<&WebView>,
 ) {
     use title_bar::AppViewMessage;
@@ -240,6 +259,7 @@ fn handle_app_view_message(
             }
             shortcut.send();
         }
+        AppViewMessage::RevealDownload => downloads.reveal_last(),
     }
 }
 

@@ -1792,7 +1792,7 @@ body {
 
 .ai-connection-heading {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 1rem;
   color: var(--accent-primary);
@@ -1911,10 +1911,11 @@ body {
 }
 
 .ai-connection-action-button {
-  min-height: 1.75rem;
-  padding: 0.25rem 0.625rem;
+  min-height: 1.875rem;
+  padding: 0.25rem 0.75rem;
+  border: 1px solid var(--border-color);
   font-family: inherit;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -1926,7 +1927,18 @@ body {
   color: var(--accent-primary);
 }
 
+.ai-connection-action-button:hover:not(:disabled),
+.ai-connection-action-button.active {
+  border-color: var(--accent-primary);
+}
+
+.ai-connection-action-button.danger {
+  border-color: transparent;
+  color: var(--error);
+}
+
 .ai-connection-action-button.danger:hover:not(:disabled) {
+  border-color: transparent;
   background: color-mix(in srgb, var(--error) 12%, transparent);
   color: var(--error);
 }

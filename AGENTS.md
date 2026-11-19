@@ -3,7 +3,7 @@
 ## コマンド
 
 ```bash
-npm run dev          # 明示的に依頼された場合だけ実行
+npm run dev          # 開発用のDBで起動。
 npm run lint
 npx tsc --noEmit
 npm run build        # Vite静的出力
@@ -28,6 +28,5 @@ cargo audit          # 依存関係の脆弱性監査（CIは週次、.github/wo
 - `migrations/`: SQLite migration。
 - `out/`: Viteの静的出力。Rustバイナリへ埋め込みます。
 
-## セキュリティ
-
-- `.env.*`の内容は読まないでください。
+## プライバシー
+確認には必ず本番DBではなく、開発用DBを使用してください。

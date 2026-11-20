@@ -2204,12 +2204,12 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         return null;
     }, [processedMessages]);
 
-    // 返信を受けた発言と、AIが読み始めた末尾の連投。メッセージ・ベーシックモードで「既読」を付ける。
+    // 返信を受けた発言と、AIが読み始めた末尾の連投。メッセージモードでのみ「既読」を付ける。
     const readUserMessageIds = useMemo(
-        () => usesReplyQueue && room
+        () => isMessageMode && room
             ? getReadUserMessageIds(room.messages, readMessageIds)
             : new Set<string>(),
-        [readMessageIds, room, usesReplyQueue],
+        [readMessageIds, room, isMessageMode],
     );
 
     const latestEditableUserMessage = useMemo(() => {

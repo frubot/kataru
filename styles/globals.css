@@ -5872,15 +5872,48 @@ body {
   max-width: 100%;
 }
 
-/* ユーザー発言をAIが読んだことを示す控えめな表示 */
-.message-read-receipt {
+/* バブル下の既読・送信時刻 */
+.message-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
   margin-top: 0.125rem;
   margin-right: 0.375rem;
   font-size: 0.65rem;
   line-height: 1.2;
   color: var(--text-muted);
   user-select: none;
+}
+
+.message-meta.assistant {
+  margin-right: 0;
+  margin-left: 0.375rem;
+}
+
+.message-time {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ユーザー発言をAIが読んだことを示す控えめな表示 */
+.message-read-receipt {
   animation: message-read-receipt-in 0.2s ease-out;
+}
+
+/* メッセージモードの日付の区切り */
+.message-date-divider {
+  display: flex;
+  justify-content: center;
+  margin: 0.75rem 0;
+  user-select: none;
+}
+
+.message-date-divider > span {
+  padding: 0.125rem 0.625rem;
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  line-height: 1.4;
 }
 
 @keyframes message-read-receipt-in {

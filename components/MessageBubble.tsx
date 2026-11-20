@@ -33,6 +33,12 @@ interface MessageBubbleProps {
     showAssistantActions?: boolean;
     showBranchAction?: boolean;
     showArchiveDivider: boolean;
+    /** メッセージの上に出す日付の区切り。 */
+    dateLabel?: string;
+    /** メッセージの下に出す送信時刻。 */
+    timeLabel?: string;
+    /** `timeLabel` の元になった時刻。 */
+    timestamp?: number;
     characterIcon?: string;
     characterName?: string;
     isGroupRoom?: boolean;
@@ -76,6 +82,9 @@ export default memo(function MessageBubble({
     showAssistantActions = true,
     showBranchAction = false,
     showArchiveDivider,
+    dateLabel,
+    timeLabel,
+    timestamp,
     characterIcon,
     characterName,
     isGroupRoom,
@@ -272,8 +281,22 @@ export default memo(function MessageBubble({
         </div>
     );
 
+    const timeElement = timeLabel ? (
+        <time
+            className="message-time"
+            dateTime={timestamp ? new Date(timestamp).toISOString() : undefined}
+        >
+            {timeLabel}
+        </time>
+    ) : null;
+
     return (
         <div className={isContinuationRow ? 'message-continuation' : undefined} style={isArchived ? { opacity: 0.45 } : undefined}>
+            {dateLabel && (
+                <div className="message-date-divider" role="separator" aria-label={dateLabel}>
+                    <span>{dateLabel}</span>
+                </div>
+            )}
             {showArchiveDivider && (
                 <div style={{
                     display: 'flex',
@@ -307,9 +330,14 @@ export default memo(function MessageBubble({
                             </div>
                         </div>
                     ) : userMessageBody}
-                    {isRead && !isEditing && (
-                        <div className="message-read-receipt" aria-label="既読">
-                            既読
+                    {(isRead || timeElement) && !isEditing && (
+                        <div className="message-meta">
+                            {isRead && (
+                                <span className="message-read-receipt" aria-label="既読">
+                                    既読
+                                </span>
+                            )}
+                            {timeElement}
                         </div>
                     )}
                     {!isMessageMode && userMessageActions}
@@ -397,6 +425,9 @@ export default memo(function MessageBubble({
                             </div>
                         )
                     ))}
+                    {!isNarration && timeElement && (
+                        <div className="message-meta assistant">{timeElement}</div>
+                    )}
                     {showAssistantActions && (
                         <div className="assistant-btn-row" style={{
                             display: 'flex',

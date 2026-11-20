@@ -16,6 +16,7 @@ import type {
     ChatStreamingPreviewBubble,
     PriorMessagePresentation,
 } from '@/lib/chatMessagePresentation';
+import type { MessageTimeLabels } from '@/lib/messageTimeLabels';
 import { isNarrationMessage, isNarratorCharacterId } from '@/lib/narration';
 import MessageBubble from '../MessageBubble';
 import StoredImage from '../StoredImage';
@@ -169,6 +170,8 @@ type ChatMessagesViewProps = {
     streamedFinalMessageIds: Set<string>;
     /** 「既読」を付けるユーザー発言のid。 */
     readMessageIds?: ReadonlySet<string>;
+    /** 送信時刻と日付の区切り。現実の日時を使う会話でだけ渡す。 */
+    messageTimeLabels?: ReadonlyMap<string, MessageTimeLabels>;
     typingMessageId: string | null;
     isTypewriterActive: boolean;
     editingMessage: EditingMessage;
@@ -262,6 +265,7 @@ export default function ChatMessagesView({
     copiedMessageId,
     streamedFinalMessageIds,
     readMessageIds,
+    messageTimeLabels,
     typingMessageId,
     isTypewriterActive,
     editingMessage,
@@ -485,6 +489,9 @@ export default function ChatMessagesView({
                 showAssistantActions={message.showAssistantActions}
                 showBranchAction={message.showBranchAction}
                 showArchiveDivider={message.showArchiveDivider}
+                dateLabel={messageTimeLabels?.get(message.id)?.dateLabel}
+                timeLabel={messageTimeLabels?.get(message.id)?.timeLabel}
+                timestamp={message.timestamp}
                 characterIcon={message.msgCharacterIcon}
                 characterName={message.msgCharacterName}
                 isGroupRoom={isGroupRoom}

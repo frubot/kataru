@@ -111,6 +111,7 @@ import { useSituationVisualNovelPresentation } from './chat/useSituationVisualNo
 import { useVisualNovelAutoPlay } from './chat/useVisualNovelAutoPlay';
 import { useTtsPlayback } from './chat/useTtsPlayback';
 import { useMessageReplyPacing } from './chat/useMessageReplyPacing';
+import { buildMessageTimeLabels } from '@/lib/messageTimeLabels';
 import type { VisualNovelTtsItem } from './chat/useTtsPlayback';
 import VisualNovelLogView from './chat/VisualNovelLogView';
 import VisualNovelView from './chat/VisualNovelView';
@@ -1417,6 +1418,13 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         if (everHeldReply.keys.size === 0) return streamedFinalMessageIds;
         return new Set([...streamedFinalMessageIds].filter((id) => !everHeldReply.keys.has(id)));
     }, [everHeldReply, streamedFinalMessageIds]);
+    // 現実の日時を会話に使うときは、メッセージアプリのように送信時刻と日付の区切りを出す。
+    const realTimeMode = isGroupRoom ? situation?.realTimeMode : character?.realTimeMode;
+    const showsMessageTimes = isMessageMode && !!realTimeMode && realTimeMode !== 'off';
+    const messageTimeLabels = useMemo(
+        () => showsMessageTimes ? buildMessageTimeLabels(pacedDisplayMessages) : undefined,
+        [pacedDisplayMessages, showsMessageTimes],
+    );
     const pacedStreamingAwaiting: ChatStreamingAwaitingStatus | null = !replyPacingEnabled
         ? streamingAwaiting
         : !replyPacing.typingVisible
@@ -2976,6 +2984,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     copiedMessageId={copiedMessageId}
                     streamedFinalMessageIds={pacedStreamedFinalMessageIds}
                     readMessageIds={readUserMessageIds}
+                    messageTimeLabels={messageTimeLabels}
                     typingMessageId={typingMessageId}
                     isTypewriterActive={isTypewriterActive}
                     editingMessage={

@@ -53,7 +53,7 @@ import {
     buildPriorMessagePresentations,
     resolveChatStreamingPresentation,
 } from '@/lib/chatMessagePresentation';
-import type { ChatStreamingPreview } from '@/lib/chatMessagePresentation';
+import type { ChatStreamingAwaitingStatus, ChatStreamingPreview } from '@/lib/chatMessagePresentation';
 import {
     cancelConversationJob,
     getConversationJob,
@@ -110,6 +110,7 @@ import { useVisualNovelPresentation } from './chat/useVisualNovelPresentation';
 import { useSituationVisualNovelPresentation } from './chat/useSituationVisualNovelPresentation';
 import { useVisualNovelAutoPlay } from './chat/useVisualNovelAutoPlay';
 import { useTtsPlayback } from './chat/useTtsPlayback';
+import { useMessageReplyPacing } from './chat/useMessageReplyPacing';
 import type { VisualNovelTtsItem } from './chat/useTtsPlayback';
 import VisualNovelLogView from './chat/VisualNovelLogView';
 import VisualNovelView from './chat/VisualNovelView';
@@ -1343,6 +1344,87 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         ));
     }, [continuationAppend, processedMessages, streamingPreview?.continuationOfMessageId]);
 
+    // メッセージモードでは、今回の返信の吹き出しを人が打つような間で1つずつ見せる。
+    const replyPacingEnabled = isMessageMode && !isVisualNovelMode;
+    const replyBubbles = useMemo(() => {
+        if (!replyPacingEnabled) return [];
+        const lastUserIndex = displayMessages.findLastIndex((message) => message.role === 'user');
+        const persisted = displayMessages
+            .slice(lastUserIndex + 1)
+            .filter((message) => message.role === 'assistant' && !message.isArchived && !message.mergedIntoPrevious)
+            .map((message) => ({
+                key: message.id,
+                length: message.displayContent.length,
+                awaiting: {
+                    characterId: message.characterId,
+                    characterName: message.msgCharacterName,
+                    character: message.characterId && characterMap
+                        ? characterMap.get(message.characterId) ?? null
+                        : (isGroupRoom ? null : character),
+                } satisfies ChatStreamingAwaitingStatus,
+            }));
+        const previews = streamingPreviewBubbles.map((bubble) => ({
+            key: bubble.key,
+            length: bubble.content.length,
+            awaiting: {
+                characterId: bubble.characterId,
+                characterName: bubble.characterName,
+                character: bubble.character ?? null,
+            } satisfies ChatStreamingAwaitingStatus,
+        }));
+        return [...persisted, ...previews];
+    }, [character, characterMap, displayMessages, isGroupRoom, replyPacingEnabled, streamingPreviewBubbles]);
+    const replyBubbleLengths = useMemo(() => replyBubbles.map((bubble) => bubble.length), [replyBubbles]);
+    const replyEpochKey = useMemo(() => {
+        const lastUserMessage = room?.messages.findLast((message) => message.role === 'user');
+        return `${room?.id ?? ''}:${lastUserMessage?.id ?? ''}`;
+    }, [room]);
+    const replyPacing = useMessageReplyPacing({
+        enabled: replyPacingEnabled,
+        epochKey: replyEpochKey,
+        bubbleLengths: replyBubbleLengths,
+        isLoading,
+    });
+    const heldReplyKeys = useMemo(
+        () => new Set(replyBubbles.slice(replyPacing.revealedCount).map((bubble) => bubble.key)),
+        [replyBubbles, replyPacing.revealedCount],
+    );
+    const pacedDisplayMessages = useMemo(
+        () => heldReplyKeys.size === 0
+            ? displayMessages
+            : displayMessages.filter((message) => !heldReplyKeys.has(message.id)),
+        [displayMessages, heldReplyKeys],
+    );
+    const pacedStreamingPreviewBubbles = useMemo(
+        () => heldReplyKeys.size === 0
+            ? streamingPreviewBubbles
+            : streamingPreviewBubbles.filter((bubble) => !heldReplyKeys.has(bubble.key)),
+        [heldReplyKeys, streamingPreviewBubbles],
+    );
+    // 生成中に本文を見せずに待たせた吹き出しは、表示するときに登場アニメーションを付ける。
+    const [everHeldReply, setEverHeldReply] = useState<{ epochKey: string; keys: ReadonlySet<string> }>(
+        () => ({ epochKey: '', keys: new Set() }),
+    );
+    useEffect(() => {
+        setEverHeldReply((current) => {
+            const base = current.epochKey === replyEpochKey ? current.keys : new Set<string>();
+            const added = [...heldReplyKeys].filter((key) => !base.has(key));
+            if (current.epochKey === replyEpochKey && added.length === 0) return current;
+            return { epochKey: replyEpochKey, keys: new Set([...base, ...added]) };
+        });
+    }, [heldReplyKeys, replyEpochKey]);
+    const pacedStreamedFinalMessageIds = useMemo(() => {
+        if (everHeldReply.keys.size === 0) return streamedFinalMessageIds;
+        return new Set([...streamedFinalMessageIds].filter((id) => !everHeldReply.keys.has(id)));
+    }, [everHeldReply, streamedFinalMessageIds]);
+    const pacedStreamingAwaiting: ChatStreamingAwaitingStatus | null = !replyPacingEnabled
+        ? streamingAwaiting
+        : !replyPacing.typingVisible
+            ? null
+            : replyBubbles[replyPacing.revealedCount]?.awaiting
+                ?? streamingAwaiting
+                ?? { character: isGroupRoom ? null : character };
+
     const handleStop = () => {
         if (stopTypewriter(true)) {
             return;
@@ -2205,12 +2287,29 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     }, [processedMessages]);
 
     // 返信を受けた発言と、AIが読み始めた末尾の連投。メッセージモードでのみ「既読」を付ける。
-    const readUserMessageIds = useMemo(
-        () => isMessageMode && room
-            ? getReadUserMessageIds(room.messages, readMessageIds)
-            : new Set<string>(),
-        [readMessageIds, room, isMessageMode],
-    );
+    // まだ見せていない返信は「返信を受けた」扱いにせず、既読も少し間を置いてから付ける。
+    // 割り込み送信などで既に既読を見せた発言は、そのまま既読にしておく。
+    const [shownReadUserMessageIds, setShownReadUserMessageIds] = useState<ReadonlySet<string>>(() => new Set());
+    const readUserMessageIds = useMemo(() => {
+        if (!isMessageMode || !room) return new Set<string>();
+        const visibleMessages = heldReplyKeys.size === 0
+            ? room.messages
+            : room.messages.filter((message) => !heldReplyKeys.has(message.id));
+        const read = getReadUserMessageIds(visibleMessages, readMessageIds);
+        if (!replyPacing.readVisible) {
+            for (const id of getTrailingUserMessageIds(visibleMessages)) {
+                if (!shownReadUserMessageIds.has(id)) read.delete(id);
+            }
+        }
+        return read;
+    }, [heldReplyKeys, readMessageIds, replyPacing.readVisible, room, isMessageMode, shownReadUserMessageIds]);
+    useEffect(() => {
+        setShownReadUserMessageIds((current) => (
+            current.size === readUserMessageIds.size && [...readUserMessageIds].every((id) => current.has(id))
+                ? current
+                : readUserMessageIds
+        ));
+    }, [readUserMessageIds]);
 
     const latestEditableUserMessage = useMemo(() => {
         if (!room) return null;
@@ -2265,7 +2364,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     }, [isVisualNovelMode, isVisualNovelLogOpen, situationVnNextItem]);
     const { playMessage: playTtsMessage, playVisualNovelItem: playTtsVisualNovelItem } = useTtsPlayback({
         roomId: currentRoomId,
-        messages: displayMessages,
+        messages: pacedDisplayMessages,
         isLoading,
         isRoomHistoryLoading: loadingRoomHistoryId === currentRoomId,
         notify: showChatNotice,
@@ -2727,7 +2826,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                             ? groupName ?? 'シチュエーション'
                             : character?.name
                     }
-                    typing={isLoading && usesReplyQueue}
+                    typing={replyPacingEnabled ? replyPacing.typingVisible : isLoading && usesReplyQueue}
                     isMobile={isMobile}
                     onOpenSidebar={onOpenSidebar}
                     debugEnabled={debugPanelEnabled}
@@ -2860,22 +2959,22 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 <ChatMessagesView
                     key={room.id}
                     priorMessages={priorMessagesForDisplay}
-                    messages={displayMessages}
+                    messages={pacedDisplayMessages}
                     isSecretMode={isSecretMode}
                     isMessageMode={isMessageMode}
                     isGroupRoom={isGroupRoom}
                     character={character}
                     groupCharacters={isGroupRoom ? groupCharacters : null}
                     activeStreamingPreview={activeStreamingPreview}
-                    streamingPreviewBubbles={streamingPreviewBubbles}
-                    streamingAwaiting={streamingAwaiting}
-                    isLoading={isLoading}
+                    streamingPreviewBubbles={pacedStreamingPreviewBubbles}
+                    streamingAwaiting={pacedStreamingAwaiting}
+                    isLoading={isLoading || replyPacing.holding}
                     isSummarizing={isSummarizing}
                     branchingMessageId={branchingMessageId}
                     hoveredMessageId={hoveredMessageId}
                     touchedMessageId={touchedMessageId}
                     copiedMessageId={copiedMessageId}
-                    streamedFinalMessageIds={streamedFinalMessageIds}
+                    streamedFinalMessageIds={pacedStreamedFinalMessageIds}
                     readMessageIds={readUserMessageIds}
                     typingMessageId={typingMessageId}
                     isTypewriterActive={isTypewriterActive}

@@ -655,7 +655,7 @@ export default function ChatMessagesView({
                     </div>
                 </div>
             )}
-            {isLoading && !activeStreamingPreview && messages.at(-1)?.role !== 'assistant' && (
+            {!isMessageMode && isLoading && !activeStreamingPreview && messages.at(-1)?.role !== 'assistant' && (
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
                     <Avatar character={isGroupRoom ? null : character} />
                     <div

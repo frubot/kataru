@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef, type CSSProperties } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import type { GeneratedCharacterDraft } from '@/lib/characterGeneration';
 import { CURRENT_ONBOARDING_VERSION, useStore, Character, getThemeClassName, resolveSituationParticipants } from '@/lib/store';
@@ -14,6 +14,9 @@ import FirstRunGuide from '@/components/FirstRunGuide';
 import DesktopMenu from '@/components/DesktopMenu';
 import DesktopDownloadNotice from '@/components/DesktopDownloadNotice';
 import DesktopTextContextMenu from '@/components/DesktopTextContextMenu';
+import SidebarResizer from '@/components/SidebarResizer';
+import * as db from '@/lib/db';
+import { SIDEBAR_WIDTH_DEFAULT, SIDEBAR_WIDTH_META_KEY, parseSidebarWidth } from '@/lib/sidebarWidth';
 import { isDesktopApp, subscribeDesktopEvents } from '@/lib/desktopApp';
 
 /** サイドバーがオーバーレイ表示になる幅。styles/globals.cssのブレークポイントと合わせる。 */
@@ -107,6 +110,10 @@ export default function Home() {
     const [showSettings, setShowSettings] = useState(false);
     const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
     const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true);
+    const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_WIDTH_DEFAULT);
+    const [sidebarResizing, setSidebarResizing] = useState(false);
+    const [sidebarWidthAnimated, setSidebarWidthAnimated] = useState(false);
+    const layoutRef = useRef<HTMLElement>(null);
     const [mounted, setMounted] = useState(false);
     const [hydrateError, setHydrateError] = useState<string | null>(null);
     const [hydrateAttempt, setHydrateAttempt] = useState(0);
@@ -151,6 +158,35 @@ export default function Home() {
             window.clearTimeout(timeoutId);
         };
     }, [hydrate, hydrateAttempt]);
+
+    useEffect(() => {
+        if (!hydrated) return;
+        let cancelled = false;
+        let timeoutId: number | undefined;
+        db.getMeta(SIDEBAR_WIDTH_META_KEY)
+            .then((value) => {
+                if (!cancelled) setSidebarWidth(parseSidebarWidth(value));
+            })
+            .catch((error) => console.error('[sidebarWidth]', error))
+            .finally(() => {
+                if (cancelled) return;
+                // 保存済みの幅はアニメーションなしで反映し、確定してから開閉のアニメーションを有効にする。
+                timeoutId = window.setTimeout(() => {
+                    document.body.getBoundingClientRect();
+                    setSidebarWidthAnimated(true);
+                }, 0);
+            });
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timeoutId);
+        };
+    }, [hydrated]);
+
+    const handleSidebarResizeEnd = useCallback((width: number) => {
+        setSidebarWidth(width);
+        setSidebarResizing(false);
+        db.setMeta(SIDEBAR_WIDTH_META_KEY, width).catch((error) => console.error('[sidebarWidth]', error));
+    }, []);
 
     const toggleSidebar = useCallback(() => {
         if (isMobileLayout()) setMobileSidebarOpen((open) => !open);
@@ -255,7 +291,16 @@ export default function Home() {
     }
 
     return (
-        <main className={`app-layout ${desktopSidebarOpen ? '' : 'sidebar-collapsed'}`}>
+        <main
+            ref={layoutRef}
+            className={[
+                'app-layout',
+                desktopSidebarOpen ? '' : 'sidebar-collapsed',
+                sidebarResizing ? 'sidebar-resizing' : '',
+                sidebarResizing || !sidebarWidthAnimated ? 'sidebar-width-instant' : '',
+            ].filter(Boolean).join(' ')}
+            style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}
+        >
             <ErrorBoundary fallbackMessage="サイドバーでエラーが発生しました">
                 <ChatSidebar
                     onOpenSettings={() => setShowSettings(true)}
@@ -271,6 +316,15 @@ export default function Home() {
                     onToggleDesktop={() => setDesktopSidebarOpen((open) => !open)}
                 />
             </ErrorBoundary>
+            {desktopSidebarOpen && (
+                <SidebarResizer
+                    width={sidebarWidth}
+                    layoutRef={layoutRef}
+                    onResize={setSidebarWidth}
+                    onResizeStart={() => setSidebarResizing(true)}
+                    onResizeEnd={handleSidebarResizeEnd}
+                />
+            )}
             <ErrorBoundary fallbackMessage="チャット画面でエラーが発生しました">
                 {shouldShowFirstRunGuide ? (
                     <FirstRunGuide

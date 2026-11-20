@@ -2662,9 +2662,9 @@ body {
 /* Sidebar styles */
 .sidebar {
   position: relative;
-  width: 265px;
-  min-width: 265px;
-  max-width: 265px;
+  width: var(--sidebar-width, 265px);
+  min-width: var(--sidebar-width, 265px);
+  max-width: var(--sidebar-width, 265px);
   height: 100%;
   background: var(--bg-primary);
   border-right: 1px solid var(--border-color);
@@ -2673,6 +2673,48 @@ body {
   flex-shrink: 0;
   overflow: hidden;
   transition: width 0.25s ease, min-width 0.25s ease, max-width 0.25s ease, border-color 0.25s ease;
+}
+
+.sidebar-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--sidebar-width, 265px) - 3px);
+  z-index: 20;
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.sidebar-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  background: transparent;
+  transition: background-color 0.15s ease;
+}
+
+.sidebar-resizer:hover::after,
+.sidebar-resizer:focus-visible::after,
+.app-layout.sidebar-resizing .sidebar-resizer::after {
+  background: var(--accent-primary);
+}
+
+.sidebar-resizer:focus-visible {
+  outline: none;
+}
+
+.app-layout.sidebar-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.app-layout.sidebar-width-instant .sidebar,
+.app-layout.sidebar-resizing .sidebar * {
+  transition: none;
 }
 
 .sidebar-header {

@@ -1458,8 +1458,114 @@ body {
   border-bottom: 1px solid color-mix(in srgb, var(--border-color) 55%, transparent);
 }
 
-.prompt-section-row:last-of-type {
+.prompt-section-row-plain,
+.prompt-section-item:has(+ .prompt-section-gap) > .prompt-section-row {
   border-bottom: none;
+}
+
+.prompt-section-row.dragging {
+  opacity: 0.4;
+}
+
+.prompt-section-handle {
+  position: absolute;
+  top: 0.75rem;
+  left: -1.25rem;
+  display: flex;
+  color: var(--text-muted);
+  cursor: grab;
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+
+.prompt-section-handle:hover {
+  color: var(--text-secondary);
+}
+
+.prompt-section-row:hover .prompt-section-handle,
+.prompt-section-row:focus-within .prompt-section-handle {
+  opacity: 1;
+}
+
+.prompt-section-list.is-dragging .prompt-section-row .prompt-section-handle,
+.prompt-section-list.is-dragging .prompt-section-row .prompt-section-delete {
+  opacity: 0;
+}
+
+.prompt-section-gap {
+  position: relative;
+  z-index: 1;
+  height: 0;
+}
+
+.prompt-section-gap.drop-active::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: 0;
+  right: 1.5rem;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent-primary);
+}
+
+.prompt-section-insert {
+  position: absolute;
+  top: -0.5rem;
+  left: 0;
+  right: 1.5rem;
+  height: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.prompt-section-insert::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--accent-primary);
+}
+
+.prompt-section-insert-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  border: 1px solid var(--accent-primary);
+  border-radius: 50%;
+  background: var(--bg-secondary);
+  color: var(--accent-primary);
+}
+
+.prompt-section-insert:hover {
+  opacity: 1;
+  transition-delay: 0.08s;
+}
+
+.prompt-section-list.is-dragging .prompt-section-insert {
+  display: none;
+}
+
+@media (hover: none) {
+  .prompt-section-handle {
+    display: none;
+  }
+
+  .prompt-section-item:focus-within + .prompt-section-item .prompt-section-insert {
+    opacity: 1;
+  }
 }
 
 .prompt-section-row.prompt-section-row-plain {

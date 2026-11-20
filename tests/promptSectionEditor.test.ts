@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+    ensureEditableSections,
+    insertSectionAt,
     markdownToSections,
+    moveSection,
     sectionsToMarkdown,
 } from '../components/PromptSectionEditor';
 
@@ -92,5 +95,41 @@ describe('markdownToSections and sectionsToMarkdown', () => {
     test('returns an empty markdown string for empty items and empty input', () => {
         expect(markdownToSections(' \n\r\n')).toEqual([]);
         expect(sectionsToMarkdown([])).toBe('');
+    });
+});
+
+describe('insertSectionAt, moveSection and ensureEditableSections', () => {
+    const titles = (sections: Sections) => sections.map((section) => section.title);
+
+    test('inserts an empty titled section at the given position', () => {
+        const markdown = '## A\n\na\n\n## B\n\nb';
+        const sections = markdownToSections(markdown);
+        const next = insertSectionAt(sections, 1);
+
+        expect(withoutIds(next)).toEqual([
+            { title: 'A', level: 2, body: 'a' },
+            { title: '', level: 2, body: '' },
+            { title: 'B', level: 2, body: 'b' },
+        ]);
+        expect(sectionsToMarkdown(next)).toBe(markdown);
+    });
+
+    test('moves a section to an insertion index measured before the move', () => {
+        const sections = markdownToSections('## A\n\n## B\n\n## C');
+
+        expect(titles(moveSection(sections, 0, 3))).toEqual(['B', 'C', 'A']);
+        expect(titles(moveSection(sections, 2, 0))).toEqual(['C', 'A', 'B']);
+        expect(titles(moveSection(sections, 0, 2))).toEqual(['B', 'A', 'C']);
+        expect(moveSection(sections, 1, 1)).toBe(sections);
+        expect(moveSection(sections, 1, 2)).toBe(sections);
+    });
+
+    test('gives a moved untitled section an empty heading so it is not merged into the previous one', () => {
+        const sections = markdownToSections('前置き\n\n## A\n\na');
+        const next = ensureEditableSections(moveSection(sections, 0, 2));
+        const markdown = sectionsToMarkdown(next);
+
+        expect(markdown).toBe('## A\n\na\n\n##\n\n前置き');
+        expect(withoutIds(markdownToSections(markdown))).toEqual(withoutIds(next));
     });
 });

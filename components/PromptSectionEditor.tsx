@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
-import type { KeyboardEvent } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { DragEvent, KeyboardEvent } from 'react';
+import { GripVertical, Plus, Trash2 } from 'lucide-react';
 
 // ---- Types ----
 
@@ -83,10 +83,34 @@ export function sectionsToMarkdown(sections: SectionItem[]): string {
     return parts.join('\n\n');
 }
 
-function ensureEditableSections(sections: SectionItem[]): SectionItem[] {
-    return sections.length > 0
-        ? sections
-        : [{ id: uid(), title: null, level: 2, body: '' }];
+export function ensureEditableSections(sections: SectionItem[]): SectionItem[] {
+    if (sections.length === 0) return [{ id: uid(), title: null, level: 2, body: '' }];
+    // 見出しなしの本文を先頭以外に置くと直前の項目の本文に吸収されるため、空見出しの項目として扱う。
+    return sections.map((s, i) => (i > 0 && s.title === null ? { ...s, title: '' } : s));
+}
+
+export function insertSectionAt(sections: SectionItem[], index: number): SectionItem[] {
+    const next = [...sections];
+    next.splice(index, 0, { id: uid(), title: '', level: 2, body: '' });
+    return next;
+}
+
+// toIndex は移動前の並びにおける挿入位置（0〜length）。
+export function moveSection(sections: SectionItem[], fromIndex: number, toIndex: number): SectionItem[] {
+    if (fromIndex < 0 || fromIndex >= sections.length) return sections;
+    if (toIndex === fromIndex || toIndex === fromIndex + 1) return sections;
+    const next = [...sections];
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(toIndex > fromIndex ? toIndex - 1 : toIndex, 0, moved);
+    return next;
+}
+
+function isInsertShortcut(e: KeyboardEvent): boolean {
+    return e.key === 'Enter'
+        && (e.ctrlKey || e.metaKey)
+        && !e.shiftKey
+        && !e.altKey
+        && !e.nativeEvent.isComposing;
 }
 
 function prevFocusable(current: HTMLElement): HTMLElement | null {
@@ -98,15 +122,31 @@ function prevFocusable(current: HTMLElement): HTMLElement | null {
 
 // ---- Sub-components ----
 
+interface RowDragProps {
+    draggable: boolean;
+    onDragStart: (e: DragEvent<HTMLDivElement>) => void;
+    onDragEnd: () => void;
+    onDragOver: (e: DragEvent<HTMLDivElement>) => void;
+    onDrop: (e: DragEvent<HTMLDivElement>) => void;
+}
+
 function SectionRow({
     section,
     onUpdate,
     onDelete,
+    onInsertBelow,
+    dragProps,
+    onHandlePointerDown,
+    dragging,
     placeholder,
 }: {
     section: SectionItem;
     onUpdate: (patch: { title?: string | null; body?: string }) => void;
     onDelete: () => void;
+    onInsertBelow: () => void;
+    dragProps: RowDragProps;
+    onHandlePointerDown: () => void;
+    dragging: boolean;
     placeholder?: string;
 }) {
     const bodyRef = useRef<HTMLTextAreaElement>(null);
@@ -119,6 +159,11 @@ function SectionRow({
     }, [section.body]);
 
     const handleBodyKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+        if (isInsertShortcut(e)) {
+            e.preventDefault();
+            onInsertBelow();
+            return;
+        }
         if (e.key === 'Backspace' && section.body === '') {
             e.preventDefault();
             const prev = prevFocusable(e.currentTarget);
@@ -128,7 +173,15 @@ function SectionRow({
     };
 
     return (
-        <div className="prompt-section-row">
+        <div className={`prompt-section-row${dragging ? ' dragging' : ''}`} {...dragProps}>
+            <span
+                className="prompt-section-handle"
+                onPointerDown={onHandlePointerDown}
+                title="ドラッグして並べ替え"
+                aria-hidden="true"
+            >
+                <GripVertical size={14} />
+            </span>
             <input
                 className="prompt-section-label"
                 data-focusable="true"
@@ -136,7 +189,10 @@ function SectionRow({
                 value={section.title ?? ''}
                 onChange={(e) => onUpdate({ title: e.target.value })}
                 onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
+                    if (isInsertShortcut(e)) {
+                        e.preventDefault();
+                        onInsertBelow();
+                    } else if (e.key === 'Enter') {
                         e.preventDefault();
                         bodyRef.current?.focus();
                     }
@@ -163,6 +219,39 @@ function SectionRow({
             >
                 <Trash2 size={14} />
             </button>
+        </div>
+    );
+}
+
+function SectionGap({
+    onInsert,
+    dropActive,
+    onDragOver,
+    onDrop,
+}: {
+    onInsert?: () => void;
+    dropActive: boolean;
+    onDragOver: (e: DragEvent<HTMLDivElement>) => void;
+    onDrop: (e: DragEvent<HTMLDivElement>) => void;
+}) {
+    return (
+        <div
+            className={`prompt-section-gap${dropActive ? ' drop-active' : ''}`}
+            onDragOver={onDragOver}
+            onDrop={onDrop}
+        >
+            {onInsert && (
+                <button
+                    type="button"
+                    className="prompt-section-insert"
+                    onClick={onInsert}
+                    tabIndex={-1}
+                    title="ここに項目を追加"
+                    aria-label="ここに項目を追加"
+                >
+                    <span className="prompt-section-insert-icon"><Plus size={11} /></span>
+                </button>
+            )}
         </div>
     );
 }
@@ -238,26 +327,117 @@ function SectionedPromptEditor({
         emit(sections.filter((s) => s.id !== id));
     };
 
-    const appendSection = () => {
-        emit([...sections, { id: uid(), title: '', level: 2, body: '' }]);
-        setTimeout(() => {
-            const labels = containerRef.current?.querySelectorAll<HTMLElement>('[data-section-label="true"]');
-            labels?.[labels.length - 1]?.focus();
-        }, 0);
+    // 挿入直後の入力が元の欄に入らないよう、描画直後に新しい項目へフォーカスを移す。
+    const pendingFocusIndexRef = useRef<number | null>(null);
+    useLayoutEffect(() => {
+        const index = pendingFocusIndexRef.current;
+        if (index === null) return;
+        pendingFocusIndexRef.current = null;
+        const labels = containerRef.current?.querySelectorAll<HTMLElement>('[data-section-label="true"]');
+        labels?.[index]?.focus();
+    }, [sections]);
+
+    const insertAt = (index: number) => {
+        pendingFocusIndexRef.current = index;
+        emit(insertSectionAt(sections, index));
     };
 
+    // ---- 並べ替え ----
+
+    // つまみを押している行だけ draggable にし、本文の文字選択と干渉しないようにする。
+    const [armedIndex, setArmedIndex] = useState<number | null>(null);
+    const [dragIndex, setDragIndex] = useState<number | null>(null);
+    const [dropIndex, setDropIndex] = useState<number | null>(null);
+
+    useEffect(() => {
+        if (armedIndex === null) return;
+        const disarm = () => setArmedIndex(null);
+        window.addEventListener('pointerup', disarm);
+        return () => window.removeEventListener('pointerup', disarm);
+    }, [armedIndex]);
+
+    const endDrag = () => {
+        setArmedIndex(null);
+        setDragIndex(null);
+        setDropIndex(null);
+    };
+
+    const acceptDrag = (e: DragEvent) => {
+        if (dragIndex === null) return false;
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = 'move';
+        return true;
+    };
+
+    const showDropAt = (index: number) => {
+        const next = dragIndex !== null && (index === dragIndex || index === dragIndex + 1) ? null : index;
+        setDropIndex((current) => (current === next ? current : next));
+    };
+
+    const dropAt = (e: DragEvent, index: number) => {
+        if (!acceptDrag(e) || dragIndex === null) return;
+        emit(moveSection(sections, dragIndex, index));
+        endDrag();
+    };
+
+    const rowDropIndex = (e: DragEvent<HTMLDivElement>, index: number) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        return e.clientY < rect.top + rect.height / 2 ? index : index + 1;
+    };
+
+    const rowDragProps = (index: number): RowDragProps => ({
+        draggable: armedIndex === index || dragIndex === index,
+        onDragStart: (e) => {
+            if (armedIndex !== index) {
+                e.preventDefault();
+                return;
+            }
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', '');
+            setDragIndex(index);
+        },
+        onDragEnd: endDrag,
+        onDragOver: (e) => {
+            if (acceptDrag(e)) showDropAt(rowDropIndex(e, index));
+        },
+        onDrop: (e) => dropAt(e, rowDropIndex(e, index)),
+    });
+
+    const gapDropProps = (index: number) => ({
+        dropActive: dropIndex === index,
+        onDragOver: (e: DragEvent<HTMLDivElement>) => {
+            if (acceptDrag(e)) showDropAt(index);
+        },
+        onDrop: (e: DragEvent<HTMLDivElement>) => dropAt(e, index),
+    });
+
     return (
-        <div ref={containerRef} data-prompt-editor className="prompt-section-list">
-            {sections.map((section) => (
-                <SectionRow
-                    key={section.id}
-                    section={section}
-                    onUpdate={(patch) => updateSection(section.id, patch)}
-                    onDelete={() => deleteSection(section.id)}
-                    placeholder={placeholder}
-                />
+        <div
+            ref={containerRef}
+            data-prompt-editor
+            className={`prompt-section-list${dragIndex !== null ? ' is-dragging' : ''}`}
+            onDragLeave={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropIndex(null);
+            }}
+        >
+            {sections.map((section, index) => (
+                <div key={section.id} className="prompt-section-item">
+                    <SectionGap onInsert={() => insertAt(index)} {...gapDropProps(index)} />
+                    <SectionRow
+                        section={section}
+                        onUpdate={(patch) => updateSection(section.id, patch)}
+                        onDelete={() => deleteSection(section.id)}
+                        onInsertBelow={() => insertAt(index + 1)}
+                        dragProps={rowDragProps(index)}
+                        onHandlePointerDown={() => setArmedIndex(index)}
+                        dragging={dragIndex === index}
+                        placeholder={placeholder}
+                    />
+                </div>
             ))}
-            <button type="button" className="prompt-section-add" onClick={appendSection}>
+            <SectionGap {...gapDropProps(sections.length)} />
+            <button type="button" className="prompt-section-add" onClick={() => insertAt(sections.length)}>
                 <Plus size={13} /> 項目を追加
             </button>
         </div>

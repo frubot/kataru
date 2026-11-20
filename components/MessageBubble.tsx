@@ -1,11 +1,12 @@
-import { memo, useEffect, useRef } from 'react';
-import { ArrowUp, Pencil, Copy, Check, FileText, GitBranch, Loader2, RefreshCw, Square, Volume2, X } from 'lucide-react';
+import { memo } from 'react';
+import { ArrowUp, Pencil, Copy, Check, FileText, GitBranch, Loader2, RefreshCw, Square, Volume2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { formatMessageTextWithAttachments } from '@/lib/chatAttachments';
 import { formatAssistantMarkdown, hideAssistantDialogueBrackets, splitAssistantMarkdownActions } from '@/lib/markdownUtils';
 import type { MessageAttachment } from '@/lib/store';
 import { stopTtsPlayback, useTtsEntry } from '@/lib/ttsPlayer';
 import StoredImage from './StoredImage';
+import InlineMessageEditor from './chat/InlineMessageEditor';
 
 /** キャラアイコンは固定したまま、最初のバブルだけを少し下へずらす量。 */
 const ICON_TO_BUBBLE_SHIFT = '0.5rem';
@@ -32,6 +33,8 @@ interface MessageBubbleProps {
     isMessageMode?: boolean;
     showAssistantActions?: boolean;
     showBranchAction?: boolean;
+    /** キャラ側の発言を書き換えられるか。 */
+    canEditAssistant?: boolean;
     showArchiveDivider: boolean;
     /** メッセージの上に出す日付の区切り。 */
     dateLabel?: string;
@@ -81,6 +84,7 @@ export default memo(function MessageBubble({
     isMessageMode = false,
     showAssistantActions = true,
     showBranchAction = false,
+    canEditAssistant = false,
     showArchiveDivider,
     dateLabel,
     timeLabel,
@@ -105,7 +109,6 @@ export default memo(function MessageBubble({
     onTtsToggle,
     onPreviewImage,
 }: MessageBubbleProps) {
-    const editTextareaRef = useRef<HTMLTextAreaElement>(null);
     const { status: ttsStatus } = useTtsEntry(messageId);
     const isUserMessage = role === 'user';
     // メッセージモードでは、連続する同一キャラのバブルもそれぞれ独立した
@@ -126,14 +129,6 @@ export default memo(function MessageBubble({
     const formatAssistantSegment = (segmentContent: string) => (
         formatAssistantActions ? formatAssistantMarkdown(segmentContent) : segmentContent
     );
-
-    useEffect(() => {
-        if (!isEditing) return;
-        const textarea = editTextareaRef.current;
-        if (!textarea) return;
-        textarea.focus();
-        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
-    }, [isEditing]);
 
     const userMessageBody = (
         <>
@@ -179,41 +174,16 @@ export default memo(function MessageBubble({
                 </div>
             )}
             {isEditing ? (
-                <form
-                    className="inline-message-editor"
-                    onSubmit={(e) => {
-                        e.preventDefault();
-                        onSubmitEdit();
-                    }}
-                >
-                    <textarea
-                        ref={editTextareaRef}
-                        className="input inline-message-edit-input"
-                        value={editContent}
-                        onChange={(e) => onEditChange(e.target.value)}
-                        disabled={isLoading}
-                        rows={Math.min(8, Math.max(2, editContent.split('\n').length))}
-                    />
-                    <div className="inline-message-edit-actions">
-                        <button
-                            type="button"
-                            className="btn btn-ghost"
-                            onClick={onCancelEdit}
-                            disabled={isLoading}
-                        >
-                            <X size={14} />
-                            キャンセル
-                        </button>
-                        <button
-                            type="submit"
-                            className="btn btn-primary"
-                            disabled={isLoading || (!editContent.trim() && !hasAttachments)}
-                        >
-                            <ArrowUp size={14} />
-                            送信
-                        </button>
-                    </div>
-                </form>
+                <InlineMessageEditor
+                    value={editContent}
+                    onChange={onEditChange}
+                    onCancel={onCancelEdit}
+                    onSubmit={onSubmitEdit}
+                    disabled={isLoading}
+                    submitDisabled={!editContent.trim() && !hasAttachments}
+                    submitLabel="送信"
+                    submitIcon={<ArrowUp size={14} />}
+                />
             ) : (
                 userSegments.map((segment, segmentIndex) => (
                     segment.type === 'action' ? (
@@ -380,7 +350,29 @@ export default memo(function MessageBubble({
                         )}
                     </div>
                     )}
-                    <div className={isNarration ? 'assistant-message-content situation-narration-content' : 'assistant-message-content'}>
+                    <div className={[
+                        'assistant-message-content',
+                        isNarration ? 'situation-narration-content' : '',
+                        isEditing ? 'editing' : '',
+                    ].filter(Boolean).join(' ')}>
+                    {!isNarration && isGroupRoom && characterName && showsCharacterHeader && (
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.125rem', marginLeft: '0.25rem', fontWeight: 500 }}>
+                            {characterName}
+                        </div>
+                    )}
+                    {isEditing ? (
+                        <InlineMessageEditor
+                            className="assistant"
+                            value={editContent}
+                            onChange={onEditChange}
+                            onCancel={onCancelEdit}
+                            onSubmit={onSubmitEdit}
+                            disabled={isLoading}
+                            submitDisabled={!editContent.trim()}
+                            submitLabel="保存"
+                            submitIcon={<Check size={14} />}
+                        />
+                    ) : (<>
                     {isNarration ? (
                         <div
                             className={`situation-narration${disableEntranceAnimation ? '' : ' animate-slide-up'}`}
@@ -391,11 +383,6 @@ export default memo(function MessageBubble({
                             <ReactMarkdown>{assistantContent}</ReactMarkdown>
                         </div>
                     ) : null}
-                    {!isNarration && isGroupRoom && characterName && showsCharacterHeader && (
-                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.125rem', marginLeft: '0.25rem', fontWeight: 500 }}>
-                            {characterName}
-                        </div>
-                    )}
                     {!isNarration && assistantSegments.map((segment, segmentIndex) => (
                         segment.type === 'action' ? (
                             <div
@@ -428,7 +415,24 @@ export default memo(function MessageBubble({
                     {!isNarration && timeElement && (
                         <div className="message-meta assistant">{timeElement}</div>
                     )}
-                    {showAssistantActions && (
+                    {canEditAssistant && !showAssistantActions && (
+                        <button
+                            type="button"
+                            className="btn btn-ghost edit-btn message-action-button assistant-floating-edit-button"
+                            onClick={() => onEdit(messageId, index, content)}
+                            style={{
+                                color: 'var(--text-muted)',
+                                opacity: isHovered ? 1 : 0,
+                                pointerEvents: isHovered ? 'auto' : 'none',
+                            }}
+                            title="メッセージを編集"
+                            aria-label="メッセージを編集"
+                        >
+                            <Pencil size={12} />
+                        </button>
+                    )}
+                    </>)}
+                    {showAssistantActions && !isEditing && (
                         <div className="assistant-btn-row" style={{
                             display: 'flex',
                             justifyContent: 'flex-start',
@@ -452,6 +456,18 @@ export default memo(function MessageBubble({
                             >
                                 {isCopied ? <Check size={12} /> : <Copy size={12} />}
                             </button>
+                            {canEditAssistant && (
+                                <button
+                                    type="button"
+                                    className="btn btn-ghost edit-btn message-action-button"
+                                    onClick={() => onEdit(messageId, index, content)}
+                                    style={{ color: 'var(--text-muted)' }}
+                                    title="メッセージを編集"
+                                    aria-label="メッセージを編集"
+                                >
+                                    <Pencil size={12} />
+                                </button>
+                            )}
                             <button
                                 type="button"
                                 className="btn btn-ghost message-action-button"

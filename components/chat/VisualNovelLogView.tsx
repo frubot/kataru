@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { History, UserRound, X } from 'lucide-react';
+import { ArrowUp, Check, History, Pencil, UserRound, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import type { Character } from '@/lib/store';
 import { formatMessageTextWithAttachments } from '@/lib/chatAttachments';
@@ -11,6 +11,7 @@ import type {
 import { formatAssistantMarkdown, hideAssistantDialogueBrackets } from '@/lib/markdownUtils';
 import { isNarrationMessage, isNarratorCharacterId } from '@/lib/narration';
 import StoredImage from '../StoredImage';
+import InlineMessageEditor from './InlineMessageEditor';
 import WaitingEllipsis from './WaitingEllipsis';
 
 type VisualNovelLogViewProps = {
@@ -24,6 +25,16 @@ type VisualNovelLogViewProps = {
     continuationAppendPreviewKey?: string;
     isLoading: boolean;
     isSummarizing: boolean;
+    canEdit: boolean;
+    editingMessage: {
+        messageId: string;
+        content: string;
+        hasAttachments: boolean;
+    } | null;
+    onEdit: (messageId: string) => void;
+    onEditChange: (content: string) => void;
+    onCancelEdit: () => void;
+    onSubmitEdit: () => void;
     onClose: () => void;
 };
 
@@ -36,6 +47,9 @@ type VisualNovelLogEntry = {
     isStreaming?: boolean;
     /** シチュエーションの場面ナレーション。話者名とアイコンを出さない。 */
     isNarration?: boolean;
+    /** 書き換えられる会話中のメッセージ。導入の会話や生成中の発言は対象外。 */
+    editable?: boolean;
+    isArchived?: boolean;
 };
 
 function LogAvatar({ entry }: { entry: VisualNovelLogEntry }) {
@@ -61,23 +75,72 @@ function LogAvatar({ entry }: { entry: VisualNovelLogEntry }) {
     );
 }
 
-function LogEntry({ entry }: { entry: VisualNovelLogEntry }) {
+type LogEntryEditProps = {
+    canEdit: boolean;
+    editContent: string | null;
+    editHasAttachments: boolean;
+    onEdit: (messageId: string) => void;
+    onEditChange: (content: string) => void;
+    onCancelEdit: () => void;
+    onSubmitEdit: () => void;
+};
+
+function LogEntry({
+    entry,
+    canEdit,
+    editContent,
+    editHasAttachments,
+    onEdit,
+    onEditChange,
+    onCancelEdit,
+    onSubmitEdit,
+}: { entry: VisualNovelLogEntry } & LogEntryEditProps) {
+    const isEditing = editContent != null;
+    const showEditButton = entry.editable && canEdit && !isEditing;
+    const editTitle = entry.role === 'user' && entry.isArchived ? 'ここまで巻き戻して編集' : 'メッセージを編集';
     return (
         <article
-            className={`vn-log-entry ${entry.role}${entry.isNarration ? ' narration' : ''}${entry.isStreaming ? ' streaming' : ''}`}
+            className={`vn-log-entry ${entry.role}${entry.isNarration ? ' narration' : ''}${entry.isStreaming ? ' streaming' : ''}${showEditButton ? ' editable' : ''}`}
         >
             <LogAvatar entry={entry} />
             <div className="vn-log-entry-body">
                 {!entry.isNarration && <div className="vn-log-speaker">{entry.speakerName}</div>}
-                <div
-                    className="vn-log-content"
-                    {...(entry.isStreaming ? { role: 'status', 'aria-live': 'polite' as const } : {})}
-                >
-                    <ReactMarkdown>{formatAssistantMarkdown(
-                        entry.role === 'assistant' ? hideAssistantDialogueBrackets(entry.content) : entry.content,
-                    )}</ReactMarkdown>
-                </div>
+                {isEditing ? (
+                    <InlineMessageEditor
+                        className="vn-log"
+                        value={editContent}
+                        onChange={onEditChange}
+                        onCancel={onCancelEdit}
+                        onSubmit={onSubmitEdit}
+                        disabled={!canEdit}
+                        submitDisabled={entry.role === 'user'
+                            ? !editContent.trim() && !editHasAttachments
+                            : !editContent.trim()}
+                        submitLabel={entry.role === 'user' ? '送信' : '保存'}
+                        submitIcon={entry.role === 'user' ? <ArrowUp size={14} /> : <Check size={14} />}
+                    />
+                ) : (
+                    <div
+                        className="vn-log-content"
+                        {...(entry.isStreaming ? { role: 'status', 'aria-live': 'polite' as const } : {})}
+                    >
+                        <ReactMarkdown>{formatAssistantMarkdown(
+                            entry.role === 'assistant' ? hideAssistantDialogueBrackets(entry.content) : entry.content,
+                        )}</ReactMarkdown>
+                    </div>
+                )}
             </div>
+            {showEditButton && (
+                <button
+                    type="button"
+                    className="btn btn-ghost message-action-button vn-log-edit-button"
+                    onClick={() => onEdit(entry.id)}
+                    title={editTitle}
+                    aria-label={editTitle}
+                >
+                    <Pencil size={14} />
+                </button>
+            )}
         </article>
     );
 }
@@ -92,6 +155,12 @@ export default function VisualNovelLogView({
     continuationAppendPreviewKey,
     isLoading,
     isSummarizing,
+    canEdit,
+    editingMessage,
+    onEdit,
+    onEditChange,
+    onCancelEdit,
+    onSubmitEdit,
     onClose,
 }: VisualNovelLogViewProps) {
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -113,6 +182,9 @@ export default function VisualNovelLogView({
         const roomEntries = messages.filter((message) => !message.mergedIntoPrevious).map((message) => ({
             id: message.id,
             isNarration: isNarrationMessage(message),
+            // 続き生成で連結した発言は複数メッセージにまたがるため、書き換えの対象にしない。
+            editable: message.branchMessageId === message.id,
+            isArchived: message.isArchived,
             role: message.role,
             content: message.displayContent.trim()
                 ? message.displayContent
@@ -233,7 +305,19 @@ export default function VisualNovelLogView({
                             <p>会話履歴はまだありません。</p>
                         </div>
                     ) : (
-                        entries.map((entry) => <LogEntry key={entry.id} entry={entry} />)
+                        entries.map((entry) => (
+                            <LogEntry
+                                key={entry.id}
+                                entry={entry}
+                                canEdit={canEdit}
+                                editContent={editingMessage?.messageId === entry.id ? editingMessage.content : null}
+                                editHasAttachments={editingMessage?.messageId === entry.id && editingMessage.hasAttachments}
+                                onEdit={onEdit}
+                                onEditChange={onEditChange}
+                                onCancelEdit={onCancelEdit}
+                                onSubmitEdit={onSubmitEdit}
+                            />
+                        ))
                     )}
                     {isLoading && !activeStreamingPreview && (
                         <div className="vn-log-pending" role="status" aria-live="polite">

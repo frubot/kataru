@@ -488,6 +488,13 @@ export default function ChatMessagesView({
                 isMessageMode={isMessageMode}
                 showAssistantActions={message.showAssistantActions}
                 showBranchAction={message.showBranchAction}
+                // 続き生成で連結したバブルは複数メッセージにまたがるため、書き換えの対象にしない。
+                canEditAssistant={
+                    message.role === 'assistant'
+                    && !interactionsDisabled
+                    && message.branchMessageId === message.id
+                    && !(isTypewriterActive && message.id === typingMessageId)
+                }
                 showArchiveDivider={message.showArchiveDivider}
                 dateLabel={messageTimeLabels?.get(message.id)?.dateLabel}
                 timeLabel={messageTimeLabels?.get(message.id)?.timeLabel}

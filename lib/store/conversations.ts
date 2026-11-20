@@ -5,6 +5,7 @@ import {
 } from '../conversationCompressionRewind';
 import { buildConversationBranch } from '../conversationBranch';
 import { generateId } from '../id';
+import { replaceAssistantMessageContent } from '../messageEdit';
 import {
     clearAllPendingTurnRestores,
     clearPendingTurnRestore,
@@ -121,6 +122,7 @@ type ConversationSlice = Pick<
     | 'rewindRoomCompression'
     | 'restoreRoomCompression'
     | 'attachMemoriesToMessage'
+    | 'updateAssistantMessageContent'
     | 'updateLastAssistantMessage'
     | 'flushLastAssistantMessage'
     | 'refreshConversationRoom'
@@ -833,6 +835,32 @@ export function createConversationSlice(set: StoreSet, get: StoreGet): Conversat
             }));
             if (shouldPersistRoom(updatedRoom) && updatedMessage) {
                 fire(db.putMessage(roomId, updatedMessage));
+            }
+        },
+
+        updateAssistantMessageContent: (roomId, messageId, content) => {
+            nextRoomWriteStamp(roomId);
+            let updatedRoom: Room | undefined;
+            let updatedMessage: Message | undefined;
+            set((state) => ({
+                rooms: state.rooms.map((room) => {
+                    if (room.id !== roomId) return room;
+                    const replaced = replaceAssistantMessageContent(room.messages, messageId, content);
+                    if (!replaced) return room;
+                    updatedMessage = replaced.message;
+                    updatedRoom = {
+                        ...room,
+                        messages: replaced.messages,
+                        ...(replaced.isLast && room.secretMode !== true
+                            ? { lastMessagePreview: toPreview(content, replaced.message.attachments) }
+                            : {}),
+                    };
+                    return updatedRoom;
+                }),
+            }));
+            if (shouldPersistRoom(updatedRoom) && updatedMessage) {
+                fire(db.putMessage(roomId, updatedMessage));
+                fire(db.putRoom(toStoredRoom(updatedRoom)));
             }
         },
 

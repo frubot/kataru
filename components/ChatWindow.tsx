@@ -138,6 +138,8 @@ type RoomViewMode = NonNullable<Room['viewMode']>;
 type EditingMessageDraft = {
     roomId: string;
     messageId: string;
+    /** ユーザー発言は巻き戻して送り直し、キャラ側の発言はその場で書き換える。 */
+    role: 'user' | 'assistant';
     content: string;
     attachments?: MessageAttachment[];
 };
@@ -375,6 +377,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         addMessage,
         deleteMessagesFrom,
         restoreMessagesAt,
+        updateAssistantMessageContent,
         rewindRoomCompression,
         restoreRoomCompression,
         getCurrentRoom,
@@ -476,9 +479,11 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const openVisualNovelLog = useCallback(() => {
         stopTypewriter(true);
         stopVnBounce();
+        setEditingMessage(null);
         setVnLogOpen(true);
     }, [stopTypewriter, stopVnBounce]);
     const closeVisualNovelLog = useCallback(() => {
+        setEditingMessage(null);
         setVnLogOpen(false);
     }, []);
     const clearStreamingPreview = useCallback((jobId: string) => {
@@ -738,7 +743,11 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         streamingPreview,
     ]);
     const isEditingMessage = editingMessage?.roomId === currentRoomId;
-    const isInlineVnEditing = isVisualNovelMode && isEditingMessage;
+    // ゲームモードでは、会話ログを閉じている間だけ入力欄でユーザー発言を編集する。
+    const isInlineVnEditing = isVisualNovelMode
+        && isEditingMessage
+        && !vnLogOpen
+        && editingMessage?.role === 'user';
     const debugPanelEnabled = fullJsonDebugEnabled;
     const developerInspectorEnabled = memoryInspectorEnabled || summaryInspectorEnabled;
     const visibleDebugLogCount = fullJsonDebugLogs.length;
@@ -2222,17 +2231,19 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         }
     };
 
-    const handleEditMessage = useCallback((messageId: string, _messageIndex: number, messageContent: string) => {
+    const handleEditMessage = useCallback((messageId: string) => {
         if (isLoading || isSummarizing || !room) return;
         const latestRoom = getCurrentRoom();
         const latestMessage = latestRoom?.id === room.id
             ? latestRoom.messages.find((message) => message.id === messageId)
             : null;
+        if (!latestMessage) return;
         setEditingMessage({
             roomId: room.id,
             messageId,
-            content: latestMessage?.content ?? messageContent,
-            attachments: latestMessage?.attachments,
+            role: latestMessage.role,
+            content: latestMessage.content,
+            attachments: latestMessage.attachments,
         });
         closeMention();
         setTouchedMessageId(null);
@@ -2248,7 +2259,20 @@ export default function ChatWindow({ room, character, situation, groupName, grou
 
     const handleSubmitEditMessage = () => {
         if (!editingMessage || editingMessage.roomId !== room?.id) return;
+        if (editingMessage.role === 'assistant') {
+            const content = editingMessage.content.trim();
+            if (!content || isLoading || isSummarizing) return;
+            updateAssistantMessageContent(room.id, editingMessage.messageId, content);
+            setEditingMessage(null);
+            return;
+        }
         void handleSubmit(undefined, editingMessage);
+    };
+
+    const handleSubmitEditMessageFromVnLog = () => {
+        // ユーザー発言を送り直すときは、返信が見えるようにゲーム画面へ戻る。
+        if (editingMessage?.role === 'user') setVnLogOpen(false);
+        handleSubmitEditMessage();
     };
 
     const handleReplySuggestionSelect = (suggestion: string) => {
@@ -2631,6 +2655,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         setEditingMessage({
             roomId: room.id,
             messageId: latestEditableUserMessage.id,
+            role: 'user',
             content: latestEditableUserMessage.content,
             attachments: latestEditableUserMessage.attachments,
         });
@@ -2666,7 +2691,9 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const chatInputPlaceholder = isInlineVnEditing
         ? '直前の入力を編集中'
         : isEditingMessage
-            ? '編集中のメッセージで送信してください'
+            ? editingMessage?.role === 'assistant'
+                ? '編集中のメッセージを保存してください'
+                : '編集中のメッセージで送信してください'
             : '返信を入力';
     const situationVnInputLocked = isVisualNovelMode && situationVnPresentation.locked;
     const previousSituationVnInputLockedRef = useRef(situationVnInputLocked);
@@ -2893,6 +2920,25 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     continuationAppendPreviewKey={continuationAppendKey}
                     isLoading={isLoading}
                     isSummarizing={isSummarizing}
+                    canEdit={
+                        !isLoading
+                        && !isSummarizing
+                        && !branchingMessageId
+                        && !situationVnPresentation.locked
+                    }
+                    editingMessage={
+                        editingMessage?.roomId === room.id
+                            ? {
+                                messageId: editingMessage.messageId,
+                                content: editingMessage.content,
+                                hasAttachments: (editingMessage.attachments?.length ?? 0) > 0,
+                            }
+                            : null
+                    }
+                    onEdit={handleEditMessage}
+                    onEditChange={handleEditMessageChange}
+                    onCancelEdit={handleCancelEditMessage}
+                    onSubmitEdit={handleSubmitEditMessageFromVnLog}
                     onClose={closeVisualNovelLog}
                 />
             ) : isVisualNovelMode ? (

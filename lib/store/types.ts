@@ -594,6 +594,8 @@ export interface AppState {
     rewindRoomCompression: (roomId: string) => Promise<RoomCompressionSnapshot | null>;
     restoreRoomCompression: (roomId: string, snapshot: RoomCompressionSnapshot) => Promise<void>;
     attachMemoriesToMessage: (roomId: string, messageId: string, memories: string[]) => void;
+    /** キャラ側の発言本文をその場で書き換える。後続の会話は残す。 */
+    updateAssistantMessageContent: (roomId: string, messageId: string, content: string) => void;
     updateLastAssistantMessage: (roomId: string, content: string, meta?: Pick<Message, 'expression' | 'motion' | 'memories' | 'toCharacterIds'>) => void;
     flushLastAssistantMessage: (roomId: string) => void;
     refreshConversationRoom: (roomId: string) => Promise<void>;

@@ -48,6 +48,24 @@ describe('keyboard shortcuts', () => {
         expect(normalized.closeDialog).toEqual(createDefaultKeyboardShortcuts().closeDialog);
     });
 
+    test('migrates the legacy Enter / Space typewriter default to Enter only', () => {
+        const legacy = normalizeKeyboardShortcuts({
+            advanceTypewriter: [{ key: 'Enter' }, { key: ' ' }],
+        });
+        expect(legacy.advanceTypewriter).toEqual([{
+            key: 'Enter',
+            ctrl: false,
+            shift: false,
+            alt: false,
+            meta: false,
+        }]);
+
+        const customized = normalizeKeyboardShortcuts({
+            advanceTypewriter: [{ key: ' ' }],
+        });
+        expect(customized.advanceTypewriter.map((shortcut) => shortcut.key)).toEqual([' ']);
+    });
+
     test('ignores modifier-only capture events', () => {
         expect(keyboardShortcutFromEvent({ key: 'Control', ctrlKey: true })).toBeNull();
     });

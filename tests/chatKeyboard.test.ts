@@ -22,9 +22,9 @@ describe('chat keyboard shortcuts', () => {
         expect(shouldRedirectChatInput({ key: 'a', metaKey: false, ctrlKey: false, altKey: true })).toBe(false);
     });
 
-    test('advances typewriter only with Enter or Space', () => {
+    test('advances typewriter only with Enter', () => {
         expect(shouldAdvanceTypewriter({ key: 'Enter' })).toBe(true);
-        expect(shouldAdvanceTypewriter({ key: ' ' })).toBe(true);
+        expect(shouldAdvanceTypewriter({ key: ' ' })).toBe(false);
         expect(shouldAdvanceTypewriter({ key: 'Escape' })).toBe(false);
     });
 

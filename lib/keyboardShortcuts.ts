@@ -46,10 +46,13 @@ function shortcut(
 
 export const DEFAULT_KEYBOARD_SHORTCUTS: KeyboardShortcutSettings = {
     sendMessage: [shortcut('Enter')],
-    advanceTypewriter: [shortcut('Enter'), shortcut(' ')],
+    advanceTypewriter: [shortcut('Enter')],
     closeDialog: [shortcut('Escape')],
     openShortcutHelp: [shortcut('/', { ctrl: true })],
 };
+
+/** 旧デフォルト（Enter / Space）が保存されたままの設定を、現在のデフォルトへ移行するための値。 */
+const LEGACY_DEFAULT_ADVANCE_TYPEWRITER: KeyboardShortcut[] = [shortcut('Enter'), shortcut(' ')];
 
 function cloneShortcut(value: KeyboardShortcut): KeyboardShortcut {
     return { ...value };
@@ -104,7 +107,12 @@ export function normalizeKeyboardShortcuts(value: unknown): KeyboardShortcutSett
                 return true;
             })
             .slice(0, 4);
-        if (shortcuts.length > 0) normalized[action] = shortcuts;
+        if (shortcuts.length === 0) continue;
+        if (
+            action === 'advanceTypewriter'
+            && keyboardShortcutListEquals(shortcuts, LEGACY_DEFAULT_ADVANCE_TYPEWRITER)
+        ) continue;
+        normalized[action] = shortcuts;
     }
 
     return normalized;

@@ -359,7 +359,7 @@ export default function DebugLogModal({
                         </p>
                     ) : null}
                     {timeline.length === 0 ? (
-                        <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', textAlign: 'center' }}>
                             まだログはありません。
                         </p>
                     ) : (

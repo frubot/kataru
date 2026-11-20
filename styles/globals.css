@@ -3542,7 +3542,7 @@ body {
 
 .chat-mode-menu-item {
   width: 100%;
-  min-height: 3rem;
+  min-height: 2.5rem;
   display: flex;
   align-items: center;
   gap: 0.625rem;
@@ -3564,28 +3564,14 @@ body {
   background: var(--bg-tertiary);
 }
 
-.chat-mode-menu-copy {
+.chat-mode-menu-label {
   flex: 1;
   min-width: 0;
-}
-
-.chat-mode-menu-label,
-.chat-mode-menu-description {
-  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.chat-mode-menu-label {
   font-size: 0.875rem;
   font-weight: 600;
-}
-
-.chat-mode-menu-description {
-  margin-top: 0.125rem;
-  font-size: 0.6875rem;
-  color: var(--text-muted);
 }
 
 .chat-mode-menu-check {

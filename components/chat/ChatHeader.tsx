@@ -18,10 +18,10 @@ import KeyboardShortcutsHelp from './KeyboardShortcutsHelp';
 
 type RoomViewMode = NonNullable<Room['viewMode']>;
 
-const CHAT_MODE_OPTIONS: { value: RoomViewMode; label: string; description: string }[] = [
-    { value: 'chat', label: 'ベーシック', description: 'キャラクターと話す' },
-    { value: 'message', label: 'メッセージ', description: 'メッセージアプリのような会話' },
-    { value: 'vn', label: 'ゲーム', description: 'ノベルゲームのような体験' },
+const CHAT_MODE_OPTIONS: { value: RoomViewMode; label: string }[] = [
+    { value: 'chat', label: 'ベーシック' },
+    { value: 'message', label: 'メッセージ' },
+    { value: 'vn', label: 'ゲーム' },
 ];
 
 function getRoomViewModeLabel(viewMode: RoomViewMode): string {
@@ -242,10 +242,7 @@ export default function ChatHeader({
                                             onClick={() => selectViewMode(option.value)}
                                         >
                                             {renderRoomViewModeIcon(option.value, 16)}
-                                            <span className="chat-mode-menu-copy">
-                                                <span className="chat-mode-menu-label">{option.label}</span>
-                                                <span className="chat-mode-menu-description">{option.description}</span>
-                                            </span>
+                                            <span className="chat-mode-menu-label">{option.label}</span>
                                             {active && <Check size={14} className="chat-mode-menu-check" />}
                                         </button>
                                     );

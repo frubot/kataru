@@ -2,7 +2,8 @@ export type KeyboardShortcutAction =
     | 'sendMessage'
     | 'advanceTypewriter'
     | 'closeDialog'
-    | 'openShortcutHelp';
+    | 'openShortcutHelp'
+    | 'cycleViewMode';
 
 export type KeyboardShortcut = {
     key: string;
@@ -27,6 +28,7 @@ const SHORTCUT_ACTIONS: KeyboardShortcutAction[] = [
     'advanceTypewriter',
     'closeDialog',
     'openShortcutHelp',
+    'cycleViewMode',
 ];
 
 const MODIFIER_KEYS = new Set(['Alt', 'AltGraph', 'Control', 'Meta', 'Shift']);
@@ -49,6 +51,7 @@ export const DEFAULT_KEYBOARD_SHORTCUTS: KeyboardShortcutSettings = {
     advanceTypewriter: [shortcut('Enter')],
     closeDialog: [shortcut('Escape')],
     openShortcutHelp: [shortcut('/', { ctrl: true })],
+    cycleViewMode: [shortcut('m', { ctrl: true })],
 };
 
 /** 旧デフォルト（Enter / Space）が保存されたままの設定を、現在のデフォルトへ移行するための値。 */
@@ -85,6 +88,7 @@ export function createDefaultKeyboardShortcuts(): KeyboardShortcutSettings {
         advanceTypewriter: DEFAULT_KEYBOARD_SHORTCUTS.advanceTypewriter.map(cloneShortcut),
         closeDialog: DEFAULT_KEYBOARD_SHORTCUTS.closeDialog.map(cloneShortcut),
         openShortcutHelp: DEFAULT_KEYBOARD_SHORTCUTS.openShortcutHelp.map(cloneShortcut),
+        cycleViewMode: DEFAULT_KEYBOARD_SHORTCUTS.cycleViewMode.map(cloneShortcut),
     };
 }
 

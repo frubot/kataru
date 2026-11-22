@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+    getNextRoomViewMode,
     shouldAdvanceTypewriter,
     shouldIgnoreDocumentChatShortcut,
     shouldRedirectChatInput,
@@ -32,6 +33,13 @@ describe('chat keyboard shortcuts', () => {
         const shortcuts = [{ key: 'a', ctrl: true, shift: false, alt: false, meta: false }];
         expect(shouldAdvanceTypewriter({ key: 'a', ctrlKey: true }, shortcuts)).toBe(true);
         expect(shouldAdvanceTypewriter({ key: 'a' }, shortcuts)).toBe(false);
+    });
+
+    test('cycles view modes in menu order', () => {
+        expect(getNextRoomViewMode('chat', true)).toBe('message');
+        expect(getNextRoomViewMode('message', true)).toBe('vn');
+        expect(getNextRoomViewMode('vn', true)).toBe('chat');
+        expect(getNextRoomViewMode('message', false)).toBe('chat');
     });
 
     test('ignores document shortcuts after another handler or while a modal is open', () => {

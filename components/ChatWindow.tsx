@@ -112,6 +112,7 @@ import { useSituationVisualNovelPresentation } from './chat/useSituationVisualNo
 import { useVisualNovelAutoPlay } from './chat/useVisualNovelAutoPlay';
 import { useTtsPlayback } from './chat/useTtsPlayback';
 import { useMessageReplyPacing } from './chat/useMessageReplyPacing';
+import { getNextRoomViewMode, useViewModeCycleShortcut } from './chat/useChatKeyboard';
 import { buildMessageTimeLabels } from '@/lib/messageTimeLabels';
 import type { VisualNovelTtsItem } from './chat/useTtsPlayback';
 import VisualNovelLogView from './chat/VisualNovelLogView';
@@ -2759,6 +2760,17 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         setRoomSecretMode(room.id, !isSecretMode);
     };
 
+    const canChangeViewMode = !!room && !!(character || isGroupRoom) && !isLoading && !isSummarizing;
+    const handleChangeViewMode = (viewMode: RoomViewMode) => {
+        if (!room) return;
+        setVnLogOpen(false);
+        updateRoomSettings(room.id, { viewMode });
+    };
+    useViewModeCycleShortcut({
+        enabled: canChangeViewMode,
+        onCycle: () => handleChangeViewMode(getNextRoomViewMode(currentRoomViewMode, true)),
+    });
+
     const handleClearActiveDebugLogs = () => {
         clearFullJsonDebugLogs();
     };
@@ -2977,10 +2989,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     showViewModeSelector={!!(character || isGroupRoom)}
                     allowVisualNovelMode
                     currentViewMode={currentRoomViewMode}
-                    onChangeViewMode={(viewMode) => {
-                        setVnLogOpen(false);
-                        updateRoomSettings(room.id, { viewMode });
-                    }}
+                    onChangeViewMode={handleChangeViewMode}
                     disabled={isLoading || isSummarizing}
                 />
             )}

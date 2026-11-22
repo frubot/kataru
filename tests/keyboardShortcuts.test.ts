@@ -66,6 +66,14 @@ describe('keyboard shortcuts', () => {
         expect(customized.advanceTypewriter.map((shortcut) => shortcut.key)).toEqual([' ']);
     });
 
+    test('defaults the view mode shortcut to Ctrl + M', () => {
+        const defaults = createDefaultKeyboardShortcuts();
+        expect(matchesAnyKeyboardShortcut({ key: 'M', ctrlKey: true }, defaults.cycleViewMode)).toBe(true);
+        expect(matchesAnyKeyboardShortcut({ key: 'm' }, defaults.cycleViewMode)).toBe(false);
+        expect(normalizeKeyboardShortcuts({ sendMessage: [{ key: 'Enter' }] }).cycleViewMode)
+            .toEqual(defaults.cycleViewMode);
+    });
+
     test('ignores modifier-only capture events', () => {
         expect(keyboardShortcutFromEvent({ key: 'Control', ctrlKey: true })).toBeNull();
     });

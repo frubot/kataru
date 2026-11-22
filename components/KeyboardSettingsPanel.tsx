@@ -29,6 +29,10 @@ const SHORTCUT_ROWS: readonly {
         action: 'openShortcutHelp',
         label: 'ショートカットを表示',
     },
+    {
+        action: 'cycleViewMode',
+        label: 'モードを切り替え',
+    },
 ];
 
 function ShortcutKeys({

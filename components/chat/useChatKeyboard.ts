@@ -1,7 +1,23 @@
 import { useCallback, useEffect, useRef } from 'react';
 import type { Dispatch, KeyboardEvent as ReactKeyboardEvent, RefObject, SetStateAction } from 'react';
-import { DEFAULT_KEYBOARD_SHORTCUTS, useStore, type KeyboardShortcut } from '../../lib/store';
+import { DEFAULT_KEYBOARD_SHORTCUTS, useStore, type KeyboardShortcut, type Room } from '../../lib/store';
 import { matchesAnyKeyboardShortcut } from '../../lib/keyboardShortcuts';
+
+type RoomViewMode = NonNullable<Room['viewMode']>;
+
+const ROOM_VIEW_MODE_ORDER: readonly RoomViewMode[] = ['chat', 'message', 'vn'];
+
+/** ヘッダーのモードメニューと同じ並び順で、次のモードを返します。 */
+export function getNextRoomViewMode(
+    current: RoomViewMode,
+    allowVisualNovelMode: boolean,
+): RoomViewMode {
+    const modes = allowVisualNovelMode
+        ? ROOM_VIEW_MODE_ORDER
+        : ROOM_VIEW_MODE_ORDER.filter((mode) => mode !== 'vn');
+    const index = modes.indexOf(current);
+    return modes[(index + 1) % modes.length];
+}
 
 type ChatInputKeyEvent = Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'altKey'>;
 type ShortcutKeyEvent = Pick<KeyboardEvent, 'key'>
@@ -98,6 +114,42 @@ export function useTypewriterAdvance({ activeRef, onAdvance }: UseTypewriterAdva
         document.addEventListener('keydown', handleKeyDown);
         return () => document.removeEventListener('keydown', handleKeyDown);
     }, [activeRef, advanceTypewriterShortcuts]);
+}
+
+type UseViewModeCycleShortcutOptions = {
+    enabled: boolean;
+    onCycle: () => void;
+};
+
+/** 入力欄にフォーカスがあっても、修飾キー付きのショートカットでモードを順番に切り替えます。 */
+export function useViewModeCycleShortcut({ enabled, onCycle }: UseViewModeCycleShortcutOptions) {
+    const onCycleRef = useRef(onCycle);
+    const cycleViewModeShortcuts = useStore((state) => state.keyboardShortcuts.cycleViewMode);
+
+    useEffect(() => {
+        onCycleRef.current = onCycle;
+    }, [onCycle]);
+
+    useEffect(() => {
+        if (!enabled) return;
+
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.isComposing || event.repeat) return;
+            if (shouldIgnoreDocumentChatShortcut({
+                defaultPrevented: event.defaultPrevented,
+                modalOpen: document.querySelector('[aria-modal="true"]') != null,
+            })) return;
+            if (!matchesAnyKeyboardShortcut(event, cycleViewModeShortcuts)) return;
+            const hasModifier = event.ctrlKey || event.altKey || event.metaKey;
+            if (!hasModifier && isEditableTarget(event.target)) return;
+
+            event.preventDefault();
+            onCycleRef.current();
+        };
+
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [cycleViewModeShortcuts, enabled]);
 }
 
 type UseChatComposerKeyboardOptions<T> = {

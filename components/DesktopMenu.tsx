@@ -7,6 +7,8 @@ import {
     sendDesktopShortcut,
     subscribeDesktopEvents,
 } from '../lib/desktopApp';
+import { getKeyboardShortcutLabels } from '../lib/keyboardShortcuts';
+import { useStore } from '../lib/store';
 
 const REPOSITORY_URL = 'https://github.com/frubot/kataru';
 const MENU_WIDTH = 232;
@@ -45,6 +47,7 @@ export default function DesktopMenu({
     onShowOnboarding,
 }: DesktopMenuProps) {
     const [openMenu, setOpenMenu] = useState<OpenMenu | null>(null);
+    const toggleSidebarShortcut = useStore((state) => state.keyboardShortcuts.toggleSidebar[0]);
     const menuRef = useRef<HTMLDivElement>(null);
     const isOpenRef = useRef(false);
 
@@ -71,7 +74,10 @@ export default function DesktopMenu({
             if (!menuRef.current?.contains(event.target as Node)) close();
         };
         const handleKeyDown = (event: KeyboardEvent) => {
-            if (event.key === 'Escape') close();
+            if (event.key !== 'Escape') return;
+            // メニューを閉じるだけにして、生成の中断などほかのショートカットに渡さない。
+            event.preventDefault();
+            close();
         };
         document.addEventListener('pointerdown', handlePointerDown, true);
         document.addEventListener('keydown', handleKeyDown, true);
@@ -102,7 +108,15 @@ export default function DesktopMenu({
         view: {
             label: '表示',
             items: [
-                { type: 'item', label: 'サイドバー', checked: sidebarVisible(), onSelect: onToggleSidebar },
+                {
+                    type: 'item',
+                    label: 'サイドバー',
+                    shortcut: toggleSidebarShortcut
+                        ? getKeyboardShortcutLabels(toggleSidebarShortcut).join('+')
+                        : undefined,
+                    checked: sidebarVisible(),
+                    onSelect: onToggleSidebar,
+                },
                 separator,
                 shortcutItem('拡大', 'Ctrl++', 'zoom-in'),
                 shortcutItem('縮小', 'Ctrl+-', 'zoom-out'),

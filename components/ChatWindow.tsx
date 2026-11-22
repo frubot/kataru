@@ -112,7 +112,9 @@ import { useSituationVisualNovelPresentation } from './chat/useSituationVisualNo
 import { useVisualNovelAutoPlay } from './chat/useVisualNovelAutoPlay';
 import { useTtsPlayback } from './chat/useTtsPlayback';
 import { useMessageReplyPacing } from './chat/useMessageReplyPacing';
-import { getNextRoomViewMode, useViewModeCycleShortcut } from './chat/useChatKeyboard';
+import { getNextRoomViewMode } from './chat/useChatKeyboard';
+import { acceptsShortcutTargetByDefault, isEditableTarget, useKeyboardShortcut } from './useKeyboardShortcut';
+import { hasCommandModifier } from '../lib/keyboardShortcuts';
 import { buildMessageTimeLabels } from '@/lib/messageTimeLabels';
 import type { VisualNovelTtsItem } from './chat/useTtsPlayback';
 import VisualNovelLogView from './chat/VisualNovelLogView';
@@ -2766,9 +2768,10 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         setVnLogOpen(false);
         updateRoomSettings(room.id, { viewMode });
     };
-    useViewModeCycleShortcut({
+    useKeyboardShortcut({
+        action: 'cycleViewMode',
         enabled: canChangeViewMode,
-        onCycle: () => handleChangeViewMode(getNextRoomViewMode(currentRoomViewMode, true)),
+        onTrigger: () => handleChangeViewMode(getNextRoomViewMode(currentRoomViewMode, true)),
     });
 
     const handleClearActiveDebugLogs = () => {
@@ -2866,6 +2869,91 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         && !input.trim()
         && !hasActiveAttachments
         && (replySuggestionState.loading || replySuggestionState.suggestions.length === 3);
+
+    // 入力欄に何も書いていないときだけ、入力欄でのキーもショートカットとして扱う。
+    const isComposerTarget = (event: KeyboardEvent) => event.target === textareaRef.current;
+    const isComposerEmpty = () => !chatInputValue && !hasActiveAttachments;
+
+    useKeyboardShortcut({
+        action: 'stopGeneration',
+        enabled: showStopButton && !isVisualNovelLogOpen,
+        acceptTarget: (event) => isComposerTarget(event) || acceptsShortcutTargetByDefault({
+            key: event.key,
+            ctrlKey: event.ctrlKey,
+            altKey: event.altKey,
+            metaKey: event.metaKey,
+            editableTarget: isEditableTarget(event.target),
+        }),
+        onTrigger: handleStop,
+    });
+
+    const canRegenerateByShortcut = canRegenerateVN
+        && !isSummarizing
+        && !branchingMessageId
+        && !isEditingMessage
+        && !isVisualNovelLogOpen;
+    useKeyboardShortcut({
+        action: 'regenerateReply',
+        enabled: canRegenerateByShortcut,
+        onTrigger: () => void handleRegenerate(),
+    });
+
+    const canEditLastMessageByShortcut = canEditLatestUserMessageInVn
+        && !isEditingMessage
+        && !branchingMessageId
+        && !isVisualNovelLogOpen;
+    useKeyboardShortcut({
+        action: 'editLastMessage',
+        enabled: canEditLastMessageByShortcut,
+        // 矢印キーなどはメッセージ一覧のスクロールにも使うため、修飾キーなしでは空の入力欄でだけ受け付ける。
+        acceptTarget: (event) => hasCommandModifier(event) || (isComposerTarget(event) && isComposerEmpty()),
+        onTrigger: () => {
+            if (!latestEditableUserMessage) return;
+            if (isVisualNovelMode) {
+                handleEditLatestUserMessageInVn();
+            } else {
+                handleEditMessage(latestEditableUserMessage.id);
+            }
+        },
+    });
+
+    const handleStartNewChat = !room || isRoomEmpty
+        ? undefined
+        : isGroupRoom && room.groupId
+            ? () => createRoomForSituation(room.groupId!, undefined, { viewMode: currentRoomViewMode })
+            : !isGroupRoom && character
+                ? () => createRoom(character.id, undefined, { viewMode: currentRoomViewMode })
+                : undefined;
+    useKeyboardShortcut({
+        action: 'newChat',
+        enabled: !!handleStartNewChat && !isLoading && !isSummarizing,
+        onTrigger: () => handleStartNewChat?.(),
+    });
+
+    const canSelectReplySuggestionByShortcut = showReplySuggestions
+        && replySuggestionState != null
+        && !replySuggestionState.loading
+        && !chatInputDisabled;
+    const selectReplySuggestionAt = (index: number) => {
+        const suggestion = replySuggestionState?.suggestions[index];
+        if (suggestion) handleReplySuggestionSelect(suggestion);
+    };
+    useKeyboardShortcut({
+        action: 'selectReplySuggestion1',
+        enabled: canSelectReplySuggestionByShortcut,
+        onTrigger: () => selectReplySuggestionAt(0),
+    });
+    useKeyboardShortcut({
+        action: 'selectReplySuggestion2',
+        enabled: canSelectReplySuggestionByShortcut,
+        onTrigger: () => selectReplySuggestionAt(1),
+    });
+    useKeyboardShortcut({
+        action: 'selectReplySuggestion3',
+        enabled: canSelectReplySuggestionByShortcut,
+        onTrigger: () => selectReplySuggestionAt(2),
+    });
+
     const handleChatInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         if (isInlineVnEditing) {
             handleEditMessageChange(e.target.value);
@@ -2966,21 +3054,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                     isSecretMode={isSecretMode}
                     isRoomEmpty={isRoomEmpty}
                     onToggleSecretMode={handleToggleSecretMode}
-                    onStartNewChat={
-                        !isRoomEmpty && !isGroupRoom && character
-                            ? () => createRoom(
-                                character.id,
-                                undefined,
-                                { viewMode: currentRoomViewMode },
-                            )
-                            : !isRoomEmpty && isGroupRoom && room.groupId
-                                ? () => createRoomForSituation(
-                                    room.groupId!,
-                                    undefined,
-                                    { viewMode: currentRoomViewMode },
-                                )
-                                : undefined
-                    }
+                    onStartNewChat={handleStartNewChat}
                     newChatTitle={
                         isGroupRoom
                             ? `${groupName ?? 'シチュエーション'}の新しいチャットを開始`

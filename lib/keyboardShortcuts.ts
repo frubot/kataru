@@ -1,9 +1,20 @@
 export type KeyboardShortcutAction =
     | 'sendMessage'
     | 'advanceTypewriter'
+    | 'stopGeneration'
+    | 'regenerateReply'
+    | 'editLastMessage'
+    | 'selectReplySuggestion1'
+    | 'selectReplySuggestion2'
+    | 'selectReplySuggestion3'
+    | 'newChat'
+    | 'previousChat'
+    | 'nextChat'
+    | 'openSearch'
+    | 'toggleSidebar'
+    | 'cycleViewMode'
     | 'closeDialog'
-    | 'openShortcutHelp'
-    | 'cycleViewMode';
+    | 'openShortcutHelp';
 
 export type KeyboardShortcut = {
     key: string;
@@ -23,14 +34,6 @@ type KeyboardEventLike = {
     metaKey?: boolean;
 };
 
-const SHORTCUT_ACTIONS: KeyboardShortcutAction[] = [
-    'sendMessage',
-    'advanceTypewriter',
-    'closeDialog',
-    'openShortcutHelp',
-    'cycleViewMode',
-];
-
 const MODIFIER_KEYS = new Set(['Alt', 'AltGraph', 'Control', 'Meta', 'Shift']);
 
 function shortcut(
@@ -49,10 +52,23 @@ function shortcut(
 export const DEFAULT_KEYBOARD_SHORTCUTS: KeyboardShortcutSettings = {
     sendMessage: [shortcut('Enter')],
     advanceTypewriter: [shortcut('Enter')],
+    stopGeneration: [shortcut('Escape')],
+    regenerateReply: [shortcut('r', { alt: true })],
+    editLastMessage: [shortcut('ArrowUp')],
+    selectReplySuggestion1: [shortcut('1', { alt: true })],
+    selectReplySuggestion2: [shortcut('2', { alt: true })],
+    selectReplySuggestion3: [shortcut('3', { alt: true })],
+    newChat: [shortcut('n', { alt: true })],
+    previousChat: [shortcut('ArrowUp', { alt: true })],
+    nextChat: [shortcut('ArrowDown', { alt: true })],
+    openSearch: [shortcut('k', { ctrl: true })],
+    toggleSidebar: [shortcut('b', { ctrl: true })],
+    cycleViewMode: [shortcut('m', { ctrl: true })],
     closeDialog: [shortcut('Escape')],
     openShortcutHelp: [shortcut('/', { ctrl: true })],
-    cycleViewMode: [shortcut('m', { ctrl: true })],
 };
+
+const SHORTCUT_ACTIONS = Object.keys(DEFAULT_KEYBOARD_SHORTCUTS) as KeyboardShortcutAction[];
 
 /** 旧デフォルト（Enter / Space）が保存されたままの設定を、現在のデフォルトへ移行するための値。 */
 const LEGACY_DEFAULT_ADVANCE_TYPEWRITER: KeyboardShortcut[] = [shortcut('Enter'), shortcut(' ')];
@@ -83,13 +99,9 @@ function shortcutSignature(value: KeyboardShortcut): string {
 }
 
 export function createDefaultKeyboardShortcuts(): KeyboardShortcutSettings {
-    return {
-        sendMessage: DEFAULT_KEYBOARD_SHORTCUTS.sendMessage.map(cloneShortcut),
-        advanceTypewriter: DEFAULT_KEYBOARD_SHORTCUTS.advanceTypewriter.map(cloneShortcut),
-        closeDialog: DEFAULT_KEYBOARD_SHORTCUTS.closeDialog.map(cloneShortcut),
-        openShortcutHelp: DEFAULT_KEYBOARD_SHORTCUTS.openShortcutHelp.map(cloneShortcut),
-        cycleViewMode: DEFAULT_KEYBOARD_SHORTCUTS.cycleViewMode.map(cloneShortcut),
-    };
+    return Object.fromEntries(
+        SHORTCUT_ACTIONS.map((action) => [action, DEFAULT_KEYBOARD_SHORTCUTS[action].map(cloneShortcut)]),
+    ) as KeyboardShortcutSettings;
 }
 
 export function normalizeKeyboardShortcuts(value: unknown): KeyboardShortcutSettings {
@@ -148,6 +160,11 @@ export function matchesAnyKeyboardShortcut(
     values: readonly KeyboardShortcut[],
 ): boolean {
     return values.some((value) => matchesKeyboardShortcut(event, value));
+}
+
+/** Ctrl / Alt / Win のいずれかが押されているか。文字入力と区別できる組み合わせかどうかの判定に使います。 */
+export function hasCommandModifier(event: KeyboardEventLike): boolean {
+    return Boolean(event.ctrlKey || event.altKey || event.metaKey);
 }
 
 export function getKeyboardShortcutKeyLabel(key: string): string {

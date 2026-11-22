@@ -9,6 +9,8 @@ import {
     createFolder,
     deleteFolder,
     findFolderOfItem,
+    getAdjacentRoomId,
+    getSidebarRoomOrder,
     moveEntry,
     parseSidebarLayout,
     reconcileSection,
@@ -26,6 +28,7 @@ import StoredImage from './StoredImage';
 import CharacterShareOptions from './CharacterShareOptions';
 import SituationSettingsModal from './SituationSettingsModal';
 import SidebarSearchDialog, { type SidebarSearchResult } from './SidebarSearchDialog';
+import { useKeyboardShortcut } from './useKeyboardShortcut';
 
 type SidebarContextMenuTarget =
     | { type: 'character'; characterId: string }
@@ -662,6 +665,63 @@ export default function ChatSidebar({ onOpenSettings, onOpenCharacterSettings, o
         setRevealedItem({ type: result.type, id: result.item.id });
         if (!isDesktopOpen) onToggleDesktop();
     };
+
+    useKeyboardShortcut({
+        action: 'openSearch',
+        onTrigger: () => {
+            setContextMenu(null);
+            setSearchOpen(true);
+        },
+    });
+
+    // ショートカットで移ったチャットが見えるよう、属する項目・フォルダを開いて表示位置まで動かす。
+    const [revealActiveRoomRequest, setRevealActiveRoomRequest] = useState(0);
+    useEffect(() => {
+        if (revealActiveRoomRequest === 0) return;
+        const frame = requestAnimationFrame(() => {
+            document.querySelector('.sidebar .room-item.active')?.scrollIntoView({ block: 'nearest' });
+        });
+        return () => cancelAnimationFrame(frame);
+    }, [revealActiveRoomRequest]);
+
+    const moveToAdjacentRoom = (direction: 'previous' | 'next') => {
+        const order = getSidebarRoomOrder(
+            { situations: situationEntries, characters: characterEntries },
+            visibleRooms,
+        );
+        const roomId = getAdjacentRoomId(order, currentRoomId, direction);
+        const room = roomId ? visibleRooms.find((candidate) => candidate.id === roomId) : null;
+        if (!room) return;
+        setCurrentRoom(room.id);
+        if (room.groupId) {
+            const groupId = room.groupId;
+            setGroupExpanded(true);
+            revealInFolder('situations', groupId);
+            setCollapsedGroups((current) => {
+                if (!current.has(groupId)) return current;
+                const next = new Set(current);
+                next.delete(groupId);
+                return next;
+            });
+        } else {
+            setCharacterSectionExpanded(true);
+            revealInFolder('characters', room.characterId);
+            setExpandedCharacters((current) => (
+                current.has(room.characterId) ? current : new Set(current).add(room.characterId)
+            ));
+        }
+        setRevealActiveRoomRequest((count) => count + 1);
+    };
+    useKeyboardShortcut({
+        action: 'previousChat',
+        allowRepeat: true,
+        onTrigger: () => moveToAdjacentRoom('previous'),
+    });
+    useKeyboardShortcut({
+        action: 'nextChat',
+        allowRepeat: true,
+        onTrigger: () => moveToAdjacentRoom('next'),
+    });
 
     const charactersById = new Map(characters.map((character) => [character.id, character]));
     const situationsById = new Map(groups.map((group) => [group.id, group]));

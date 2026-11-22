@@ -3,6 +3,8 @@ import {
     FAVORITES_FOLDER_ID,
     createFolder,
     deleteFolder,
+    getAdjacentRoomId,
+    getSidebarRoomOrder,
     moveEntry,
     parseSidebarLayout,
     reconcileSection,
@@ -83,5 +85,33 @@ describe('folder operations', () => {
         expect(parseSidebarLayout({ version: 2 })).toBeNull();
         expect(parseSidebarLayout({ version: 1, characters: [{ type: 'item', id: 'a' }, { id: 1 }], situations: 'x' }))
             .toEqual({ version: 1, characters: [item('a')], situations: [] });
+    });
+});
+
+describe('sidebar room order', () => {
+    const rooms = [
+        { id: 'c1-old', characterId: 'c1', updatedAt: 1 },
+        { id: 'c1-new', characterId: 'c1', updatedAt: 5 },
+        { id: 'c2', characterId: 'c2', updatedAt: 3 },
+        { id: 's1', characterId: 'c1', groupId: 'g1', updatedAt: 2 },
+    ];
+
+    test('lists situations first, then characters in folder order, newest chat first', () => {
+        const order = getSidebarRoomOrder(
+            { situations: [item('g1')], characters: [folder('f', ['c2']), item('c1')] },
+            rooms,
+        );
+        expect(order).toEqual(['s1', 'c2', 'c1-new', 'c1-old']);
+    });
+
+    test('stops at both ends and enters from the edge when the current chat is not listed', () => {
+        const order = ['a', 'b', 'c'];
+        expect(getAdjacentRoomId(order, 'b', 'next')).toBe('c');
+        expect(getAdjacentRoomId(order, 'b', 'previous')).toBe('a');
+        expect(getAdjacentRoomId(order, 'c', 'next')).toBeNull();
+        expect(getAdjacentRoomId(order, 'a', 'previous')).toBeNull();
+        expect(getAdjacentRoomId(order, 'draft', 'next')).toBe('a');
+        expect(getAdjacentRoomId(order, null, 'previous')).toBe('c');
+        expect(getAdjacentRoomId([], 'a', 'next')).toBeNull();
     });
 });

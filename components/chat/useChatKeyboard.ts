@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import type { Dispatch, KeyboardEvent as ReactKeyboardEvent, RefObject, SetStateAction } from 'react';
 import { DEFAULT_KEYBOARD_SHORTCUTS, useStore, type KeyboardShortcut, type Room } from '../../lib/store';
 import { matchesAnyKeyboardShortcut } from '../../lib/keyboardShortcuts';
+import { isEditableTarget } from '../useKeyboardShortcut';
 
 type RoomViewMode = NonNullable<Room['viewMode']>;
 
@@ -44,12 +45,6 @@ export function shouldAdvanceTypewriter(
     shortcuts: readonly KeyboardShortcut[] = DEFAULT_KEYBOARD_SHORTCUTS.advanceTypewriter,
 ): boolean {
     return matchesAnyKeyboardShortcut(event, shortcuts);
-}
-
-function isEditableTarget(target: EventTarget | null): boolean {
-    if (!(target instanceof HTMLElement)) return false;
-    const tag = target.tagName;
-    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
 }
 
 type UseChatInputRedirectOptions = {
@@ -116,42 +111,6 @@ export function useTypewriterAdvance({ activeRef, onAdvance }: UseTypewriterAdva
     }, [activeRef, advanceTypewriterShortcuts]);
 }
 
-type UseViewModeCycleShortcutOptions = {
-    enabled: boolean;
-    onCycle: () => void;
-};
-
-/** 入力欄にフォーカスがあっても、修飾キー付きのショートカットでモードを順番に切り替えます。 */
-export function useViewModeCycleShortcut({ enabled, onCycle }: UseViewModeCycleShortcutOptions) {
-    const onCycleRef = useRef(onCycle);
-    const cycleViewModeShortcuts = useStore((state) => state.keyboardShortcuts.cycleViewMode);
-
-    useEffect(() => {
-        onCycleRef.current = onCycle;
-    }, [onCycle]);
-
-    useEffect(() => {
-        if (!enabled) return;
-
-        const handleKeyDown = (event: KeyboardEvent) => {
-            if (event.isComposing || event.repeat) return;
-            if (shouldIgnoreDocumentChatShortcut({
-                defaultPrevented: event.defaultPrevented,
-                modalOpen: document.querySelector('[aria-modal="true"]') != null,
-            })) return;
-            if (!matchesAnyKeyboardShortcut(event, cycleViewModeShortcuts)) return;
-            const hasModifier = event.ctrlKey || event.altKey || event.metaKey;
-            if (!hasModifier && isEditableTarget(event.target)) return;
-
-            event.preventDefault();
-            onCycleRef.current();
-        };
-
-        document.addEventListener('keydown', handleKeyDown);
-        return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [cycleViewModeShortcuts, enabled]);
-}
-
 type UseChatComposerKeyboardOptions<T> = {
     mentionOpen: boolean;
     mentionCandidates: T[];
@@ -196,6 +155,8 @@ export function useChatComposerKeyboard<T>({
                 return;
             }
             if (event.key === 'Escape') {
+                // 候補を閉じるだけにして、生成の中断などほかのショートカットに渡さない。
+                event.preventDefault();
                 onCloseMention();
                 return;
             }

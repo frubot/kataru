@@ -229,3 +229,39 @@ export function setFolderCollapsed(entries: readonly SidebarEntry[], folderId: s
         return next;
     });
 }
+
+type SidebarOrderRoom = { id: string; characterId: string; groupId?: string; updatedAt: number };
+
+/**
+ * サイドバーに並んでいる順（シチュエーション → キャラクター、各項目内は新しい順）でチャットのIDを返す。
+ * 折りたたまれた項目やフォルダのチャットも含める。
+ */
+export function getSidebarRoomOrder(
+    layout: { situations: readonly SidebarEntry[]; characters: readonly SidebarEntry[] },
+    rooms: readonly SidebarOrderRoom[],
+): string[] {
+    const byNewest = (a: SidebarOrderRoom, b: SidebarOrderRoom) => b.updatedAt - a.updatedAt;
+    const itemIds = (entries: readonly SidebarEntry[]) => entries.flatMap((entry) => (
+        entry.type === 'folder' ? entry.items : [entry.id]
+    ));
+    const situationRooms = itemIds(layout.situations).flatMap((groupId) => (
+        rooms.filter((room) => room.groupId === groupId).sort(byNewest)
+    ));
+    const characterRooms = itemIds(layout.characters).flatMap((characterId) => (
+        rooms.filter((room) => !room.groupId && room.characterId === characterId).sort(byNewest)
+    ));
+    return [...situationRooms, ...characterRooms].map((room) => room.id);
+}
+
+/** 並び順の前後のチャットを返す。端では止まり、一覧にないチャットからは端のチャットへ移る。 */
+export function getAdjacentRoomId(
+    order: readonly string[],
+    currentRoomId: string | null,
+    direction: 'previous' | 'next',
+): string | null {
+    if (order.length === 0) return null;
+    const index = currentRoomId ? order.indexOf(currentRoomId) : -1;
+    if (index < 0) return direction === 'next' ? order[0] : order[order.length - 1];
+    const nextIndex = direction === 'next' ? index + 1 : index - 1;
+    return order[nextIndex] ?? null;
+}

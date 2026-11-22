@@ -768,6 +768,17 @@ body {
   font-size: 0.75rem;
 }
 
+.keyboard-shortcut-group + .keyboard-shortcut-group {
+  margin-top: 1.25rem;
+}
+
+.keyboard-settings-panel .keyboard-shortcut-group-title {
+  margin: 0 0 0.35rem;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
 .keyboard-shortcut-row {
   display: grid;
   grid-template-columns: minmax(11rem, 1fr) minmax(8.5rem, auto);

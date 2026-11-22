@@ -44,6 +44,7 @@ import {
     clearThemeCache,
     DEFAULT_CONVERSATION_COMPRESSION_ENABLED,
     DEFAULT_MEMORY_GATE_ENABLED,
+    DEFAULT_AUTO_RETRY_ON_ERROR_ENABLED,
     DEFAULT_THEME_SELECTION,
     DEFAULT_TTS_ACTION_CAPTION,
     DEFAULT_TTS_AUTO_PLAY,
@@ -142,7 +143,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
         hydrate: async () => {
             if (get().hydrated) return;
             await db.migrateLegacyDatabase();
-            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, storedChatWallpaper, storedDefaultViewMode, currentRoomId, vnTypingSpeed, storedKeyboardShortcuts, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedModelDefaults, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedRoleApiTypes, storedConversationCompressionEnabled, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion, storedTtsEnabled, storedTtsConnectionId, storedTtsModel, storedTtsVoice, storedTtsSpeed, storedTtsVolume, storedTtsAutoPlay, storedTtsActionCaption, storedTtsCaptionCfgScale, storedTtsChunkMinChars, storedTtsFirstChunkMinChars, storedTtsStreamingEnabled, storedTtsNarrationEnabled, storedTtsNarratorVoice, storedMemoryGateEnabled, storedMemoryBatchUserTurns, storedReasoningEffort, storedUserName, storedUserProfile, storedChatSampling, storedVnMaxStageSprites, storedWordReplacements, storedCoreMemoryMaxChars, storedReplyDelaySeconds] = await Promise.all([
+            const [loadedCharacters, storedGroups, storedRooms, usageRecords, themeMode, themePalette, storedChatWallpaper, storedDefaultViewMode, currentRoomId, vnTypingSpeed, storedKeyboardShortcuts, fullJsonDebugEnabled, detailedErrorLoggingEnabled, memoryInspectorEnabled, summaryInspectorEnabled, storedModelDefaults, storedSummaryModel, storedDefaultChatModel, storedDefaultDirectorModel, storedDefaultAutoGenerationModel, storedTitleGenerationModel, storedDefaultImageModel, storedMemoryExtractionModel, storedMemoryEmbeddingModel, storedModelDefaultsByApiType, storedLegacyModelDefaultsByProvider, storedRoleApiTypes, storedConversationCompressionEnabled, storedGenerateTitleOnFirstReply, storedReplySuggestionsEnabled, storedAiApiType, storedLegacyAiProvider, storedOpenRouterIgnoredProviders, storedOpenAiCompatibleBaseUrl, storedOpenAiCompatibleEmbeddingsEnabled, storedOpenAiCompatibleImageGenerationEnabled, legacyOpenAiCompatibleApiKey, storedOnboardingVersion, storedAiSettingsSchemaVersion, storedTtsEnabled, storedTtsConnectionId, storedTtsModel, storedTtsVoice, storedTtsSpeed, storedTtsVolume, storedTtsAutoPlay, storedTtsActionCaption, storedTtsCaptionCfgScale, storedTtsChunkMinChars, storedTtsFirstChunkMinChars, storedTtsStreamingEnabled, storedTtsNarrationEnabled, storedTtsNarratorVoice, storedMemoryGateEnabled, storedMemoryBatchUserTurns, storedReasoningEffort, storedUserName, storedUserProfile, storedChatSampling, storedVnMaxStageSprites, storedWordReplacements, storedCoreMemoryMaxChars, storedReplyDelaySeconds, storedAutoRetryOnErrorEnabled] = await Promise.all([
                 db.getAllCharacters(),
                 db.getAllGroups(),
                 db.getAllRooms(),
@@ -207,6 +208,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 db.getMeta<unknown>('wordReplacements'),
                 db.getMeta<unknown>('coreMemoryMaxChars'),
                 db.getMeta<unknown>('replyDelaySeconds'),
+                db.getMeta<boolean>('autoRetryOnErrorEnabled'),
             ]);
             // Drop any previously stored client-side API key from IndexedDB.
             if (legacyOpenAiCompatibleApiKey !== undefined) {
@@ -497,6 +499,9 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 wordReplacements: normalizeWordReplacements(storedWordReplacements),
                 generateTitleOnFirstReply: resolvedGenerateTitleOnFirstReply,
                 replySuggestionsEnabled: resolvedReplySuggestionsEnabled,
+                autoRetryOnErrorEnabled: typeof storedAutoRetryOnErrorEnabled === 'boolean'
+                    ? storedAutoRetryOnErrorEnabled
+                    : DEFAULT_AUTO_RETRY_ON_ERROR_ENABLED,
                 ttsEnabled: resolvedTtsEnabled,
                 ttsConnectionId: resolvedTtsConnectionId,
                 ttsModel: resolvedTtsModel,
@@ -561,6 +566,7 @@ export function createLifecycleSlice(set: StoreSet, get: StoreGet): LifecycleSli
                 wordReplacements: [],
                 generateTitleOnFirstReply: false,
                 replySuggestionsEnabled: false,
+                autoRetryOnErrorEnabled: DEFAULT_AUTO_RETRY_ON_ERROR_ENABLED,
                 ttsEnabled: DEFAULT_TTS_ENABLED,
                 ttsConnectionId: DEFAULT_TTS_CONNECTION_ID,
                 ttsModel: DEFAULT_TTS_MODEL,

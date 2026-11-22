@@ -522,6 +522,7 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
         conversationCompressionEnabled, setConversationCompressionEnabled,
         generateTitleOnFirstReply, setGenerateTitleOnFirstReply,
         replySuggestionsEnabled, setReplySuggestionsEnabled,
+        autoRetryOnErrorEnabled, setAutoRetryOnErrorEnabled,
         fullJsonDebugEnabled, detailedErrorLoggingEnabled, fullJsonDebugLogs,
         memoryInspectorEnabled, summaryInspectorEnabled,
         setThemeMode, setThemePalette, setChatWallpaper, setDefaultViewMode, setVnTypingSpeed, setVnMaxStageSprites, setReplyDelaySeconds,
@@ -1855,6 +1856,41 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                             position: 'absolute',
                                             top: '2px',
                                             left: replySuggestionsEnabled ? '22px' : '2px',
+                                            width: '20px',
+                                            height: '20px',
+                                            borderRadius: '50%',
+                                            background: '#fff',
+                                            transition: 'left 0.2s ease',
+                                            boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                                        }} />
+                                    </button>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', marginTop: '1rem' }}>
+                                    <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
+                                        返答エラー時に自動で再試行
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setAutoRetryOnErrorEnabled(!autoRetryOnErrorEnabled)}
+                                        style={{
+                                            position: 'relative',
+                                            width: '44px',
+                                            height: '24px',
+                                            borderRadius: '12px',
+                                            border: 'none',
+                                            cursor: 'pointer',
+                                            background: autoRetryOnErrorEnabled ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
+                                            transition: 'background 0.2s ease',
+                                            padding: 0,
+                                            flexShrink: 0,
+                                        }}
+                                        aria-label="返答エラー時に自動で再試行"
+                                        aria-pressed={autoRetryOnErrorEnabled}
+                                    >
+                                        <span style={{
+                                            position: 'absolute',
+                                            top: '2px',
+                                            left: autoRetryOnErrorEnabled ? '22px' : '2px',
                                             width: '20px',
                                             height: '20px',
                                             borderRadius: '50%',

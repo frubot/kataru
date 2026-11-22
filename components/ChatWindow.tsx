@@ -26,6 +26,7 @@ import {
     isRetryableGenerationError,
     shouldOpenSettingsForChatError,
 } from '@/lib/chatErrors';
+import { formatChatAutoRetryNotice, getChatAutoRetryPlan } from '@/lib/chatAutoRetry';
 import { getChatRegenerationCutIndex } from '@/lib/chatRegeneration';
 import { removeSubmittedUserMessage, rollbackRestorableMessages } from '@/lib/chatTurnRollback';
 import {
@@ -296,6 +297,9 @@ function VisualNovelBackground({ src }: { src: string }) {
     );
 }
 
+const CHAT_RETRY_ACTION = { type: 'retry', label: '再試行' } as const;
+const AUTO_RETRY_BUSY_POLL_MS = 1000;
+
 type ChatRetryRequest =
     | {
         kind: 'submit';
@@ -406,6 +410,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         generateTitleOnFirstReply,
         titleGenerationModel,
         replySuggestionsEnabled,
+        autoRetryOnErrorEnabled,
         replySuggestionModel,
         fullJsonDebugEnabled,
         detailedErrorLoggingEnabled,
@@ -460,6 +465,10 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     const pendingCancelledAppliesRef = useRef<Map<string, Promise<void>>>(new Map());
     const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const retrySubmissionRef = useRef<ChatRetryRequest | null>(null);
+    const autoRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    // 自動再試行で実行中の試行。失敗したときに試行回数を引き継ぐために使う。
+    const autoRetryInFlightRef = useRef<{ roomId: string; attempts: number } | null>(null);
+    const runAutoRetryRef = useRef<(retry: ChatRetryRequest, attempts: number) => void>(() => undefined);
     const chatNoticeActionRunningRef = useRef(false);
     const messagePointerDragRef = useRef(false);
     // 添付の読み込み完了時に入力コンテキストが変わっていたら結果を捨てるための世代。
@@ -513,6 +522,10 @@ export default function ChatWindow({ room, character, situation, groupName, grou
     } = useChatNotice({
         onClearAction: () => {
             retrySubmissionRef.current = null;
+            if (autoRetryTimerRef.current) {
+                clearTimeout(autoRetryTimerRef.current);
+                autoRetryTimerRef.current = null;
+            }
         },
     });
     const {
@@ -588,9 +601,11 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         isSecretMode,
     };
     const currentGenerationContextRef = useRef(currentGenerationContext);
+    const autoRetryOnErrorEnabledRef = useRef(autoRetryOnErrorEnabled);
     useEffect(() => {
         replyDelayMsRef.current = replyDelayMs;
         hasComposerDraftRef.current = hasComposerDraft;
+        autoRetryOnErrorEnabledRef.current = autoRetryOnErrorEnabled;
         currentGenerationContextRef.current = {
             character,
             situation,
@@ -783,6 +798,27 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         );
         showChatNotice(getChatErrorNotice(error, detailedErrorLoggingEnabled), inferredAction);
     }, [detailedErrorLoggingEnabled, onOpenSettings, showChatNotice]);
+
+    /** 再試行できる返答エラーを通知し、設定が有効なら自動再試行を予約する。 */
+    const reportRetryableGenerationError = (error: unknown, retry: ChatRetryRequest) => {
+        const inFlight = autoRetryInFlightRef.current;
+        const previousAttempts = inFlight?.roomId === retry.roomId ? inFlight.attempts : 0;
+        const plan = getChatAutoRetryPlan(previousAttempts, autoRetryOnErrorEnabledRef.current);
+        retrySubmissionRef.current = retry;
+        if (!plan) {
+            showChatErrorNotice(error, CHAT_RETRY_ACTION);
+            return;
+        }
+        showChatNotice(
+            formatChatAutoRetryNotice(getChatErrorNotice(error, detailedErrorLoggingEnabled), plan),
+            CHAT_RETRY_ACTION,
+        );
+        if (autoRetryTimerRef.current) clearTimeout(autoRetryTimerRef.current);
+        autoRetryTimerRef.current = setTimeout(() => {
+            autoRetryTimerRef.current = null;
+            runAutoRetryRef.current(retry, plan.attempt);
+        }, plan.delayMs);
+    };
 
     const logChatError = useCallback((context: string, error: unknown) => {
         if (detailedErrorLoggingEnabled) {
@@ -1629,11 +1665,10 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             && getCurrentRoom()?.id === latestRoom.id
         ) {
             if (isRetryableGenerationError(generationResult.error)) {
-                retrySubmissionRef.current = {
+                reportRetryableGenerationError(generationResult.error, {
                     kind: 'continue',
                     roomId: latestRoom.id,
-                };
-                showChatErrorNotice(generationResult.error, { type: 'retry', label: '再試行' });
+                });
             } else {
                 showChatErrorNotice(generationResult.error);
             }
@@ -1679,8 +1714,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
         }
         if (result.status !== 'error' || !result.error || getCurrentRoom()?.id !== roomId) return;
         if (isRetryableGenerationError(result.error)) {
-            retrySubmissionRef.current = { kind: 'reply', roomId };
-            showChatErrorNotice(result.error, { type: 'retry', label: '再試行' });
+            reportRetryableGenerationError(result.error, { kind: 'reply', roomId });
         } else {
             showChatErrorNotice(result.error);
         }
@@ -2062,7 +2096,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
 
                 if (generationResult.error && getCurrentRoom()?.id === room.id) {
                     if (isRetryableGenerationError(generationResult.error)) {
-                        retrySubmissionRef.current = {
+                        reportRetryableGenerationError(generationResult.error, {
                             kind: 'submit',
                             roomId: room.id,
                             input: userMessage,
@@ -2071,8 +2105,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                                 : undefined,
                             editDraft: editDraft ? { ...editDraft, content: submittedInput } : undefined,
                             suggestedReply,
-                        };
-                        showChatErrorNotice(generationResult.error, { type: 'retry', label: '再試行' });
+                        });
                     } else {
                         showChatErrorNotice(generationResult.error);
                     }
@@ -2107,9 +2140,15 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             return;
         }
 
-        if (isLoading || isSummarizing || chatNoticeActionRunningRef.current) return;
         const retry = retrySubmissionRef.current;
-        if (!retry || retry.roomId !== currentRoomId) return;
+        if (!retry) return;
+        void startChatRetry(retry);
+    };
+
+    /** 再試行を始める。実行できない状態なら null を返す。 */
+    const startChatRetry = (retry: ChatRetryRequest): Promise<void> | null => {
+        if (isLoading || isSummarizing || chatNoticeActionRunningRef.current) return null;
+        if (retry.roomId !== currentRoomId) return null;
 
         chatNoticeActionRunningRef.current = true;
         retrySubmissionRef.current = null;
@@ -2119,7 +2158,7 @@ export default function ChatWindow({ room, character, situation, groupName, grou
             : retry.kind === 'reply'
                 ? requestReplyNow()
                 : handleSubmit(undefined, retry.editDraft, retry.suggestedReply, retry.input, retry.attachments);
-        void retryPromise
+        return retryPromise
             .catch((error) => {
                 logChatError('Chat retry failed:', error);
                 showChatNotice('再試行の準備中にエラーが発生しました。');
@@ -2128,6 +2167,43 @@ export default function ChatWindow({ room, character, situation, groupName, grou
                 chatNoticeActionRunningRef.current = false;
             });
     };
+
+    const runAutoRetry = (retry: ChatRetryRequest, attempts: number) => {
+        // 通知を閉じた・部屋を移った・別の送信をした場合は予約が取り消されている。
+        if (retrySubmissionRef.current !== retry) return;
+        // 送信失敗で入力欄に戻した文章を書き換えていたら、古い内容で送り直さない。
+        if (
+            retry.kind === 'submit'
+            && !retry.editDraft
+            && !retry.suggestedReply
+            && input.trim() !== retry.input
+        ) {
+            dismissChatNotice();
+            return;
+        }
+        const inFlight = { roomId: retry.roomId, attempts };
+        autoRetryInFlightRef.current = inFlight;
+        const retryPromise = startChatRetry(retry);
+        if (!retryPromise) {
+            autoRetryInFlightRef.current = null;
+            if (retry.roomId !== currentRoomId) return;
+            // 他の処理が終わるのを待ってから同じ試行をやり直す。
+            autoRetryTimerRef.current = setTimeout(() => {
+                autoRetryTimerRef.current = null;
+                runAutoRetryRef.current(retry, attempts);
+            }, AUTO_RETRY_BUSY_POLL_MS);
+            return;
+        }
+        void retryPromise.finally(() => {
+            if (autoRetryInFlightRef.current === inFlight) autoRetryInFlightRef.current = null;
+        });
+    };
+    useEffect(() => {
+        runAutoRetryRef.current = runAutoRetry;
+    });
+    useEffect(() => () => {
+        if (autoRetryTimerRef.current) clearTimeout(autoRetryTimerRef.current);
+    }, []);
 
     const handleRegenerate = async () => {
         if (!room || isLoading || (isVisualNovelMode && situationVnPresentation.locked)) return;

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { X, Trash2, AlertTriangle, Download, Upload, Sun, Moon, Check, ChevronDown, RefreshCw, ExternalLink, Plus, type LucideIcon } from 'lucide-react';
-import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, RoomViewMode, VOICEVOX_TTS_MODEL, DEFAULT_USER_NAME, MAX_REPLY_DELAY_SECONDS, getDefaultModelDefaults, TTS_CHUNK_MIN_CHARS_MAX, TTS_CHUNK_MIN_CHARS_MIN, TTS_FIRST_CHUNK_MIN_CHARS_MAX, TTS_FIRST_CHUNK_MIN_CHARS_MIN } from '@/lib/store';
+import { useStore, ThemeMode, ThemePalette, VnTypingSpeed, RoomViewMode, VOICEVOX_TTS_MODEL, DEFAULT_USER_NAME, DEFAULT_REPLY_DELAY_SECONDS, MAX_REPLY_DELAY_SECONDS, getDefaultModelDefaults, TTS_CHUNK_MIN_CHARS_MAX, TTS_CHUNK_MIN_CHARS_MIN, TTS_FIRST_CHUNK_MIN_CHARS_MAX, TTS_FIRST_CHUNK_MIN_CHARS_MIN } from '@/lib/store';
 import { AI_CONNECTION_KIND_LABELS, isAiConnectionKind, type AiConnectionKind } from '@/lib/aiApi';
 import { useAiConnections, type AiConnectionStatus } from '@/lib/aiConnections';
 import { isReasoningEffort, MODEL_DEFAULT_FIELDS, modelRefsEqual, rebaseModelDefaults, REASONING_EFFORT_OPTIONS, type ModelRef, type ModelRoleKey } from '@/lib/modelDefaults';
@@ -190,11 +190,13 @@ interface NumberUnitInputProps {
     max: number;
     defaultValue: number;
     ariaLabel: string;
+    /** 確定時に丸める刻み幅。既定は1（整数）。 */
+    step?: number;
     onCommit: (value: number) => void;
 }
 
 /** 右寄せの数値テキストボックス。入力中は下書きとして持ち、確定時（フォーカスアウト・Enter）に反映する。 */
-function NumberUnitInput({ id, value, unit, min, max, defaultValue, ariaLabel, onCommit }: NumberUnitInputProps) {
+function NumberUnitInput({ id, value, unit, min, max, defaultValue, ariaLabel, step = 1, onCommit }: NumberUnitInputProps) {
     const [draft, setDraft] = useState(String(value));
 
     useEffect(() => {
@@ -207,7 +209,7 @@ function NumberUnitInput({ id, value, unit, min, max, defaultValue, ariaLabel, o
             setDraft(String(value));
             return;
         }
-        const next = Math.min(max, Math.max(min, Math.round(parsed)));
+        const next = Math.min(max, Math.max(min, Math.round(parsed / step) * step));
         setDraft(String(next));
         if (next !== value) onCommit(next);
     };
@@ -217,7 +219,7 @@ function NumberUnitInput({ id, value, unit, min, max, defaultValue, ariaLabel, o
             <input
                 id={id}
                 type="text"
-                inputMode="numeric"
+                inputMode={Number.isInteger(step) ? 'numeric' : 'decimal'}
                 className="input"
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
@@ -1073,39 +1075,24 @@ export default function GlobalSettingsModal({ isOpen, onClose, onShowOnboarding 
                                     </div>
                                 </div>
 
-                                <div className="global-settings-selector-row">
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
                                     <label
                                         htmlFor="reply-delay-seconds-input"
                                         style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}
                                     >
-                                        入力中の返信待ち時間（秒）
+                                        入力中の返信待ち時間
                                     </label>
-                                    <div
-                                        className="global-settings-selector-control"
-                                        style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}
-                                    >
-                                        <div style={{ flex: 1, minWidth: 0 }}>
-                                            <TtsChunkMinCharsSlider
-                                                id="reply-delay-seconds-input"
-                                                min={0}
-                                                max={MAX_REPLY_DELAY_SECONDS}
-                                                step={0.5}
-                                                value={replyDelaySeconds}
-                                                ariaLabel="入力中の返信待ち時間（秒）"
-                                                onChange={setReplyDelaySeconds}
-                                            />
-                                        </div>
-                                        <SliderValueInput
-                                            value={replyDelaySeconds}
-                                            label={replyDelaySeconds.toFixed(1)}
-                                            min={0}
-                                            max={MAX_REPLY_DELAY_SECONDS}
-                                            decimals={1}
-                                            color="var(--accent-primary)"
-                                            ariaLabel="入力中の返信待ち時間（秒）"
-                                            onCommit={setReplyDelaySeconds}
-                                        />
-                                    </div>
+                                    <NumberUnitInput
+                                        id="reply-delay-seconds-input"
+                                        value={replyDelaySeconds}
+                                        unit="秒"
+                                        min={0}
+                                        max={MAX_REPLY_DELAY_SECONDS}
+                                        step={0.5}
+                                        defaultValue={DEFAULT_REPLY_DELAY_SECONDS}
+                                        ariaLabel="入力中の返信待ち時間"
+                                        onCommit={setReplyDelaySeconds}
+                                    />
                                 </div>
 
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>

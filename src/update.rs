@@ -4,7 +4,7 @@ use std::{
     ffi::{OsStr, OsString},
     fs::{self, OpenOptions},
     io::Write,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     process::{self, Command},
     sync::OnceLock,
     thread,
@@ -28,6 +28,11 @@ const MAX_UPDATE_SIZE: u64 = 128 * 1024 * 1024;
 const UPDATE_TIMEOUT: Duration = Duration::from_secs(120);
 const INTERNAL_APPLY_COMMAND: &str = "__apply-update";
 const INTERNAL_CLEANUP_COMMAND: &str = "__cleanup-update";
+/// 更新用の一時ディレクトリ名の接頭辞。内部コマンドの検証でも同じ値を使います。
+const STAGE_DIR_PREFIX: &str = "kataru-update-";
+/// 更新準備完了を示すマーカーファイル名と、その内容。
+const READY_MARKER_NAME: &str = "ready";
+const READY_MARKER_CONTENT: &[u8] = b"ready";
 
 static ASSET_PREFIX: OnceLock<&'static str> = OnceLock::new();
 
@@ -177,7 +182,7 @@ pub async fn install_latest(
 }
 
 pub fn mark_update_ready(marker: &Path) -> AppResult<()> {
-    fs::write(marker, b"ready")?;
+    fs::write(marker, READY_MARKER_CONTENT)?;
     Ok(())
 }
 
@@ -352,7 +357,7 @@ async fn download_update(
         .map_err(|error| AppError::Internal(format!("システム時刻が不正です: {error}")))?
         .as_millis();
     let stage_dir = env::temp_dir().join(format!(
-        "kataru-update-{}-{timestamp}-{}",
+        "{STAGE_DIR_PREFIX}{}-{timestamp}-{}",
         process::id(),
         release.tag_name
     ));
@@ -372,7 +377,7 @@ async fn download_update(
         let _ = fs::remove_dir_all(&stage_dir);
         return Err(error);
     }
-    let ready_marker = stage_dir.join("ready");
+    let ready_marker = stage_dir.join(READY_MARKER_NAME);
     Ok((stage_dir, staged_binary, ready_marker))
 }
 
@@ -420,6 +425,11 @@ fn spawn_update_helper(
     Ok(())
 }
 
+/// 内部コマンド `__apply-update` の本体。
+///
+/// 引数は親のKataruだけが生成しますが、昇格実行されたKataruを介して任意の
+/// ファイルを置き換えられないよう、更新用ディレクトリ・完了マーカー・更新対象を
+/// 適用前に検証します。
 fn apply_staged_update(args: &[OsString]) -> AppResult<()> {
     if args.len() < 3 {
         return Err(AppError::BadRequest(
@@ -438,10 +448,21 @@ fn apply_staged_update(args: &[OsString]) -> AppResult<()> {
             ));
         }
     };
+
+    let canonical_stage_dir = validate_stage_dir(&stage_dir)?;
+    validate_ready_marker(&ready_marker, &canonical_stage_dir)?;
+    let canonical_target = validate_update_target(&target)?;
+    // 更新プログラムは必ず検証済みの更新用ディレクトリ内（ダウンロードした
+    // 新しい実行ファイル）から動いている必要があります。インストール済みの
+    // Kataruから直接呼ばれた場合は、更新対象だけが任意に指定できてしまうため
+    // ここで拒否します。
+    let staged_binary = validate_staged_binary(&canonical_stage_dir)?;
+    ensure_target_outside_stage(&canonical_target, &canonical_stage_dir)?;
+
     wait_for_ready(&ready_marker)?;
+    verify_ready_marker(&ready_marker)?;
     thread::sleep(Duration::from_millis(300));
 
-    let staged_binary = env::current_exe()?;
     let file_name = target.file_name().ok_or_else(|| {
         AppError::Internal("更新対象のファイル名を取得できませんでした。".to_owned())
     })?;
@@ -483,9 +504,251 @@ fn apply_staged_update(args: &[OsString]) -> AppResult<()> {
     Ok(())
 }
 
+/// 内部更新コマンドのパス検証で共通に使う拒否エラー。
+///
+/// 不正なパスは「引数の形式誤り」ではなく、昇格実行時の意図しないファイル操作に
+/// つながる指定なので `Forbidden` として区別します。
+fn reject_internal_update(message: impl Into<String>) -> AppError {
+    AppError::Forbidden(format!(
+        "内部更新コマンドを拒否しました: {}",
+        message.into()
+    ))
+}
+
+/// 更新用の一時ディレクトリを検証し、正規化したパスを返します。
+///
+/// 許可するのは `std::env::temp_dir()` の直下にある `kataru-update-` 接頭辞の
+/// ディレクトリだけです。親ディレクトリの実体も比較するため、`..` を含む指定や
+/// 別の場所へのシンボリックリンクは通りません。
+fn validate_stage_dir(stage_dir: &Path) -> AppResult<PathBuf> {
+    if !stage_dir.is_absolute() {
+        return Err(reject_internal_update(format!(
+            "更新用ディレクトリは絶対パスで指定してください: {}",
+            stage_dir.display()
+        )));
+    }
+    let metadata = fs::symlink_metadata(stage_dir).map_err(|error| {
+        reject_internal_update(format!(
+            "更新用ディレクトリを読み取れません: {} ({error})",
+            stage_dir.display()
+        ))
+    })?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(reject_internal_update(format!(
+            "更新用ディレクトリではありません: {}",
+            stage_dir.display()
+        )));
+    }
+    let canonical_stage_dir = fs::canonicalize(stage_dir).map_err(|error| {
+        reject_internal_update(format!(
+            "更新用ディレクトリを解決できません: {} ({error})",
+            stage_dir.display()
+        ))
+    })?;
+    let name = canonical_stage_dir
+        .file_name()
+        .and_then(OsStr::to_str)
+        .unwrap_or_default();
+    if !name.starts_with(STAGE_DIR_PREFIX) || name.len() == STAGE_DIR_PREFIX.len() {
+        return Err(reject_internal_update(format!(
+            "更新用ディレクトリの名前が不正です: {}",
+            canonical_stage_dir.display()
+        )));
+    }
+    let temp_dir = fs::canonicalize(env::temp_dir()).map_err(|error| {
+        AppError::Internal(format!("一時ディレクトリを解決できませんでした: {error}"))
+    })?;
+    if canonical_stage_dir.parent() != Some(temp_dir.as_path()) {
+        return Err(reject_internal_update(format!(
+            "更新用ディレクトリの場所が不正です: {}",
+            canonical_stage_dir.display()
+        )));
+    }
+    Ok(canonical_stage_dir)
+}
+
+/// 完了マーカーが更新用ディレクトリ直下の `ready` を指していることを検証します。
+fn validate_ready_marker(ready_marker: &Path, stage_dir: &Path) -> AppResult<()> {
+    if ready_marker.file_name() != Some(OsStr::new(READY_MARKER_NAME)) {
+        return Err(reject_internal_update(format!(
+            "更新マーカーの名前が不正です: {}",
+            ready_marker.display()
+        )));
+    }
+    let parent = ready_marker.parent().ok_or_else(|| {
+        reject_internal_update(format!(
+            "更新マーカーの保存先を取得できません: {}",
+            ready_marker.display()
+        ))
+    })?;
+    let canonical_parent = fs::canonicalize(parent).map_err(|error| {
+        reject_internal_update(format!(
+            "更新マーカーの保存先を解決できません: {} ({error})",
+            parent.display()
+        ))
+    })?;
+    if canonical_parent != stage_dir {
+        return Err(reject_internal_update(format!(
+            "更新マーカーが更新用ディレクトリの外にあります: {}",
+            ready_marker.display()
+        )));
+    }
+    Ok(())
+}
+
+/// マーカーが通常ファイルで、親のKataruが書いた内容と一致することを検証します。
+///
+/// マーカーは親のKataruが更新準備の完了後に `ready` という内容で書き込みます。
+fn verify_ready_marker(ready_marker: &Path) -> AppResult<()> {
+    let metadata = fs::symlink_metadata(ready_marker).map_err(|error| {
+        reject_internal_update(format!(
+            "更新マーカーを確認できません: {} ({error})",
+            ready_marker.display()
+        ))
+    })?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(reject_internal_update(format!(
+            "更新マーカーが通常ファイルではありません: {}",
+            ready_marker.display()
+        )));
+    }
+    if fs::read(ready_marker)? != READY_MARKER_CONTENT {
+        return Err(reject_internal_update(format!(
+            "更新マーカーの内容が不正です: {}",
+            ready_marker.display()
+        )));
+    }
+    Ok(())
+}
+
+/// 更新対象の実行ファイルを検証し、正規化したパスを返します。
+fn validate_update_target(target: &Path) -> AppResult<PathBuf> {
+    if !target.is_absolute() {
+        return Err(reject_internal_update(format!(
+            "更新対象は絶対パスで指定してください: {}",
+            target.display()
+        )));
+    }
+    if target
+        .components()
+        .any(|component| component == Component::ParentDir)
+    {
+        return Err(reject_internal_update(format!(
+            "更新対象に親ディレクトリ参照は指定できません: {}",
+            target.display()
+        )));
+    }
+    let metadata = fs::symlink_metadata(target).map_err(|error| {
+        reject_internal_update(format!(
+            "更新対象を読み取れません: {} ({error})",
+            target.display()
+        ))
+    })?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(reject_internal_update(format!(
+            "更新対象が通常ファイルではありません: {}",
+            target.display()
+        )));
+    }
+    fs::canonicalize(target).map_err(|error| {
+        reject_internal_update(format!(
+            "更新対象を解決できません: {} ({error})",
+            target.display()
+        ))
+    })
+}
+
+/// 更新対象が更新用ディレクトリの内側を指していないことを検証します。
+fn ensure_target_outside_stage(target: &Path, stage_dir: &Path) -> AppResult<()> {
+    if target.starts_with(stage_dir) {
+        return Err(reject_internal_update(format!(
+            "更新対象が更新用ディレクトリ内にあります: {}",
+            target.display()
+        )));
+    }
+    Ok(())
+}
+
+/// 実行中のプロセスが検証済みの更新用ディレクトリ内のファイルであることを
+/// 検証し、正規化したパスを返します。
+///
+/// 更新を適用するのはダウンロードした新しい実行ファイル自身なので、
+/// `current_exe` は更新用ディレクトリ直下にあります。インストール済みの
+/// Kataruから直接呼ばれた場合はここで弾かれます。
+fn validate_staged_binary(stage_dir: &Path) -> AppResult<PathBuf> {
+    let current_exe = env::current_exe()?;
+    let canonical_current_exe = fs::canonicalize(&current_exe).map_err(|error| {
+        reject_internal_update(format!(
+            "更新プログラムの場所を解決できません: {} ({error})",
+            current_exe.display()
+        ))
+    })?;
+    if canonical_current_exe.parent() != Some(stage_dir) {
+        return Err(reject_internal_update(format!(
+            "更新プログラムが更新用ディレクトリから実行されていません: {}",
+            canonical_current_exe.display()
+        )));
+    }
+    Ok(canonical_current_exe)
+}
+
+/// バックアップが更新対象の隣に作られた `<ファイル名>.old-<PID>` であることを
+/// 検証します（任意のファイルを削除させないため）。
+fn validate_update_backup(target: &Path, backup: &Path) -> AppResult<()> {
+    let file_name = target.file_name().ok_or_else(|| {
+        reject_internal_update(format!(
+            "更新対象のファイル名を取得できません: {}",
+            target.display()
+        ))
+    })?;
+    let expected_prefix = format!("{}.old-", file_name.to_string_lossy());
+    let backup_name = backup
+        .file_name()
+        .and_then(OsStr::to_str)
+        .unwrap_or_default();
+    let valid_backup_name = backup_name
+        .strip_prefix(&expected_prefix)
+        .is_some_and(|suffix| {
+            !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit())
+        });
+    if !valid_backup_name {
+        return Err(reject_internal_update(format!(
+            "更新後のバックアップ名が不正です: {}",
+            backup.display()
+        )));
+    }
+    let target_parent = fs::canonicalize(target.parent().ok_or_else(|| {
+        reject_internal_update(format!(
+            "更新対象の保存先を取得できません: {}",
+            target.display()
+        ))
+    })?)?;
+    let backup_parent = fs::canonicalize(backup.parent().ok_or_else(|| {
+        reject_internal_update(format!(
+            "バックアップの保存先を取得できません: {}",
+            backup.display()
+        ))
+    })?)?;
+    if target_parent != backup_parent {
+        return Err(reject_internal_update(format!(
+            "バックアップが更新対象と同じ場所にありません: {}",
+            backup.display()
+        )));
+    }
+    Ok(())
+}
+
 fn wait_for_ready(marker: &Path) -> AppResult<()> {
     let started = Instant::now();
-    while !marker.is_file() {
+    loop {
+        // 親のKataruは `ready` を書き込んでから完了するため、内容まで一致する
+        // ことを待ちます（旧バージョンからの更新では書き込み途中に見えることが
+        // あります）。
+        if marker.is_file()
+            && fs::read(marker).is_ok_and(|contents| contents == READY_MARKER_CONTENT)
+        {
+            return Ok(());
+        }
         if started.elapsed() >= UPDATE_TIMEOUT {
             return Err(AppError::Internal(
                 "更新の適用待ちがタイムアウトしました。".to_owned(),
@@ -493,7 +756,6 @@ fn wait_for_ready(marker: &Path) -> AppResult<()> {
         }
         thread::sleep(Duration::from_millis(100));
     }
-    Ok(())
 }
 
 fn move_target_to_backup(target: &Path, backup: &Path) -> AppResult<()> {
@@ -535,6 +797,7 @@ fn spawn_cleanup_process(target: &Path, stage_dir: &Path, backup: &Path) -> AppR
     cleanup
         .arg(INTERNAL_CLEANUP_COMMAND)
         .arg(stage_dir)
+        .arg(target)
         .arg(backup);
     hide_window(&mut cleanup);
     cleanup.spawn().map_err(|error| {
@@ -546,17 +809,45 @@ fn spawn_cleanup_process(target: &Path, stage_dir: &Path, backup: &Path) -> AppR
     Ok(())
 }
 
+/// 内部コマンド `__cleanup-update` の本体。
+///
+/// 更新後の実行ファイル自身から呼ばれた場合だけ、検証済みの更新用ディレクトリと
+/// バックアップを削除します。
 fn cleanup_staged_update(args: &[OsString]) -> AppResult<()> {
-    if args.len() != 2 {
+    if args.len() != 3 {
         return Err(AppError::BadRequest(
             "内部クリーンアップコマンドの引数が不正です。".to_owned(),
         ));
     }
     let stage_dir = PathBuf::from(&args[0]);
-    let backup = PathBuf::from(&args[1]);
+    let target = PathBuf::from(&args[1]);
+    let backup = PathBuf::from(&args[2]);
+
+    let canonical_target = validate_update_target(&target)?;
+    let current_exe = fs::canonicalize(env::current_exe()?)?;
+    if current_exe != canonical_target {
+        return Err(reject_internal_update(format!(
+            "クリーンアップは更新後の実行ファイルから実行してください: {}",
+            target.display()
+        )));
+    }
+    validate_update_backup(&target, &backup)?;
+
+    // 更新用ディレクトリが既に無い場合は削除済みとして扱います。存在する場合だけ
+    // 検証し、正規化したパスを削除対象にします。
+    let stage_dir = if stage_dir.exists() {
+        let canonical_stage_dir = validate_stage_dir(&stage_dir)?;
+        ensure_target_outside_stage(&canonical_target, &canonical_stage_dir)?;
+        Some(canonical_stage_dir)
+    } else {
+        None
+    };
+
     let started = Instant::now();
     loop {
-        let stage_removed = !stage_dir.exists() || fs::remove_dir_all(&stage_dir).is_ok();
+        let stage_removed = stage_dir
+            .as_ref()
+            .is_none_or(|directory| !directory.exists() || fs::remove_dir_all(directory).is_ok());
         let backup_removed = !backup.exists() || fs::remove_file(&backup).is_ok();
         if stage_removed && backup_removed {
             return Ok(());
@@ -685,5 +976,215 @@ mod tests {
         let mut missing_digest = release;
         missing_digest.assets[0].digest = None;
         assert!(select_update_asset(&missing_digest).is_err());
+    }
+
+    /// `std::env::temp_dir()` の直下に、指定した接頭辞の一時ディレクトリを作ります。
+    fn stage_dir_with_prefix(prefix: &str) -> tempfile::TempDir {
+        tempfile::Builder::new()
+            .prefix(prefix)
+            .tempdir_in(std::env::temp_dir())
+            .expect("temporary stage directory")
+    }
+
+    fn canonical_stage_dir(stage_dir: &Path) -> PathBuf {
+        validate_stage_dir(stage_dir).expect("valid stage directory")
+    }
+
+    #[test]
+    fn stage_dir_must_be_a_prefixed_dir_directly_under_temp_dir() {
+        let stage = stage_dir_with_prefix("kataru-update-test-");
+        let canonical = canonical_stage_dir(stage.path());
+        let temp_dir = fs::canonicalize(std::env::temp_dir()).expect("temp dir");
+        assert_eq!(canonical.parent(), Some(temp_dir.as_path()));
+
+        // 接頭辞が違うディレクトリは拒否する。
+        let wrong_prefix = stage_dir_with_prefix("kataru-test-");
+        assert!(validate_stage_dir(wrong_prefix.path()).is_err());
+
+        // 接頭辞は正しくても、一時ディレクトリの直下でなければ拒否する。
+        let nested_root = stage_dir_with_prefix("kataru-update-nested-root-");
+        let nested = nested_root.path().join("kataru-update-nested");
+        fs::create_dir(&nested).expect("nested stage directory");
+        assert!(validate_stage_dir(&nested).is_err());
+
+        // 存在しないパス・相対パスは拒否する。
+        let missing = std::env::temp_dir().join("kataru-update-missing-directory");
+        assert!(validate_stage_dir(&missing).is_err());
+        assert!(validate_stage_dir(Path::new("kataru-update-relative")).is_err());
+
+        // 接頭辞だけの名前は拒否する。
+        let empty_suffix = std::env::temp_dir().join(STAGE_DIR_PREFIX);
+        let _ = fs::remove_dir_all(&empty_suffix);
+        fs::create_dir(&empty_suffix).expect("prefix-only stage directory");
+        let result = validate_stage_dir(&empty_suffix);
+        let _ = fs::remove_dir_all(&empty_suffix);
+        assert!(result.is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stage_dir_symlink_is_rejected() {
+        use std::os::unix::fs::symlink;
+
+        let target = stage_dir_with_prefix("kataru-update-link-target-");
+        let link_root = stage_dir_with_prefix("kataru-update-link-root-");
+        let link = link_root.path().join("kataru-update-link");
+        symlink(target.path(), &link).expect("symlink to stage directory");
+        assert!(validate_stage_dir(&link).is_err());
+    }
+
+    #[test]
+    fn ready_marker_must_be_inside_stage_dir_and_contain_ready() {
+        let stage = stage_dir_with_prefix("kataru-update-marker-");
+        let canonical = canonical_stage_dir(stage.path());
+        let marker = canonical.join(READY_MARKER_NAME);
+
+        validate_ready_marker(&marker, &canonical).expect("marker inside stage directory");
+        fs::write(&marker, READY_MARKER_CONTENT).expect("write ready marker");
+        verify_ready_marker(&marker).expect("ready marker contents");
+
+        // 別のディレクトリの `ready` は拒否する。
+        let other = stage_dir_with_prefix("kataru-update-marker-other-");
+        let outside = canonical_stage_dir(other.path()).join(READY_MARKER_NAME);
+        fs::write(&outside, READY_MARKER_CONTENT).expect("write outside marker");
+        assert!(validate_ready_marker(&outside, &canonical).is_err());
+
+        // マーカー名が `ready` でなければ拒否する。
+        let wrong_name = canonical.join("done");
+        assert!(validate_ready_marker(&wrong_name, &canonical).is_err());
+
+        // 内容が `ready` でない・通常ファイルでないマーカーは拒否する。
+        fs::write(&marker, b"nope").expect("overwrite marker");
+        assert!(verify_ready_marker(&marker).is_err());
+        fs::remove_file(&marker).expect("remove marker");
+        assert!(verify_ready_marker(&marker).is_err());
+        fs::create_dir(&marker).expect("marker directory");
+        assert!(verify_ready_marker(&marker).is_err());
+    }
+
+    #[test]
+    fn update_target_must_be_an_existing_file_outside_stage_dir() {
+        let current_exe = std::env::current_exe().expect("current executable");
+        let canonical_target = validate_update_target(&current_exe).expect("existing file");
+        let stage = stage_dir_with_prefix("kataru-update-target-");
+        let canonical = canonical_stage_dir(stage.path());
+        ensure_target_outside_stage(&canonical_target, &canonical)
+            .expect("outside stage directory");
+
+        let inside = canonical.join("kataru-windows-x64.exe");
+        fs::write(&inside, b"staged").expect("staged binary");
+        let canonical_inside = validate_update_target(&inside).expect("staged binary is a file");
+        assert!(ensure_target_outside_stage(&canonical_inside, &canonical).is_err());
+
+        // 相対パス・存在しないパス・ディレクトリ・親ディレクトリ参照は拒否する。
+        assert!(validate_update_target(Path::new("kataru.exe")).is_err());
+        assert!(validate_update_target(&canonical.join("missing.exe")).is_err());
+        assert!(validate_update_target(&canonical).is_err());
+        assert!(validate_update_target(&canonical.join("..").join("kataru.exe")).is_err());
+    }
+
+    #[test]
+    fn cleanup_backup_must_be_a_sibling_of_the_updated_binary() {
+        let current_exe = fs::canonicalize(std::env::current_exe().expect("current executable"))
+            .expect("canonical executable");
+        let file_name = current_exe
+            .file_name()
+            .expect("file name")
+            .to_string_lossy()
+            .to_string();
+        let parent = current_exe
+            .parent()
+            .expect("parent directory")
+            .to_path_buf();
+
+        let valid = parent.join(format!("{file_name}.old-1234"));
+        validate_update_backup(&current_exe, &valid).expect("sibling backup");
+
+        for invalid in [
+            parent.join(format!("{file_name}.old-")),
+            parent.join(format!("{file_name}.old-12ab")),
+            parent.join(format!("{file_name}.backup-1234")),
+            parent.join("other-binary.old-1234"),
+        ] {
+            assert!(validate_update_backup(&current_exe, &invalid).is_err());
+        }
+
+        let other_dir = tempfile::tempdir().expect("other directory");
+        let other = other_dir.path().join(format!("{file_name}.old-1234"));
+        assert!(validate_update_backup(&current_exe, &other).is_err());
+    }
+
+    #[test]
+    fn internal_update_commands_reject_untrusted_arguments() {
+        let current_exe = fs::canonicalize(std::env::current_exe().expect("current executable"))
+            .expect("canonical executable");
+        let stage = stage_dir_with_prefix("kataru-update-apply-");
+        let canonical = canonical_stage_dir(stage.path());
+        let marker = canonical.join(READY_MARKER_NAME);
+        fs::write(&marker, READY_MARKER_CONTENT).expect("write ready marker");
+
+        // 更新用ディレクトリが正しくても、そこから実行されていないプロセスは拒否する。
+        let apply_args = vec![
+            marker.clone().into_os_string(),
+            current_exe.clone().into_os_string(),
+            canonical.clone().into_os_string(),
+        ];
+        assert!(matches!(
+            apply_staged_update(&apply_args),
+            Err(AppError::Forbidden(_))
+        ));
+
+        // マーカーが別の更新用ディレクトリにある場合は拒否する。
+        let other = stage_dir_with_prefix("kataru-update-other-");
+        let other_stage = canonical_stage_dir(other.path());
+        let outside_marker_args = vec![
+            marker.clone().into_os_string(),
+            current_exe.clone().into_os_string(),
+            other_stage.into_os_string(),
+        ];
+        assert!(matches!(
+            apply_staged_update(&outside_marker_args),
+            Err(AppError::Forbidden(_))
+        ));
+
+        // 引数の数が足りない内部クリーンアップコマンドは拒否する。
+        assert!(cleanup_staged_update(&[]).is_err());
+        let short_cleanup = vec![
+            canonical.clone().into_os_string(),
+            current_exe.clone().into_os_string(),
+        ];
+        assert!(cleanup_staged_update(&short_cleanup).is_err());
+
+        // 更新対象と同名で始まらないバックアップは拒否する。
+        let file_name = current_exe
+            .file_name()
+            .expect("file name")
+            .to_string_lossy()
+            .to_string();
+        let parent = current_exe.parent().expect("parent directory");
+        let bad_backup_args = vec![
+            canonical.clone().into_os_string(),
+            current_exe.clone().into_os_string(),
+            parent
+                .join(format!("{file_name}.old-abcdef"))
+                .into_os_string(),
+        ];
+        assert!(matches!(
+            cleanup_staged_update(&bad_backup_args),
+            Err(AppError::Forbidden(_))
+        ));
+
+        // 更新後の実行ファイル（このテストバイナリ）から呼ばれた正しい形式は通る。
+        let cleanup_stage = stage_dir_with_prefix("kataru-update-cleanup-");
+        fs::create_dir(cleanup_stage.path().join("leftover")).expect("leftover directory");
+        let valid_cleanup_args = vec![
+            cleanup_stage.path().as_os_str().to_os_string(),
+            current_exe.clone().into_os_string(),
+            parent
+                .join(format!("{file_name}.old-{}", std::process::id()))
+                .into_os_string(),
+        ];
+        cleanup_staged_update(&valid_cleanup_args).expect("valid cleanup");
+        assert!(!cleanup_stage.path().exists());
     }
 }

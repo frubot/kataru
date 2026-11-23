@@ -1,8 +1,15 @@
 import { resolveStoredImageUrl } from './imageSource';
+import { isAllowedMarkdownImageSource } from './imageSourcePolicy';
 
 const MAX_COMPLETED_PRELOADS = 128;
 const MAX_IN_FLIGHT_PRELOADS = 2;
 const PRELOAD_TIMEOUT_MS = 30_000;
+
+function allowedSources(sources: readonly (string | null | undefined)[]): string[] {
+    // 許可リスト外の参照（旧データに残る外部URLなど）はStoredImageが表示しないため、
+    // 先読みもしない。先読みすると外部サイトへ自動リクエストが飛んでしまう。
+    return sources.filter((source): source is string => !!source && isAllowedMarkdownImageSource(source));
+}
 
 const completedPreloads = new Map<string, true>();
 
@@ -36,10 +43,8 @@ export function preloadVisualNovelImages(
 ): () => void {
     if (typeof Image === 'undefined' || sources.length === 0) return () => {};
 
-    const visible = new Set(
-        visibleSources.filter((source): source is string => !!source).map(resolveStoredImageUrl),
-    );
-    const queue = [...new Set(sources.map(resolveStoredImageUrl))].filter(
+    const visible = new Set(allowedSources(visibleSources).map(resolveStoredImageUrl));
+    const queue = [...new Set(allowedSources(sources).map(resolveStoredImageUrl))].filter(
         (source) => source && !visible.has(source) && !completedPreloads.has(getPreloadCacheKey(source)),
     );
     if (queue.length === 0) return () => {};

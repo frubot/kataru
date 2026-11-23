@@ -23,7 +23,7 @@ use serde_json::json;
 
 use crate::{
     ai_config::parse_config_data_dir,
-    config::{DEFAULT_HOST, DEFAULT_PORT, origin_for, parse_port, validate_host},
+    config::{DEFAULT_HOST, DEFAULT_PORT, origin_for, parse_port, permissions, validate_host},
     error::{AppError, AppResult},
     hashing::sha256_hex,
 };
@@ -250,11 +250,7 @@ fn read_token(path: &Path) -> AppResult<String> {
 fn create_private_file(path: &Path) -> std::io::Result<fs::File> {
     let mut options = fs::OpenOptions::new();
     options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt as _;
-        options.mode(0o600);
-    }
+    permissions::restrict_new_file_mode(&mut options);
     options.open(path)
 }
 
@@ -264,7 +260,11 @@ fn create_private_file(path: &Path) -> std::io::Result<fs::File> {
 pub fn load_or_create_token(data_dir: &Path) -> AppResult<String> {
     let path = token_path(data_dir);
     match read_token(&path) {
-        Ok(token) => return Ok(token),
+        Ok(token) => {
+            // 以前のバージョンが作ったファイルも、読み込みのたびに権限を締め直す。
+            permissions::tighten_file(&path);
+            return Ok(token);
+        }
         Err(AppError::Io(error)) if error.kind() == ErrorKind::NotFound => {}
         Err(error) => return Err(error),
     }
@@ -282,7 +282,7 @@ pub fn load_or_create_token(data_dir: &Path) -> AppResult<String> {
 }
 
 pub fn rotate_token(data_dir: &Path) -> AppResult<String> {
-    fs::create_dir_all(data_dir)?;
+    permissions::create_private_directory(data_dir)?;
     let path = token_path(data_dir);
     let temporary = data_dir.join(format!("{TOKEN_FILE_NAME}.{}.tmp", uuid::Uuid::new_v4()));
     let token = generate_token()?;
@@ -347,7 +347,7 @@ pub fn run_cli_command_if_requested() -> AppResult<bool> {
         eprintln!("トークンを再発行しました。起動中のKataruには再起動後に反映されます。");
         token
     } else {
-        fs::create_dir_all(&data_dir)?;
+        permissions::create_private_directory(&data_dir)?;
         load_or_create_token(&data_dir)?
     };
     println!("{}", launch_url(&origin_for(&host, port), &token));
@@ -529,6 +529,28 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         fs::write(directory.path().join(TOKEN_FILE_NAME), "short").unwrap();
         assert!(load_or_create_token(directory.path()).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn token_file_is_owner_only_and_existing_permissions_are_tightened() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join(TOKEN_FILE_NAME);
+        load_or_create_token(directory.path()).unwrap();
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+
+        // 以前のバージョンが作った0644のファイルも、読み込みのたびに締め直す。
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        load_or_create_token(directory.path()).unwrap();
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
     }
 
     #[test]

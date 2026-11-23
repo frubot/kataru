@@ -12,7 +12,10 @@ use rusqlite::{
     backup::{Backup, StepResult},
 };
 
-use crate::error::{AppError, AppResult};
+use crate::{
+    config::permissions,
+    error::{AppError, AppResult},
+};
 
 pub use storage::{
     PackagePreview, build_character_package, get_character_room_ids, get_conversation_memories,
@@ -58,6 +61,8 @@ impl Database {
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.pragma_update(None, "foreign_keys", true)?;
         connection.pragma_update(None, "journal_mode", "WAL")?;
+        // SQLiteが作るファイルはumaskの影響を受けるため（022なら0644）、開いた直後に締め直す。
+        tighten_database_files(path);
         if should_backup {
             create_startup_backup(&connection, path)?;
         }
@@ -69,6 +74,8 @@ impl Database {
         migrate_character_images(&transaction)?;
         migrate_situation_images(&transaction)?;
         transaction.commit()?;
+        // migrationの書き込みで `-wal` / `-shm` が新しく作られることがあるため、もう一度締め直す。
+        tighten_database_files(path);
         Ok(Self {
             inner: Arc::new(Mutex::new(connection)),
             path: Arc::new(path.to_path_buf()),
@@ -127,6 +134,27 @@ fn is_existing_database(path: &Path) -> AppResult<bool> {
     }
 }
 
+/// DB本体と、SQLiteが併せて作るファイルの権限を所有者だけに絞る。
+///
+/// `-wal` / `-shm` は接続後にSQLiteが作るため、存在するときだけ締め直す。
+/// 無い場合（`-memory:` やまだ作られていない場合）は何もしない。
+fn tighten_database_files(path: &Path) {
+    if path == Path::new(":memory:") || path.as_os_str().is_empty() {
+        return;
+    }
+
+    permissions::tighten_file(path);
+    for suffix in ["-wal", "-shm", "-journal"] {
+        permissions::tighten_file(&path_with_suffix(path, suffix));
+    }
+}
+
+fn path_with_suffix(path: &Path, suffix: &str) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push(suffix);
+    PathBuf::from(name)
+}
+
 fn backup_directory(database_path: &Path) -> PathBuf {
     database_path
         .parent()
@@ -148,7 +176,8 @@ where
     P: FnOnce(&Path) -> AppResult<()>,
 {
     let directory = backup_directory(database_path);
-    fs::create_dir_all(&directory)?;
+    // バックアップにも会話履歴・記憶・画像が入るため、DBと同じく自分だけが読めるようにする。
+    permissions::create_private_directory(&directory)?;
 
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -169,6 +198,8 @@ where
             )));
         }
         fs::rename(&temporary_path, &backup_path)?;
+        // 以前のバージョンが作ったバックアップ（umask由来の0644など）も起動のたびに締め直す。
+        tighten_backup_files(&directory);
         if let Err(error) = prune(&directory) {
             tracing::warn!(
                 backup_directory = %directory.display(),
@@ -263,12 +294,10 @@ fn reserve_backup_path(directory: &Path, timestamp: u128) -> AppResult<(PathBuf,
         let temporary_path = directory.join(format!(".{stem}.db.tmp"));
         let backup_path = directory.join(format!("{stem}{BACKUP_FILE_EXTENSION}"));
 
-        match OpenOptions::new()
-            .create_new(true)
-            .read(true)
-            .write(true)
-            .open(&temporary_path)
-        {
+        let mut options = OpenOptions::new();
+        options.create_new(true).read(true).write(true);
+        permissions::restrict_new_file_mode(&mut options);
+        match options.open(&temporary_path) {
             Ok(_) if !backup_path.exists() => return Ok((temporary_path, backup_path)),
             Ok(_) => {
                 fs::remove_file(&temporary_path)?;
@@ -304,6 +333,29 @@ fn is_managed_backup(path: &Path) -> bool {
         .is_some_and(|name| {
             name.starts_with(BACKUP_FILE_PREFIX) && name.ends_with(BACKUP_FILE_EXTENSION)
         })
+}
+
+/// バックアップディレクトリ内のファイルの権限を所有者だけに絞る。
+///
+/// ディレクトリは起動時に作られるため、読み取りに失敗しても起動は止めない
+/// （ディレクトリ自体が0700なので、ここが失敗しても他ユーザーからは辿れない）。
+fn tighten_backup_files(directory: &Path) {
+    let entries = match fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(error) => {
+            tracing::warn!(
+                backup_directory = %directory.display(),
+                %error,
+                "自動バックアップの権限を確認できませんでした。"
+            );
+            return;
+        }
+    };
+    for entry in entries.flatten() {
+        if entry.file_type().is_ok_and(|kind| kind.is_file()) {
+            permissions::tighten_file(&entry.path());
+        }
+    }
 }
 
 fn prune_old_backups(directory: &Path) -> AppResult<()> {
@@ -615,5 +667,63 @@ mod tests {
             "not valid json"
         );
         assert_eq!(managed_backups(&path).len(), 1);
+    }
+
+    /// 接続中にしか存在しないWAL/SHMも確認できるよう、`Database` を保持したまま検査する。
+    #[cfg(unix)]
+    #[test]
+    fn database_files_are_owner_only() {
+        let directory = tempdir().expect("create temp directory");
+        let path = database_path(&directory);
+
+        let database = Database::open(&path).expect("create database");
+        assert_eq!(mode_of(&path), 0o600);
+        for suffix in ["-wal", "-shm"] {
+            let file = path_with_suffix(&path, suffix);
+            if file.exists() {
+                assert_eq!(mode_of(&file), 0o600, "{}", file.display());
+            }
+        }
+        drop(database);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn existing_database_and_backups_are_tightened_on_startup() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let directory = tempdir().expect("create temp directory");
+        let path = database_path(&directory);
+        create_legacy_database(&path, None);
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).expect("relax database");
+
+        let backups = backup_directory(&path);
+        fs::create_dir_all(&backups).expect("create backup directory");
+        fs::set_permissions(&backups, fs::Permissions::from_mode(0o755))
+            .expect("relax backup directory");
+        let stale_backup = backups.join(format!("{BACKUP_FILE_PREFIX}0-0{BACKUP_FILE_EXTENSION}"));
+        fs::write(&stale_backup, b"stale").expect("write stale backup");
+        fs::set_permissions(&stale_backup, fs::Permissions::from_mode(0o644))
+            .expect("relax stale backup");
+
+        let database = Database::open(&path).expect("open existing database");
+        drop(database);
+
+        assert_eq!(mode_of(&path), 0o600);
+        assert_eq!(mode_of(&backups), 0o700);
+        for backup in managed_backups(&path) {
+            assert_eq!(mode_of(&backup), 0o600, "{}", backup.display());
+        }
+    }
+
+    #[cfg(unix)]
+    fn mode_of(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        fs::metadata(path)
+            .expect("read metadata")
+            .permissions()
+            .mode()
+            & 0o777
     }
 }

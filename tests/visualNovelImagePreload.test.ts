@@ -16,6 +16,10 @@ class TestImage {
 
 const cleanups: (() => void)[] = [];
 
+function assetOf(char: string): string {
+    return `asset:${char.repeat(64)}`;
+}
+
 function preload(sources: string[], visibleSources: string[] = []) {
     const cancel = preloadVisualNovelImages(sources, visibleSources);
     cleanups.push(cancel);
@@ -35,32 +39,35 @@ afterEach(() => {
 
 describe('visual novel image preloading', () => {
     test('waits for both visible images, then warms unique variants two at a time', () => {
-        const asset = `asset:${'a'.repeat(64)}`;
+        const asset = assetOf('a');
         preload(
-            [asset, 'variant-1.png', 'variant-2.png', 'variant-1.png', 'variant-3.png'],
-            [asset, 'background.png'],
+            [asset, assetOf('1'), assetOf('2'), assetOf('1'), assetOf('3')],
+            [asset, assetOf('b')],
         );
 
         const images = TestImage.instances;
         expect(images.map((image) => image.src)).toEqual([
-            `/api/assets/${'a'.repeat(64)}`, 'background.png',
+            `/api/assets/${'a'.repeat(64)}`, `/api/assets/${'b'.repeat(64)}`,
         ]);
         expect(images.every((image) => image.fetchPriority === 'high')).toBe(true);
         images[0].onload?.();
         expect(images).toHaveLength(2);
         images[1].onload?.();
 
-        expect(images.slice(2).map((image) => image.src)).toEqual(['variant-1.png', 'variant-2.png']);
+        expect(images.slice(2).map((image) => image.src)).toEqual([
+            `/api/assets/${'1'.repeat(64)}`,
+            `/api/assets/${'2'.repeat(64)}`,
+        ]);
         expect(images.slice(2).every((image) => image.fetchPriority === 'low')).toBe(true);
         images[2].onload?.();
-        expect(images[4].src).toBe('variant-3.png');
+        expect(images[4].src).toBe(`/api/assets/${'3'.repeat(64)}`);
         images[3].onload?.();
         images[4].onload?.();
         expect(images).toHaveLength(5);
     });
 
     test('cancels old requests and queued work when the visible scene changes', () => {
-        const cancel = preload(['old-1.png', 'old-2.png', 'old-3.png'], ['current.png']);
+        const cancel = preload([assetOf('4'), assetOf('5'), assetOf('6')], [assetOf('c')]);
         const images = TestImage.instances;
         images[0].onload?.();
         const lateLoad = images[1].onload;
@@ -71,8 +78,8 @@ describe('visual novel image preloading', () => {
         expect(images.slice(1).every((image) => image.src === '' && image.onload === null)).toBe(true);
 
         // A remembered image can have been evicted from the browser's actual cache.
-        const cancelNext = preload(['next-1.png'], ['current.png']);
-        expect(images[3].src).toBe('current.png');
+        const cancelNext = preload([assetOf('d')], [assetOf('c')]);
+        expect(images[3].src).toBe(`/api/assets/${'c'.repeat(64)}`);
         expect(images).toHaveLength(4);
         const lateVisibleLoad = images[3].onload;
         cancelNext();
@@ -82,17 +89,29 @@ describe('visual novel image preloading', () => {
 
     test('errors and timeouts release the queue without caching failed downloads', () => {
         vi.useFakeTimers();
-        preload(['failed.png', 'timed-out.png', 'loaded.png'], ['broken-visible.png']);
+        preload([assetOf('7'), assetOf('8'), assetOf('9')], [assetOf('b')]);
         const images = TestImage.instances;
         images[0].onerror?.();
         expect(images).toHaveLength(3);
         images[1].onerror?.();
-        expect(images[3].src).toBe('loaded.png');
+        expect(images[3].src).toBe(`/api/assets/${'9'.repeat(64)}`);
         images[3].onload?.();
         vi.runAllTimers();
         expect(images[2].src).toBe('');
 
-        preload(['failed.png', 'timed-out.png', 'loaded.png']);
-        expect(images.slice(4).map((image) => image.src)).toEqual(['failed.png', 'timed-out.png']);
+        preload([assetOf('7'), assetOf('8'), assetOf('9')]);
+        expect(images.slice(4).map((image) => image.src)).toEqual([
+            `/api/assets/${'7'.repeat(64)}`,
+            `/api/assets/${'8'.repeat(64)}`,
+        ]);
+    });
+
+    test('does not preload references outside the allowlist', () => {
+        preload(
+            ['https://attacker.example/leak.png', '//attacker.example/x.png', 'relative.png'],
+            ['https://attacker.example/visible.png'],
+        );
+
+        expect(TestImage.instances).toHaveLength(0);
     });
 });

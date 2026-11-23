@@ -18,14 +18,14 @@ mod user_placeholder;
 use std::{
     net::SocketAddr,
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
 };
 
 use axum::{
     Json, Router,
     body::Body,
     extract::{DefaultBodyLimit, Path, Request, State},
-    http::{HeaderValue, Method, StatusCode, header},
+    http::{HeaderName, HeaderValue, Method, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -60,6 +60,67 @@ fn response_compression_predicate() -> impl Predicate {
     // 巨大な画像data URLを含むJSONは、圧縮コストの方が高い。
     // JS/CSSなどの静的アセットは従来どおり圧縮する。
     DefaultPredicate::new().and(NotForContentType::const_new("application/json"))
+}
+
+/// `index.html` のテーマ初期化スクリプト（インライン）のSHA-256。
+///
+/// HTMLパーサは入力ストリームのCRLF・CRをLFへ正規化してからスクリプト本文を
+/// 確定するため、ハッシュはLF改行の内容から計算する。チェックアウトの改行コードに
+/// 左右されないよう、`npm run build` 後の `out/index.html` を正規化して求める。
+/// スクリプトを変更したら `cargo test` の警告に従って更新すること。
+const THEME_SCRIPT_SHA256: &str = "sha256-C7UVb3fnHpOL/tGdrVjas+JDGVZexpwJFXR1RjfdDUc=";
+
+/// 画面・API・静的配信の全レスポンスへ付けるCSP。
+///
+/// - `script-src` は自前のバンドルと、テーマ初期化のインラインスクリプト（ハッシュ）だけ。
+/// - `style-src` の `'unsafe-inline'` はReactの `style` 属性に必要（ViteのCSSは外部ファイル）。
+/// - `img-src` / `media-src` は保存画像（`/api/assets`）、アプリが生成するdata URL・blob URLだけ。
+/// - 外部フォントや外部APIを画面から直接叩く箇所は無いため、`font-src` は既定（`'self'`）、
+///   `connect-src` は `'self'` で足りる。AI/TTSの通信はすべてサーバー経由。
+fn content_security_policy() -> HeaderValue {
+    static POLICY: OnceLock<HeaderValue> = OnceLock::new();
+    POLICY
+        .get_or_init(|| {
+            let policy = format!(
+                "default-src 'self'; \
+                 script-src 'self' '{THEME_SCRIPT_SHA256}'; \
+                 style-src 'self' 'unsafe-inline'; \
+                 img-src 'self' data: blob:; \
+                 media-src 'self' blob: data:; \
+                 connect-src 'self'; \
+                 object-src 'none'; \
+                 frame-ancestors 'none'; \
+                 base-uri 'none'; \
+                 form-action 'self'"
+            );
+            HeaderValue::from_str(&policy)
+                .expect("CSPはASCIIだけで構成されるため有効なヘッダー値になる")
+        })
+        .clone()
+}
+
+/// 全レスポンスへセキュリティヘッダーを付ける。
+///
+/// 静的配信（`static_assets` のfallback）や認証エラー・404も含めて付くよう、
+/// ルーターの最も外側のレイヤーとして登録する。
+async fn security_headers(request: Request<Body>, next: Next) -> Response {
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    headers.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(
+        HeaderName::from_static("permissions-policy"),
+        HeaderValue::from_static("camera=(), microphone=(), geolocation=()"),
+    );
+    headers.insert(header::CONTENT_SECURITY_POLICY, content_security_policy());
+    response
 }
 
 #[derive(Clone)]
@@ -201,7 +262,9 @@ impl Server {
                     .make_span_with(logging::make_http_span)
                     .on_response(logging::on_http_response),
             )
-            .layer(middleware::from_fn(logging::assign_request_id));
+            .layer(middleware::from_fn(logging::assign_request_id))
+            // 静的配信・認証エラー・404も含めた全レスポンスへ付けるため、最も外側に置く。
+            .layer(middleware::from_fn(security_headers));
 
         // ログファイルに残らないよう、トークン付きURLはtracingに渡さない。
         tracing::info!(
@@ -228,8 +291,7 @@ impl Server {
         let update_shutdown = self.state.update_shutdown.clone();
         axum::serve(
             self.listener,
-            self.app
-                .into_make_service_with_connect_info::<SocketAddr>(),
+            self.app.into_make_service_with_connect_info::<SocketAddr>(),
         )
         .with_graceful_shutdown(async move {
             tokio::select! {
@@ -500,6 +562,7 @@ mod tests {
     use axum::http::{StatusCode, header};
     use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
     use serde_json::json;
+    use sha2::{Digest, Sha256};
 
     use super::*;
     use crate::hashing::sha256_hex;
@@ -681,5 +744,119 @@ mod tests {
 
         server.abort();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    /// `out/index.html` からインラインスクリプトの本文を取り出す。
+    /// ブラウザのHTMLパーサに合わせて、CRLF・CRはLFへ正規化してから取り出す。
+    fn inline_scripts(html: &str) -> Vec<String> {
+        let normalized = html.replace("\r\n", "\n").replace('\r', "\n");
+        let mut scripts = Vec::new();
+        let mut rest = normalized.as_str();
+        while let Some(start) = rest.find("<script") {
+            let after_open = &rest[start + "<script".len()..];
+            let Some(tag_end) = after_open.find('>') else {
+                break;
+            };
+            let attributes = &after_open[..tag_end];
+            let body = &after_open[tag_end + 1..];
+            let Some(body_end) = body.find("</script>") else {
+                break;
+            };
+            // srcを持つ外部スクリプトはハッシュ対象ではない。
+            if !attributes.contains("src=") && !body[..body_end].trim().is_empty() {
+                scripts.push(body[..body_end].to_owned());
+            }
+            rest = &body[body_end + "</script>".len()..];
+        }
+        scripts
+    }
+
+    fn inline_script_hashes(scripts: &[String]) -> Vec<String> {
+        scripts
+            .iter()
+            .map(|script| BASE64.encode(Sha256::digest(script.as_bytes())))
+            .collect()
+    }
+
+    #[test]
+    fn content_security_policy_allows_the_inline_theme_script() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("out")
+            .join("index.html");
+        let Ok(html) = std::fs::read_to_string(&path) else {
+            // フロントエンドをビルドしていない環境（npm run build前）では検証しない。
+            eprintln!(
+                "skip: {} が無いためテーマスクリプトのハッシュを検証しません",
+                path.display()
+            );
+            return;
+        };
+        let scripts = inline_scripts(&html);
+        assert!(
+            !scripts.is_empty(),
+            "out/index.html にインラインスクリプトがありません"
+        );
+
+        let hashes = inline_script_hashes(&scripts);
+        let policy = content_security_policy();
+        let policy = policy.to_str().expect("CSPはASCII");
+
+        for hash in &hashes {
+            let source = format!("'sha256-{hash}'");
+            assert!(
+                policy.contains(&source),
+                "CSPにインラインスクリプトのハッシュがありません。THEME_SCRIPT_SHA256 を {hash} へ更新してください"
+            );
+        }
+        // 古いハッシュが残っていると、テーマ初期化スクリプトが実行されない。
+        for token in policy.split("'sha256-").skip(1) {
+            let value = token.split('\'').next().unwrap_or_default();
+            assert!(
+                hashes.iter().any(|hash| hash == value),
+                "CSPのハッシュ {value} は out/index.html のどのインラインスクリプトとも一致しません"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn security_headers_cover_pages_api_and_static_fallbacks() {
+        let app = Router::new()
+            .route("/page", get(|| async { "page" }))
+            .route("/api/thing", get(|| async { "{}" }))
+            .fallback(|| async { (StatusCode::NOT_FOUND, "missing") })
+            .layer(middleware::from_fn(security_headers));
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind test server");
+        let address = listener.local_addr().expect("read test server address");
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("serve test app");
+        });
+
+        let client = Client::new();
+        let permissions_policy = HeaderName::from_static("permissions-policy");
+        for path in ["/page", "/api/thing", "/missing"] {
+            let response = client
+                .get(format!("http://{address}{path}"))
+                .send()
+                .await
+                .expect("send request");
+            let headers = response.headers();
+            assert_eq!(headers[header::X_FRAME_OPTIONS], "DENY", "{path}");
+            assert_eq!(headers[header::REFERRER_POLICY], "no-referrer", "{path}");
+            assert_eq!(headers[header::X_CONTENT_TYPE_OPTIONS], "nosniff", "{path}");
+            assert_eq!(
+                headers[&permissions_policy], "camera=(), microphone=(), geolocation=()",
+                "{path}"
+            );
+            let csp = headers[header::CONTENT_SECURITY_POLICY]
+                .to_str()
+                .expect("CSP is ASCII");
+            assert!(csp.contains("script-src 'self' 'sha256-"), "{path}");
+            assert!(csp.contains("frame-ancestors 'none'"), "{path}");
+            assert!(csp.contains("default-src 'self'"), "{path}");
+        }
+
+        server.abort();
     }
 }

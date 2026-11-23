@@ -13,6 +13,7 @@ import * as db from './db';
 import { getAiConnections } from './aiConnections';
 import { isAiConnectionKind } from './aiApi';
 import { downloadBlob, shareBlobFile } from './characterPackage';
+import { isAllowedImportedImageSource } from './imageSourcePolicy';
 import { normalizeCharactersForCostumeDiffs } from './visualDiffMigration';
 import { generateId } from './id';
 import { isVrmSource, isVrmaSource, vrmMotionNameError } from './vrm';
@@ -184,6 +185,15 @@ function parseFullBackupValue(parsed: unknown): ParsedBackup {
         if (c.costumes?.some((costume) => (costume.kind === 'vrm' || costume.vrm !== undefined) && !isValidCostume(costume))) {
             throw new Error('バックアップ内のVRM衣装が不正です。');
         }
+    }
+
+    // 外部URLの画像は画面が自動で読み込んでしまうため、保存前に取り込みを止める。
+    // クライアント側の検証は改変できるので、サーバー側でも同じ規則で検証している。
+    const unsafeImage = findUnsafeBackupImage(characters, groups, rooms);
+    if (unsafeImage) {
+        throw new Error(
+            `${unsafeImage}に外部URLまたは保存できない画像参照が指定されています。安全のため、アプリ内の保存画像（asset:）または画像のdata URL以外は取り込めません。`,
+        );
     }
 
     const characterIds = new Set(characters.map((c) => c.id));
@@ -369,6 +379,83 @@ function isValidVrmAvatar(value: unknown): boolean {
         && (value.idleAnimation === undefined
             || (Array.isArray(value.animations)
                 && value.animations.some((animation) => isRecord(animation) && animation.name === value.idleAnimation)));
+}
+
+/**
+ * 画像参照フィールドがアプリ内で完結していなければ、その項目名を返す。
+ * 外部URLを受け入れると、取り込み直後に画面が外部へリクエストを送ってしまう。
+ * 空文字・nullは「画像なし」として扱う。
+ */
+function unsafeImageField(label: string, value: unknown): string | null {
+    if (value === undefined || value === null || value === '') return null;
+    return typeof value === 'string' && isAllowedImportedImageSource(value) ? null : label;
+}
+
+function unsafeExpressionImages(label: string, expressions: unknown): string | null {
+    if (expressions === undefined) return null;
+    if (!Array.isArray(expressions)) return label;
+    for (const expression of expressions) {
+        if (!isRecord(expression)) return label;
+        const issue = unsafeImageField(`${label}の画像`, expression.image);
+        if (issue) return issue;
+    }
+    return null;
+}
+
+function unsafeCostumeImages(label: string, costumes: unknown): string | null {
+    if (costumes === undefined) return null;
+    if (!Array.isArray(costumes)) return label;
+    for (const costume of costumes) {
+        if (!isRecord(costume)) return label;
+        const issue = unsafeImageField(`${label}の画像`, costume.image)
+            ?? unsafeExpressionImages(`${label}の表情`, costume.expressions);
+        if (issue) return issue;
+    }
+    return null;
+}
+
+/**
+ * バックアップ内の画像参照がすべてアプリ内の参照（保存済みアセットかdata URL）かを調べる。
+ * 外部URLが混ざったバックアップは保存前に止める。
+ */
+function findUnsafeBackupImage(
+    characters: Character[],
+    groups: Situation[],
+    rooms: Room[],
+): string | null {
+    for (const character of characters) {
+        const label = `キャラクター「${character.name}」`;
+        const issue = unsafeImageField(`${label}のアイコン`, character.icon)
+            ?? unsafeCostumeImages(`${label}の衣装`, character.costumes);
+        if (issue) return issue;
+    }
+
+    for (const group of groups) {
+        const label = `シチュエーション「${group.name}」`;
+        let issue = unsafeImageField(`${label}の背景画像`, group.backgroundImage);
+        if (issue) return issue;
+        for (const actor of group.actors) {
+            if (actor.type !== 'temporary') continue;
+            const actorLabel = `${label}の参加者「${actor.name}」`;
+            issue = unsafeImageField(`${actorLabel}のアイコン`, actor.icon)
+                ?? unsafeCostumeImages(`${actorLabel}の衣装`, actor.costumes);
+            if (issue) return issue;
+        }
+    }
+
+    for (const room of rooms) {
+        for (const message of room.messages ?? []) {
+            if (!Array.isArray(message.attachments)) continue;
+            for (const attachment of message.attachments) {
+                // kind === 'file' の data は画像ではなくテキスト内容。
+                if (attachment.kind !== 'image') continue;
+                const issue = unsafeImageField('メッセージの添付画像', attachment.data);
+                if (issue) return issue;
+            }
+        }
+    }
+
+    return null;
 }
 
 export function parseFullBackup(json: string): ParsedBackup {

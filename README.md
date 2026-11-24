@@ -107,7 +107,7 @@ KataruのHTTPサーバーは **TLS（HTTPS）に対応していません**。`--
 - **公衆Wi-Fiでは使わない。** どうしても必要な場合は、後述のTailscaleやSSHポートフォワードで暗号化した経路を使ってください。
 - **インターネットへ直接公開しない。** ルーターのポート開放やリバースプロキシで外部へ晒す運用は想定していません。
 
-`--host` がloopback（`127.0.0.1` / `::1` / `localhost`）以外のときは、起動時に平文HTTPで待ち受けている旨の警告が表示されます。
+`--host` がloopback（`127.0.0.1` / `::1` / `localhost`）とTailscaleのアドレス以外のときは、起動時に平文HTTPで待ち受けている旨の警告が表示されます。
 
 #### 外出先から使う場合: Tailscale（推奨）
 
@@ -295,6 +295,14 @@ npm run build:desktop
 ```bash
 npm start
 ```
+
+ビルドして、プロジェクト外の固定の場所へ配置する場合:
+
+```bash
+npm run install:binary
+```
+
+配置先は、Windowsでは `%LOCALAPPDATA%\Programs\Kataru\kataru.exe`、macOS / Linuxでは `~/.local/bin/kataru` です。普段使いのショートカットはこちらを指してください。Codexなどのサンドボックスが作業フォルダにLow整合性ラベルを付けている場合、`target/release` 内のバイナリは「unable to open database file」で起動できません。
 
 バイナリのスモークテスト:
 

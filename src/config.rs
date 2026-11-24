@@ -165,27 +165,34 @@ pub fn validate_host(host: &str) -> AppResult<()> {
     Ok(())
 }
 
-/// bind先がloopback以外のときに表示する警告文。loopbackなら `None`。
+/// bind先が平文HTTPで傍受されうるときに表示する警告文。不要なら `None`。
 ///
 /// KataruはTLSに対応しておらず、`--host` にLAN IPを指定すると通信は平文HTTPになる。
 /// 同じネットワーク上の第三者は、起動URLのトークンと会話内容をそのまま傍受できる。
+/// loopbackとTailscaleのアドレスは経路が外へ平文で出ないため警告しない。
 pub fn plaintext_http_warning(host: &str, port: u16) -> Option<String> {
-    if is_loopback_host(host) {
+    if is_loopback_host(host) || is_tailscale_host(host) {
         return None;
     }
-    let lines = [
-        format!(
-            "[警告] {host}:{port} で待ち受けますが、Kataruの通信は暗号化されない平文HTTPです。"
-        ),
-        "同じネットワーク上の第三者は、ログイン用のトークンと会話内容を傍受できます。".to_owned(),
-        "信頼できるネットワーク（自宅LANなど）でのみ使用してください。".to_owned(),
-        "外出先からアクセスする場合は Tailscale か SSHポートフォワードを利用してください。"
-            .to_owned(),
-        "公衆Wi-Fiでは使用しないでください。".to_owned(),
-        "詳細は README.md の「LAN内の端末・スマートフォンから使う場合」を参照してください。"
-            .to_owned(),
-    ];
-    Some(lines.join("\n  "))
+    Some(format!(
+        "[警告] {host}:{port} の通信は暗号化されない平文HTTPです。信頼できるネットワークでのみ使用してください。\n  外出先からは Tailscale を利用してください（README.md「LAN内の端末・スマートフォンから使う場合」）。"
+    ))
+}
+
+/// Tailscaleが割り当てるアドレス（100.64.0.0/10、fd7a:115c:a1e0::/48）か。
+/// Tailscale上の通信はWireGuardで暗号化される。
+fn is_tailscale_host(host: &str) -> bool {
+    match host.parse::<IpAddr>().map(|address| address.to_canonical()) {
+        Ok(IpAddr::V4(address)) => {
+            let [first, second, ..] = address.octets();
+            first == 100 && (64..128).contains(&second)
+        }
+        Ok(IpAddr::V6(address)) => {
+            let segments = address.segments();
+            segments[..3] == [0xfd7a, 0x115c, 0xa1e0]
+        }
+        Err(_) => false,
+    }
 }
 
 /// bind先がloopback以外なら、平文HTTPで公開される旨を起動時に表示する。
@@ -536,16 +543,23 @@ mod tests {
     }
 
     #[test]
+    fn tailscale_hosts_do_not_warn_about_plaintext_http() {
+        assert!(plaintext_http_warning("100.64.0.1", DEFAULT_PORT).is_none());
+        assert!(plaintext_http_warning("100.101.102.103", DEFAULT_PORT).is_none());
+        assert!(plaintext_http_warning("100.127.255.254", DEFAULT_PORT).is_none());
+        assert!(plaintext_http_warning("fd7a:115c:a1e0::1", DEFAULT_PORT).is_none());
+        assert!(plaintext_http_warning("100.63.255.255", DEFAULT_PORT).is_some());
+        assert!(plaintext_http_warning("100.128.0.1", DEFAULT_PORT).is_some());
+    }
+
+    #[test]
     fn network_hosts_warn_about_plaintext_http() {
         let warning = plaintext_http_warning("192.168.1.20", DEFAULT_PORT)
             .expect("LAN IP should produce a warning");
         assert!(warning.contains("192.168.1.20:37371"));
         assert!(warning.contains("[警告]"));
         assert!(warning.contains("平文HTTP"));
-        assert!(warning.contains("傍受"));
         assert!(warning.contains("信頼できるネットワーク"));
         assert!(warning.contains("Tailscale"));
-        assert!(warning.contains("SSHポートフォワード"));
-        assert!(warning.contains("公衆Wi-Fi"));
     }
 }

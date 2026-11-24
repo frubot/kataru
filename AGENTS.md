@@ -11,6 +11,7 @@ cargo test
 cargo clippy --all-targets -- -D warnings
 cargo clippy --all-targets --features desktop -- -D warnings  # デスクトップ版を含めた検査
 npm run build:binary
+npm run install:binary # ビルドしてプロジェクト外（Windowsは%LOCALAPPDATA%\Programs\Kataru）へ配置
 npm run build:desktop # デスクトップ版（kataru-desktop）も含めてビルド
 npm run smoke:binary
 npm audit            # 依存関係の脆弱性監査（high以上でfail）

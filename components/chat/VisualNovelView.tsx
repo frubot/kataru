@@ -1,7 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { Check, Copy, GitBranch, History, Loader2, Play, RefreshCw, Shirt, Square, Undo2, Volume2 } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
 import type { Character } from '@/lib/store';
 import type { VrmAvatar } from '@/lib/store/types';
 import { stopTtsPlayback } from '@/lib/ttsPlayer';
@@ -9,6 +8,7 @@ import type { TtsPlaybackStatus } from '@/lib/ttsPlayer';
 import { findVisualNovelCostume } from '@/lib/visualNovelPresentation';
 import type { VisualNovelCostumeOption } from '@/lib/visualNovelPresentation';
 import { preloadVisualNovelImages } from '@/lib/visualNovelImagePreload';
+import SafeMarkdown from '../SafeMarkdown';
 import StoredImage from '../StoredImage';
 import { useVisualNovelImagePreload } from './useVisualNovelImagePreload';
 import WaitingEllipsis from './WaitingEllipsis';
@@ -475,7 +475,7 @@ export default function VisualNovelView({
                     {isWaitingForAssistant ? (
                         <WaitingEllipsis className="vn-waiting-ellipsis" />
                     ) : (
-                        <ReactMarkdown>{dialogueContent}</ReactMarkdown>
+                        <SafeMarkdown>{dialogueContent}</SafeMarkdown>
                     )}
                 </div>
                 {showDialogueAdvanceIndicator && (

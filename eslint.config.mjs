@@ -30,6 +30,18 @@ const eslintConfig = defineConfig([
       "no-useless-escape": "off",
       "react-hooks/set-state-in-effect": "off",
       "react-refresh/only-export-components": "off",
+      "no-restricted-imports": ["error", {
+        paths: [{
+          name: "react-markdown",
+          message: "外部画像の自動読み込みを防ぐため、components/SafeMarkdown.tsx を使用してください。",
+        }],
+      }],
+    },
+  },
+  {
+    files: ["components/SafeMarkdown.tsx"],
+    rules: {
+      "no-restricted-imports": "off",
     },
   },
 ]);

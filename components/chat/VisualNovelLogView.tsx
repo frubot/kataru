@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { ArrowUp, Check, History, Pencil, UserRound, X } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
 import type { Character } from '@/lib/store';
 import { formatMessageTextWithAttachments } from '@/lib/chatAttachments';
 import type {
@@ -10,6 +9,7 @@ import type {
 } from '@/lib/chatMessagePresentation';
 import { formatAssistantMarkdown, hideAssistantDialogueBrackets } from '@/lib/markdownUtils';
 import { isNarrationMessage, isNarratorCharacterId } from '@/lib/narration';
+import SafeMarkdown from '../SafeMarkdown';
 import StoredImage from '../StoredImage';
 import InlineMessageEditor from './InlineMessageEditor';
 import WaitingEllipsis from './WaitingEllipsis';
@@ -124,9 +124,9 @@ function LogEntry({
                         className="vn-log-content"
                         {...(entry.isStreaming ? { role: 'status', 'aria-live': 'polite' as const } : {})}
                     >
-                        <ReactMarkdown>{formatAssistantMarkdown(
+                        <SafeMarkdown>{formatAssistantMarkdown(
                             entry.role === 'assistant' ? hideAssistantDialogueBrackets(entry.content) : entry.content,
-                        )}</ReactMarkdown>
+                        )}</SafeMarkdown>
                     </div>
                 )}
             </div>

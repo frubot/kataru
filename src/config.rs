@@ -474,6 +474,8 @@ mod data_dir_tests {
     #[cfg(unix)]
     #[test]
     fn files_created_with_the_private_mode_are_owner_only() {
+        use std::os::unix::fs::PermissionsExt as _;
+
         let directory = tempfile::tempdir().expect("create temp directory");
         let path = directory.path().join("auth-token");
 

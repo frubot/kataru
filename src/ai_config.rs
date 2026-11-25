@@ -541,9 +541,11 @@ pub struct AiConfigManager {
 
 impl AiConfigManager {
     pub fn open(data_dir: &Path) -> AppResult<Self> {
-        fs::create_dir_all(data_dir)?;
+        crate::config::permissions::create_private_directory(data_dir)?;
         let config_path = data_dir.join(CONFIG_FILE_NAME);
         let persisted = load_persisted_config(&config_path)?;
+        // 許可制導入前に作られた既存ファイルは0644の可能性があるため締め直す。
+        crate::config::permissions::tighten_file(&config_path);
         let environment = EnvironmentConfig::load()?;
         let secret_store: Arc<dyn SecretStore> = Arc::new(KeyringSecretStore::new(data_dir));
         Self::with_parts(config_path, persisted, environment, secret_store)
@@ -1221,8 +1223,9 @@ fn load_persisted_config(path: &Path) -> AppResult<PersistedConfig> {
 fn save_persisted_config(path: &Path, config: &PersistedConfig) -> AppResult<()> {
     let bytes = serde_json::to_vec_pretty(config)?;
     let temporary_path = path.with_extension("json.tmp");
-    fs::write(&temporary_path, bytes)?;
+    crate::config::permissions::write_private_file(&temporary_path, &bytes)?;
     fs::rename(temporary_path, path)?;
+    crate::config::permissions::tighten_file(path);
     Ok(())
 }
 

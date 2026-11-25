@@ -47,7 +47,10 @@ enum UserEvent {
     #[cfg(windows)]
     AppView(title_bar::AppViewMessage),
     #[cfg(windows)]
-    DownloadFinished { path: Option<PathBuf>, success: bool },
+    DownloadFinished {
+        path: Option<PathBuf>,
+        success: bool,
+    },
 }
 
 fn main() {

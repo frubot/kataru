@@ -4123,7 +4123,10 @@ mod tests {
                 Some("casual".to_owned())
             );
             assert_eq!(motion_names(&character, &room, true), vec!["wave", "jump"]);
-            assert_eq!(expression_names(&character, &room, true), vec!["neutral", "happy"]);
+            assert_eq!(
+                expression_names(&character, &room, true),
+                vec!["neutral", "happy"]
+            );
         }
     }
 

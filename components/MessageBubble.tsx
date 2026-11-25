@@ -1,10 +1,10 @@
 import { memo } from 'react';
 import { ArrowUp, Pencil, Copy, Check, FileText, GitBranch, Loader2, RefreshCw, Square, Volume2 } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
 import { formatMessageTextWithAttachments } from '@/lib/chatAttachments';
 import { formatAssistantMarkdown, hideAssistantDialogueBrackets, splitAssistantMarkdownActions } from '@/lib/markdownUtils';
 import type { MessageAttachment } from '@/lib/store';
 import { stopTtsPlayback, useTtsEntry } from '@/lib/ttsPlayer';
+import SafeMarkdown from './SafeMarkdown';
 import StoredImage from './StoredImage';
 import InlineMessageEditor from './chat/InlineMessageEditor';
 
@@ -191,14 +191,14 @@ export default memo(function MessageBubble({
                             key={`${messageId}-segment-${segmentIndex}`}
                             className="assistant-action-description animate-slide-up"
                         >
-                            <ReactMarkdown>{segment.content}</ReactMarkdown>
+                            <SafeMarkdown>{segment.content}</SafeMarkdown>
                         </div>
                     ) : (
                         <div
                             key={`${messageId}-segment-${segmentIndex}`}
                             className={`message-bubble user animate-slide-up${segmentIndex > 0 ? ' user-segment-continuation' : ''}`}
                         >
-                            <ReactMarkdown>{formatAssistantSegment(segment.content)}</ReactMarkdown>
+                            <SafeMarkdown>{formatAssistantSegment(segment.content)}</SafeMarkdown>
                         </div>
                     )
                 ))
@@ -380,7 +380,7 @@ export default memo(function MessageBubble({
                             title={isTypewriterActive ? '全文表示' : undefined}
                             style={{ cursor: isTypewriterActive ? 'pointer' : undefined }}
                         >
-                            <ReactMarkdown>{assistantContent}</ReactMarkdown>
+                            <SafeMarkdown>{assistantContent}</SafeMarkdown>
                         </div>
                     ) : null}
                     {!isNarration && assistantSegments.map((segment, segmentIndex) => (
@@ -395,7 +395,7 @@ export default memo(function MessageBubble({
                                     marginTop: showsCharacterHeader && segmentIndex === 0 ? ICON_TO_BUBBLE_SHIFT : undefined,
                                 }}
                             >
-                                <ReactMarkdown>{segment.content}</ReactMarkdown>
+                                <SafeMarkdown>{segment.content}</SafeMarkdown>
                             </div>
                         ) : (
                             <div
@@ -408,7 +408,7 @@ export default memo(function MessageBubble({
                                     marginTop: showsCharacterHeader && segmentIndex === 0 ? ICON_TO_BUBBLE_SHIFT : undefined,
                                 }}
                             >
-                                <ReactMarkdown>{formatAssistantSegment(segment.content)}</ReactMarkdown>
+                                <SafeMarkdown>{formatAssistantSegment(segment.content)}</SafeMarkdown>
                             </div>
                         )
                     ))}

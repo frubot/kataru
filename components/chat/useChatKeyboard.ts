@@ -1,7 +1,24 @@
 import { useCallback, useEffect, useRef } from 'react';
 import type { Dispatch, KeyboardEvent as ReactKeyboardEvent, RefObject, SetStateAction } from 'react';
-import { DEFAULT_KEYBOARD_SHORTCUTS, useStore, type KeyboardShortcut } from '../../lib/store';
+import { DEFAULT_KEYBOARD_SHORTCUTS, useStore, type KeyboardShortcut, type Room } from '../../lib/store';
 import { matchesAnyKeyboardShortcut } from '../../lib/keyboardShortcuts';
+import { isEditableTarget } from '../useKeyboardShortcut';
+
+type RoomViewMode = NonNullable<Room['viewMode']>;
+
+const ROOM_VIEW_MODE_ORDER: readonly RoomViewMode[] = ['chat', 'message', 'vn'];
+
+/** ヘッダーのモードメニューと同じ並び順で、次のモードを返します。 */
+export function getNextRoomViewMode(
+    current: RoomViewMode,
+    allowVisualNovelMode: boolean,
+): RoomViewMode {
+    const modes = allowVisualNovelMode
+        ? ROOM_VIEW_MODE_ORDER
+        : ROOM_VIEW_MODE_ORDER.filter((mode) => mode !== 'vn');
+    const index = modes.indexOf(current);
+    return modes[(index + 1) % modes.length];
+}
 
 type ChatInputKeyEvent = Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'altKey'>;
 type ShortcutKeyEvent = Pick<KeyboardEvent, 'key'>
@@ -28,12 +45,6 @@ export function shouldAdvanceTypewriter(
     shortcuts: readonly KeyboardShortcut[] = DEFAULT_KEYBOARD_SHORTCUTS.advanceTypewriter,
 ): boolean {
     return matchesAnyKeyboardShortcut(event, shortcuts);
-}
-
-function isEditableTarget(target: EventTarget | null): boolean {
-    if (!(target instanceof HTMLElement)) return false;
-    const tag = target.tagName;
-    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
 }
 
 type UseChatInputRedirectOptions = {
@@ -144,6 +155,8 @@ export function useChatComposerKeyboard<T>({
                 return;
             }
             if (event.key === 'Escape') {
+                // 候補を閉じるだけにして、生成の中断などほかのショートカットに渡さない。
+                event.preventDefault();
                 onCloseMention();
                 return;
             }

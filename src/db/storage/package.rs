@@ -1217,7 +1217,9 @@ mod tests {
             json!({ "name": "A", "systemPrompt": "s", "costumes": [{ "id": " ", "name": "c", "image": "data:image/png;base64,AA==" }] }),
             json!({ "name": "A", "systemPrompt": "s", "defaultCostumeId": 3 }),
         ] {
-            assert!(!valid_shared_character(invalid.as_object().expect("object")));
+            assert!(!valid_shared_character(
+                invalid.as_object().expect("object")
+            ));
         }
     }
 

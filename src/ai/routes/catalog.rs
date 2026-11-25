@@ -117,9 +117,11 @@ pub struct ModelCatalogCache {
 
 impl ModelCatalogCache {
     pub fn open(data_dir: &Path) -> AppResult<Self> {
-        fs::create_dir_all(data_dir)?;
+        crate::config::permissions::create_private_directory(data_dir)?;
         let path = data_dir.join(MODEL_CACHE_FILE_NAME);
         let cache = load_model_cache(&path)?;
+        // 許可制導入前に作られた既存ファイルは0644の可能性があるため締め直す。
+        crate::config::permissions::tighten_file(&path);
         Ok(Self {
             path: Some(path),
             inner: Arc::new(Mutex::new(cache)),
@@ -206,7 +208,7 @@ fn load_model_cache(path: &Path) -> AppResult<ModelCacheFile> {
 fn save_model_cache(path: &Path, cache: &ModelCacheFile) -> AppResult<()> {
     let bytes = serde_json::to_vec_pretty(cache)?;
     let temporary_path = path.with_extension(format!("json.{}.tmp", std::process::id()));
-    fs::write(&temporary_path, bytes)?;
+    crate::config::permissions::write_private_file(&temporary_path, &bytes)?;
     if let Err(error) = fs::rename(&temporary_path, path) {
         if path.exists() {
             fs::remove_file(path)?;
@@ -215,6 +217,7 @@ fn save_model_cache(path: &Path, cache: &ModelCacheFile) -> AppResult<()> {
             return Err(error.into());
         }
     }
+    crate::config::permissions::tighten_file(path);
     Ok(())
 }
 

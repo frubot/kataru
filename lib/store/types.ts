@@ -455,6 +455,8 @@ export interface AppState {
     wordReplacements: WordReplacement[];
     generateTitleOnFirstReply: boolean;
     replySuggestionsEnabled: boolean;
+    /** 再試行できるキャラ返答エラーで、自動的に再試行するか。 */
+    autoRetryOnErrorEnabled: boolean;
     /** 音声合成機能全体のオン・オフ。OFFでは読み上げ・試聴・自動再生を全て止める。 */
     ttsEnabled: boolean;
     ttsConnectionId: string;
@@ -530,6 +532,7 @@ export interface AppState {
     setWordReplacements: (rules: WordReplacement[]) => void;
     setGenerateTitleOnFirstReply: (enabled: boolean) => void;
     setReplySuggestionsEnabled: (enabled: boolean) => void;
+    setAutoRetryOnErrorEnabled: (enabled: boolean) => void;
     setTtsEnabled: (enabled: boolean) => void;
     setTtsConnectionId: (id: string) => void;
     setTtsModel: (model: string) => void;

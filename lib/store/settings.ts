@@ -49,6 +49,7 @@ export const DEFAULT_CHARACTER_MAX_CHARACTERS = 512;
 export const DEFAULT_CHARACTER_MAX_HISTORY: number | undefined = 7;
 export const DEFAULT_CONVERSATION_COMPRESSION_ENABLED = true;
 export const DEFAULT_MEMORY_GATE_ENABLED = true;
+export const DEFAULT_AUTO_RETRY_ON_ERROR_ENABLED = true;
 export const DEFAULT_TTS_ENABLED = true;
 export const DEFAULT_TTS_CONNECTION_ID = DEFAULT_CONNECTION_ID;
 export const DEFAULT_TTS_MODEL = 'deepgram/aura-2';
@@ -277,6 +278,7 @@ type SettingsSlice = Pick<
     | 'wordReplacements'
     | 'generateTitleOnFirstReply'
     | 'replySuggestionsEnabled'
+    | 'autoRetryOnErrorEnabled'
     | 'ttsEnabled'
     | 'ttsConnectionId'
     | 'ttsModel'
@@ -331,6 +333,7 @@ type SettingsSlice = Pick<
     | 'setWordReplacements'
     | 'setGenerateTitleOnFirstReply'
     | 'setReplySuggestionsEnabled'
+    | 'setAutoRetryOnErrorEnabled'
     | 'setTtsEnabled'
     | 'setTtsConnectionId'
     | 'setTtsModel'
@@ -376,6 +379,7 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         wordReplacements: [],
         generateTitleOnFirstReply: false,
         replySuggestionsEnabled: false,
+        autoRetryOnErrorEnabled: DEFAULT_AUTO_RETRY_ON_ERROR_ENABLED,
         ttsEnabled: DEFAULT_TTS_ENABLED,
         ttsConnectionId: DEFAULT_TTS_CONNECTION_ID,
         ttsModel: DEFAULT_TTS_MODEL,
@@ -576,6 +580,10 @@ export function createSettingsSlice(set: StoreSet, get: StoreGet): SettingsSlice
         setReplySuggestionsEnabled: (replySuggestionsEnabled) => {
             set({ replySuggestionsEnabled });
             fire(db.setMeta('replySuggestionsEnabled', replySuggestionsEnabled));
+        },
+        setAutoRetryOnErrorEnabled: (autoRetryOnErrorEnabled) => {
+            set({ autoRetryOnErrorEnabled });
+            fire(db.setMeta('autoRetryOnErrorEnabled', autoRetryOnErrorEnabled));
         },
         setTtsEnabled: (ttsEnabled) => {
             set({ ttsEnabled });

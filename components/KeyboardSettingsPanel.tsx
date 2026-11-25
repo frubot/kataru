@@ -9,27 +9,49 @@ import {
 } from '../lib/store';
 import { keyboardShortcutFromEvent } from '../lib/keyboardShortcuts';
 
-const SHORTCUT_ROWS: readonly {
+type ShortcutRow = {
     action: KeyboardShortcutAction;
     label: string;
+};
+
+const SHORTCUT_GROUPS: readonly {
+    title: string;
+    rows: readonly ShortcutRow[];
 }[] = [
     {
-        action: 'sendMessage',
-        label: 'メッセージを送信',
+        title: '会話',
+        rows: [
+            { action: 'sendMessage', label: 'メッセージを送信' },
+            { action: 'stopGeneration', label: '生成を中断' },
+            { action: 'regenerateReply', label: '回答を再生成' },
+            { action: 'editLastMessage', label: '直前の入力を編集' },
+            { action: 'selectReplySuggestion1', label: '返答候補1を送信' },
+            { action: 'selectReplySuggestion2', label: '返答候補2を送信' },
+            { action: 'selectReplySuggestion3', label: '返答候補3を送信' },
+            { action: 'advanceTypewriter', label: '文字送りをスキップ' },
+        ],
     },
     {
-        action: 'advanceTypewriter',
-        label: '文字送りをスキップ',
+        title: '移動',
+        rows: [
+            { action: 'newChat', label: '新しいチャット' },
+            { action: 'previousChat', label: '前のチャット' },
+            { action: 'nextChat', label: '次のチャット' },
+            { action: 'openSearch', label: '検索' },
+            { action: 'toggleSidebar', label: 'サイドバーを開閉' },
+            { action: 'cycleViewMode', label: 'モードを切り替え' },
+        ],
     },
     {
-        action: 'closeDialog',
-        label: 'ダイアログを閉じる',
-    },
-    {
-        action: 'openShortcutHelp',
-        label: 'ショートカットを表示',
+        title: 'そのほか',
+        rows: [
+            { action: 'closeDialog', label: 'ダイアログを閉じる' },
+            { action: 'openShortcutHelp', label: 'ショートカットを表示' },
+        ],
     },
 ];
+
+const SHORTCUT_ROWS = SHORTCUT_GROUPS.flatMap((group) => group.rows);
 
 function ShortcutKeys({
     shortcuts,
@@ -125,25 +147,30 @@ export default function KeyboardSettingsPanel() {
                 </button>
             </div>
 
-            <div className="keyboard-shortcut-list">
-                {SHORTCUT_ROWS.map(({ action, label}) => {
-                    const isCapturing = capturingAction === action;
-                    return (
-                        <div className={`keyboard-shortcut-row ${isCapturing ? 'is-capturing' : ''}`} key={action}>
-                            <div className="keyboard-shortcut-copy">
-                                <span className="keyboard-shortcut-label">{label}</span>
-                            </div>
-                            <ShortcutKeys
-                                shortcuts={keyboardShortcuts[action]}
-                                label={label}
-                                isCapturing={isCapturing}
-                                onClick={() => beginCapture(action)}
-                                onKeyDown={(event) => handleCapture(event, action)}
-                            />
-                        </div>
-                    );
-                })}
-            </div>
+            {SHORTCUT_GROUPS.map((group) => (
+                <div className="keyboard-shortcut-group" key={group.title}>
+                    <h4 className="keyboard-shortcut-group-title">{group.title}</h4>
+                    <div className="keyboard-shortcut-list">
+                        {group.rows.map(({ action, label }) => {
+                            const isCapturing = capturingAction === action;
+                            return (
+                                <div className={`keyboard-shortcut-row ${isCapturing ? 'is-capturing' : ''}`} key={action}>
+                                    <div className="keyboard-shortcut-copy">
+                                        <span className="keyboard-shortcut-label">{label}</span>
+                                    </div>
+                                    <ShortcutKeys
+                                        shortcuts={keyboardShortcuts[action]}
+                                        label={label}
+                                        isCapturing={isCapturing}
+                                        onClick={() => beginCapture(action)}
+                                        onKeyDown={(event) => handleCapture(event, action)}
+                                    />
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            ))}
 
             <p className={`keyboard-shortcut-hint ${captureError ? 'is-error' : ''}`} aria-live="polite">
                 {captureError}

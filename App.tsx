@@ -15,6 +15,7 @@ import DesktopMenu from '@/components/DesktopMenu';
 import DesktopDownloadNotice from '@/components/DesktopDownloadNotice';
 import DesktopTextContextMenu from '@/components/DesktopTextContextMenu';
 import SidebarResizer from '@/components/SidebarResizer';
+import { useKeyboardShortcut } from '@/components/useKeyboardShortcut';
 import * as db from '@/lib/db';
 import { SIDEBAR_WIDTH_DEFAULT, SIDEBAR_WIDTH_META_KEY, parseSidebarWidth } from '@/lib/sidebarWidth';
 import { isDesktopApp, subscribeDesktopEvents } from '@/lib/desktopApp';
@@ -211,6 +212,7 @@ export default function Home() {
     useEffect(() => subscribeDesktopEvents((event) => {
         if (event.type === 'toggle-sidebar') toggleSidebar();
     }), [toggleSidebar]);
+    useKeyboardShortcut({ action: 'toggleSidebar', enabled: hydrated, onTrigger: toggleSidebar });
 
     useEffect(() => {
         if (mounted && hydrated) {

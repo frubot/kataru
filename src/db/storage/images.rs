@@ -96,12 +96,27 @@ fn persist_image_source(
         return Ok(false);
     }
     let Some((mime_type, data)) = decode_image_data_url(&source_text)? else {
-        return Ok(false);
+        return reject_unexpected_image_source(&source_text);
     };
     let asset_id = store_asset(connection, &mime_type, &data)?;
     referenced_assets.insert(asset_id.clone());
     *source = Value::String(format!("{IMAGE_ASSET_PREFIX}{asset_id}"));
     Ok(true)
+}
+
+/// アプリ内の保存画像（`asset:`）でも画像data URLでもない値。
+///
+/// 外部URLをそのまま保存すると、画面が自動で外部へリクエストを送ってしまう
+/// （会話内容やIPアドレスの漏えい）。フルバックアップ取り込みはクライアント側の
+/// 検証を迂回できるため、保存の最終地点であるここでも拒否する。
+/// 空文字は「画像なし」として扱い、保存済みの旧データを壊さない。
+fn reject_unexpected_image_source(source: &str) -> AppResult<bool> {
+    if source.trim().is_empty() {
+        return Ok(false);
+    }
+    Err(AppError::BadRequest(
+        "画像はアプリ内の保存画像（asset:）または画像のdata URLで指定してください。".to_owned(),
+    ))
 }
 
 // The existing content-addressed asset store also owns VRM binaries and their references.
@@ -447,9 +462,10 @@ mod tests {
         prune_orphaned_image_assets, store_asset,
     };
     use crate::db::storage::{
-        characters::{put_character, upsert_character, upsert_situation},
+        characters::{put_character, put_situation, upsert_character, upsert_situation},
         test_support::open_test_database,
     };
+    use crate::error::AppError;
 
     #[test]
     fn character_images_are_externalized_deduplicated_and_inlined_for_export() {
@@ -641,5 +657,40 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn image_fields_reject_external_references() {
+        let mut connection = open_test_database();
+        // 外部URL・プロトコル相対URL・アプリ外スキームは保存しない。
+        // 画面が自動で外部へリクエストを送る入口になるため。
+        for character in [
+            json!({ "id": "character-1", "updatedAt": 1, "icon": "https://attacker.example/pixel.png" }),
+            json!({ "id": "character-1", "updatedAt": 1, "icon": "//attacker.example/pixel.png" }),
+            json!({ "id": "character-1", "updatedAt": 1, "icon": "blob:http://attacker.example/abc" }),
+            json!({ "id": "character-1", "updatedAt": 1,
+                "expressions": [{ "name": "neutral", "image": "http://attacker.example/pixel.png" }] }),
+            json!({ "id": "character-1", "updatedAt": 1,
+                "costumes": [{ "name": "default", "image": "https://attacker.example/pixel.png" }] }),
+        ] {
+            let error =
+                put_character(&mut connection, character).expect_err("reject external image URL");
+            assert!(matches!(error, AppError::BadRequest(_)), "{error:?}");
+        }
+
+        let error = put_situation(
+            &mut connection,
+            json!({ "id": "situation-1", "updatedAt": 1,
+                "backgroundImage": "https://attacker.example/background.png" }),
+        )
+        .expect_err("reject external situation background");
+        assert!(matches!(error, AppError::BadRequest(_)), "{error:?}");
+
+        // 空文字は「画像なし」として従来どおり受け付ける。
+        put_character(
+            &mut connection,
+            json!({ "id": "character-empty", "updatedAt": 1, "icon": "" }),
+        )
+        .expect("store character without an image");
     }
 }
